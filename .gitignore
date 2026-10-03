@@ -147,3 +147,13 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Astrorize: local reference material only, never pushed
+astrorize-prototype-reference/
+CLAUDE.md
+
+# Next.js extras
+next-env.d.ts
+.vercel
+*.pem
+.DS_Store
