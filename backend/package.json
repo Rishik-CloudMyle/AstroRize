@@ -1,0 +1,44 @@
+{
+  "name": "astrorize-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false --exclude \"node_modules/**\" --env-file=.env src/server.ts",
+    "start": "node --env-file-if-exists=.env src/server.ts",
+    "typecheck": "tsc -p .",
+    "db:dev": "prisma dev --name astrorize --detach",
+    "db:migrate": "prisma migrate dev && prisma generate",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "db:reset": "prisma migrate reset --force",
+    "db:studio": "prisma studio",
+    "postinstall": "prisma generate",
+    "test": "node --env-file=.env test/smoke.ts"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "jose": "^6.2.12",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.4",
+    "prisma": "^7.10.0",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3"
+  },
+  "allowScripts": {
+    "@prisma/engines@7.10.0": true,
+    "prisma@7.10.0": true,
+    "esbuild@0.28.2": true
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

@@ -1,0 +1,102 @@
+"use client";
+
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import type { Astrologer, ConsultMode, LiveRoom } from "@/lib/types";
+import LoginModal, { type LoginOptions } from "./modals/login-modal";
+import InstantCallModal from "./modals/instant-call-modal";
+import ConsultModeModal from "./modals/consult-mode-modal";
+import ConsultJourney from "./consult/consult-journey";
+
+export interface ConsultRequest {
+  astrologer: Astrologer;
+  /** Pre-select chat or voice when the customer clicked that button. */
+  mode?: ConsultMode;
+}
+
+interface AppUI {
+  toast: (message: string) => void;
+  openLogin: (options?: LoginOptions) => void;
+  openInstantCall: (astrologer: Astrologer) => void;
+  /** Live room: choose private or public, then join that room's consult queue. */
+  openConsultModes: (request: QueueRequest) => void;
+  startConsult: (request: ConsultRequest) => void;
+}
+
+export interface QueueRequest {
+  roomId: string;
+  /** Called with the room's fresh state once the customer is in the queue. */
+  onJoined?: (room: LiveRoom) => void;
+}
+
+const AppContext = createContext<AppUI | null>(null);
+
+/** Opens modals, the consult journey and toasts from any client component. */
+export function useAppUI(): AppUI {
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error("useAppUI must be used inside <AppProvider>");
+  return ctx;
+}
+
+type Overlay =
+  | { kind: "login"; options: LoginOptions }
+  | { kind: "instant"; astrologer: Astrologer }
+  | { kind: "modes"; request: QueueRequest }
+  | null;
+
+export default function AppProvider({ children }: { children: React.ReactNode }) {
+  const [overlay, setOverlay] = useState<Overlay>(null);
+  const [consult, setConsult] = useState<ConsultRequest | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const toast = useCallback((message: string) => {
+    setToastMessage(message);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToastMessage(null), 4200);
+  }, []);
+
+  const closeOverlay = useCallback(() => setOverlay(null), []);
+  const closeConsult = useCallback(() => setConsult(null), []);
+
+  const ui = useMemo<AppUI>(
+    () => ({
+      toast,
+      openLogin: (options = {}) => setOverlay({ kind: "login", options }),
+      openInstantCall: (astrologer) => setOverlay({ kind: "instant", astrologer }),
+      openConsultModes: (request) => setOverlay({ kind: "modes", request }),
+      startConsult: (request) => {
+        setOverlay(null);
+        setConsult(request);
+      },
+    }),
+    [toast],
+  );
+
+  return (
+    <AppContext.Provider value={ui}>
+      {children}
+
+      {overlay?.kind === "login" && <LoginModal onClose={closeOverlay} options={overlay.options} />}
+      {overlay?.kind === "instant" && <InstantCallModal astrologer={overlay.astrologer} onClose={closeOverlay} />}
+      {overlay?.kind === "modes" && <ConsultModeModal request={overlay.request} onClose={closeOverlay} />}
+      {consult && (
+        <ConsultJourney
+          key={`${consult.astrologer.id}-${consult.mode ?? ""}`}
+          astrologer={consult.astrologer}
+          initialMode={consult.mode ?? null}
+          onClose={closeConsult}
+        />
+      )}
+
+      {toastMessage && (
+        <div
+          role="status"
+          className="az-toast fixed bottom-7 left-1/2 z-[400] flex w-[calc(100%-32px)] max-w-[620px] -translate-x-1/2 items-start gap-[11px] rounded-[14px] bg-ink px-[18px] py-3.5 text-line shadow-[0_16px_40px_rgba(11,31,51,.3)]"
+        >
+          <span className="text-sm text-amber-300">✓</span>
+          <span className="text-[13.5px] leading-normal">{toastMessage}</span>
+        </div>
+      )}
+    </AppContext.Provider>
+  );
+}

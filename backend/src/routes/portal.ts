@@ -1,0 +1,616 @@
+import { Router, type Request } from "express";
+import { z } from "zod";
+import { db } from "../db.ts";
+import { audit } from "../lib/audit.ts";
+import { VIDEO_PREMIUM, instantRate } from "../lib/billing.ts";
+import { endConsultation, holdBalance, settlementView } from "../lib/consultations.ts";
+import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
+import { ageLabel, istDate, istDateKey, istDayMonth, istTime, makeRef, weekdayLabel } from "../lib/format.ts";
+import { CONTACT_BLOCKED_NOTICE, containsContactDetails } from "../lib/safety.ts";
+import { configNumber, getSetting } from "../lib/settings.ts";
+import { roleGuard, type AuthContext } from "../middleware/auth.ts";
+import type { Astrologer, EarningsLine } from "../generated/prisma/client.ts";
+
+// The astrologer portal. Every route acts on the signed-in astrologer's own record.
+export const portalRouter = Router();
+portalRouter.use(roleGuard("astrologer"));
+
+const INCOMING_WINDOW_SECS = 180;
+const MULTIPLIER_OPTIONS = [1.5, 2, 3, 4];
+const SKILL_POOL = ["Prashna", "Vastu", "Numerology", "Tarot", "Palmistry", "Life Coaching"];
+const HOURS = ["10:00", "11:00", "12:00", "13:00", "14:00", "16:00", "18:00", "20:00"];
+
+async function me(req: Request): Promise<Astrologer> {
+  const auth = req.auth as AuthContext;
+  const a = await db.astrologer.findUnique({ where: { userId: auth.user.id } });
+  if (!a) throw forbidden("This account is not linked to an astrologer profile.");
+  return a;
+}
+
+function canWork(a: Astrologer) {
+  return a.lifecycle === "active" && a.suspension === "none";
+}
+
+/**
+ * Requests wait in a queue. The one at the front is offered to the astrologer, who has
+ * 3 minutes to accept; if not, it times out (the customer is told and charged ₹0) and the
+ * next request is offered.
+ */
+async function expireStaleRequests(astrologerId: string) {
+  const now = Date.now();
+  for (;;) {
+    const head = await db.consultation.findFirst({ where: { astrologerId, status: "REQUESTED" }, orderBy: { requestedAt: "asc" } });
+    if (!head) return;
+    if (!head.offeredAt) {
+      await db.consultation.update({ where: { id: head.id }, data: { offeredAt: new Date(now) } });
+      return;
+    }
+    const expiresAt = head.offeredAt.getTime() + INCOMING_WINDOW_SECS * 1000;
+    if (expiresAt > now) return;
+    await db.consultation.update({ where: { id: head.id }, data: { status: "TIMED_OUT", endedAt: new Date(expiresAt) } });
+    const next = await db.consultation.findFirst({ where: { astrologerId, status: "REQUESTED" }, orderBy: { requestedAt: "asc" } });
+    if (!next) return;
+    await db.consultation.update({ where: { id: next.id }, data: { offeredAt: new Date(Math.min(now, expiresAt)) } });
+  }
+}
+
+// ── Account & dashboard ──
+
+portalRouter.get("/account", async (req, res) => {
+  const a = await me(req);
+  await expireStaleRequests(a.id);
+  const [requests, threads, notices] = await Promise.all([
+    db.consultation.count({ where: { astrologerId: a.id, status: "REQUESTED" } }),
+    db.messageThread.findMany({ where: { astrologerId: a.id }, include: { messages: { orderBy: { createdAt: "desc" }, take: 1 } } }),
+    db.complianceNotice.count({ where: { astrologerId: a.id, status: "OPEN" } }),
+  ]);
+  res.json({
+    account: {
+      astrologer: {
+        id: a.id,
+        slug: a.slug,
+        name: a.name,
+        initials: a.initials,
+        greeting: a.greeting,
+        photo: a.photo,
+        skills: a.skills,
+        years: a.years,
+        rating: a.rating,
+        consults: a.consults,
+        price: a.price,
+        was: a.was,
+        instantMultiplier: a.instantMultiplier,
+        bio: a.about,
+      },
+      status: { lifecycle: a.lifecycle, suspension: a.suspension },
+      counts: {
+        consultations: requests,
+        messages: threads.filter((t) => t.messages[0]?.sender === "CUSTOMER").length,
+        compliance: notices,
+      },
+      online: a.presence !== "OFF",
+    },
+  });
+});
+
+/** Amount an earnings line is worth to the astrologer (₹), from their own rates. */
+function lineAmount(a: Astrologer, l: Pick<EarningsLine, "kind" | "minutes">): number {
+  const rate =
+    l.kind === "video" ? a.price + VIDEO_PREMIUM : l.kind === "emergency" ? instantRate(a.price, a.instantMultiplier) : a.price;
+  return l.kind === "adjustment" ? 0 : l.minutes * rate;
+}
+
+portalRouter.get("/dashboard", async (req, res) => {
+  const a = await me(req);
+  const now = new Date();
+  const todayKey = istDateKey(now);
+  const since = new Date(now.getTime() - 10 * 86400000);
+  const [lines, slots, room, training, reviews, maxMultiplier] = await Promise.all([
+    db.earningsLine.findMany({ where: { astrologerId: a.id, date: { gte: since } } }),
+    db.availabilitySlot.findMany({ where: { astrologerId: a.id, date: new Date(todayKey + "T00:00:00Z"), state: { not: "CANCELLED" } }, orderBy: { start: "asc" } }),
+    db.liveRoom.findUnique({ where: { astrologerId: a.id } }),
+    db.trainingModule.findMany({ where: { astrologerId: a.id }, orderBy: { rank: "asc" } }),
+    db.review.findMany({ where: { astrologerId: a.id, status: "VISIBLE" }, orderBy: { createdAt: "desc" }, take: 2 }),
+    configNumber("consult.emergency.max_multiplier", 4),
+  ]);
+
+  // Earnings per day for the last 10 days (bar heights are a % of the best day).
+  const byDay = new Map<string, number>();
+  for (let i = 9; i >= 0; i--) byDay.set(istDateKey(new Date(now.getTime() - i * 86400000)), 0);
+  for (const l of lines) {
+    const k = istDateKey(l.date);
+    if (byDay.has(k)) byDay.set(k, (byDay.get(k) ?? 0) + lineAmount(a, l) + l.gifts);
+  }
+  const days = [...byDay.values()];
+  const best = Math.max(1, ...days);
+  const today = days[days.length - 1] ?? 0;
+  const yesterday = days[days.length - 2] ?? 0;
+  const todayLines = lines.filter((l) => istDateKey(l.date) === todayKey);
+
+  const schedule = slots.map((s) => ({
+    time: `${s.start} – ${s.end}`,
+    what: s.state === "BOOKED" ? s.detail ?? "Booked session" : "Open availability",
+    kind: s.state === "BOOKED" ? "booked" : "open",
+  }));
+  if (room?.isLive) schedule.push({ time: `${istTime(room.startedAt)} – live`, what: `Live room — ${room.topic}`, kind: "live" });
+  schedule.sort((x, y) => x.time.localeCompare(y.time));
+  const barDays = [...byDay.keys()];
+
+  res.json({
+    dashboard: {
+      dateLine: `${now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" })} · all times IST`,
+      todayEarnings: today,
+      earningsDelta: yesterday > 0 ? `${today >= yesterday ? "+" : "−"}${Math.round(Math.abs(today - yesterday) / yesterday * 100)}% vs yesterday` : "first earnings this week",
+      sessions: todayLines.filter((l) => l.kind !== "adjustment").length,
+      emergencySessions: todayLines.filter((l) => l.kind === "emergency").length,
+      gifts: todayLines.reduce((s, l) => s + l.gifts, 0),
+      schedule,
+      earningsBars: days.map((d) => Math.round((d / best) * 100)),
+      earningsFrom: istDayMonth(new Date(barDays[0] + "T00:00:00Z")),
+      earningsTo: istDayMonth(new Date(barDays[barDays.length - 1] + "T00:00:00Z")),
+      training: training.map((t) => ({
+        label: t.label,
+        done: t.done,
+        due: t.done ? "Complete" : t.dueAt ? `Due in ${Math.max(0, Math.ceil((t.dueAt.getTime() - now.getTime()) / 86400000))} days` : "Due soon",
+      })),
+      reviews: reviews.map((r) => ({ stars: r.stars, when: istDayMonth(r.createdAt), text: r.text })),
+      multiplierOptions: MULTIPLIER_OPTIONS.filter((m) => m <= maxMultiplier),
+    },
+  });
+});
+
+portalRouter.patch("/presence", async (req, res) => {
+  const a = await me(req);
+  const { online } = z.object({ online: z.boolean() }).parse(req.body);
+  if (online && !canWork(a)) throw forbidden(a.suspension !== "none" ? "Blocked — account suspended." : "Blocked — your account isn't active yet.");
+  const updated = await db.astrologer.update({ where: { id: a.id }, data: { presence: online ? "ON" : "OFF" } });
+  res.json({ online: updated.presence !== "OFF" });
+});
+
+portalRouter.patch("/multiplier", async (req, res) => {
+  const a = await me(req);
+  const { multiplier } = z.object({ multiplier: z.number() }).parse(req.body);
+  const max = await configNumber("consult.emergency.max_multiplier", 4);
+  if (!MULTIPLIER_OPTIONS.includes(multiplier) || multiplier > max) throw badRequest(`Choose a multiplier between 1.5× and ${max}×.`);
+  await db.astrologer.update({ where: { id: a.id }, data: { instantMultiplier: multiplier } });
+  await audit(req.auth ?? null, "astrologer.multiplier.update", a.id, `${a.instantMultiplier}× → ${multiplier}×`);
+  res.json({ instantMultiplier: multiplier, instantRate: instantRate(a.price, multiplier) });
+});
+
+// ── Application wizard ──
+
+portalRouter.get("/application", async (req, res) => {
+  const a = await me(req);
+  const [draft, user] = await Promise.all([
+    db.applicationDraft.findUnique({ where: { astrologerId: a.id } }),
+    a.userId ? db.user.findUnique({ where: { id: a.userId }, select: { phone: true, email: true } }) : null,
+  ]);
+  res.json({
+    application: {
+      currentStep: draft?.currentStep ?? 0,
+      values: draft?.values ?? {},
+      lastSaved: draft ? `Auto-saved ${istTime(draft.savedAt)}` : "Not saved yet",
+      // What the platform already knows, used to pre-fill the wizard.
+      known: {
+        phone: user?.phone ?? null,
+        email: user?.email ?? null,
+        languages: a.languages,
+        years: a.years,
+        skills: a.skills,
+        price: a.price,
+        videoRate: a.price + VIDEO_PREMIUM,
+      },
+    },
+  });
+});
+
+portalRouter.put("/application", async (req, res) => {
+  const a = await me(req);
+  const { currentStep, values } = z
+    .object({ currentStep: z.number().int().min(0).max(12), values: z.record(z.string(), z.string().max(2000)) })
+    .parse(req.body);
+  const saved = await db.applicationDraft.upsert({
+    where: { astrologerId: a.id },
+    create: { astrologerId: a.id, currentStep, values, savedAt: new Date() },
+    update: { currentStep, values, savedAt: new Date() },
+  });
+  res.json({ lastSaved: `Auto-saved ${istTime(saved.savedAt)}` });
+});
+
+// ── Availability ──
+
+function weekOf(dateKey: string): string[] {
+  const d = new Date(dateKey + "T00:00:00Z");
+  const monday = new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86400000);
+  return Array.from({ length: 7 }, (_, i) => new Date(monday.getTime() + i * 86400000).toISOString().slice(0, 10));
+}
+
+portalRouter.get("/availability", async (req, res) => {
+  const a = await me(req);
+  const todayKey = istDateKey(new Date());
+  const anchor = typeof req.query.week === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.week) ? req.query.week : todayKey;
+  const days = weekOf(anchor);
+  const slots = await db.availabilitySlot.findMany({
+    where: { astrologerId: a.id, date: { gte: new Date(days[0] + "T00:00:00Z"), lte: new Date(days[6] + "T00:00:00Z") } },
+    orderBy: [{ date: "asc" }, { start: "asc" }],
+  });
+  const first = new Date(days[0] + "T00:00:00Z");
+  const last = new Date(days[6] + "T00:00:00Z");
+  const sameMonth = first.getUTCMonth() === last.getUTCMonth();
+  const monthYear = last.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+  res.json({
+    availability: {
+      weekLabel: sameMonth
+        ? `${first.getUTCDate()}–${last.getUTCDate()} ${monthYear} · IST`
+        : `${istDayMonth(first)} – ${istDayMonth(last)} ${last.getUTCFullYear()} · IST`,
+      days: days.map(weekdayLabel),
+      dayKeys: days,
+      today: weekdayLabel(todayKey),
+      hours: HOURS,
+      slots: slots.map((s) => ({
+        id: s.id,
+        day: weekdayLabel(s.date.toISOString().slice(0, 10)),
+        date: s.date.toISOString().slice(0, 10),
+        start: s.start,
+        end: s.end,
+        state: s.state.toLowerCase(),
+        detail: s.detail,
+      })),
+      bookedDetail: "Booked · customer C-5512 · Fixed Session 30 min. Cancelling needs a reason.",
+    },
+  });
+});
+
+portalRouter.post("/availability", async (req, res) => {
+  const a = await me(req);
+  const { date, start, end } = z
+    .object({
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      start: z.string().regex(/^\d{2}:\d{2}$/, "Pick a start and an end time."),
+      end: z.string().regex(/^\d{2}:\d{2}$/, "Pick a start and an end time."),
+    })
+    .parse(req.body);
+  if (end <= start) throw badRequest("End time must be after start time.");
+  const day = new Date(date + "T00:00:00Z");
+  const clash = await db.availabilitySlot.findFirst({
+    where: { astrologerId: a.id, date: day, state: { not: "CANCELLED" }, start: { lt: end }, end: { gt: start } },
+  });
+  if (clash) throw conflict(`That range overlaps a slot you already have on ${weekdayLabel(date)}.`);
+  const slot = await db.availabilitySlot.create({ data: { astrologerId: a.id, date: day, start, end, state: "OPEN" } });
+  res.status(201).json({ slot: { id: slot.id, day: weekdayLabel(date), date, start, end, state: "open" } });
+});
+
+portalRouter.post("/availability/:id/cancel", async (req, res) => {
+  const a = await me(req);
+  const slot = await db.availabilitySlot.findUnique({ where: { id: String(req.params.id) } });
+  if (!slot || slot.astrologerId !== a.id) throw notFound("Slot not found.");
+  if (slot.state === "BOOKED") throw conflict("This slot is booked. Cancelling a booking needs a reason — contact support.");
+  if (slot.state === "CANCELLED") return res.json({ ok: true });
+  await db.availabilitySlot.update({ where: { id: slot.id }, data: { state: "CANCELLED" } });
+  res.json({ ok: true });
+});
+
+// ── Consultations ──
+
+const MODE_LABEL: Record<string, string> = { CHAT: "Chat", VOICE: "Voice", VIDEO: "Video" };
+
+portalRouter.get("/consultations", async (req, res) => {
+  const a = await me(req);
+  await expireStaleRequests(a.id);
+  const now = new Date();
+  const [requests, active, queueMax] = await Promise.all([
+    db.consultation.findMany({ where: { astrologerId: a.id, status: "REQUESTED" }, orderBy: { requestedAt: "asc" } }),
+    db.consultation.findFirst({ where: { astrologerId: a.id, status: "ACTIVE" }, orderBy: { connectedAt: "desc" } }),
+    configNumber("live.queue.max_depth", 20),
+  ]);
+  const first = requests[0];
+  let session = null;
+  if (active?.connectedAt) {
+    const secs = Math.floor((now.getTime() - active.connectedAt.getTime()) / 1000);
+    const wallet = active.customerId ? await db.wallet.findUnique({ where: { userId: active.customerId } }) : null;
+    const remaining = active.heldAmount > 0 ? Math.floor(active.heldAmount / active.rate) - Math.ceil(secs / 60) : 99;
+    session = {
+      id: active.id,
+      alias: active.customerAlias,
+      elapsed: `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`,
+      elapsedSeconds: secs,
+      lowBalance: remaining <= 2,
+      hasWallet: !!wallet,
+    };
+  }
+  res.json({
+    consultations: {
+      incoming: first
+        ? {
+            id: first.id,
+            alias: first.customerAlias,
+            mode: first.kind === "INSTANT" ? "Instant Call" : MODE_LABEL[first.mode] ?? first.mode,
+            instant: first.kind === "INSTANT",
+            windowSecs: INCOMING_WINDOW_SECS,
+            remainingSecs: Math.max(0, INCOMING_WINDOW_SECS - Math.floor((now.getTime() - (first.offeredAt ?? now).getTime()) / 1000)),
+            rate: first.rate,
+          }
+        : null,
+      queue: requests.map((r) => ({ id: r.id, alias: r.customerAlias, mode: MODE_LABEL[r.mode] ?? r.mode, waiting: ageLabel(r.requestedAt, now, "long") })),
+      queueMax,
+      session,
+    },
+  });
+});
+
+portalRouter.post("/consultations/:id/accept", async (req, res) => {
+  const a = await me(req);
+  if (!canWork(a)) throw forbidden("Your account can't take new sessions right now.");
+  const c = await db.consultation.findUnique({ where: { id: String(req.params.id) } });
+  if (!c || c.astrologerId !== a.id) throw notFound("Request not found.");
+  if (c.status !== "REQUESTED") throw conflict("This request is no longer waiting.");
+  const busy = await db.consultation.findFirst({ where: { astrologerId: a.id, status: "ACTIVE" } });
+  if (busy) throw conflict("Only one active consult at a time. End your current session first.");
+  await holdBalance(c);
+  await db.consultation.update({ where: { id: c.id }, data: { status: "ACTIVE", connectedAt: new Date() } });
+  res.json({ ok: true, rate: c.rate });
+});
+
+portalRouter.post("/consultations/:id/reject", async (req, res) => {
+  const a = await me(req);
+  const c = await db.consultation.findUnique({ where: { id: String(req.params.id) } });
+  if (!c || c.astrologerId !== a.id) throw notFound("Request not found.");
+  if (c.status !== "REQUESTED") throw conflict("This request is no longer waiting.");
+  await db.consultation.update({ where: { id: c.id }, data: { status: "REJECTED", endedAt: new Date() } });
+  res.json({ ok: true });
+});
+
+portalRouter.post("/consultations/:id/end", async (req, res) => {
+  const a = await me(req);
+  const c = await db.consultation.findUnique({ where: { id: String(req.params.id) } });
+  if (!c || c.astrologerId !== a.id) throw notFound("Session not found.");
+  const ended = await endConsultation(c, "astrologer");
+  res.json({ settlement: settlementView(ended) });
+});
+
+// ── Live room console ──
+
+portalRouter.get("/live", async (req, res) => {
+  const a = await me(req);
+  const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
+  if (!room) return res.json({ room: null });
+  const entries = await db.liveQueueEntry.findMany({ where: { roomId: room.id, status: "WAITING" }, orderBy: { createdAt: "asc" } });
+  const secs = Math.max(0, Math.floor((Date.now() - room.startedAt.getTime()) / 1000));
+  res.json({
+    room: {
+      id: room.id,
+      isLive: room.isLive,
+      elapsed: `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`,
+      viewers: room.viewers,
+      image: room.thumb,
+      requests: entries.slice(0, 3).map((e, i) => ({ id: e.id, alias: e.alias, kind: e.mode === "PUBLIC" ? "stage" : "private", actionable: i < 2 })),
+      waiting: entries.length,
+      pollQuestion: room.pollQuestion,
+      pollOptions: room.pollOptions,
+      rate: a.price,
+    },
+  });
+});
+
+portalRouter.post("/live/requests/:id/:decision", async (req, res) => {
+  const a = await me(req);
+  const decision = z.enum(["accept", "decline"]).parse(req.params.decision);
+  const entry = await db.liveQueueEntry.findUnique({ where: { id: String(req.params.id) }, include: { room: true } });
+  if (!entry || entry.room.astrologerId !== a.id) throw notFound("Request not found.");
+  if (entry.status !== "WAITING") throw conflict("This request is no longer waiting.");
+  await db.liveQueueEntry.update({ where: { id: entry.id }, data: { status: decision === "accept" ? "ACCEPTED" : "DECLINED" } });
+  res.json({ ok: true, rate: a.price });
+});
+
+portalRouter.post("/live/poll", async (req, res) => {
+  const a = await me(req);
+  const { question, options } = z
+    .object({ question: z.string().trim().min(3).max(140), options: z.array(z.string().trim().min(1).max(80)).min(2).max(6) })
+    .parse(req.body);
+  const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
+  if (!room) throw notFound("You don't have a live room.");
+  await db.$transaction([
+    db.pollVote.deleteMany({ where: { roomId: room.id } }),
+    db.liveRoom.update({ where: { id: room.id }, data: { pollQuestion: question, pollOptions: options, pollCounts: options.map(() => 0) } }),
+  ]);
+  res.json({ ok: true });
+});
+
+// ── Messages ──
+
+portalRouter.get("/messages", async (req, res) => {
+  const a = await me(req);
+  const threads = await db.messageThread.findMany({
+    where: { astrologerId: a.id },
+    orderBy: { updatedAt: "desc" },
+    include: { messages: { orderBy: { createdAt: "asc" } } },
+  });
+  res.json({
+    threads: threads.map((t) => {
+      const lastCustomer = [...t.messages].reverse().find((m) => m.sender === "CUSTOMER");
+      return {
+        id: t.id,
+        alias: t.customerAlias,
+        preview: (lastCustomer ?? t.messages[t.messages.length - 1])?.text.slice(0, 40) ?? "",
+        messages: t.messages.map((m) => ({ from: m.blocked ? "blocked" : m.sender === "ASTROLOGER" ? "me" : "customer", text: m.text })),
+      };
+    }),
+  });
+});
+
+portalRouter.post("/messages/:threadId", async (req, res) => {
+  const a = await me(req);
+  const { text } = z.object({ text: z.string().trim().min(1).max(1000) }).parse(req.body);
+  const thread = await db.messageThread.findUnique({ where: { id: String(req.params.threadId) } });
+  if (!thread || thread.astrologerId !== a.id) throw notFound("Conversation not found.");
+  const blocked = containsContactDetails(text);
+  // A message with contact details is never delivered; the sender sees why.
+  const message = await db.message.create({
+    data: blocked
+      ? { threadId: thread.id, sender: "SYSTEM", text: CONTACT_BLOCKED_NOTICE, blocked: true }
+      : { threadId: thread.id, sender: "ASTROLOGER", text },
+  });
+  await db.messageThread.update({ where: { id: thread.id }, data: { updatedAt: new Date() } });
+  res.status(201).json({ blocked, message: { from: blocked ? "blocked" : "me", text: message.text } });
+});
+
+// ── Earnings ──
+
+/** Half-month statement periods, newest first: 1–15 and 16–end of month (IST). */
+function periods(count: number) {
+  const now = new Date(istDateKey(new Date()) + "T00:00:00Z");
+  const out: { from: Date; to: Date; label: string }[] = [];
+  let y = now.getUTCFullYear();
+  let m = now.getUTCMonth();
+  let firstHalf = now.getUTCDate() <= 15;
+  for (let i = 0; i < count; i++) {
+    const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    const from = new Date(Date.UTC(y, m, firstHalf ? 1 : 16));
+    const to = new Date(Date.UTC(y, m, firstHalf ? 15 : lastDay, 23, 59, 59));
+    const mon = from.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" }).slice(0, 3);
+    out.push({ from, to, label: `${from.getUTCDate()}–${to.getUTCDate()} ${mon} ${y}` });
+    if (firstHalf) {
+      m -= 1;
+      if (m < 0) {
+        m = 11;
+        y -= 1;
+      }
+    }
+    firstHalf = !firstHalf;
+  }
+  return out;
+}
+
+portalRouter.get("/earnings", async (req, res) => {
+  const a = await me(req);
+  const list = periods(3);
+  const index = Math.min(2, Math.max(0, Number(req.query.period ?? 0) || 0));
+  const p = list[index]!;
+  const [lines, paused] = await Promise.all([
+    db.earningsLine.findMany({ where: { astrologerId: a.id, date: { gte: p.from, lte: p.to } }, orderBy: { date: "desc" } }),
+    getSetting<Record<string, boolean>>("payout.paused", {}),
+  ]);
+  // Next payout: the end of the current half-month.
+  const next = list[0]!.to;
+  res.json({
+    earnings: {
+      periodLabel: `${p.label} · your share only`,
+      periods: list.map((x) => x.label),
+      periodIndex: index,
+      gross: lines.reduce((s, l) => s + lineAmount(a, l), 0),
+      gifts: lines.reduce((s, l) => s + l.gifts, 0),
+      tdsRate: 0.05,
+      nextPayout: istDayMonth(next),
+      payoutPaused: !!paused[a.id],
+      statement: lines.map((l) => ({
+        date: istDayMonth(l.date),
+        session: l.sessionRef,
+        kind: l.kind,
+        mode: l.mode,
+        minutes: l.minutes,
+        gifts: l.gifts,
+        amount: lineAmount(a, l),
+      })),
+    },
+  });
+});
+
+// ── Profile ──
+
+portalRouter.get("/profile", async (req, res) => {
+  const a = await me(req);
+  const pending = await db.profileSubmission.findMany({ where: { astrologerId: a.id, status: "PENDING" }, orderBy: { createdAt: "desc" } });
+  res.json({
+    profile: {
+      pendingChanges: pending.length,
+      skillPool: SKILL_POOL,
+      videoRenewalDays: 14,
+      publicProfileUrl: `/astrologer/${a.slug}`,
+      published: { bio: a.about, skills: a.skills },
+      draft: pending[0] ? { bio: pending[0].bio, skills: pending[0].skills } : null,
+    },
+  });
+});
+
+portalRouter.post("/profile/submission", async (req, res) => {
+  const a = await me(req);
+  const { bio, skills } = z
+    .object({ bio: z.string().trim().min(20).max(3000), skills: z.array(z.string().min(1).max(40)).min(1).max(12) })
+    .parse(req.body);
+  if (/guarantee|100%|definitely|cure|certain/i.test(bio)) {
+    throw badRequest("Your bio promises an outcome (e.g. “guarantee”, “100%”). Remove it before submitting.");
+  }
+  if (bio === a.about && skills.join("|") === a.skills.join("|")) throw badRequest("Nothing has changed since your last submission.");
+  await db.profileSubmission.create({ data: { astrologerId: a.id, bio, skills } });
+  const pendingChanges = await db.profileSubmission.count({ where: { astrologerId: a.id, status: "PENDING" } });
+  res.status(201).json({ pendingChanges });
+});
+
+// ── Compliance ──
+
+portalRouter.get("/compliance", async (req, res) => {
+  const a = await me(req);
+  const notice = await db.complianceNotice.findFirst({ where: { astrologerId: a.id }, orderBy: { issuedAt: "desc" } });
+  const now = new Date();
+  const left = notice ? Math.max(0, notice.respondBy.getTime() - now.getTime()) : 0;
+  res.json({
+    compliance: {
+      notice: notice
+        ? {
+            id: notice.id,
+            category: notice.category,
+            respondIn: `${Math.floor(left / 86400000)}d ${Math.floor((left % 86400000) / 3600000)}h`,
+            summary: notice.summary,
+            status: notice.status,
+            response: notice.response,
+          }
+        : null,
+      steps: notice
+        ? [
+            { label: "Notice issued", when: istDayMonth(notice.issuedAt), reached: true },
+            { label: "Respond window", when: `open until ${istDayMonth(notice.respondBy)}`, reached: true },
+            { label: "Decision", when: notice.status === "DECIDED" ? "made" : "pending", reached: notice.status === "DECIDED" },
+            { label: "Appeal", when: "if applicable", reached: false },
+          ]
+        : [],
+      scopes: [
+        { state: "Approved — Active", newSessions: "yes", goLive: "yes", earnings: "yes", respond: "yes" },
+        { state: "Pricing pending approval", newSessions: "no", goLive: "no", earnings: "yes", respond: "yes" },
+        { state: "Partial suspension", newSessions: "no", goLive: "no", earnings: "read", respond: "yes" },
+        { state: "Full suspension", newSessions: "no", goLive: "no", earnings: "read", respond: "yes" },
+      ],
+      reapplyInDays: 68,
+    },
+  });
+});
+
+portalRouter.post("/compliance/:id/respond", async (req, res) => {
+  const a = await me(req);
+  const { text } = z.object({ text: z.string().trim().min(20, "Write at least a few sentences.").max(5000) }).parse(req.body);
+  const notice = await db.complianceNotice.findUnique({ where: { id: String(req.params.id) } });
+  if (!notice || notice.astrologerId !== a.id) throw notFound("Notice not found.");
+  if (notice.respondBy < new Date()) throw conflict("The response window has closed.");
+  await db.complianceNotice.update({ where: { id: notice.id }, data: { status: "RESPONDED", response: text, respondedAt: new Date() } });
+  res.json({ ok: true, respondBy: istDate(notice.respondBy) });
+});
+
+/** An astrologer reports a customer or session. Creates a support ticket. */
+portalRouter.post("/reports", async (req, res) => {
+  const a = await me(req);
+  const { subject, sessionRef } = z
+    .object({ subject: z.string().trim().min(5).max(200), sessionRef: z.string().max(40).optional() })
+    .parse(req.body);
+  let id = makeRef("CMP", 4);
+  while (await db.supportTicket.findUnique({ where: { id } })) id = makeRef("CMP", 4);
+  await db.supportTicket.create({
+    data: {
+      id,
+      subject: `${subject} (reported by ${a.name})`,
+      state: "INVESTIGATING",
+      slaDueAt: new Date(Date.now() + 3 * 86400000),
+      customerAlias: "—",
+      sessionRef: sessionRef ?? "—",
+    },
+  });
+  res.status(201).json({ caseRef: id });
+});

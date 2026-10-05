@@ -1,0 +1,606 @@
+// Astrorize database schema (PostgreSQL).
+// Money is stored in whole rupees (Int). Times are stored in UTC and shown in IST.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────── People & sign-in ───────────────────────────
+
+enum Role {
+  CUSTOMER
+  ASTROLOGER
+  ADMIN
+}
+
+enum AdminRole {
+  SUPER
+  FINANCE
+  SUPPORT
+  COMPLIANCE
+}
+
+model User {
+  id           String     @id @default(cuid())
+  role         Role       @default(CUSTOMER)
+  adminRole    AdminRole?
+  name         String
+  initials     String
+  /// Short name written into audit entries, e.g. "K. Prasad" (admins only).
+  actorName    String?
+  email        String?    @unique
+  phone        String?    @unique
+  passwordHash String?
+  createdAt    DateTime   @default(now())
+
+  astrologer    Astrologer?
+  wallet        Wallet?
+  sessions      Session[]
+  transactions  Transaction[]
+  payments      Payment[]
+  consultations Consultation[]
+  dataRequests  DataRequest[]
+  queueEntries  LiveQueueEntry[]
+}
+
+/// One signed-in browser. The session cookie carries this id; logging out revokes it.
+model Session {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  @@index([userId])
+}
+
+/// Six-digit sign-in codes sent by SMS. Only a hash of the code is stored.
+model OtpCode {
+  id         String    @id @default(cuid())
+  phone      String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, createdAt])
+}
+
+// ─────────────────────────── Astrologers ───────────────────────────
+
+enum Recognition {
+  PREMIUM
+  TRUSTED
+  PROVEN
+  RISING
+  FRESH
+}
+
+enum Presence {
+  ON
+  BUSY
+  LIVE
+  OFF
+}
+
+model Astrologer {
+  /// Short stable id, e.g. "raghav".
+  id                 String      @id
+  slug               String      @unique
+  userId             String?     @unique
+  user               User?       @relation(fields: [userId], references: [id])
+  name               String
+  initials           String
+  greeting           String
+  recognition        Recognition
+  presence           Presence    @default(OFF)
+  skills             String[]
+  languages          String[]
+  years              Int
+  rating             Float?
+  consults           Int         @default(0)
+  /// Standard per-minute rate for chat and voice (₹). Video adds the video premium.
+  price              Int
+  /// Original rate shown struck through when discounted (₹), or null.
+  was                Int?
+  /// Instant Call rate = price × this multiplier.
+  instantMultiplier  Float       @default(3)
+  eta                String?
+  /// Published "about" text on the public profile.
+  about              String
+  photo              String
+  /// Count of 5★, 4★, 3★, 2★, 1★ ratings.
+  ratingDistribution Int[]
+  /// draft | review | interview | docs | negotiation | pricing | training | active | rejected
+  lifecycle          String      @default("active")
+  /// none | partial | full
+  suspension         String      @default("none")
+  /// Popularity ranking used for the default directory order.
+  rank               Int         @default(0)
+  createdAt          DateTime    @default(now())
+
+  reviews            Review[]
+  liveRoom           LiveRoom?
+  consultations      Consultation[]
+  slots              AvailabilitySlot[]
+  threads            MessageThread[]
+  profileSubmissions ProfileSubmission[]
+  complianceNotices  ComplianceNotice[]
+  earnings           EarningsLine[]
+  training           TrainingModule[]
+  application        ApplicationDraft?
+}
+
+/// Customer reviews. VISIBLE ones show on the public profile; FLAGGED/SOFT_HIDDEN ones wait in the admin moderation queue.
+model Review {
+  /// e.g. "REV-99131"
+  id             String      @id
+  astrologerId   String?
+  astrologer     Astrologer? @relation(fields: [astrologerId], references: [id])
+  /// Shown in the moderation queue even when the astrologer is not on the platform yet.
+  astrologerName String
+  customerName   String
+  stars          Int
+  text           String
+  /// VISIBLE | FLAGGED | SOFT_HIDDEN | REMOVED
+  status         String      @default("VISIBLE")
+  /// Moderation rule that flagged it, e.g. "R-04 POLICY".
+  flag           String?
+  hiddenAt       DateTime?
+  removedReason  String?
+  moderatedBy    String?
+  consultationId String?     @unique
+  createdAt      DateTime    @default(now())
+
+  @@index([astrologerId, status])
+}
+
+// ─────────────────────────── Live rooms ───────────────────────────
+
+model LiveRoom {
+  id            String           @id
+  astrologerId  String           @unique
+  astrologer    Astrologer       @relation(fields: [astrologerId], references: [id])
+  topic         String
+  viewers       Int              @default(0)
+  thumb         String
+  /// normal | private | monitor | degrade
+  state         String           @default("normal")
+  isLive        Boolean          @default(true)
+  queueCapacity Int              @default(20)
+  eta           String
+  rank          Int              @default(0)
+  startedAt     DateTime         @default(now())
+  pollQuestion  String
+  pollOptions   String[]
+  /// Votes per option (seeded with the prototype's split, then real votes add to it).
+  pollCounts    Int[]
+  chat          ChatMessage[]
+  votes         PollVote[]
+  queue         LiveQueueEntry[]
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  roomId    String
+  room      LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  author    String
+  text      String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  @@index([roomId, createdAt])
+}
+
+/// One vote per viewer per poll. Viewers are identified by user id, or an anonymous browser id.
+model PollVote {
+  id          String   @id @default(cuid())
+  roomId      String
+  room        LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  voterKey    String
+  optionIndex Int
+  createdAt   DateTime @default(now())
+
+  @@unique([roomId, voterKey])
+}
+
+model LiveQueueEntry {
+  id        String   @id @default(cuid())
+  roomId    String
+  room      LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  alias     String
+  /// PRIVATE | PUBLIC
+  mode      String
+  consent   Boolean  @default(false)
+  /// WAITING | ACCEPTED | DECLINED | LEFT
+  status    String   @default("WAITING")
+  createdAt DateTime @default(now())
+
+  @@index([roomId, status])
+}
+
+// ─────────────────────────── Wallet & payments ───────────────────────────
+
+model Wallet {
+  userId         String    @id
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Talk-time paid for by the customer (₹).
+  service        Int       @default(0)
+  /// Promotional credit (₹). Used before service balance.
+  promo          Int       @default(0)
+  promoExpiresAt DateTime?
+  /// Amount currently held for an ongoing consultation (₹).
+  held           Int       @default(0)
+}
+
+model Transaction {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Recharge | Cashback | Consultation | Refund | Gift sent
+  type      String
+  ref       String   @unique
+  bucket    String
+  /// Positive = credit, negative = debit (₹).
+  amount    Int
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Payment {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount          Int
+  gst             Int
+  bonus           Int
+  total           Int
+  /// CREATED | PAID | FAILED
+  status          String    @default("CREATED")
+  /// "mock" until the Razorpay keys are configured.
+  provider        String
+  providerOrderId String    @unique
+  createdAt       DateTime  @default(now())
+  paidAt          DateTime?
+}
+
+/// Recharge amounts offered on the wallet page, with the promotional bonus each adds.
+model Denomination {
+  amount  Int     @id
+  bonus   Int     @default(0)
+  enabled Boolean @default(true)
+}
+
+// ─────────────────────────── Consultations ───────────────────────────
+
+model Consultation {
+  id            String     @id @default(cuid())
+  /// e.g. "SES-88214"
+  ref           String     @unique
+  customerId    String?
+  customer      User?      @relation(fields: [customerId], references: [id])
+  /// What the astrologer sees instead of the customer's name, e.g. "A-8821".
+  customerAlias String
+  astrologerId  String
+  astrologer    Astrologer @relation(fields: [astrologerId], references: [id])
+  /// CHAT | VOICE | VIDEO
+  mode          String
+  /// STANDARD | INSTANT | FIXED | WELCOME
+  kind          String     @default("STANDARD")
+  /// WEB | LIVE | APP
+  source        String     @default("WEB")
+  /// Per-minute rate snapshotted when the consultation was requested (₹).
+  rate          Int
+  /// REQUESTED | CONNECTING | ACTIVE | ENDED | REJECTED | TIMED_OUT | CANCELLED
+  status        String     @default("REQUESTED")
+  heldAmount    Int        @default(0)
+  requestedAt   DateTime   @default(now())
+  /// When the request reached the front of the queue; the astrologer has 3 minutes from then to accept.
+  offeredAt     DateTime?
+  connectedAt   DateTime?
+  endedAt       DateTime?
+  /// user | cap | exhausted | astrologer
+  endReason     String?
+  billedSeconds Int        @default(0)
+  billedMinutes Int        @default(0)
+  total         Int        @default(0)
+  promoUsed     Int        @default(0)
+  serviceUsed   Int        @default(0)
+  stars         Int?
+  reviewText    String?
+
+  @@index([astrologerId, status])
+  @@index([customerId, requestedAt])
+}
+
+model DataRequest {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// download | correct | consent | nominee | delete
+  kind      String
+  /// RECEIVED | IN_PROGRESS | DONE
+  status    String   @default("RECEIVED")
+  createdAt DateTime @default(now())
+}
+
+// ─────────────────────────── Astrologer portal ───────────────────────────
+
+model AvailabilitySlot {
+  id           String     @id @default(cuid())
+  astrologerId String
+  astrologer   Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  /// Calendar day in IST (stored at 00:00 UTC of that date).
+  date         DateTime   @db.Date
+  /// "HH:MM" in IST.
+  start        String
+  end          String
+  /// OPEN | BOOKED | CANCELLED
+  state        String     @default("OPEN")
+  detail       String?
+  createdAt    DateTime   @default(now())
+
+  @@index([astrologerId, date])
+}
+
+model MessageThread {
+  id            String     @id @default(cuid())
+  astrologerId  String
+  astrologer    Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  customerAlias String
+  updatedAt     DateTime   @default(now())
+  messages      Message[]
+}
+
+model Message {
+  id        String        @id @default(cuid())
+  threadId  String
+  thread    MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  /// CUSTOMER | ASTROLOGER | SYSTEM
+  sender    String
+  text      String
+  /// True when the message was stopped because it contained contact details.
+  blocked   Boolean       @default(false)
+  createdAt DateTime      @default(now())
+
+  @@index([threadId, createdAt])
+}
+
+/// Bio / skills changes waiting for moderation. The public profile only changes once approved.
+model ProfileSubmission {
+  id           String     @id @default(cuid())
+  astrologerId String
+  astrologer   Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  bio          String
+  skills       String[]
+  /// PENDING | APPROVED | REJECTED
+  status       String     @default("PENDING")
+  createdAt    DateTime   @default(now())
+  reviewedAt   DateTime?
+  reviewedBy   String?
+}
+
+model ComplianceNotice {
+  /// e.g. "CMP-2214"
+  id           String     @id
+  astrologerId String
+  astrologer   Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  category     String
+  summary      String
+  issuedAt     DateTime
+  respondBy    DateTime
+  /// OPEN | RESPONDED | DECIDED
+  status       String     @default("OPEN")
+  response     String?
+  respondedAt  DateTime?
+}
+
+/// One line of an astrologer's earnings statement.
+model EarningsLine {
+  id           String     @id @default(cuid())
+  astrologerId String
+  astrologer   Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  date         DateTime
+  /// Session or adjustment reference, e.g. "SES-88214", "ADJ-00412".
+  sessionRef   String
+  /// voice | chat | video | emergency | welcome | adjustment
+  kind         String
+  mode         String
+  minutes      Int
+  gifts        Int        @default(0)
+
+  @@index([astrologerId, date])
+}
+
+model TrainingModule {
+  id           String     @id @default(cuid())
+  astrologerId String
+  astrologer   Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  label        String
+  done         Boolean    @default(false)
+  dueAt        DateTime?
+  rank         Int        @default(0)
+}
+
+/// The application wizard, auto-saved as the astrologer types.
+model ApplicationDraft {
+  astrologerId String     @id
+  astrologer   Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  currentStep  Int        @default(0)
+  /// Field edits keyed "step-field", e.g. { "1-0": "Raghav Joshi" }.
+  values       Json       @default("{}")
+  savedAt      DateTime   @default(now())
+}
+
+// ─────────────────────────── Admin console ───────────────────────────
+
+model ConfigKey {
+  key         String   @id
+  /// Flagged keys need a second approver.
+  flagged     Boolean  @default(false)
+  description String
+  value       String
+  /// global | country | segment
+  scope       String
+  /// e.g. "0–100"
+  bounds      String
+  /// Impact estimate shown before changing the value.
+  dryRun      String
+  domain      String
+  version     Int      @default(1)
+  rank        Int      @default(0)
+  updatedAt   DateTime @default(now())
+}
+
+/// Every proposed config change, approved or not. Approved ones form the version history.
+model ConfigChange {
+  id             String    @id @default(cuid())
+  key            String
+  fromValue      String
+  toValue        String
+  /// DRAFT | SUBMITTED | APPROVED | REJECTED | ROLLED_BACK
+  status         String
+  version        Int?
+  draftedById    String?
+  draftedByName  String
+  approvedById   String?
+  approvedByName String?
+  effectiveAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([key, createdAt])
+}
+
+model PayoutBatch {
+  /// e.g. "PB-2026-09-B"
+  id             String     @id
+  cycle          String
+  astrologers    Int
+  gross          Int
+  tds            Int
+  /// DRAFT | APPROVED | RELEASED
+  state          String
+  approvedById   String?
+  approvedByName String?
+  approvedRole   AdminRole?
+  approvedAt     DateTime?
+  releasedById   String?
+  releasedByName String?
+  releasedAt     DateTime?
+  createdAt      DateTime   @default(now())
+}
+
+model SupportTicket {
+  /// e.g. "TKT-3391"
+  id            String   @id
+  subject       String
+  /// EVIDENCE_REQUESTED | INVESTIGATING | REFUND_PROPOSED | REFUND_INITIATED | ESCALATED | RESOLVED
+  state         String
+  slaDueAt      DateTime
+  customerAlias String
+  sessionRef    String
+  /// NONE | PROPOSED | INITIATED
+  refundState   String   @default("NONE")
+  refundAmount  Int      @default(0)
+  proposedBy    String?
+  approvedBy    String?
+  createdAt     DateTime @default(now())
+}
+
+/// Astrologer applications being worked by HR.
+model Applicant {
+  /// e.g. "APP-2214"
+  id          String   @id
+  name        String
+  skill       String
+  /// Under review | Interview | Docs pending | Negotiation | Pricing | Training
+  state       String
+  submittedAt DateTime
+  breach      Boolean  @default(false)
+  /// Optimistic-locking version: an action must quote the version it saw.
+  version     Int      @default(1)
+  /// Rate negotiation rows, round counters, etc.
+  negotiation Json?
+}
+
+model MonitorTarget {
+  id         String   @id
+  astroLabel String
+  /// CRITICAL | HIGH | PROMOTED | PRIVATE | SAMPLING
+  band       String
+  reason     String
+  startedAt  DateTime
+  /// Private consultations cannot be observed.
+  denied     Boolean  @default(false)
+}
+
+model ObserverLease {
+  id         String    @id @default(cuid())
+  adminId    String
+  adminName  String
+  targetId   String
+  breakGlass Boolean   @default(false)
+  startedAt  DateTime  @default(now())
+  expiresAt  DateTime
+  releasedAt DateTime?
+}
+
+model Campaign {
+  id       String @id
+  name     String
+  denoms   String
+  cashback String
+  /// DRAFT | SUBMITTED | UNDER_REVIEW | ACTIVE | EXPIRED
+  state    String
+  rank     Int    @default(0)
+}
+
+model Gift {
+  id    String @id @default(cuid())
+  icon  String
+  name  String
+  price Int
+  /// ACTIVE | PENDING ADMIN | AT CAP | DRAFT
+  state String
+  rank  Int    @default(0)
+}
+
+model RecordingModality {
+  mode      String @id
+  note      String
+  retention String
+  /// enabled | blocked | disabled
+  status    String
+  rank      Int    @default(0)
+}
+
+/// Append-only record of every privileged action.
+model AuditLog {
+  id          String   @id @default(cuid())
+  at          DateTime @default(now())
+  actorId     String?
+  actorName   String
+  action      String
+  object      String
+  diff        String
+  correlation String
+  breakGlass  Boolean  @default(false)
+
+  @@index([at])
+}
+
+/// Small named settings and analytics snapshots (e.g. cashback floor mode, DAU series).
+model Setting {
+  key   String @id
+  value Json
+}
