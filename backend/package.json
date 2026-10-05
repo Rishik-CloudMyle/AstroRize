@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --clear-screen=false --exclude \"node_modules/**\" --env-file=.env src/server.ts",
+    "dev": "node scripts/dev.mjs",
     "start": "node --env-file-if-exists=.env src/server.ts",
     "typecheck": "tsc -p .",
     "db:dev": "prisma dev --name astrorize --detach",

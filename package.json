@@ -8,10 +8,10 @@
     "db:migrate": "npm run db:migrate --prefix backend",
     "db:seed": "npm run db:seed --prefix backend",
     "db:reset": "npm run db:reset --prefix backend",
-    "dev": "concurrently -k -n api,web -c yellow,cyan \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "dev": "concurrently -k -n api,web -c yellow,cyan \"npm run dev --prefix backend\" \"node scripts/wait-for-api.mjs && npm run dev --prefix frontend\"",
     "build": "npm run build --prefix frontend",
     "start": "concurrently -k -n api,web -c yellow,cyan \"npm start --prefix backend\" \"npm start --prefix frontend\"",
-    "typecheck": "npm run typecheck --prefix backend && npx --prefix frontend tsc -p frontend --noEmit"
+    "typecheck": "npm run typecheck --prefix backend && npm run typecheck --prefix frontend"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"
