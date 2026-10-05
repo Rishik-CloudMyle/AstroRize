@@ -1,0 +1,19 @@
+# One line-ending style for everyone: text files use LF (Unix style) in the
+# repository and on every machine, so Windows and Mac/Linux contributors don't
+# see line-ending warnings or whole-file diffs.
+* text=auto eol=lf
+
+# Windows-only scripts need CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Never touch binary files.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
