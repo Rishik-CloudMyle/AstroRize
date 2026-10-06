@@ -10,6 +10,12 @@ const nextConfig: NextConfig = {
   // The repo root has its own package-lock.json (for the combined dev scripts), so tell
   // Turbopack this folder is the app root rather than letting it pick the parent.
   turbopack: { root: path.join(__dirname) },
+  experimental: {
+    // Don't keep the dev compiler's cache on disk between runs. This project lives in a
+    // OneDrive folder, and a half-written cache (sync locks, a crash, a forced stop) made
+    // `next dev` serve 404s for pages that exist. Each `npm run dev` now starts fresh.
+    turbopackFileSystemCacheForDev: false,
+  },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${backend}/api/:path*` }];
   },

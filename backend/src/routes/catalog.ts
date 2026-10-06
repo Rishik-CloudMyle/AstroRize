@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "../db.ts";
 import { badRequest, conflict, notFound } from "../lib/errors.ts";
 import { instantRate } from "../lib/billing.ts";
-import { istDate } from "../lib/format.ts";
+import { istDate, percentages } from "../lib/format.ts";
 import { rateLimit } from "../lib/safety.ts";
 import { requireRole, requireUser } from "../middleware/auth.ts";
 import type { Astrologer, LiveRoom, Review } from "../generated/prisma/client.ts";
@@ -48,7 +48,7 @@ catalogRouter.get("/astrologers", async (_req, res) => {
     orderBy: { rank: "asc" },
     include: { reviews: visibleReviews },
   });
-  res.json({ astrologers: list.map(astrologerView), total: 247 });
+  res.json({ astrologers: list.map(astrologerView), total: list.length });
 });
 
 catalogRouter.get("/astrologers/:slug", async (req, res) => {
@@ -76,7 +76,7 @@ async function roomView(room: LiveRoom, voterKey: string | null, userId: string 
     db.liveQueueEntry.findMany({ where: { roomId: room.id, status: "WAITING" }, orderBy: { createdAt: "asc" }, select: { id: true, userId: true } }),
     voterKey ? db.pollVote.findUnique({ where: { roomId_voterKey: { roomId: room.id, voterKey } } }) : null,
   ]);
-  const total = room.pollCounts.reduce((a, b) => a + b, 0) || 1;
+  const pollPct = percentages(room.pollOptions.map((_, i) => room.pollCounts[i] ?? 0));
   const myIndex = userId ? waiting.findIndex((w) => w.userId === userId) : -1;
   return {
     id: room.id,
@@ -94,7 +94,7 @@ async function roomView(room: LiveRoom, voterKey: string | null, userId: string 
     },
     poll: {
       question: room.pollQuestion,
-      options: room.pollOptions.map((label, i) => ({ label, pct: Math.round(((room.pollCounts[i] ?? 0) / total) * 100) })),
+      options: room.pollOptions.map((label, i) => ({ label, pct: pollPct[i] ?? 0 })),
       myVote: myVote?.optionIndex ?? null,
     },
     chat: chat.reverse().map((c) => ({ who: c.author, text: c.text })),

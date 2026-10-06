@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Portrait, RecognitionBadge, VerifiedTick } from "@/components/astrologer/parts";
 import ProfileActions from "@/components/astrologer/profile-actions";
 import Breadcrumbs from "@/components/breadcrumbs";
-import { languageLine, ratingLabel, skillLine, trustJourney, trustMetrics } from "@/lib/format";
+import { languageLine, percentages, ratingLabel, skillLine, trustJourney, trustMetrics } from "@/lib/format";
 import { getAstrologer } from "../../data";
 
 // Rendered on each request from the API; an unknown slug shows the not-found page.
@@ -20,7 +20,8 @@ export default async function AstrologerPage(props: PageProps<"/astrologer/[slug
   const { slug } = await props.params;
   const a = await getAstrologer(slug);
 
-  const totalRatings = a.ratingDistribution.reduce((x, y) => x + y, 0) || 1;
+  const totalRatings = a.ratingDistribution.reduce((x, y) => x + y, 0);
+  const ratingPct = percentages(a.ratingDistribution);
   const journey = trustJourney(a);
 
   return (
@@ -101,11 +102,11 @@ export default async function AstrologerPage(props: PageProps<"/astrologer/[slug
                 <div className="mt-1 text-sm tracking-[2px] text-[#f5b301]" aria-hidden="true">
                   ★★★★★
                 </div>
-                <div className="mt-1 text-[11.5px] text-stone-500">{a.consults.toLocaleString("en-IN")} reviews</div>
+                <div className="mt-1 text-[11.5px] text-stone-500">{totalRatings.toLocaleString("en-IN")} {totalRatings === 1 ? "rating" : "ratings"}</div>
               </div>
               <div className="flex min-w-0 flex-col gap-1.5">
                 {a.ratingDistribution.map((count, i) => {
-                  const pct = Math.round((count / totalRatings) * 100);
+                  const pct = ratingPct[i] ?? 0;
                   return (
                     <div key={i} className="flex items-center gap-2.5">
                       <span className="w-[22px] text-[11.5px] text-stone-500">{5 - i}★</span>
