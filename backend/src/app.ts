@@ -3,7 +3,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { ZodError } from "zod";
 import { config } from "./config.ts";
 import { db } from "./db.ts";
-import { HttpError } from "./lib/errors.ts";
+import { HttpError, isDatabaseDown } from "./lib/errors.ts";
 import { loadSession } from "./middleware/auth.ts";
 import { adminRouter } from "./routes/admin/index.ts";
 import { authRouter } from "./routes/auth.ts";
@@ -47,7 +47,11 @@ export function createApp() {
   });
 
   app.get("/api/health", async (_req, res) => {
-    await db.$queryRaw`SELECT 1`;
+    try {
+      await db.$queryRaw`SELECT 1`;
+    } catch {
+      return res.status(503).json({ ok: false, database: "unreachable" });
+    }
     res.json({ ok: true, time: new Date().toISOString() });
   });
 
@@ -74,6 +78,10 @@ export function createApp() {
     if (typeof status === "number" && status >= 400 && status < 500) {
       const tooLarge = status === 413;
       return res.status(status).json({ error: { code: "bad_request", message: tooLarge ? "That request is too large." : "The request couldn't be read." } });
+    }
+    if (isDatabaseDown(err)) {
+      console.error("Database unreachable. Is it running? (npm run db)");
+      return res.status(503).json({ error: { code: "unavailable", message: "We're having trouble right now. Please try again in a moment." } });
     }
     console.error(err);
     res.status(500).json({ error: { code: "server_error", message: "Something went wrong on our side. Please try again." } });

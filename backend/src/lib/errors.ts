@@ -10,6 +10,13 @@ export class HttpError extends Error {
   }
 }
 
+/** True when the error means PostgreSQL can't be reached (not started, wrong URL, network). */
+export function isDatabaseDown(err: unknown): boolean {
+  const e = err as { code?: string; cause?: { code?: string } } | null;
+  const code = e?.code ?? e?.cause?.code;
+  return code === "ECONNREFUSED" || code === "P1001" || code === "ETIMEDOUT" || code === "ENOTFOUND";
+}
+
 export const badRequest = (message: string) => new HttpError(400, message, "bad_request");
 export const unauthorized = (message = "Please log in to continue.") => new HttpError(401, message, "unauthorized");
 export const forbidden = (message = "You don't have access to this.") => new HttpError(403, message, "forbidden");
