@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
 import type { LiveRoom } from "@/lib/types";
@@ -21,18 +22,18 @@ const MODES = [
 
 /**
  * Live room: choose Private or Public before joining the consult queue.
- * Nothing is selected by default, and Public needs an explicit on-camera consent.
+ * Private is selected by default; Public needs an explicit on-camera consent.
  */
 export default function ConsultModeModal({ request, onClose }: { request: QueueRequest; onClose: () => void }) {
   const { toast } = useAppUI();
-  const [mode, setMode] = useState<"private" | "public" | null>(null);
+  const [mode, setMode] = useState<"private" | "public">("private");
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const ready = (mode === "private" || (mode === "public" && consent)) && !busy;
 
   async function join() {
-    if (!ready || !mode) return;
+    if (!ready) return;
     setBusy(true);
     setError("");
     try {
@@ -58,7 +59,7 @@ export default function ConsultModeModal({ request, onClose }: { request: QueueR
       <h2 id="modes-title" className="mb-0.5 mt-1.5 font-display text-[27px] font-semibold text-ink">
         How do you want to consult?
       </h2>
-      <p className="text-[13px] text-stone-500">Nothing is selected by default. Pick one to continue.</p>
+      <p className="text-[13px] text-stone-500">Private unless you choose to go on stage.</p>
 
       <div role="radiogroup" aria-label="Consultation mode" className="mt-[18px] flex flex-col gap-2.5">
         {MODES.map((m) => {
@@ -100,6 +101,13 @@ export default function ConsultModeModal({ request, onClose }: { request: QueueR
           );
         })}
       </div>
+
+      <p className="mt-3 text-xs leading-[1.45] text-stone-500">
+        Only the astrologer sees your profile (name, photo, age and birth details) to prepare for your consult.{" "}
+        <Link href="/wallet#profile" onClick={onClose} className="font-semibold text-amber-700">
+          Edit your profile
+        </Link>
+      </p>
 
       {error && (
         <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">

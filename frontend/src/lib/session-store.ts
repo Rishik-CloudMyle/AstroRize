@@ -36,6 +36,18 @@ export interface ApiUser {
   astrologerSlug?: string;
 }
 
+/** What an astrologer gives when signing up (POST /api/auth/signup/astrologer). */
+export interface AstrologerSignup {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+  gender: "Female" | "Male" | null;
+  years: number;
+  skills: string[];
+  languages: string[];
+}
+
 interface ApiWallet {
   service: number;
   promo: number;
@@ -145,6 +157,33 @@ export const sessionActions = {
     return user;
   },
 
+  /**
+   * Customer sign-up by mobile: the same code check as sign-in. `created` is false when the
+   * number already had an account (they are simply signed in to it).
+   */
+  async signUpWithOtp(phone: string, code: string) {
+    const { user, created } = await api.post<{ user: ApiUser; created: boolean }>("/auth/otp/verify", { phone, code });
+    await applyUser(user);
+    return { user, created };
+  },
+
+  /** Lets a signed-in customer without a password add one, so they can also log in with their email. */
+  async setPassword(password: string) {
+    await api.post("/auth/password", { password });
+  },
+
+  /** Astrologer sign-up, step 1: checks the details and texts a code to their mobile number. */
+  async startAstrologerSignup(details: AstrologerSignup) {
+    return api.post<{ sent: boolean; expiresInSeconds: number; devCode?: string }>("/auth/signup/astrologer/start", details);
+  },
+
+  /** Astrologer sign-up, step 2: creates the account (application in draft) and signs them in. */
+  async signUpAstrologer(details: AstrologerSignup, code: string) {
+    const { user } = await api.post<{ user: ApiUser }>("/auth/signup/astrologer", { ...details, code });
+    await applyUser(user);
+    return user;
+  },
+
   /** Email sign-in: the account decides the role (customer, astrologer or admin). */
   async logInWithEmail(email: string, password: string) {
     const { user } = await api.post<{ user: ApiUser }>("/auth/login", { email, password });
@@ -158,6 +197,14 @@ export const sessionActions = {
     } finally {
       setState({ ...LOGGED_OUT, ready: true });
     }
+  },
+
+  /** Re-reads the signed-in person (e.g. after they edit their name) without touching the wallet. */
+  async refreshUser() {
+    const { user } = await api.get<{ user: ApiUser | null }>("/auth/me");
+    if (!user) return setState({ ...LOGGED_OUT, ready: true });
+    const next = fromUser(user);
+    setState({ ...next, wallet: state.wallet });
   },
 
   async refreshWallet() {

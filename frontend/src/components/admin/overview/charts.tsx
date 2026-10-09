@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import type { AvailabilitySlice, ChannelDay, TrendCard } from "@/lib/admin/types";
+import type { AvailabilitySlice, ChannelDay, TopAstrologer, TrendCard } from "@/lib/admin/types";
 
 // Charts reproduced from the prototype's inline SVG (part-d-admin/01-overview.html):
-// same viewBoxes, scales, colours and hover read-outs.
+// same viewBoxes, scales, colours and hover read-outs, now fed with numbers the API
+// computes from the database.
 
 interface Tip {
   x: number;
@@ -20,12 +21,12 @@ function useTip() {
   // Portal to <body>: the hovered .az-panel is transformed, which would offset a fixed child.
   const node = tip
     ? createPortal(
-    <div
-      className="pointer-events-none fixed z-[9999] rounded-[7px] bg-ink px-[9px] py-[5px] text-[11.5px] font-semibold text-paper shadow-[0_6px_18px_rgba(28,25,23,.28)]"
-      style={{ left: tip.x + 12, top: tip.y - 34 }}
-    >
-      {tip.text}
-    </div>,
+        <div
+          className="pointer-events-none fixed z-[9999] rounded-[7px] bg-ink px-[9px] py-[5px] text-[11.5px] font-semibold text-paper shadow-[0_6px_18px_rgba(28,25,23,.28)]"
+          style={{ left: tip.x + 12, top: tip.y - 34 }}
+        >
+          {tip.text}
+        </div>,
         document.body,
       )
     : null;
@@ -52,17 +53,16 @@ function Legend({ color, children }: { color: string; children: React.ReactNode 
   );
 }
 
+const DELTA_FG = { up: "#047857", down: "#be123c", flat: "#78716c" } as const;
+
 /** Area sparkline for the last 30 days (viewBox 420 × 110). */
 export function TrendChart({ card, gradientId }: { card: TrendCard; gradientId: string }) {
   const { show, hide, node } = useTip();
   const values = card.points.map((p) => p.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const step = 408 / (values.length - 1);
-  const pts = values.map((v, i) => ({
-    x: 6 + i * step,
-    y: 104 - ((v - min) / (max - min || 1)) * 98,
-  }));
+  const step = 408 / Math.max(1, values.length - 1);
+  const pts = values.map((v, i) => ({ x: 6 + i * step, y: 104 - ((v - min) / (max - min || 1)) * 98 }));
   const line = pts.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
   const last = pts[pts.length - 1];
 
@@ -70,10 +70,13 @@ export function TrendChart({ card, gradientId }: { card: TrendCard; gradientId: 
     <div className={CARD}>
       <CardHead title={card.title} meta={card.window} />
       <div className="mt-3">
-        <div className="mt-0.5 flex items-baseline gap-[9px]">
+        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-[9px]">
           <b className="text-[30px] font-bold text-ink tabular-nums">{card.headline}</b>
-          <span className="text-[12px] font-bold text-emerald-700">{card.delta}</span>
+          {card.headlineNote && <span className="text-[12px] font-semibold text-[#57534e]">{card.headlineNote}</span>}
         </div>
+        <span className="mb-1 block text-[12px] font-bold" style={{ color: DELTA_FG[card.deltaTone ?? "up"] }}>
+          {card.delta}
+        </span>
         <svg
           viewBox="0 0 420 110"
           width="100%"
@@ -92,14 +95,7 @@ export function TrendChart({ card, gradientId }: { card: TrendCard; gradientId: 
             <line key={y} x1="0" y1={y} x2="420" y2={y} stroke="#ece5da" strokeWidth="1" />
           ))}
           <path d={`${line} L${last.x.toFixed(1)} 106.0 L6.0 106.0 Z`} fill={`url(#${gradientId})`} />
-          <path
-            d={line}
-            fill="none"
-            stroke={card.color}
-            strokeWidth="2"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
+          <path d={line} fill="none" stroke={card.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
           <circle cx={last.x} cy={last.y} r="4.5" fill={card.color} stroke="#fffdf8" strokeWidth="2" />
           {pts.map((p, i) => (
             <circle
@@ -126,25 +122,31 @@ export function TrendChart({ card, gradientId }: { card: TrendCard; gradientId: 
   );
 }
 
-const CHANNEL_COLORS = { chat: "#2a78d6", voice: "#eb6834", video: "#1baf7a" } as const;
+const CHANNELS = ["chat", "voice", "video", "instant"] as const;
+const CHANNEL_COLORS = { chat: "#2a78d6", voice: "#eb6834", video: "#1baf7a", instant: "#7c3aed" } as const;
+const CHANNEL_NAMES = { chat: "Chat", voice: "Voice", video: "Video", instant: "Instant Call" } as const;
 const intl = (n: number) => n.toLocaleString("en-IN");
 
-/** Stacked bars of chat / voice / video consultations for the last 14 days (viewBox 460 × 150). */
+const dayTotal = (d: ChannelDay) => d.chat + d.voice + d.video + d.instant;
+
+/** Stacked bars of completed consultations by channel for the last 14 days (viewBox 460 × 150). */
 export function ChannelChart({ days }: { days: ChannelDay[] }) {
   const { show, hide, node } = useTip();
-  // The prototype scales to the busiest day rounded up to the next 10.
-  const maxTotal = Math.ceil(Math.max(...days.map((d) => d.chat + d.voice + d.video)) / 10) * 10;
+  // The prototype scales to the busiest day rounded up to the next 10 (at least 10, so an empty fortnight draws).
+  const maxTotal = Math.max(10, Math.ceil(Math.max(0, ...days.map(dayTotal)) / 10) * 10);
   const k = 115 / maxTotal; // px per consultation
   const pitch = (460 + 8) / days.length;
   const width = pitch - 8;
 
   return (
     <div className={CARD}>
-      <CardHead title="Consultations by channel" meta="last 14 days" />
+      <CardHead title="Completed consultations by channel" meta="last 14 days" />
       <div className="mt-2 flex flex-wrap gap-3.5">
-        <Legend color={CHANNEL_COLORS.chat}>Chat</Legend>
-        <Legend color={CHANNEL_COLORS.voice}>Voice</Legend>
-        <Legend color={CHANNEL_COLORS.video}>Video</Legend>
+        {CHANNELS.map((ch) => (
+          <Legend key={ch} color={CHANNEL_COLORS[ch]}>
+            {CHANNEL_NAMES[ch]}
+          </Legend>
+        ))}
       </div>
       <div className="mt-3">
         <svg
@@ -152,18 +154,19 @@ export function ChannelChart({ days }: { days: ChannelDay[] }) {
           width="100%"
           height="150"
           role="img"
-          aria-label="Consultations by channel, last 14 days"
+          aria-label="Completed consultations by channel, last 14 days"
           className="block overflow-visible"
         >
           {days.map((d, i) => {
             const x = i * pitch;
             let bottom = 130;
-            const segs = (["chat", "voice", "video"] as const).map((ch, j) => {
+            // Only channels with consultations get a segment; the top one gets the rounded corners.
+            const present = CHANNELS.filter((ch) => d[ch] > 0);
+            const segs = present.map((ch, j) => {
               const full = d[ch] * k;
-              const h = full - 2;
+              const h = Math.max(1, full - 2);
               const y = bottom - h;
               bottom -= full;
-              const name = ch[0].toUpperCase() + ch.slice(1);
               return (
                 <rect
                   key={ch}
@@ -171,16 +174,28 @@ export function ChannelChart({ days }: { days: ChannelDay[] }) {
                   y={y.toFixed(1)}
                   width={width.toFixed(1)}
                   height={h.toFixed(1)}
-                  rx={j === 2 ? 4 : 0}
+                  rx={j === present.length - 1 ? 4 : 0}
                   fill={CHANNEL_COLORS[ch]}
-                  onMouseMove={(e) => show(e, `${name} · ${intl(d[ch])}`)}
+                  onMouseMove={(e) => show(e, `${d.date} · ${CHANNEL_NAMES[ch]} · ${intl(d[ch])}`)}
                   onMouseLeave={hide}
                 />
               );
             });
             return (
-              <g key={d.day}>
+              <g key={d.date}>
                 {segs}
+                {present.length === 0 && (
+                  <rect
+                    x={x.toFixed(1)}
+                    y="128"
+                    width={width.toFixed(1)}
+                    height="2"
+                    rx="1"
+                    fill="#e7e0d6"
+                    onMouseMove={(e) => show(e, `${d.date} · no consultations`)}
+                    onMouseLeave={hide}
+                  />
+                )}
                 <text
                   x={(x + width / 2).toFixed(1)}
                   y="145"
@@ -204,19 +219,19 @@ export function ChannelChart({ days }: { days: ChannelDay[] }) {
                 <th className="px-2.5 pb-1 text-right">Chat</th>
                 <th className="px-2.5 pb-1 text-right">Voice</th>
                 <th className="px-2.5 pb-1 text-right">Video</th>
+                <th className="px-2.5 pb-1 text-right">Instant</th>
                 <th className="pb-1 pl-2.5 text-right">Total</th>
               </tr>
             </thead>
             <tbody>
               {days.map((d) => (
-                <tr key={d.day}>
-                  <td className="py-[3px] pr-2.5 text-[#57534e]">{d.day}</td>
+                <tr key={d.date}>
+                  <td className="py-[3px] pr-2.5 text-[#57534e]">{d.date}</td>
                   <td className="px-2.5 py-[3px] text-right tabular-nums">{intl(d.chat)}</td>
                   <td className="px-2.5 py-[3px] text-right tabular-nums">{intl(d.voice)}</td>
                   <td className="px-2.5 py-[3px] text-right tabular-nums">{intl(d.video)}</td>
-                  <td className="py-[3px] pl-2.5 text-right font-bold tabular-nums">
-                    {intl(d.chat + d.voice + d.video)}
-                  </td>
+                  <td className="px-2.5 py-[3px] text-right tabular-nums">{intl(d.instant)}</td>
+                  <td className="py-[3px] pl-2.5 text-right font-bold tabular-nums">{intl(dayTotal(d))}</td>
                 </tr>
               ))}
             </tbody>
@@ -230,12 +245,14 @@ export function ChannelChart({ days }: { days: ChannelDay[] }) {
 
 /** Horizontal share bar of the astrologer roster. */
 export function AvailabilityCard({ slices, registered }: { slices: AvailabilitySlice[]; registered: number }) {
+  // Empty states take no space in the bar (they still show in the legend with 0).
+  const bar = slices.filter((s) => s.count > 0);
   return (
     <div className={CARD}>
-      <CardHead title="Astrologer availability" meta={`live roster · ${registered} registered`} />
+      <CardHead title="Astrologer availability" meta={`right now · ${registered} on the public roster`} />
       <div className="mt-3">
-        <div className="flex h-[22px] overflow-hidden rounded-lg">
-          {slices.map((s, i) => (
+        <div className="flex h-[22px] overflow-hidden rounded-lg bg-[#f5f5f4]">
+          {bar.map((s, i) => (
             <div
               key={s.label}
               title={`${s.label}: ${s.count}`}
@@ -243,7 +260,7 @@ export function AvailabilityCard({ slices, registered }: { slices: AvailabilityS
               style={{
                 flex: s.count,
                 background: s.color,
-                borderRadius: i === 0 ? "8px 0 0 8px" : i === slices.length - 1 ? "0 8px 8px 0" : undefined,
+                borderRadius: i === 0 ? "8px 0 0 8px" : i === bar.length - 1 ? "0 8px 8px 0" : undefined,
               }}
             />
           ))}
@@ -256,10 +273,45 @@ export function AvailabilityCard({ slices, registered }: { slices: AvailabilityS
           ))}
         </div>
         <p className="mt-3 mb-0 text-[11.5px] leading-[1.5] text-[#57534e]">
-          Busy includes live rooms, fixed sessions and instant calls. A break is astrologer-set and auto-clears after
-          30 minutes.
+          From each astrologer&rsquo;s status switch. Busy means in a consultation; Live means hosting a public live
+          room.
         </p>
       </div>
+    </div>
+  );
+}
+
+/** The astrologers who billed the most in completed consultations over the last 30 days. */
+export function TopAstrologers({ rows }: { rows: TopAstrologer[] }) {
+  const max = Math.max(1, ...rows.map((r) => r.revenue));
+  return (
+    <div className={CARD}>
+      <CardHead title="Top astrologers" meta="last 30 days · by amount billed" />
+      {rows.length === 0 ? (
+        <p className="mt-3 mb-0 text-[12.5px] text-[#78716c]">No completed consultations in the last 30 days.</p>
+      ) : (
+        <ol className="mt-3 mb-0 flex list-none flex-col gap-2.5 p-0">
+          {rows.map((r, i) => (
+            <li key={r.id}>
+              <div className="flex items-baseline gap-2 text-[12.5px]">
+                <span className="w-4 flex-none font-bold text-mauve tabular-nums">{i + 1}</span>
+                <b className="min-w-0 flex-1 truncate text-ink" title={r.name}>
+                  {r.name}
+                </b>
+                <b className="flex-none text-right text-ink tabular-nums">₹{intl(r.revenue)}</b>
+              </div>
+              <div className="mt-1 ml-6 flex items-center gap-2.5">
+                <div className="h-[6px] min-w-0 flex-1 overflow-hidden rounded-full bg-[#f5f0e8]">
+                  <div className="h-full rounded-full bg-amber-500" style={{ width: `${(r.revenue / max) * 100}%` }} />
+                </div>
+                <span className="flex-none text-[11px] whitespace-nowrap text-[#78716c] tabular-nums">
+                  {intl(r.consultations)} {r.consultations === 1 ? "consult" : "consults"}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }

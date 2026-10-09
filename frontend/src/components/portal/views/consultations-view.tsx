@@ -2,12 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "@/lib/api/client";
 import { countdown, rupee } from "@/lib/portal/format";
-import type { Consultations, Settlement } from "@/lib/portal/types";
+import type { ConsultCustomer, ConsultPersonDetail, Consultations, Settlement } from "@/lib/portal/types";
 import Modal from "../modal";
 import { useAccount, useErrorToast, useToast } from "../portal-provider";
-import { PageHeader, Panel, Th, tdClass } from "../ui";
+import { PageHeader, Panel } from "../ui";
+import { Avatar, PersonProfileDialog } from "./live-queue-people";
 
 /** How often the page asks the API for new requests, the queue and the live session. */
 const POLL_MS = 4000;
@@ -43,9 +45,30 @@ const DROP_STEPS = [
   "To continue, the customer starts a new consultation",
 ];
 
+const BUSY_HINT = "End your current session to accept another";
+
 function mmss(secs: number): string {
   const s = Math.max(0, Math.floor(secs));
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** "Kavya Menon", or the alias when the customer has no profile. */
+const nameOf = (profile: ConsultCustomer | null, alias: string) => profile?.name ?? `Customer ${alias}`;
+
+/** "Age 32 · Woman · Pune", with "not shared" where they left something out. */
+function factsOf(profile: ConsultCustomer | null): string {
+  if (!profile) return "Profile not shared";
+  return [profile.age !== null ? `Age ${profile.age}` : "Age not shared", profile.gender, profile.city].filter(Boolean).join(" · ");
+}
+
+function ModeBadge({ mode, instant }: { mode: string; instant: boolean }) {
+  return instant ? (
+    <span className="inline-flex h-[22px] items-center rounded-full bg-urgent px-2 text-[10.5px] font-extrabold tracking-[.04em] text-white">
+      ⚡ INSTANT CALL
+    </span>
+  ) : (
+    <span className="inline-flex h-[22px] items-center rounded-full bg-amber-100 px-2 text-[11px] font-bold text-amber-900">{mode}</span>
+  );
 }
 
 export default function ConsultationsView({ data: initial }: { data: Consultations }) {
@@ -58,9 +81,12 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  // The request (or session) whose full profile is open in the popup.
+  const [detailId, setDetailId] = useState<string | null>(null);
   const queueSize = useRef(initial.queue.length);
-  // Stable, so the dialog keeps focus while the clock ticks underneath it.
+  // Stable, so the dialogs keep focus while the clock ticks underneath them.
   const closeEnd = useCallback(() => setConfirmEnd(false), []);
+  const closeDetail = useCallback(() => setDetailId(null), []);
 
   const load = useCallback(async () => {
     try {
@@ -105,6 +131,8 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
   const pct = inc ? `${(remaining / inc.windowSecs) * 100}%` : "0%";
   const session = data.session;
   const sessionSecs = session ? session.elapsedSeconds + sinceFetch : 0;
+  // One active consult at a time.
+  const inSession = session !== null;
 
   const act = async (run: () => Promise<void>) => {
     if (busy) return;
@@ -124,12 +152,14 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
   const reject = (id: string) =>
     act(async () => {
       await api.post(`/portal/consultations/${id}/reject`);
-      toast("Rejected. The customer sees a “you have not been charged” card — this bills ₹0.");
+      setDetailId(null);
+      toast("Declined. The customer sees a “you have not been charged” card — this bills ₹0.");
     });
   const accept = (id: string) =>
     act(async () => {
       await api.post(`/portal/consultations/${id}/accept`);
-      toast("Accepted — connecting you to the customer now.");
+      setDetailId(null);
+      toast("Accepted — the customer is joining your session now.");
     });
   const endSession = (id: string) =>
     act(async () => {
@@ -140,20 +170,46 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
       );
     });
 
+  // The popup's buttons follow the live state: a request that stopped waiting can't be accepted.
+  const detailWaiting = detailId ? data.queue.find((q) => q.id === detailId) : undefined;
+  const detailIsHead = !!detailWaiting && inc?.id === detailId;
+  const detailActions = detailWaiting ? (
+    <>
+      {detailIsHead && (
+        <button
+          type="button"
+          onClick={() => reject(detailWaiting.id)}
+          disabled={busy || expired}
+          className="h-11 flex-1 rounded-xl border border-orange-200 bg-white text-sm font-bold text-orange-800 disabled:opacity-50"
+        >
+          Decline
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => accept(detailWaiting.id)}
+        disabled={busy || inSession}
+        title={inSession ? BUSY_HINT : undefined}
+        className="h-11 flex-1 rounded-xl bg-urgent text-sm font-bold text-white disabled:opacity-50"
+      >
+        Accept
+      </button>
+    </>
+  ) : null;
+
   return (
     <div>
       <PageHeader
         title="Consultations"
-        subtitle="Customers appear as aliases. Phone numbers are never revealed — all calls are masked."
+        subtitle="Customers waiting to consult you, and your session in progress. Phone numbers are never revealed — all calls are masked."
       />
 
       {inc ? (
-        <div className="relative mt-5 rounded-[20px] border-2 border-urgent bg-orange-50 p-5">
+        <div className="relative mt-5 rounded-[20px] border-2 border-urgent bg-orange-50 p-4 min-[420px]:p-5">
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-urgent px-[11px] text-[11px] font-extrabold tracking-[.06em] text-white">
-              {inc.instant ? "⚡ EMERGENCY" : "● NEW REQUEST"}
+              {inc.instant ? "⚡ INSTANT CALL" : "● NEW REQUEST"}
             </span>
-            <b className="text-[17px]">Incoming request · {inc.alias}</b>
             <span
               className="ml-auto inline-flex items-center gap-[7px] text-sm font-extrabold text-orange-700 tabular-nums"
               aria-live="polite"
@@ -164,7 +220,19 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-orange-200">
             <span className="block h-full rounded-full bg-urgent transition-[width] duration-1000 ease-linear" style={{ width: pct }} />
           </div>
-          <div className="mt-3.5 flex flex-wrap items-center gap-5">
+          <button
+            type="button"
+            onClick={() => setDetailId(inc.id)}
+            className="mt-3.5 flex w-full items-center gap-3 rounded-2xl border border-orange-200 bg-white/70 p-3 text-left hover:bg-white"
+          >
+            <Avatar photoUrl={inc.profile?.photoUrl ?? null} initials={inc.profile?.initials ?? "?"} size={52} />
+            <span className="min-w-0 flex-1">
+              <b className="block truncate text-[16px] text-ink">{nameOf(inc.profile, inc.alias)}</b>
+              <span className="block text-[12.5px] text-stone-600">{factsOf(inc.profile)}</span>
+            </span>
+            <span className="shrink-0 text-[12.5px] font-bold text-orange-800">Details ›</span>
+          </button>
+          <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-3">
             <div>
               <div className="text-[11.5px] font-semibold text-orange-800">Mode</div>
               <b className="text-[15px]">{inc.mode}</b>
@@ -176,31 +244,33 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                 {inc.instant && ` · ${me.instantMultiplier}× standard ${rupee(me.price)}/min`}
               </b>
             </div>
-            <div>
-              <div className="text-[11.5px] font-semibold text-orange-800">Customer</div>
-              <b className="text-[15px]">{inc.alias} (alias)</b>
-            </div>
-            <div className="flex gap-2.5 min-[600px]:ml-auto">
+            <div className="flex w-full gap-2.5 min-[600px]:ml-auto min-[600px]:w-auto">
               <button
                 type="button"
                 onClick={() => reject(inc.id)}
                 disabled={busy || expired}
-                className="h-[46px] rounded-xl border border-orange-200 bg-white px-5 text-[14.5px] font-bold text-orange-800 disabled:opacity-50"
+                className="h-[46px] flex-1 rounded-xl border border-orange-200 bg-white px-5 text-[14.5px] font-bold text-orange-800 disabled:opacity-50"
               >
-                Reject
+                Decline
               </button>
               <button
                 type="button"
                 onClick={() => accept(inc.id)}
-                disabled={busy || expired}
-                className="h-[46px] rounded-xl bg-urgent px-[26px] text-[14.5px] font-bold text-white disabled:opacity-50"
+                disabled={busy || expired || inSession}
+                title={inSession ? BUSY_HINT : undefined}
+                className="h-[46px] flex-1 rounded-xl bg-urgent px-[26px] text-[14.5px] font-bold text-white disabled:opacity-50"
               >
                 Accept
               </button>
             </div>
           </div>
           <p className="mt-3 text-xs leading-[1.5] text-orange-800">
-            If you reject or let this time out, the customer sees a “you have not been charged” card. Both outcomes bill ₹0
+            {inSession
+              ? "You're in a session — end it to accept. "
+              : inc.instant
+                ? "Accept and the customer joins your session straight away. "
+                : ""}
+            If you decline or let this time out, the customer sees a “you have not been charged” card. Both outcomes bill ₹0
             and are logged distinctly.
           </p>
         </div>
@@ -213,56 +283,73 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
         </Panel>
       )}
 
-      <Panel className="relative mt-4 p-5">
+      <Panel className="relative mt-4 p-4 min-[420px]:p-5">
         <div className="flex flex-wrap items-center justify-between gap-2.5">
-          <h2 className="m-0 text-[17px] font-bold">Queue</h2>
+          <h2 className="m-0 text-[17px] font-bold">Incoming</h2>
           <span className="inline-flex h-6 items-center rounded-full bg-amber-100 px-2.5 text-xs font-bold text-amber-800">
             {data.queue.length} waiting · max {data.queueMax}
           </span>
         </div>
+        <p className="mt-1 text-xs text-stone-500">
+          Tap a customer to see the details they shared. Only you can see them — use them to prepare; don&apos;t save or share them.
+        </p>
         {data.queue.length === 0 ? (
           <p className="mt-3.5 text-[13px] text-stone-500">Nobody is waiting right now.</p>
         ) : (
-          <div className="relative mt-3.5 overflow-x-auto">
-            <table className="w-full min-w-[480px] border-collapse text-[13.5px]">
-              <thead>
-                <tr>
-                  <Th>#</Th>
-                  <Th>Customer</Th>
-                  <Th>Mode</Th>
-                  <Th>Waiting</Th>
-                  <Th>
-                    <span className="sr-only">Action</span>
-                  </Th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.queue.map((q, i) => (
-                  <tr key={q.id}>
-                    <td className={`${tdClass} font-bold text-ink tabular-nums`}>{i + 1}</td>
-                    <td className={`${tdClass} text-stone-600 tabular-nums`}>{q.alias}</td>
-                    <td className={`${tdClass} text-stone-600`}>{q.mode}</td>
-                    <td className={`${tdClass} text-stone-600`}>{q.waiting}</td>
-                    <td className={`${tdClass} text-right whitespace-nowrap`}>
-                      {i === 0 ? (
-                        <span className="inline-flex h-6 items-center rounded-full bg-amber-500 px-2.5 text-[11.5px] font-extrabold text-ink">
-                          Next up
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => toast("Removal request opened. A reason is required — our team reviews every request.")}
-                          className="text-[12.5px] font-bold text-amber-700"
-                        >
-                          Request removal ›
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ol className="mt-3.5 flex flex-col gap-2">
+            {data.queue.map((q, i) => {
+              const head = i === 0;
+              const name = nameOf(q.profile, q.alias);
+              return (
+                <li
+                  key={q.id}
+                  className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border px-3 py-2.5 ${q.instant ? "border-orange-300 bg-orange-50/70" : "border-line bg-white"}`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setDetailId(q.id)}
+                    aria-label={`See details for ${name}`}
+                    className="flex min-w-0 flex-[1_1_220px] items-center gap-3 text-left"
+                  >
+                    <span className="w-5 shrink-0 text-center text-[13px] font-bold text-stone-400 tabular-nums">{i + 1}</span>
+                    <Avatar photoUrl={q.profile?.photoUrl ?? null} initials={q.profile?.initials ?? "?"} size={44} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <b className="truncate text-[14px] text-ink">{name}</b>
+                        <ModeBadge mode={q.mode} instant={q.instant} />
+                      </span>
+                      <span className="mt-0.5 block text-[12px] text-stone-500">
+                        {factsOf(q.profile)} · waiting {q.waiting}
+                      </span>
+                    </span>
+                  </button>
+                  <div className="ml-auto flex shrink-0 items-center gap-2">
+                    {head && (
+                      <span className="inline-flex h-7 items-center rounded-full bg-amber-500 px-2.5 text-[11.5px] font-extrabold text-ink tabular-nums">
+                        {expired ? "Timing out…" : `Next up · ${countdown(remaining)}`}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setDetailId(q.id)}
+                      className="h-8 rounded-[10px] border border-line bg-white px-3 text-[12.5px] font-bold text-amber-800"
+                    >
+                      Details
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => accept(q.id)}
+                      disabled={busy || inSession || (head && expired)}
+                      title={inSession ? BUSY_HINT : undefined}
+                      className="h-8 rounded-[10px] bg-urgent px-3 text-[12.5px] font-bold text-white disabled:opacity-45"
+                    >
+                      Accept
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
         )}
       </Panel>
 
@@ -270,8 +357,22 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
         <div className="rounded-[20px] bg-ink p-5 text-line">
           {session ? (
             <>
-              <div className="flex items-center justify-between gap-2.5">
-                <b className="text-[15px] text-paper">In session · {session.alias}</b>
+              <div className="flex items-center gap-3">
+                <Avatar photoUrl={session.profile?.photoUrl ?? null} initials={session.profile?.initials ?? "?"} size={44} />
+                <div className="min-w-0 flex-1">
+                  <b className="block truncate text-[15px] text-paper">In session · {nameOf(session.profile, session.alias)}</b>
+                  <span className="block text-[12px] text-stone-400">
+                    {session.mode}
+                    {session.profile && (
+                      <>
+                        {" · "}
+                        <button type="button" onClick={() => setDetailId(session.id)} className="font-bold text-amber-300">
+                          Details ›
+                        </button>
+                      </>
+                    )}
+                  </span>
+                </div>
                 <span className="text-[20px] font-bold text-amber-300 tabular-nums">{mmss(sessionSecs)}</span>
               </div>
               <div className="mt-3.5 flex flex-wrap gap-2">
@@ -331,7 +432,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
       {confirmEnd && session && (
         <Modal onClose={closeEnd} labelledBy="end-title">
           <h2 id="end-title" className="m-0 text-[18px] font-bold">
-            End session with {session.alias}?
+            End session with {nameOf(session.profile, session.alias)}?
           </h2>
           <p className="mt-2 text-[13.5px] leading-[1.55] text-stone-600">
             Billing is settled once you confirm: the customer is charged for the connected time only.
@@ -355,6 +456,31 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
           </div>
         </Modal>
       )}
+
+      {/* Rendered on <body> so no panel effect can trap the fixed overlay; centred on every screen size. */}
+      {detailId &&
+        createPortal(
+          <PersonProfileDialog
+            key={detailId}
+            url={`/portal/consultations/${encodeURIComponent(detailId)}/profile`}
+            read={(body) => {
+              const person = (body as { person: ConsultPersonDetail }).person;
+              return {
+                alias: person.alias,
+                profile: person.profile,
+                badges: [
+                  { label: person.instant ? "⚡ Instant Call" : person.mode, tone: person.instant ? "urgent" : "amber" },
+                  { label: `${rupee(person.rate)}/min`, tone: "plain" },
+                  { label: person.status === "active" ? "In session" : `Waiting ${person.waiting}`, tone: "plain" },
+                ],
+              };
+            }}
+            note="Shared with you only because they asked you for a consultation."
+            onClose={closeDetail}
+            actions={detailActions}
+          />,
+          document.body,
+        )}
     </div>
   );
 }

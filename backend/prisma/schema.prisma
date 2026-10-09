@@ -23,6 +23,7 @@ enum AdminRole {
   FINANCE
   SUPPORT
   COMPLIANCE
+  MARKETING
 }
 
 model User {
@@ -36,7 +37,26 @@ model User {
   email        String?    @unique
   phone        String?    @unique
   passwordHash String?
+  /// Staff accounts can be switched off by a Super Admin; an inactive user can't sign in.
+  active       Boolean    @default(true)
+  lastLoginAt  DateTime?
   createdAt    DateTime   @default(now())
+
+  // Customer profile (all optional). Shown to an astrologer only when the customer
+  // asks to join that astrologer's live consult queue.
+  firstName  String?
+  lastName   String?
+  /// Woman | Man | Other | Prefer not to say
+  gender     String?
+  /// Calendar date of birth (no time zone).
+  birthDate  DateTime? @db.Date
+  /// 24-hour "HH:MM", or null when the customer doesn't know it.
+  birthTime  String?
+  birthPlace String?
+  city       String?
+  state      String?
+  /// Public URL of the profile photo, e.g. /api/media/<file>.
+  photoUrl   String?
 
   astrologer    Astrologer?
   wallet        Wallet?
@@ -97,6 +117,8 @@ model Astrologer {
   userId             String?     @unique
   user               User?       @relation(fields: [userId], references: [id])
   name               String
+  /// Male | Female (directory filter)
+  gender             String?
   initials           String
   greeting           String
   recognition        Recognition
@@ -165,19 +187,19 @@ model Review {
 // ─────────────────────────── Live rooms ───────────────────────────
 
 model LiveRoom {
-  id            String           @id
-  astrologerId  String           @unique
-  astrologer    Astrologer       @relation(fields: [astrologerId], references: [id])
+  id            String             @id
+  astrologerId  String             @unique
+  astrologer    Astrologer         @relation(fields: [astrologerId], references: [id])
   topic         String
-  viewers       Int              @default(0)
+  viewers       Int                @default(0)
   thumb         String
   /// normal | private | monitor | degrade
-  state         String           @default("normal")
-  isLive        Boolean          @default(true)
-  queueCapacity Int              @default(20)
+  state         String             @default("normal")
+  isLive        Boolean            @default(true)
+  queueCapacity Int                @default(20)
   eta           String
-  rank          Int              @default(0)
-  startedAt     DateTime         @default(now())
+  rank          Int                @default(0)
+  startedAt     DateTime           @default(now())
   pollQuestion  String
   pollOptions   String[]
   /// Votes per option (seeded with the prototype's split, then real votes add to it).
@@ -185,6 +207,7 @@ model LiveRoom {
   chat          ChatMessage[]
   votes         PollVote[]
   queue         LiveQueueEntry[]
+  announcements LiveAnnouncement[]
 }
 
 model ChatMessage {
@@ -209,6 +232,17 @@ model PollVote {
   createdAt   DateTime @default(now())
 
   @@unique([roomId, voterKey])
+}
+
+/// Announcements an astrologer posts to their live room; shown above the room chat.
+model LiveAnnouncement {
+  id        String   @id @default(cuid())
+  roomId    String
+  room      LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([roomId, createdAt])
 }
 
 model LiveQueueEntry {
@@ -520,17 +554,20 @@ model SupportTicket {
 /// Astrologer applications being worked by HR.
 model Applicant {
   /// e.g. "APP-2214"
-  id          String   @id
-  name        String
-  skill       String
+  id           String   @id
+  /// The astrologer account that submitted this application from the portal (null for older
+  /// applications entered by HR). Stage changes are mirrored onto Astrologer.lifecycle.
+  astrologerId String?  @unique
+  name         String
+  skill        String
   /// Under review | Interview | Docs pending | Negotiation | Pricing | Training
-  state       String
-  submittedAt DateTime
-  breach      Boolean  @default(false)
+  state        String
+  submittedAt  DateTime
+  breach       Boolean  @default(false)
   /// Optimistic-locking version: an action must quote the version it saw.
-  version     Int      @default(1)
+  version      Int      @default(1)
   /// Rate negotiation rows, round counters, etc.
-  negotiation Json?
+  negotiation  Json?
 }
 
 model MonitorTarget {

@@ -2,10 +2,36 @@ import { Router } from "express";
 import { z } from "zod";
 import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
-import { conflict, forbidden, notFound } from "../../lib/errors.ts";
+import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { ageLabel, istDayMonth, istStamp } from "../../lib/format.ts";
-import { CAPABILITIES, actorName, requireCapability, requirePage } from "../../lib/rbac.ts";
+import {
+  CAPABILITIES,
+  CAPABILITY_LOCKS,
+  MATRIX_SETTING,
+  PAGE_LABELS,
+  PAGE_LOCKS,
+  PAGE_ORDER,
+  ROLE_LABELS,
+  ROLE_ORDER,
+  SEPARATION_OF_DUTIES,
+  SUPER_LOCK_REASON,
+  actorName,
+  capabilitiesOf,
+  defaultMatrix,
+  invalidateMatrix,
+  loadMatrix,
+  matrixDiff,
+  normalise,
+  requireCapability,
+  requirePage,
+  type AdminRoleKey,
+  type Lock,
+  type Matrix,
+  type PageKey,
+  type StoredMatrix,
+} from "../../lib/rbac.ts";
 import { configNumber, getSetting, putSetting } from "../../lib/settings.ts";
+import type { Prisma } from "../../generated/prisma/client.ts";
 
 export const governanceRouter = Router();
 
@@ -155,22 +181,112 @@ governanceRouter.post("/reviews/:id/keep", async (req, res) => {
 
 // ── RBAC ──
 
-const ROLE_ORDER = ["super", "finance", "support", "compliance"] as const;
+/** Who may change a cell: nobody for a locked one (the Super Admin column and the PAGE/CAPABILITY_LOCKS). */
+function rbacView(matrix: Matrix, stored: StoredMatrix | null, canEdit: boolean) {
+  const defaults = defaultMatrix();
+  const cell = (lock: Lock | undefined, role: AdminRoleKey, on: boolean, wasDefault: boolean) => ({
+    on,
+    locked: role === "super" || !!lock,
+    reason: role === "super" ? SUPER_LOCK_REASON : (lock?.reason ?? null),
+    isDefault: on === wasDefault,
+  });
+  return {
+    roles: ROLE_ORDER.map((r) => ({ key: r, label: ROLE_LABELS[r] })),
+    pages: PAGE_ORDER.map((p) => ({
+      key: p,
+      label: PAGE_LABELS[p],
+      cells: ROLE_ORDER.map((r) => cell(PAGE_LOCKS[p], r, matrix.pages[r].includes(p), defaults.pages[r].includes(p))),
+    })),
+    capabilities: CAPABILITIES.map((c) => ({
+      key: c.key,
+      label: c.label,
+      page: c.page,
+      cells: ROLE_ORDER.map((r) =>
+        cell(CAPABILITY_LOCKS[c.key], r, matrix.capabilities[c.key]!.includes(r), defaults.capabilities[c.key]!.includes(r)),
+      ),
+    })),
+    separationOfDuties: SEPARATION_OF_DUTIES,
+    version: stored?.version ?? 0,
+    customised: matrixDiff(defaults, matrix).length > 0,
+    updatedBy: stored?.updatedBy ?? null,
+    updatedAt: stored ? istStamp(new Date(stored.updatedAt)) : null,
+    canEdit,
+  };
+}
 
 governanceRouter.get("/rbac", async (req, res) => {
+  const admin = requirePage(req, "rbac");
+  const [{ matrix, stored }, conflictCase] = await Promise.all([
+    loadMatrix(),
+    getSetting("rbac.conflict", null as null | { user: string; requested: string; existing: string; alternative: string; resolved?: string }),
+  ]);
+  res.json({ rbac: { ...rbacView(matrix, stored, capabilitiesOf(admin.adminRole).includes("rbac.edit")), conflict: conflictCase } });
+});
+
+const roleKey = z.enum(ROLE_ORDER as [AdminRoleKey, ...AdminRoleKey[]]);
+const matrixBody = z.object({
+  /** The version the editor started from; a save on top of someone else's newer save is refused. */
+  version: z.number().int().min(0),
+  pages: z.partialRecord(roleKey, z.array(z.enum(PAGE_ORDER as [PageKey, ...PageKey[]]))),
+  capabilities: z.record(z.string(), z.array(roleKey)),
+});
+
+/** Refuses a matrix that changes a locked cell (the grid never sends one; this guards the API). */
+function lockedChange(asked: Matrix, base: Matrix): string | null {
+  for (const r of ROLE_ORDER) {
+    for (const p of PAGE_ORDER) {
+      const lock = r === "super" ? SUPER_LOCK_REASON : PAGE_LOCKS[p]?.reason;
+      if (lock && asked.pages[r]?.includes(p) !== base.pages[r].includes(p)) return `Locked — ${lock}`;
+    }
+    for (const c of CAPABILITIES) {
+      const lock = r === "super" ? SUPER_LOCK_REASON : CAPABILITY_LOCKS[c.key]?.reason;
+      if (lock && (asked.capabilities[c.key] ?? []).includes(r) !== base.capabilities[c.key]!.includes(r)) return `Locked — ${lock}`;
+    }
+  }
+  return null;
+}
+
+governanceRouter.put("/rbac/matrix", async (req, res) => {
   requirePage(req, "rbac");
-  const conflictCase = await getSetting("rbac.conflict", null as null | { user: string; requested: string; existing: string; alternative: string; resolved?: string });
-  res.json({
-    rbac: {
-      roles: ["Super", "Finance", "Support", "Compliance"],
-      matrix: CAPABILITIES.map((c) => ({ key: c.key, grants: ROLE_ORDER.map((r) => c.roles.includes(r)) })),
-      conflict: conflictCase,
-    },
-  });
+  const admin = requireCapability(req, "rbac.edit", "Only a Super Admin can change access.");
+  const body = matrixBody.parse(req.body);
+  invalidateMatrix();
+  const { matrix: before, stored } = await loadMatrix();
+  if (body.version !== (stored?.version ?? 0)) throw conflict("Someone else changed access while you were editing. Reload to see the latest matrix.");
+  const asked: Matrix = {
+    pages: Object.fromEntries(ROLE_ORDER.map((r) => [r, body.pages[r] ?? before.pages[r]])) as Matrix["pages"],
+    capabilities: Object.fromEntries(CAPABILITIES.map((c) => [c.key, body.capabilities[c.key] ?? before.capabilities[c.key]!])),
+  };
+  const blocked = lockedChange(asked, normalise(before));
+  if (blocked) throw forbidden(blocked);
+  const next = normalise(asked);
+  const diff = matrixDiff(before, next);
+  if (!diff.length) throw badRequest("Nothing changed.");
+  const saved: StoredMatrix = { ...next, version: (stored?.version ?? 0) + 1, updatedAt: new Date().toISOString(), updatedBy: actorName(admin) };
+  await putSetting(MATRIX_SETTING, saved);
+  invalidateMatrix();
+  await audit(admin, "rbac.matrix.update", "rbac.matrix", diff.join("; "));
+  const fresh = await loadMatrix();
+  res.json({ rbac: rbacView(fresh.matrix, fresh.stored, true), changes: diff });
+});
+
+governanceRouter.post("/rbac/matrix/reset", async (req, res) => {
+  requirePage(req, "rbac");
+  const admin = requireCapability(req, "rbac.edit", "Only a Super Admin can change access.");
+  invalidateMatrix();
+  const { matrix: before } = await loadMatrix();
+  const diff = matrixDiff(before, defaultMatrix());
+  if (!diff.length) throw conflict("Access is already at the defaults.");
+  await db.setting.deleteMany({ where: { key: MATRIX_SETTING } });
+  invalidateMatrix();
+  await audit(admin, "rbac.matrix.reset", "rbac.matrix", diff.join("; "));
+  const fresh = await loadMatrix();
+  res.json({ rbac: rbacView(fresh.matrix, fresh.stored, true), changes: diff });
 });
 
 governanceRouter.post("/rbac/conflict/:action", async (req, res) => {
-  const admin = requirePage(req, "rbac");
+  requirePage(req, "rbac");
+  const admin = requireCapability(req, "rbac.edit", "Only a Super Admin can change access.");
   const action = z.enum(["revoke", "grant-alternative"]).parse(req.params.action);
   const c = await getSetting("rbac.conflict", null as null | { user: string; requested: string; existing: string; alternative: string; resolved?: string });
   if (!c || c.resolved) throw conflict("There is no open separation-of-duties conflict.");
@@ -187,14 +303,27 @@ const LANES: Record<string, (action: string, breakGlass: boolean) => boolean> = 
   "break-glass": (_a, bg) => bg,
   config: (a) => a.startsWith("config."),
   money: (a) => a.startsWith("payout.") || a.startsWith("dispute.") || a.startsWith("wallet."),
-  access: (a) => a.startsWith("rbac.") || a.startsWith("live.observer"),
+  access: (a) => a.startsWith("rbac.") || a.startsWith("staff.") || a.startsWith("live.observer"),
+};
+
+/**
+ * Sort orders for the audit list. The list is capped (latest 500 read, 200 shown), so the
+ * order is applied in the query: "Oldest" must reach the first entries, not reverse the newest.
+ * Ties fall back to time (newest first), then id, so the order is stable between loads.
+ */
+const AUDIT_SORTS: Record<string, Prisma.AuditLogOrderByWithRelationInput[]> = {
+  newest: [{ at: "desc" }, { id: "desc" }],
+  oldest: [{ at: "asc" }, { id: "asc" }],
+  actor: [{ actorName: "asc" }, { at: "desc" }, { id: "desc" }],
+  action: [{ action: "asc" }, { at: "desc" }, { id: "desc" }],
 };
 
 governanceRouter.get("/audit", async (req, res) => {
   requirePage(req, "audit");
   const lane = typeof req.query.lane === "string" && LANES[req.query.lane] ? req.query.lane : "all";
   const q = typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
-  const rows = await db.auditLog.findMany({ orderBy: { at: "desc" }, take: 500 });
+  const sort = typeof req.query.sort === "string" && AUDIT_SORTS[req.query.sort] ? req.query.sort : "newest";
+  const rows = await db.auditLog.findMany({ orderBy: AUDIT_SORTS[sort]!, take: 500 });
   res.json({
     entries: rows
       .filter((r) => LANES[lane]!(r.action, r.breakGlass))

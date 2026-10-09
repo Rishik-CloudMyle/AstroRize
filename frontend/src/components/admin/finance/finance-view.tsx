@@ -1,8 +1,10 @@
 "use client";
 
 import { useAction, useAdmin } from "@/components/admin/admin-provider";
+import SortSelect, { useUrlSort } from "@/components/admin/sort-select";
 import { PANEL, TD, TH } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
+import { BATCH_SORTS, sortRows } from "@/lib/admin/sort";
 import type { FinanceData, PayoutBatch } from "@/lib/admin/types";
 
 const HEADS: [string, "left" | "right"][] = [
@@ -19,6 +21,8 @@ const rupee = (n: number) => "₹" + n.toLocaleString("en-IN");
 export default function FinanceView({ data }: { data: FinanceData }) {
   const { session, say } = useAdmin();
   const { run } = useAction();
+  const [sort, setSort] = useUrlSort(BATCH_SORTS);
+  const batches = sortRows(data.batches, BATCH_SORTS, sort);
   const actor = session.actor;
   const denoms = data.enabledDenominations;
   const floor = data.floorMode;
@@ -57,9 +61,12 @@ export default function FinanceView({ data }: { data: FinanceData }) {
   return (
     <>
       <div className={`${PANEL} relative mt-4 p-5`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="m-0 text-[16px] font-bold">Payout batches · RazorpayX</h2>
-          <span className="text-[12px] text-[#78716c]">{data.cycle}</span>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="m-0 text-[16px] font-bold">Payout batches · RazorpayX</h2>
+            <span className="mt-1 block text-[12px] text-[#78716c]">{data.cycle}</span>
+          </div>
+          <SortSelect options={BATCH_SORTS} value={sort} onChange={setSort} />
         </div>
         <table className="mt-3.5 w-full border-collapse text-[13px]">
           <thead>
@@ -72,9 +79,10 @@ export default function FinanceView({ data }: { data: FinanceData }) {
             </tr>
           </thead>
           <tbody>
-            {data.batches.map((p) => {
+            {batches.map((p) => {
               const st = p.state;
-              const sameActor = st === "APPROVED" && p.approvedByName === actor;
+              // Same person, not same short name: a department can have several people.
+              const sameActor = st === "APPROVED" && p.approvedById === session.id;
               const [bg, fg] =
                 st === "RELEASED" ? ["#ecfdf5", "#047857"] : st === "APPROVED" ? ["#eff6ff", "#1d4ed8"] : ["#f7f4ee", "#57534e"];
               const action =
@@ -122,6 +130,9 @@ export default function FinanceView({ data }: { data: FinanceData }) {
             })}
           </tbody>
         </table>
+        {batches.length === 0 && (
+          <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">No payout batches yet.</p>
+        )}
       </div>
 
       <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] items-start gap-4">

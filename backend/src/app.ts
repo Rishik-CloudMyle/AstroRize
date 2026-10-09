@@ -9,6 +9,7 @@ import { adminRouter } from "./routes/admin/index.ts";
 import { authRouter } from "./routes/auth.ts";
 import { catalogRouter } from "./routes/catalog.ts";
 import { customerRouter } from "./routes/customer.ts";
+import { mediaRouter } from "./routes/media.ts";
 import { portalRouter } from "./routes/portal.ts";
 
 export function createApp() {
@@ -58,6 +59,7 @@ export function createApp() {
   app.use("/api", loadSession);
   app.use("/api/auth", authRouter);
   app.use("/api", catalogRouter);
+  app.use("/api/media", mediaRouter);
   app.use("/api/portal", portalRouter);
   app.use("/api/admin", adminRouter);
   app.use("/api", customerRouter);

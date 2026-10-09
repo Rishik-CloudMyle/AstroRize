@@ -3,6 +3,7 @@ import SupportView from "@/components/admin/support/support-view";
 import { PageTitle } from "@/components/admin/ui";
 import { allowed } from "@/lib/admin/guard";
 import { getSupport, getSupportCase } from "@/lib/admin/api";
+import { pickSort, sortRows, TICKET_SORTS } from "@/lib/admin/sort";
 
 export const metadata = { title: "Support & disputes" };
 
@@ -10,7 +11,11 @@ export default async function SupportPage({ searchParams }: PageProps<"/admin/su
   if (!(await allowed("support"))) return <AccessDenied />;
   const [data, sp] = await Promise.all([getSupport(), searchParams]);
   const asked = typeof sp.ticket === "string" ? sp.ticket : undefined;
-  const ticket = data.tickets.some((t) => t.id === asked) ? (asked as string) : data.tickets[0]?.id;
+  const sort = pickSort(TICKET_SORTS, sp.sort);
+  // With no ?ticket=, open the top ticket of the queue in the chosen order.
+  const ticket = data.tickets.some((t) => t.id === asked)
+    ? (asked as string)
+    : sortRows(data.tickets, TICKET_SORTS, sort)[0]?.id;
   const file = ticket ? await getSupportCase(ticket) : null;
 
   return (

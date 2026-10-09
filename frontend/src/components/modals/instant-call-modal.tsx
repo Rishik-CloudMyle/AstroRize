@@ -4,16 +4,27 @@ import { useState } from "react";
 import type { Astrologer } from "@/lib/types";
 import { ApiError, api } from "@/lib/api/client";
 import { instantMultiplier, rupee } from "@/lib/format";
+import { consultationActions, type ConsultationView } from "@/lib/consultation-store";
 import { useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 import Modal from "../ui/modal";
 
 /**
  * Instant Call confirmation. Shows the selected astrologer's real Instant Call
- * rate and multiplier (the prototype hard-coded ₹84 / ₹28 for everyone).
+ * rate and multiplier (the prototype hard-coded ₹84 / ₹28 for everyone). Confirming
+ * places the request; the customer then waits on the consult screen for the astrologer
+ * to accept and goes straight into the session.
  */
-export default function InstantCallModal({ astrologer, onClose }: { astrologer: Astrologer; onClose: () => void }) {
-  const { toast, openLogin } = useAppUI();
+export default function InstantCallModal({
+  astrologer,
+  onClose,
+  onPlaced,
+}: {
+  astrologer: Astrologer;
+  onClose: () => void;
+  onPlaced: (consultation: ConsultationView) => void;
+}) {
+  const { toast, openLogin, resumeConsult } = useAppUI();
   const session = useSession();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -28,12 +39,16 @@ export default function InstantCallModal({ astrologer, onClose }: { astrologer: 
     setBusy(true);
     setError("");
     try {
-      const res = await api.post<{ ref: string; rate: number; message: string }>("/instant-calls", {
-        astrologerId: astrologer.id,
-      });
-      onClose();
-      toast(res.message);
+      const res = await api.post<{ consultation: ConsultationView }>("/instant-calls", { astrologerId: astrologer.id });
+      onPlaced(res.consultation);
     } catch (e) {
+      if (e instanceof ApiError && e.code === "consultation_in_progress") {
+        // Another tab started one: take the customer back to it instead.
+        await consultationActions.refresh();
+        toast(e.message);
+        resumeConsult();
+        return;
+      }
       setError(e instanceof ApiError ? e.message : "Something went wrong. Check your connection and try again.");
       setBusy(false);
     }
@@ -56,13 +71,13 @@ export default function InstantCallModal({ astrologer, onClose }: { astrologer: 
           </span>
         </div>
         <div className="mt-2 text-[13px] text-stone-600">
-          Standard rate {rupee(astrologer.price)}/min. Instant Call is first-come, first-served — there is no queue, no
-          waitlist and no hold.
+          Standard rate {rupee(astrologer.price)}/min. {astrologer.name} is asked straight away and has 3 minutes to
+          accept — you go into the call as soon as they do.
         </div>
       </div>
       <div className="mt-3.5 text-[12.5px] leading-normal text-stone-500">
-        If the astrologer is busy you are not charged and nothing is reserved. Billing starts only once the call
-        connects; the first 60 seconds are free.
+        If the astrologer declines or doesn&apos;t answer in time you are not charged and nothing is reserved. Billing
+        starts only once the call connects; the first 60 seconds are free.
       </div>
       {error && (
         <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">
@@ -83,7 +98,7 @@ export default function InstantCallModal({ astrologer, onClose }: { astrologer: 
           disabled={busy}
           className="h-12 rounded-xl bg-urgent px-2 text-[14.5px] font-bold text-white disabled:opacity-70"
         >
-          Confirm {rate}
+          {busy ? "Placing the call…" : `Confirm ${rate}`}
         </button>
       </div>
     </Modal>

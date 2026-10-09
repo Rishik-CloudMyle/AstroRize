@@ -1,7 +1,7 @@
 // Shared types for the admin console. lib/admin/api.ts turns the Node API's answers
 // into these view shapes (adding the prototype's colours), so the pages stay presentational.
 
-export type Role = "super" | "finance" | "support" | "compliance";
+export type Role = "super" | "finance" | "support" | "compliance" | "marketing";
 
 /** One key per console page; CAPS decides which keys a role may open. */
 export type PageKey =
@@ -15,18 +15,23 @@ export type PageKey =
   | "trust"
   | "rbac"
   | "audit"
-  | "recording";
+  | "recording"
+  | "team";
 
 export type Environment = "production" | "staging" | "sandbox";
 
 export interface AdminSession {
+  /** User id. Separation-of-duties checks compare ids: several people can share a department and a short name. */
+  id: string;
   name: string;
   initials: string;
   /** Short name written into audit entries and toasts, e.g. "K. Prasad". */
   actor: string;
   role: Role;
-  /** Pages this role may open (the API's PAGES table). */
+  /** Pages this department may open (the API's access matrix: defaults + the Super Admin's changes). */
   pages: PageKey[];
+  /** Capabilities this department has, e.g. "campaign.approve" (same matrix). */
+  capabilities: string[];
   /** Open-work counts for the nav badges. */
   counts: Partial<Record<PageKey, number>>;
 }
@@ -71,7 +76,11 @@ export interface TrendCard {
   title: string;
   window: string;
   headline: string;
+  /** What the headline is, e.g. "in 30 days". */
+  headlineNote?: string;
   delta: string;
+  /** Colour of the delta: up is good for every series on the overview. */
+  deltaTone?: "up" | "down" | "flat";
   color: string;
   ariaLabel: string;
   points: SeriesPoint[];
@@ -80,10 +89,14 @@ export interface TrendCard {
 }
 
 export interface ChannelDay {
+  /** Short label, e.g. "08". */
   day: string;
+  /** Full label for the read-out and table, e.g. "Thu 8 Oct". */
+  date: string;
   chat: number;
   voice: number;
   video: number;
+  instant: number;
 }
 
 export interface AvailabilitySlice {
@@ -113,13 +126,24 @@ export interface RecentAction {
   breakGlass: boolean;
 }
 
+export interface TopAstrologer {
+  id: string;
+  name: string;
+  consultations: number;
+  revenue: number;
+}
+
 export interface OverviewData {
   dateLine: string;
+  /** ISO time the API computed these numbers. */
+  generatedAt: string;
   kpis: Kpi[];
+  /** Last 7 days against the 7 days before, from the database. */
+  weekKpis: Kpi[];
   live: LiveStat[];
-  dau: TrendCard;
-  stickiness: TrendCard;
+  trends: { card: TrendCard; id: string }[];
   channels: ChannelDay[];
+  top: TopAstrologer[];
   availability: AvailabilitySlice[];
   registered: number;
   trialBalance: { title: string; body: string } | null;
@@ -129,16 +153,7 @@ export interface OverviewData {
 
 // ── Config ──
 export type ConfigDomain =
-  | "finance"
-  | "consult"
-  | "live"
-  | "compliance"
-  | "support"
-  | "trust"
-  | "marketing"
-  | "hr"
-  | "recording"
-  | "rbac";
+  "finance" | "consult" | "live" | "compliance" | "support" | "trust" | "marketing" | "hr" | "recording" | "rbac";
 
 export interface ConfigKey {
   key: string;
@@ -151,6 +166,13 @@ export interface ConfigKey {
   dryRun: string;
   domain: ConfigDomain;
   version: number;
+  /** The bounds parsed by the API; null when the key's range is malformed (it can't be drafted). */
+  range: { min: number; max: number; integer: boolean; decimals: number } | null;
+  /** A change to this key is waiting for a second approver. */
+  pending: boolean;
+  /** When the live value last changed: "2 Aug 2026", and the ISO timestamp for sorting. */
+  changed: string;
+  changedAt: string;
 }
 
 export interface ConfigData {
@@ -163,7 +185,13 @@ export interface ConfigDetail {
   key: string;
   version: number;
   since: string;
-  pending: { id: string; toValue: string; draftedBy: string; effective: string | null } | null;
+  pending: {
+    id: string;
+    toValue: string;
+    draftedBy: string;
+    draftedById: string | null;
+    effective: string | null;
+  } | null;
   history: { version: number | null; value: string; draftedBy: string; approvedBy: string; when: string }[];
 }
 
@@ -177,8 +205,12 @@ export interface Application {
   state: ApplicationState;
   age: string;
   breach: boolean;
+  /** ISO timestamp, for sorting. */
+  submittedAt: string;
   /** Record version; every action quotes it so a stale screen can't overwrite a newer change. */
   version: number;
+  /** Sent by the astrologer from the portal: stages show on their account and it can be activated. */
+  fromPortal: boolean;
 }
 
 export interface NegotiationRow {
@@ -199,6 +231,102 @@ export interface LifecycleData {
     maxRounds: number;
   } | null;
   pricing: { effective: string; mode: string; version: string };
+}
+
+/** Lifecycle stage keys of an astrologer account (the Astrologer model's `lifecycle`). */
+export type AstrologerStage =
+  "draft" | "review" | "interview" | "docs" | "negotiation" | "pricing" | "training" | "active" | "rejected";
+
+/** One astrologer on the platform, from GET /admin/lifecycle/astrologers. */
+export interface LifecycleAstrologer {
+  id: string;
+  slug: string;
+  name: string;
+  initials: string;
+  photo: string;
+  skills: string[];
+  lifecycle: AstrologerStage | string;
+  /** none | partial | full */
+  suspension: string;
+  online: boolean;
+  consults: number;
+  rating: number | null;
+  /** "8 Oct 2026" */
+  joined: string;
+  /** ISO timestamp, for sorting. */
+  joinedAt: string;
+}
+
+/** One astrologer's full record (GET /admin/lifecycle/astrologers/:id). */
+export interface AstrologerDetail {
+  id: string;
+  slug: string;
+  name: string;
+  photo: string;
+  gender: string | null;
+  greeting: string;
+  about: string;
+  recognition: string;
+  lifecycle: string;
+  suspension: string;
+  /** on | busy | live | off */
+  presence: string;
+  skills: string[];
+  languages: string[];
+  years: number;
+  joined: string;
+  consults: number;
+  rating: number | null;
+  ratings: number;
+  reviews: number;
+  price: { chat: string; voice: string; video: string; instant: string; multiplier: number; was: string | null };
+  month: { consultations: number; minutes: number; billed: string };
+  lastConsultation: string | null;
+  contact: { email: string | null; phone: string | null; lastSignIn: string | null } | null;
+  live: { isLive: boolean; topic: string } | null;
+  training: { done: number; total: number } | null;
+  application: { step: number; savedAt: string } | null;
+  openNotices: number;
+}
+
+/** One application with its negotiation and audit trail (GET /admin/applicants/:id). */
+export interface ApplicationDetail extends Application {
+  submitted: string;
+  slaDays: number;
+  negotiation: { round: number; maxRounds: number; rows: NegotiationRow[] } | null;
+  history: { when: string; action: string; who: string; diff: string }[];
+  /** What the astrologer filled in on the portal; null for applications entered by HR. */
+  portal: {
+    astrologerId: string;
+    answers: { label: string; value: string }[];
+    /** The voice (else chat) rate they asked for, ₹/min */
+    requestedRate: number | null;
+    /** Allowed per-minute rate on approval, whole rupees */
+    rateLimits: { min: number; max: number };
+  } | null;
+}
+
+// ── Team (staff) ──
+export interface StaffMember {
+  id: string;
+  name: string;
+  initials: string;
+  email: string | null;
+  actorName: string;
+  active: boolean;
+  /** "8 Oct 11:43:19" IST, or null when they have never signed in. */
+  lastLogin: string | null;
+  /** ISO timestamps, for sorting. */
+  lastLoginAt: string | null;
+  added: string;
+  addedAt: string;
+  isYou: boolean;
+}
+
+export interface StaffDepartment {
+  role: Role;
+  label: string;
+  people: StaffMember[];
 }
 
 // ── Marketing ──
@@ -240,12 +368,17 @@ export interface PayoutBatch {
   id: string;
   astrologers: number;
   gross: string;
+  /** Gross in rupees and the batch's ISO creation time, for sorting. */
+  grossValue: number;
+  createdAt: string;
   tds: string;
   state: BatchState;
   /** Role that approved the batch, if any. */
   approvedBy?: Role;
   /** Short name of the approver, e.g. "K. Prasad". */
   approvedByName: string | null;
+  /** User id of the approver; the releaser must be a different person. */
+  approvedById: string | null;
 }
 
 export interface FinanceData {
@@ -267,6 +400,9 @@ export interface Ticket {
   sla: string;
   slaBg: string;
   slaFg: string;
+  /** ISO timestamps, for sorting. */
+  slaDueAt: string;
+  createdAt: string;
   alias: string;
   session: string;
   refundState: "NONE" | "PROPOSED" | "INITIATED";
@@ -288,6 +424,8 @@ export interface SupportCase {
   state: string;
   refundState: "NONE" | "PROPOSED" | "INITIATED";
   proposedBy: string | null;
+  /** User id of the proposer (null for older data); the approver must be a different person. */
+  proposedById: string | null;
   approvedBy: string | null;
   metering: { label: string; value: string }[];
   evidence: Evidence[];
@@ -349,9 +487,25 @@ export interface TrustData {
 }
 
 // ── RBAC ──
+export interface RbacCell {
+  on: boolean;
+  /** Locked cells never change (the Super Admin column and the platform rules). */
+  locked: boolean;
+  reason: string | null;
+  isDefault: boolean;
+}
+
 export interface RbacData {
-  roles: string[];
-  matrix: { key: string; grants: boolean[] }[];
+  roles: { key: Role; label: string }[];
+  pages: { key: PageKey; label: string; cells: RbacCell[] }[];
+  capabilities: { key: string; label: string; page: PageKey | null; cells: RbacCell[] }[];
+  separationOfDuties: string[];
+  /** 0 = the defaults have never been changed. */
+  version: number;
+  customised: boolean;
+  updatedBy: string | null;
+  updatedAt: string | null;
+  canEdit: boolean;
   /** Open (or just resolved) separation-of-duties case; null when there is none. */
   conflict: {
     user: string;

@@ -8,6 +8,7 @@ import { rupee, signedRupee } from "@/lib/format";
 import { DATA_RIGHTS } from "@/lib/mock/wallet";
 import { sessionActions, totalBalance, useHydrated, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
+import ProfileSection from "./profile-section";
 
 interface Denomination {
   amount: number;
@@ -221,6 +222,9 @@ function SignedInWallet() {
             </table>
           </div>
         </div>
+
+        {/* ---------- Profile (shared only with an astrologer whose live queue the customer joins) ---------- */}
+        <ProfileSection />
 
         {/* ---------- Data rights ---------- */}
         <div className="relative rounded-[22px] border border-line bg-paper p-4 sm:p-[22px]">

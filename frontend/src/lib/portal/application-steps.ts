@@ -5,8 +5,9 @@ import type { ApplicationKnown, WizardStep } from "./types";
 // the values come from what the platform already knows about the astrologer
 // (GET /portal/application → known) with the astrologer's saved edits on top.
 //
-// Steps 5, 8, 10 and 12 show upload / verification status. There is no file-upload
-// API yet, so those rows are still the prototype's sample status until it exists.
+// Steps 5, 8 and 10 are file uploads. There is no file-upload API yet, so those steps say HR
+// collects the files during review instead of showing sample files. What must be filled before
+// the application can be submitted is decided by the API (backend/src/lib/application.ts).
 
 /** "+91 98765 43242" from a 10-digit mobile number. */
 function phoneLabel(phone: string | null): string {
@@ -83,12 +84,8 @@ export function buildWizardSteps(known: ApplicationKnown): WizardStep[] {
       title: "Certifications",
       blurb: "PDF, JPG or PNG. Each file is scanned for safety before it is attached to your application.",
       typable: false,
-      fields: [
-        { label: "jyotish-visharad.pdf", value: "1.2 MB", chip: "Scanned ✓" },
-        { label: "nadi-workshop.jpg", value: "3.8 MB", chip: "Uploading" },
-        { label: "scan-old.pdf", value: "18 MB", chip: "Rejected", error: true },
-      ],
-      note: "scan-old.pdf was rejected because it is larger than the 10 MB limit. Please upload a smaller file.",
+      fields: [{ label: "Certificates", value: "HR collects these during review", chip: "Later" }],
+      note: "Uploading files here isn't available yet. HR will ask you for your certificates while reviewing your application.",
     },
     {
       short: "Skills",
@@ -115,12 +112,8 @@ export function buildWizardSteps(known: ApplicationKnown): WizardStep[] {
       title: "KYC documents",
       blurb: "Choose your document type. Status badges update as verification progresses.",
       typable: false,
-      fields: [
-        { label: "Document type", value: "Aadhaar" },
-        { label: "aadhaar-front.jpg", value: "Uploaded 12:32", chip: "Verified" },
-        { label: "pan-card.jpg", value: "Uploaded 12:33", chip: "Pending" },
-      ],
-      note: "If a document is rejected, we tell you exactly what was wrong and you can resubmit it right here.",
+      fields: [{ label: "KYC documents (Aadhaar, PAN)", value: "HR collects these during review", chip: "Later" }],
+      note: "Uploading documents here isn't available yet. HR will ask you for your KYC documents while reviewing your application.",
     },
     {
       short: "Bio",
@@ -140,11 +133,10 @@ export function buildWizardSteps(known: ApplicationKnown): WizardStep[] {
       blurb: "Primary photo goes through a cropper. Intro video must run 60–90 seconds.",
       typable: false,
       fields: [
-        { label: "Primary photo", value: "Cropped 1:1", chip: "Scanned ✓" },
-        { label: "Gallery", value: "5 of 12 images" },
-        { label: "Intro video", value: "1:16", chip: "Within 60–90 s" },
+        { label: "Primary photo", value: "HR collects this during review", chip: "Later" },
+        { label: "Intro video", value: "HR collects this during review", chip: "Later" },
       ],
-      note: "Each file shows its own upload and safety-scan progress, so you can see straight away if an upload stalls.",
+      note: "Uploading photos and videos here isn't available yet. HR will ask you for them while reviewing your application.",
     },
     {
       short: "Pricing",
@@ -163,23 +155,24 @@ export function buildWizardSteps(known: ApplicationKnown): WizardStep[] {
       short: "Readiness",
       title: "Readiness declaration",
       blurb: "Self-declaration about your equipment and connection. Every box must be ticked to submit.",
-      typable: false,
+      typable: true,
       fields: [
-        { label: "Quiet room, no interruptions", value: "Confirmed", chip: "✓" },
-        { label: "Headset with microphone", value: "Confirmed", chip: "✓" },
-        { label: "Broadband ≥ 5 Mbps up", value: "Confirmed", chip: "✓" },
-        { label: "Backup connection", value: "Not confirmed", chip: "Required", error: true },
+        { label: "Quiet room, no interruptions", value: "", check: true },
+        { label: "Headset with microphone", value: "", check: true },
+        { label: "Broadband ≥ 5 Mbps up", value: "", check: true },
+        { label: "Backup connection", value: "", check: true },
       ],
       note: "You can submit once every declaration is ticked — if one is missing, we tell you which.",
     },
     {
       short: "Review",
       title: "Review & submit",
-      blurb: "A read-only summary of all twelve steps. Confirm accuracy, then submit.",
-      typable: false,
+      blurb: "Check that every step is complete, confirm your details are accurate, then submit.",
+      typable: true,
       fields: [
-        { label: "Steps complete", value: "12 of 12", chip: "Ready" },
-        { label: "Accuracy confirmation", value: "I confirm these details are accurate", chip: "Ticked" },
+        // Filled in by the wizard from what the API says is still missing.
+        { label: "Steps complete", value: "", readOnly: true },
+        { label: "Accuracy confirmation", value: "", check: true },
       ],
       note: "Once you submit, your application goes to our team for review and the banner at the top of the portal updates straight away.",
     },

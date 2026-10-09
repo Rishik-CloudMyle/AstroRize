@@ -165,7 +165,9 @@ export default function DashboardView({ data }: { data: Dashboard }) {
           <div className="flex items-center justify-between rounded-[14px] border border-orange-200 bg-orange-50 px-3.5 py-3">
             <div>
               <div className="text-xs font-semibold text-orange-800">Current rate</div>
-              <b className="text-[20px] text-orange-700 tabular-nums">{rupee(instantRate(me.price, mult))}/min</b>
+              <b className="text-[20px] text-orange-700 tabular-nums">
+                {me.price > 0 ? `${rupee(instantRate(me.price, mult))}/min` : "Not set yet"}
+              </b>
             </div>
             <div className="text-right">
               <div className="text-xs font-semibold text-orange-800">Multiplier</div>

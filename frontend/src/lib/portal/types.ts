@@ -39,6 +39,12 @@ export type SuspensionScope = "none" | "partial" | "full";
 export interface AccountStatus {
   lifecycle: LifecycleKey;
   suspension: SuspensionScope;
+  /** "8 Oct 2026": when the application first went to HR (null while it is a draft) */
+  submittedOn?: string | null;
+  /** HR's latest note: what they need (docs) or why it was not approved (rejected) */
+  note?: string | null;
+  /** Days HR aims to review an application in */
+  reviewDays?: number;
 }
 
 export interface LifecycleStage {
@@ -125,6 +131,8 @@ export interface WizardField {
   readOnly?: boolean;
   /** Hint shown in an empty typable field */
   placeholder?: string;
+  /** A declaration ticked with a checkbox (value "yes" when ticked) instead of typed */
+  check?: boolean;
 }
 
 export interface WizardStep {
@@ -155,6 +163,20 @@ export interface ApplicationDraft {
   values: Record<string, string>;
   lastSaved: string;
   known: ApplicationKnown;
+  /** What still stops the application going to HR (empty = ready to submit) */
+  missing: ApplicationMissing[];
+  /** False once it is with HR (it opens again only when HR asks for more information) */
+  editable: boolean;
+  /** "8 Oct 2026", or null while it is a draft */
+  submittedOn: string | null;
+  /** HR's latest note (what they need, or why it was not approved) */
+  note: string | null;
+}
+
+export interface ApplicationMissing {
+  /** 0-based wizard step */
+  step: number;
+  label: string;
 }
 
 // ── Availability ──
@@ -184,9 +206,16 @@ export interface Availability {
 }
 
 // ── Consultations ──
+/** A customer's profile summary on a consultation request. Null when the request has no linked profile. */
+export interface ConsultCustomer extends LiveQueueSummary {
+  gender: string | null;
+  city: string | null;
+}
+
 export interface IncomingRequest {
   id: string;
   alias: string;
+  /** "Chat" | "Voice" | "Video" | "Instant Call" */
   mode: string;
   /** Instant Call / Emergency request (charged at the multiplier rate) */
   instant: boolean;
@@ -194,21 +223,29 @@ export interface IncomingRequest {
   remainingSecs: number;
   /** Per-minute rate snapshotted when the customer asked (₹) */
   rate: number;
+  profile: ConsultCustomer | null;
 }
 
 export interface QueueEntry {
   id: string;
   alias: string;
   mode: string;
+  instant: boolean;
+  rate: number;
+  /** "12 min", or "under a minute" */
   waiting: string;
+  profile: ConsultCustomer | null;
 }
 
 export interface ActiveSession {
   id: string;
   alias: string;
+  mode: string;
+  instant: boolean;
   elapsed: string;
   elapsedSeconds: number;
   lowBalance: boolean;
+  profile: ConsultCustomer | null;
 }
 
 export interface Consultations {
@@ -216,6 +253,18 @@ export interface Consultations {
   queue: QueueEntry[];
   queueMax: number;
   session: ActiveSession | null;
+}
+
+/** GET /portal/consultations/:id/profile — everything the customer shared. */
+export interface ConsultPersonDetail {
+  id: string;
+  alias: string;
+  mode: string;
+  instant: boolean;
+  rate: number;
+  status: "waiting" | "active";
+  waiting: string;
+  profile: LiveQueueProfile | null;
 }
 
 /** POST /portal/consultations/:id/end */
@@ -249,6 +298,59 @@ export interface LiveRoom {
   pollOptions: string[];
   /** Consults from the room are charged at the standard rate (₹/min) */
   rate: number;
+  /** Newest first. */
+  announcements: LiveAnnouncement[];
+  /** Everyone waiting, oldest first. */
+  queue: LiveQueuePerson[];
+}
+
+export interface LiveAnnouncement {
+  id: string;
+  text: string;
+  /** "09:38" IST */
+  at: string;
+  /** "8 Oct" */
+  date: string;
+}
+
+/** A queued customer's profile summary. Null when the person hasn't shared a profile. */
+export interface LiveQueueSummary {
+  name: string;
+  initials: string;
+  photoUrl: string | null;
+  age: number | null;
+}
+
+export interface LiveQueuePerson {
+  id: string;
+  alias: string;
+  mode: "private" | "public";
+  /** "12 min" */
+  waiting: string;
+  profile: LiveQueueSummary | null;
+}
+
+/** "See more": everything the customer shared. Null fields were not shared. */
+export interface LiveQueueProfile extends LiveQueueSummary {
+  firstName: string | null;
+  lastName: string | null;
+  gender: string | null;
+  /** "14 May 1994" */
+  birthDate: string | null;
+  /** "06:42" (24-hour) */
+  birthTime: string | null;
+  birthPlace: string | null;
+  city: string | null;
+  state: string | null;
+}
+
+export interface LiveQueueDetail {
+  id: string;
+  alias: string;
+  mode: "private" | "public";
+  status: "waiting" | "accepted";
+  waiting: string;
+  profile: LiveQueueProfile | null;
 }
 
 // ── Messages ──
@@ -294,7 +396,8 @@ export interface ProfileData {
   pendingChanges: number;
   skillPool: string[];
   videoRenewalDays: number;
-  publicProfileUrl: string;
+  /** null until the astrologer is approved and listed on the site. */
+  publicProfileUrl: string | null;
   published: { bio: string; skills: string[] };
   /** The latest submission waiting for moderation, if any */
   draft: { bio: string; skills: string[] } | null;

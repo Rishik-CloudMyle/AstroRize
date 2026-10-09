@@ -218,10 +218,59 @@
   }
 }
 
+/* Home sky: each orbit layer turns once per its own --period. */
+@keyframes azOrbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes azTwinkle {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes azSunLight {
+  0%,
+  100% {
+    box-shadow:
+      0 0 30px 8px rgba(251, 191, 36, 0.55),
+      0 0 80px 24px rgba(245, 158, 11, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 44px 14px rgba(251, 191, 36, 0.7),
+      0 0 110px 36px rgba(245, 158, 11, 0.32);
+  }
+}
+
 /* ---- Reusable effect classes from the prototype ---- */
 @layer components {
   .az-rise {
     animation: azRise 0.68s cubic-bezier(0.2, 0.75, 0.25, 1) both;
+  }
+  /* Home sky: one turn per --period, anticlockwise (planets) or clockwise (Rahu, Ketu). */
+  .az-sky-ccw {
+    animation: azOrbit var(--period, 20s) linear infinite reverse;
+  }
+  .az-sky-cw {
+    animation: azOrbit var(--period, 20s) linear infinite;
+  }
+  .az-sky[data-paused="true"] .az-sky-ccw,
+  .az-sky[data-paused="true"] .az-sky-cw {
+    animation-play-state: paused;
+  }
+  .az-twinkle {
+    animation: azTwinkle 3s ease-in-out infinite;
+  }
+  .az-sun-light {
+    animation: azSunLight 5s ease-in-out infinite;
+    box-shadow:
+      0 0 30px 8px rgba(251, 191, 36, 0.55),
+      0 0 80px 24px rgba(245, 158, 11, 0.25);
   }
   .az-d1 {
     animation-delay: 0.06s;
@@ -427,5 +476,19 @@
   .az-rise {
     opacity: 1;
     transform: none;
+  }
+  /* The client wants the home sky to keep revolving; it has its own Pause button (WCAG 2.2.2). */
+  .az-sky .az-sky-ccw {
+    animation: azOrbit var(--period, 20s) linear infinite reverse !important;
+  }
+  .az-sky .az-sky-cw {
+    animation: azOrbit var(--period, 20s) linear infinite !important;
+  }
+  .az-sky .az-sun-light {
+    animation: azSunLight 5s ease-in-out infinite !important;
+  }
+  .az-sky[data-paused="true"] .az-sky-ccw,
+  .az-sky[data-paused="true"] .az-sky-cw {
+    animation-play-state: paused !important;
   }
 }

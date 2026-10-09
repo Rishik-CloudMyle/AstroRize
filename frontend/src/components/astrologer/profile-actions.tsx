@@ -2,13 +2,19 @@
 
 import type { Astrologer } from "@/lib/types";
 import { rupee } from "@/lib/format";
+import { useOpenConsultation } from "@/lib/consultation-store";
 import { useAppUI } from "../app-provider";
+import { ConsultFrozenNote, FROZEN_HINT } from "../consult/consult-lock";
 import { DiscountBadge, WasPrice, priceNote } from "./parts";
 
 /** Sticky price card with the consult buttons, and the share box, on the profile page. */
 export default function ProfileActions({ astrologer: a }: { astrologer: Astrologer }) {
   const { startConsult, openInstantCall, toast } = useAppUI();
   const offline = a.availability === "off";
+  // One consultation at a time: while one is open, every way to start another is frozen.
+  const open = useOpenConsultation();
+  const frozen = !!open;
+  const frozenTitle = frozen ? FROZEN_HINT : undefined;
   const shareText = `astrorize.com/astrologer/${a.slug}`;
 
   async function copyLink() {
@@ -32,35 +38,47 @@ export default function ProfileActions({ astrologer: a }: { astrologer: Astrolog
           <DiscountBadge astrologer={a} className="h-[22px] px-[9px] text-[10.5px]" />
           <span className="text-[11.5px] text-mauve">{priceNote(a)}</span>
         </div>
+        {open && (
+          <div className="mt-4">
+            <ConsultFrozenNote open={open} astrologerId={a.id} />
+          </div>
+        )}
         <div className="mt-4 flex flex-col gap-2">
           <button
             type="button"
+            disabled={frozen}
+            title={frozenTitle}
             onClick={() => startConsult({ astrologer: a })}
-            className="az-cta h-12 rounded-full text-[15px] font-bold shadow-[0_6px_16px_rgba(255,140,26,.28)]"
+            className={`h-12 rounded-full text-[15px] font-bold ${frozen ? "cursor-not-allowed bg-stone-200 text-stone-500" : "az-cta shadow-[0_6px_16px_rgba(255,140,26,.28)]"}`}
           >
-            Consult now
+            {frozen ? "🔒 Consultation in progress" : "Consult now"}
           </button>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
+              disabled={frozen}
+              title={frozenTitle}
               onClick={() => startConsult({ astrologer: a, mode: "chat" })}
-              className="h-[42px] rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink"
+              className="h-[42px] rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink disabled:cursor-not-allowed disabled:opacity-45"
             >
               💬 Chat
             </button>
             <button
               type="button"
+              disabled={frozen}
+              title={frozenTitle}
               onClick={() => startConsult({ astrologer: a, mode: "voice" })}
-              className="h-[42px] rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink"
+              className="h-[42px] rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink disabled:cursor-not-allowed disabled:opacity-45"
             >
               📞 Voice
             </button>
           </div>
           <button
             type="button"
-            disabled={offline}
+            disabled={offline || frozen}
+            title={frozenTitle}
             onClick={() => openInstantCall(a)}
-            className="flex h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 text-[13.5px] font-bold text-blue-700 disabled:opacity-55"
+            className="flex h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 text-[13.5px] font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
           >
             ⚡ Instant Call · {offline ? "offline" : `${rupee(a.instant)}/min`}
           </button>

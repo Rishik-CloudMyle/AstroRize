@@ -68,7 +68,6 @@ export default async function MarketingPage() {
       </div>
 
       <div className={`${PANEL} mt-4 p-[18px]`}>
-        <h2 className="mt-0 mb-3.5 text-[16px] font-bold">Wallet campaigns</h2>
         <CampaignsTable campaigns={data.campaigns} />
       </div>
 

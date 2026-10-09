@@ -2,12 +2,14 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api/client";
 import { rupee } from "@/lib/portal/format";
 import type { LiveRequest, LiveRoom } from "@/lib/portal/types";
 import { useErrorToast, usePortalState, useToast } from "../portal-provider";
 import { PageHeader, Panel } from "../ui";
+import LiveAnnouncements from "./live-announcements";
+import LiveQueuePeople from "./live-queue-people";
 
 const MOD_ACTIONS = ["Mute 5m", "Mute 15m", "Mute 60m", "Block from room", "Delete message"];
 
@@ -18,6 +20,8 @@ function modMessage(label: string): string {
 }
 
 const MAX_POLL_OPTIONS = 6;
+/** How often the console re-reads the queue and announcements while open. */
+const REFRESH_MS = 15_000;
 
 export default function LiveView({ data }: { data: LiveRoom | null }) {
   if (!data) {
@@ -47,6 +51,14 @@ function LiveConsole({ data }: { data: LiveRoom }) {
   const [question, setQuestion] = useState(data.pollQuestion);
   const [options, setOptions] = useState(data.pollOptions.length ? data.pollOptions : ["", ""]);
   const rate = `${rupee(data.rate)}/min`;
+
+  // Keep the queue (and how long people have waited) current while the console is open.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!document.hidden) router.refresh();
+    }, REFRESH_MS);
+    return () => clearInterval(id);
+  }, [router]);
 
   const run = async (action: () => Promise<void>) => {
     if (busy) return;
@@ -171,6 +183,10 @@ function LiveConsole({ data }: { data: LiveRoom }) {
               Consults started from this room are charged at your standard rate — the same rate customers see on your profile.
             </p>
           </Panel>
+
+          <div className="mt-4">
+            <LiveQueuePeople queue={data.queue} />
+          </div>
         </div>
 
         <div className="flex flex-col gap-4">
@@ -219,6 +235,8 @@ function LiveConsole({ data }: { data: LiveRoom }) {
             </div>
             <p className="mt-2.5 text-[11.5px] text-stone-500">One active consult at a time.</p>
           </Panel>
+
+          <LiveAnnouncements announcements={data.announcements} />
 
           <Panel className="p-[18px]">
             <h2 className="m-0 mb-3 text-[15px] font-bold">Moderation</h2>

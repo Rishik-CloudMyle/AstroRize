@@ -28,7 +28,7 @@ export async function loadSession(req: Request, _res: Response, next: NextFuncti
   const claims = await verifySession(req.cookies?.[SESSION_COOKIE]);
   if (claims) {
     const session = await db.session.findUnique({ where: { id: claims.sid }, include: { user: true } });
-    if (session && !session.revokedAt && session.expiresAt > new Date() && session.userId === claims.sub) {
+    if (session && !session.revokedAt && session.expiresAt > new Date() && session.userId === claims.sub && session.user.active) {
       req.auth = {
         user: session.user,
         sessionId: session.id,

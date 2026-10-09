@@ -1,35 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api/client";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import type { LiveStat } from "@/lib/admin/types";
 
 const POLL_MS = 30000;
 
+/** "16:42:05" in IST. */
+function istClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "Asia/Kolkata",
+  });
+}
+
 /**
- * "Live right now" strip: re-reads the counters from the overview API every 30 s and says how
- * fresh they are. (The API has no dedicated live feed yet; a lighter endpoint can replace this.)
+ * "Live right now" strip. Every 30 s it re-renders the overview on the server, so these tiles,
+ * the KPIs and the charts all come back fresh from the database; "Updated" is the time the API
+ * computed them. Paused while the tab is hidden.
  */
-export default function LiveNow({ initial }: { initial: LiveStat[] }) {
-  const [stats, setStats] = useState(initial);
-  const [ago, setAgo] = useState(0);
+export default function LiveNow({ stats, generatedAt }: { stats: LiveStat[]; generatedAt: string }) {
+  const router = useRouter();
 
   useEffect(() => {
-    const poll = setInterval(async () => {
-      try {
-        const { overview } = await api.get<{ overview: { metrics: { live: LiveStat[] } } }>("/admin/overview");
-        setStats(overview.metrics.live);
-        setAgo(0);
-      } catch {
-        // Keep the last counters; the "updated Xs ago" label shows they are getting stale.
-      }
+    const poll = setInterval(() => {
+      if (!document.hidden) router.refresh();
     }, POLL_MS);
-    const tick = setInterval(() => setAgo((s) => s + 1), 1000);
-    return () => {
-      clearInterval(poll);
-      clearInterval(tick);
-    };
-  }, []);
+    return () => clearInterval(poll);
+  }, [router]);
 
   return (
     <>
@@ -40,10 +40,10 @@ export default function LiveNow({ initial }: { initial: LiveStat[] }) {
           Live
         </span>
         <span className="text-[11.5px] font-semibold text-mauve" aria-live="off">
-          {ago === 0 ? "updated just now" : `updated ${ago}s ago`}
+          Updated <time dateTime={generatedAt}>{istClock(generatedAt)} IST</time> · refreshes every 30 s
         </span>
       </div>
-      <div className="mt-2.5 grid grid-cols-[repeat(auto-fit,minmax(168px,1fr))] gap-3">
+      <div className="mt-2.5 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
         {stats.map((s) => (
           <div key={s.label} className="az-panel min-w-0 rounded-[14px] border border-line px-[15px] py-[13px]">
             <div className="text-[10px] font-extrabold tracking-[.09em] text-mauve uppercase">

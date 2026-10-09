@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { useAdmin } from "@/components/admin/admin-provider";
+import SortSelect, { useUrlSort } from "@/components/admin/sort-select";
 import { PANEL, TD, TH } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
+import { AUDIT_SORTS } from "@/lib/admin/sort";
 import type { AuditEntry } from "@/lib/admin/types";
 
 type Lane = "all" | "break-glass";
@@ -15,21 +17,26 @@ const LANES: readonly (readonly [Lane, string])[] = [
 
 const HEADS = ["Timestamp (IST)", "Actor", "Action", "Object", "Before → after", "Correlation"];
 
-export default function AuditView({ entries }: { entries: AuditEntry[] }) {
+export default function AuditView({ entries, initialSort }: { entries: AuditEntry[]; initialSort: string }) {
   const { say } = useAdmin();
   const [lane, setLane] = useState<Lane>("all");
-  // Rows for the lane, filtered by the API (GET /admin/audit?lane=…); "all" uses the server-rendered rows.
-  const [laneRows, setLaneRows] = useState<{ lane: Lane; rows: AuditEntry[] } | null>(null);
-  const rows = lane === "all" ? entries : laneRows?.lane === lane ? laneRows.rows : [];
+  const [sort, setSort] = useUrlSort(AUDIT_SORTS);
+  // The log is capped, so the API filters and sorts it (GET /admin/audit?lane=…&sort=…).
+  // All events in the page's own order use the server-rendered rows.
+  const [fetched, setFetched] = useState<{ lane: Lane; sort: string; rows: AuditEntry[] } | null>(null);
+  const own = lane === "all" && sort === initialSort;
+  const ready = own || (fetched?.lane === lane && fetched.sort === sort);
+  const rows = own ? entries : ready && fetched ? fetched.rows : [];
 
-  const pickLane = async (next: Lane) => {
-    setLane(next);
-    if (next === "all") return;
+  const load = async (nextLane: Lane, nextSort: string) => {
+    setLane(nextLane);
+    setSort(nextSort);
+    if (nextLane === "all" && nextSort === initialSort) return;
     try {
-      const res = await api.get<{ entries: AuditEntry[] }>(`/admin/audit?lane=${next}`);
-      setLaneRows({ lane: next, rows: res.entries });
+      const res = await api.get<{ entries: AuditEntry[] }>(`/admin/audit?lane=${nextLane}&sort=${nextSort}`);
+      setFetched({ lane: nextLane, sort: nextSort, rows: res.entries });
     } catch {
-      say("Couldn't load this lane. Please try again.");
+      say("Couldn't load the audit log. Please try again.");
     }
   };
 
@@ -48,7 +55,7 @@ export default function AuditView({ entries }: { entries: AuditEntry[] }) {
                 key={k}
                 type="button"
                 aria-pressed={on}
-                onClick={() => void pickLane(k)}
+                onClick={() => void load(k, sort)}
                 className="h-[38px] rounded-full border px-[15px] text-[13px] font-bold"
                 style={{
                   background: on ? "#1c1917" : "#fff",
@@ -73,6 +80,12 @@ export default function AuditView({ entries }: { entries: AuditEntry[] }) {
       </div>
 
       <div className={`${PANEL} mt-[18px] p-[18px]`}>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <span className="pb-3 text-[12px] font-semibold text-[#78716c]" aria-live="polite">
+            {ready ? `Showing ${rows.length} ${rows.length === 1 ? "entry" : "entries"}` : "Loading…"}
+          </span>
+          <SortSelect options={AUDIT_SORTS} value={sort} onChange={(next) => void load(lane, next)} />
+        </div>
         <table className="w-full border-collapse text-[12.5px]">
           <thead>
             <tr>
@@ -96,6 +109,9 @@ export default function AuditView({ entries }: { entries: AuditEntry[] }) {
             ))}
           </tbody>
         </table>
+        {ready && rows.length === 0 && (
+          <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">No entries in this lane yet.</p>
+        )}
       </div>
     </div>
   );

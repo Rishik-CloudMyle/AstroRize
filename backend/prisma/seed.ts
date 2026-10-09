@@ -42,6 +42,15 @@ async function main() {
       phone: "9876543210",
       email: "customer@astrorize.com",
       passwordHash,
+      firstName: "Sneha",
+      lastName: "R",
+      gender: "Woman",
+      birthDate: new Date("1994-05-14T00:00:00Z"),
+      birthTime: "06:42",
+      birthPlace: "Kothrud, Pune",
+      city: "Pune",
+      state: "Maharashtra",
+      photoUrl: "/assets/avatars/user-sneha.jpg",
       wallet: { create: { service: 900, promo: 340, promoExpiresAt: ist("2026-09-12", "23:59") } },
     },
   });
@@ -54,6 +63,35 @@ async function main() {
     ],
   });
 
+  // Customers waiting in Raghav's live queue, so the portal can show their profiles.
+  const queueCustomers: { id: string }[] = [];
+  for (const c of [
+    { first: "Kavya", last: "Menon", gender: "Woman", dob: "1997-11-02", tob: "21:15", pob: "Kochi", city: "Kochi", state: "Kerala", photo: "/assets/avatars/astro-kavya.jpg", phone: "9811100001" },
+    { first: "Rohan", last: "Mehta", gender: "Man", dob: "1990-02-19", tob: "04:50", pob: "Ahmedabad", city: "Mumbai", state: "Maharashtra", photo: "/assets/avatars/astro-rohan.jpg", phone: "9811100002" },
+    { first: "Sameer", last: "Khan", gender: "Man", dob: "1986-07-30", tob: null, pob: "Lucknow", city: "Delhi", state: "Delhi", photo: null, phone: "9811100003" },
+  ]) {
+    queueCustomers.push(
+      await db.user.create({
+        data: {
+          role: "CUSTOMER",
+          name: `${c.first} ${c.last}`,
+          initials: c.first[0]! + c.last[0]!,
+          phone: c.phone,
+          firstName: c.first,
+          lastName: c.last,
+          gender: c.gender,
+          birthDate: new Date(`${c.dob}T00:00:00Z`),
+          birthTime: c.tob,
+          birthPlace: c.pob,
+          city: c.city,
+          state: c.state,
+          photoUrl: c.photo,
+          wallet: { create: { service: 500 } },
+        },
+      }),
+    );
+  }
+
   const raghavUser = await db.user.create({
     data: { role: "ASTROLOGER", name: "Pt. Raghav Joshi", initials: "RJ", email: "raghav.joshi@email.com", phone: "9876543242", passwordHash },
   });
@@ -63,42 +101,54 @@ async function main() {
     finance: await db.user.create({ data: { role: "ADMIN", adminRole: "FINANCE", name: "A. Verma", initials: "AV", actorName: "A. Verma", email: "finance@astrorize.com", passwordHash } }),
     support: await db.user.create({ data: { role: "ADMIN", adminRole: "SUPPORT", name: "S. Banerjee", initials: "SB", actorName: "S. Banerjee", email: "support@astrorize.com", passwordHash } }),
     compliance: await db.user.create({ data: { role: "ADMIN", adminRole: "COMPLIANCE", name: "M. Rathore", initials: "MR", actorName: "M. Rathore", email: "compliance@astrorize.com", passwordHash } }),
+    marketing: await db.user.create({ data: { role: "ADMIN", adminRole: "MARKETING", name: "R. Kapoor", initials: "RK", actorName: "R. Kapoor", email: "marketing@astrorize.com", passwordHash } }),
   };
+  // More people per department, so one can cover when another is away.
+  await db.user.createMany({
+    data: [
+      { role: "ADMIN", adminRole: "FINANCE", name: "Neha Gupta", initials: "NG", actorName: "N. Gupta", email: "neha.gupta@astrorize.com", passwordHash },
+      { role: "ADMIN", adminRole: "SUPPORT", name: "Priya Nair", initials: "PN", actorName: "P. Nair", email: "priya.nair@astrorize.com", passwordHash },
+      { role: "ADMIN", adminRole: "SUPPORT", name: "Arun Das", initials: "AD", actorName: "A. Das", email: "arun.das@astrorize.com", passwordHash },
+      { role: "ADMIN", adminRole: "SUPPORT", name: "Fatima Shaikh", initials: "FS", actorName: "F. Shaikh", email: "fatima.shaikh@astrorize.com", passwordHash, active: false },
+      { role: "ADMIN", adminRole: "COMPLIANCE", name: "Vivek Rao", initials: "VR", actorName: "V. Rao", email: "vivek.rao@astrorize.com", passwordHash },
+      { role: "ADMIN", adminRole: "MARKETING", name: "Isha Malhotra", initials: "IM", actorName: "I. Malhotra", email: "isha.malhotra@astrorize.com", passwordHash },
+    ],
+  });
 
   // ── Astrologers (prices identical to the public website) ──
   const astrologers = [
     {
-      id: "raghav", slug: "pt-raghav-joshi", userId: raghavUser.id, name: "Pt. Raghav Joshi", initials: "RJ", greeting: "Raghav",
+      id: "raghav", slug: "pt-raghav-joshi", userId: raghavUser.id, name: "Pt. Raghav Joshi", initials: "RJ", greeting: "Raghav", gender: "Male",
       recognition: "PREMIUM", presence: "ON", skills: ["Vedic", "Face Reading"], languages: ["Hindi", "English"], years: 18, rating: 4.9, consults: 1204,
       price: 28, was: 35, eta: null, photo: "/assets/avatars/astro-raghav.jpg", ratingDistribution: [990, 168, 36, 8, 2],
       about: "Eighteen years reading career and dharma charts for working professionals. Sessions stay practical — timing, not fear.",
     },
     {
-      id: "meera", slug: "acharya-meera-iyer", name: "Acharya Meera Iyer", initials: "MI", greeting: "Meera",
+      id: "meera", slug: "acharya-meera-iyer", name: "Acharya Meera Iyer", initials: "MI", greeting: "Meera", gender: "Female",
       recognition: "TRUSTED", presence: "BUSY", skills: ["Nadi", "Counseling"], languages: ["Tamil", "English", "Hindi"], years: 14, rating: 4.8, consults: 860,
       price: 32, was: null, eta: "~6–12 min", photo: "/assets/avatars/astro-meera.jpg", ratingDistribution: [666, 140, 40, 10, 4],
       about: "Relationship and family charts with a calm, specific style. She names what the chart can answer and what it cannot.",
     },
     {
-      id: "arjun", slug: "pandit-arjun-deshmukh", name: "Pandit Arjun Deshmukh", initials: "AD", greeting: "Arjun",
+      id: "arjun", slug: "pandit-arjun-deshmukh", name: "Pandit Arjun Deshmukh", initials: "AD", greeting: "Arjun", gender: "Male",
       recognition: "PROVEN", presence: "ON", skills: ["KP", "Timing"], languages: ["Marathi", "Hindi", "English"], years: 9, rating: 4.7, consults: 412,
       price: 22, was: 28, eta: null, photo: "/assets/avatars/astro-arjun.jpg", ratingDistribution: [300, 80, 22, 7, 3],
       about: "KP timings for money decisions. Speaks plainly. Offers Fixed Sessions of 15, 30, 45 or 60 minutes.",
     },
     {
-      id: "sneha", slug: "sneha-ramanathan", name: "Sneha Ramanathan", initials: "SR", greeting: "Sneha",
+      id: "sneha", slug: "sneha-ramanathan", name: "Sneha Ramanathan", initials: "SR", greeting: "Sneha", gender: "Female",
       recognition: "RISING", presence: "LIVE", skills: ["Tarot", "Numerology"], languages: ["English", "Tamil"], years: 6, rating: 4.6, consults: 188,
       price: 18, was: 24, eta: "~3–7 min", photo: "/assets/avatars/astro-ananya.jpg", ratingDistribution: [130, 38, 12, 5, 3],
       about: "Tarot with a counselling background. Best for people who want language for a decision they have already half-made.",
     },
     {
-      id: "vikram", slug: "vikram-sethi", name: "Vikram Sethi", initials: "VS", greeting: "Vikram",
+      id: "vikram", slug: "vikram-sethi", name: "Vikram Sethi", initials: "VS", greeting: "Vikram", gender: "Male",
       recognition: "FRESH", presence: "OFF", skills: ["Vastu", "Palmistry"], languages: ["Hindi", "Punjabi"], years: 4, rating: null, consults: 24,
       price: 15, was: null, eta: null, photo: "/assets/avatars/astro-vikram.jpg", ratingDistribution: [16, 5, 2, 1, 0],
       about: "New on Astrorize. Vastu walkthroughs for homes and small commercial spaces.",
     },
     {
-      id: "lalita", slug: "dr-lalita-bose", name: "Dr. Lalita Bose", initials: "LB", greeting: "Lalita",
+      id: "lalita", slug: "dr-lalita-bose", name: "Dr. Lalita Bose", initials: "LB", greeting: "Lalita", gender: "Female",
       recognition: "PREMIUM", presence: "ON", skills: ["Vedic", "Prashna"], languages: ["Bengali", "English", "Hindi"], years: 22, rating: 4.9, consults: 2140,
       price: 45, was: 60, eta: null, photo: "/assets/avatars/astro-leela.jpg", ratingDistribution: [1800, 260, 58, 16, 6],
       about: "Twenty-two years, mostly Prashna. Answers the question you actually asked, in the time you actually have.",
@@ -106,6 +156,18 @@ async function main() {
   ] as const;
   for (const [rank, a] of astrologers.entries()) {
     await db.astrologer.create({ data: { ...a, skills: [...a.skills], languages: [...a.languages], ratingDistribution: [...a.ratingDistribution], instantMultiplier: 3, rank } });
+  }
+  // Astrologers who aren't live on the site yet (or any more), for the admin lifecycle list.
+  // None of these appear publicly: only active, not fully suspended astrologers do.
+  const offstage = [
+    { id: "rohit", slug: "rohit-kamble", name: "Rohit Kamble", initials: "RK", greeting: "Rohit", gender: "Male", lifecycle: "training", suspension: "none", skills: ["Vastu"], languages: ["Marathi", "Hindi"], years: 7, price: 20, photo: "/assets/avatars/astro-rohan.jpg", about: "Vastu consultant completing platform training." },
+    { id: "farida", slug: "farida-sheikh", name: "Farida Sheikh", initials: "FS", greeting: "Farida", gender: "Female", lifecycle: "docs", suspension: "none", skills: ["Tarot"], languages: ["Hindi", "Urdu", "English"], years: 5, price: 18, photo: "/assets/avatars/astro-kavya.jpg", about: "Tarot reader; identity documents awaiting verification." },
+    { id: "sameer", slug: "acharya-sameer-qureshi", name: "Acharya Sameer Qureshi", initials: "SQ", greeting: "Sameer", gender: "Male", lifecycle: "active", suspension: "full", skills: ["Vedic"], languages: ["Urdu", "Hindi", "English"], years: 21, price: 40, photo: "/assets/avatars/astro-sameer.jpg", about: "Suspended pending a compliance review." },
+  ];
+  for (const [i, a] of offstage.entries()) {
+    await db.astrologer.create({
+      data: { ...a, recognition: "FRESH", presence: "OFF", rating: null, consults: a.id === "sameer" ? 640 : 0, was: null, eta: null, ratingDistribution: [0, 0, 0, 0, 0], instantMultiplier: 3, rank: 100 + i },
+    });
   }
 
   // ── Reviews: public ones, and the admin moderation queue ──
@@ -159,10 +221,20 @@ async function main() {
     const { chat, waiting, ...room } = r;
     await db.liveRoom.create({ data: { ...room, rank, startedAt: r.id === "raghav" ? new Date(now - (42 * 60 + 10) * 1000) : minutesAgo(30 + rank * 7) } });
     await db.chatMessage.createMany({ data: chat.map(([author, text], i) => ({ roomId: r.id, author: author!, text: text!, createdAt: new Date(now - (chat.length - i) * 45000) })) });
+    if (r.id === "raghav") {
+      await db.liveAnnouncement.createMany({
+        data: [
+          { roomId: r.id, text: "Saturn transit Q&A runs till 8 PM. Questions about career and the 10th house first.", createdAt: minutesAgo(40) },
+          { roomId: r.id, text: "Private consults open after this segment — join the queue if you want a one-to-one.", createdAt: minutesAgo(12) },
+        ],
+      });
+    }
     await db.liveQueueEntry.createMany({
       data: Array.from({ length: waiting }, (_, i) => ({
         roomId: r.id,
         alias: `${String.fromCharCode(65 + (i % 26))}-${1000 + ((i * 7919 + rank * 131) % 8999)}`,
+        // The first few people in Raghav's queue are signed-in customers with profiles.
+        userId: r.id === "raghav" ? queueCustomers[i]?.id : undefined,
         mode: i % 4 === 1 ? "PUBLIC" : "PRIVATE",
         consent: i % 4 === 1,
         createdAt: minutesAgo(30 - i),
@@ -199,9 +271,9 @@ async function main() {
   // Waiting requests and the session in progress.
   await db.consultation.createMany({
     data: [
-      { ref: "SES-90001", astrologerId: "raghav", customerAlias: "A-8821", mode: "VOICE", rate: 28, status: "REQUESTED", requestedAt: minutesAgo(6), offeredAt: new Date(now - 19000) },
-      { ref: "SES-90002", astrologerId: "raghav", customerAlias: "C-5512", mode: "VIDEO", rate: 40, status: "REQUESTED", requestedAt: minutesAgo(5) },
-      { ref: "SES-90003", astrologerId: "raghav", customerAlias: "D-7703", mode: "CHAT", rate: 28, status: "REQUESTED", requestedAt: minutesAgo(3) },
+      { ref: "SES-90001", astrologerId: "raghav", customerId: queueCustomers[0]!.id, customerAlias: "A-8821", mode: "VOICE", kind: "INSTANT", rate: 84, status: "REQUESTED", requestedAt: minutesAgo(6), offeredAt: new Date(now - 19000) },
+      { ref: "SES-90002", astrologerId: "raghav", customerId: queueCustomers[1]!.id, customerAlias: "C-5512", mode: "VIDEO", rate: 40, status: "REQUESTED", requestedAt: minutesAgo(5) },
+      { ref: "SES-90003", astrologerId: "raghav", customerId: queueCustomers[2]!.id, customerAlias: "D-7703", mode: "CHAT", rate: 28, status: "REQUESTED", requestedAt: minutesAgo(3) },
       { ref: "SES-90004", astrologerId: "raghav", customerAlias: "E-4410", mode: "CHAT", rate: 28, status: "REQUESTED", requestedAt: minutesAgo(1) },
       { ref: "SES-90000", astrologerId: "raghav", customerAlias: "B-1290", mode: "CHAT", rate: 28, status: "ACTIVE", requestedAt: minutesAgo(15), connectedAt: new Date(now - (4 * 60 + 2) * 1000), heldAmount: 28 * 6 },
     ],
@@ -458,6 +530,7 @@ async function main() {
   };
   for (const [key, value] of Object.entries(settings)) await db.setting.create({ data: { key, value: value as object } });
 
+  await (await import("./seed-history.ts")).seedHistory(); // ~30 days of past activity for the admin overview
   console.log("Seeded demo data. Demo password for every account:", DEMO_PASSWORD);
 }
 

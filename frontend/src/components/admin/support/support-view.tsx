@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { useAction, useAdmin } from "@/components/admin/admin-provider";
+import SortSelect, { useUrlSort } from "@/components/admin/sort-select";
 import { EYEBROW, PANEL } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
+import { sortRows, TICKET_SORTS } from "@/lib/admin/sort";
 import type { SupportCase, SupportData } from "@/lib/admin/types";
 
 type RefundStage = "none" | "proposed" | "initiated" | "rejected";
@@ -25,6 +27,8 @@ export default function SupportView({
 }) {
   const { session, say } = useAdmin();
   const { run } = useAction();
+  const [sort, setSort] = useUrlSort(TICKET_SORTS);
+  const tickets = sortRows(data.tickets, TICKET_SORTS, sort);
   const [ticketId, setTicketId] = useState(initialTicket);
   // The selected ticket's case file (GET /admin/support/:id): metering, evidence, refund.
   const [file, setFile] = useState<SupportCase>(initialCase);
@@ -32,8 +36,12 @@ export default function SupportView({
   const tkt = data.tickets.find((t) => t.id === ticketId) ?? data.tickets[0];
   const caseFile = file.id === tkt.id ? file : null;
   const stage = caseFile ? stageOf(caseFile) : "none";
-  const isSupport = session.role === "support";
-  const isProposer = caseFile?.proposedBy === session.actor;
+  // Without dispute.refund.approve (e.g. Support by default) the department may propose but not approve.
+  const isSupport = !session.capabilities.includes("dispute.refund.approve");
+  // Same person, not same short name; older proposals without a recorded id fall back to the name.
+  const isProposer = caseFile?.proposedById
+    ? caseFile.proposedById === session.id
+    : !!caseFile?.proposedBy && caseFile.proposedBy === session.actor;
   const approveBlocked = isSupport || isProposer;
   const billed = caseFile?.refund.billed ?? "—";
 
@@ -84,9 +92,10 @@ export default function SupportView({
   return (
     <div className="mt-5 grid grid-cols-[300px_minmax(0,1fr)] items-start gap-[18px]">
       <div className={`${PANEL} p-3.5`}>
-        <div className={`${EYEBROW} px-1 pb-2`}>Queue</div>
+        <SortSelect options={TICKET_SORTS} value={sort} onChange={setSort} className="mb-3 w-full" />
+        <div className={`${EYEBROW} px-1 pb-2`}>Queue · {tickets.length}</div>
         <div className="flex flex-col gap-[5px]">
-          {data.tickets.map((t) => {
+          {tickets.map((t) => {
             const on = t.id === tkt.id;
             return (
               <button
@@ -107,7 +116,22 @@ export default function SupportView({
                   </span>
                 </div>
                 <b className="mt-1 block text-[12.5px] text-ink">{t.subject}</b>
-                <span className="mt-px block text-[11px] text-[#78716c]">{t.state}</span>
+                <span className="mt-px flex items-center gap-1.5 text-[11px] text-[#78716c]">
+                  {t.state}
+                  {/* The refund state, unless the ticket state already says it (REFUND_PROPOSED …). */}
+                  {t.refundState !== "NONE" && !t.state.startsWith("REFUND_") && (
+                    <span
+                      className="inline-flex h-[17px] items-center rounded-full px-1.5 text-[9.5px] font-extrabold"
+                      style={
+                        t.refundState === "PROPOSED"
+                          ? { background: "#eff6ff", color: "#1e40af" }
+                          : { background: "#ecfdf5", color: "#047857" }
+                      }
+                    >
+                      Refund {t.refundState.toLowerCase()}
+                    </span>
+                  )}
+                </span>
               </button>
             );
           })}
@@ -151,17 +175,11 @@ export default function SupportView({
                   <div
                     key={e.label}
                     className="flex items-center gap-[11px] rounded-xl border px-[13px] py-[11px]"
-                    style={{
-                      background: platform ? "#fffbeb" : "#fff",
-                      borderColor: platform ? "#fde68a" : "#e7e0d6",
-                    }}
+                    style={{ background: platform ? "#fffbeb" : "#fff", borderColor: platform ? "#fde68a" : "#e7e0d6" }}
                   >
                     <span
                       className="inline-flex h-[21px] items-center rounded-full px-2 text-[9.5px] font-extrabold tracking-[.05em]"
-                      style={{
-                        background: platform ? "#f59e0b" : "#f7f4ee",
-                        color: platform ? "#1c1917" : "#78716c",
-                      }}
+                      style={{ background: platform ? "#f59e0b" : "#f7f4ee", color: platform ? "#1c1917" : "#78716c" }}
                     >
                       {e.rank}
                     </span>
@@ -224,7 +242,7 @@ export default function SupportView({
                   }}
                 >
                   {isSupport
-                    ? "Approve — blocked for Support"
+                    ? `Approve — blocked for ${session.role === "support" ? "Support" : "your department"}`
                     : isProposer
                       ? "Approve — blocked, you proposed this"
                       : "Approve refund · MFA"}

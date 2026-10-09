@@ -15,6 +15,7 @@ export const PAGE_HREF: Record<PageKey, string> = {
   rbac: "/admin/rbac",
   audit: "/admin/audit",
   recording: "/admin/recording",
+  team: "/admin/team",
 };
 
 /** The console nav. Badge counts are filled in from the session (open work per page). */
@@ -40,6 +41,7 @@ export const NAV: NavGroup[] = [
     items: [
       { key: "compliance", label: "Live monitoring", icon: "🛡", href: PAGE_HREF.compliance },
       { key: "trust", label: "Trust & reviews", icon: "★", href: PAGE_HREF.trust },
+      { key: "team", label: "Team", icon: "☷", href: PAGE_HREF.team },
       { key: "rbac", label: "RBAC", icon: "⚿", href: PAGE_HREF.rbac },
       { key: "audit", label: "Audit log", icon: "▤", href: PAGE_HREF.audit },
       { key: "recording", label: "Recording", icon: "⏺", href: PAGE_HREF.recording },
@@ -52,6 +54,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   finance: "Finance",
   support: "Customer Support",
   compliance: "Compliance",
+  marketing: "Marketing",
 };
 
 export const CONFIG_FACETS: { id: ConfigDomain | "all"; label: string }[] = [

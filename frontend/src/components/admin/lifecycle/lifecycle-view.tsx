@@ -2,26 +2,19 @@
 
 import { useState } from "react";
 import { useAction, useAdmin } from "@/components/admin/admin-provider";
+import SortSelect, { useUrlSort } from "@/components/admin/sort-select";
 import { PANEL, TD, TH, TH_SM } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
-import type { Application, ApplicationState, LifecycleData } from "@/lib/admin/types";
-
-const STATE_TONE: Record<ApplicationState, [string, string]> = {
-  Negotiation: ["#fef3c7", "#92400e"],
-  "Docs pending": ["#fff1f2", "#be123c"],
-  Pricing: ["#eff6ff", "#1d4ed8"],
-  Training: ["#ecfdf5", "#047857"],
-  "Under review": ["#f7f4ee", "#57534e"],
-  Interview: ["#f7f4ee", "#57534e"],
-};
-
-const APP_TABS = ["Profile", "Docs", "Media", "Pricing", "History"];
-const APP_ACTIONS = ["Request info", "Schedule interview", "Reject", "Advance"] as const;
+import { APPLICATION_DEFAULT_SORT, APPLICATION_SORTS, sortRows } from "@/lib/admin/sort";
+import type { Application, LifecycleData } from "@/lib/admin/types";
+import { ApplicationDialog } from "./profile-dialogs";
+import { stateTone } from "./stages";
 
 export default function LifecycleView({ data, initialApp }: { data: LifecycleData; initialApp?: string }) {
   const { say } = useAdmin();
   const { run } = useAction();
   const [filter, setFilter] = useState("All");
+  const [sort, setSort] = useUrlSort(APPLICATION_SORTS, APPLICATION_DEFAULT_SORT);
   const [openApp, setOpenApp] = useState<string | null>(
     data.applications.some((a) => a.id === initialApp) ? (initialApp as string) : null,
   );
@@ -31,9 +24,8 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
   const nego = data.negotiation;
   const round = nego?.round ?? 0;
   const max = nego?.maxRounds ?? 0;
-  const opened = data.applications.find((a) => a.id === openApp) ?? null;
 
-  const rows = data.applications.filter(
+  const rows = sortRows(data.applications, APPLICATION_SORTS, sort).filter(
     (a) => filter === "All" || a.state === filter || (filter === "Under review" && a.state === "Docs pending"),
   );
 
@@ -46,39 +38,8 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
     setFilter(label);
     setOpenApp(null);
   };
-  const open = (id: string) => {
-    setOpenApp(id);
-    say(
-      `Opened ${id}. If someone else changes it while you work, you will be asked to reload — nothing is overwritten.`,
-    );
-  };
-  const appAction = async (label: (typeof APP_ACTIONS)[number]) => {
-    if (!opened) return;
-    if (label === "Request info") {
-      const reason = window.prompt("What does the applicant need to send? (at least 10 characters)");
-      if (reason === null) return;
-      await applicantAct(
-        opened,
-        "request-info",
-        "Information requested — reason recorded. The applicant sees exactly what is needed.",
-        reason.trim(),
-      );
-    } else if (label === "Schedule interview") {
-      await applicantAct(opened, "interview", "Interview scheduled. The applicant may request one reschedule.");
-    } else if (label === "Reject") {
-      const reason = window.prompt(`Reason for rejecting ${opened.id}:`);
-      if (reason === null) return;
-      const res = await applicantAct(
-        opened,
-        "reject",
-        "Rejected with reason. Reapply becomes available after the cooling period.",
-        reason.trim(),
-      );
-      if (res) setOpenApp(null);
-    } else {
-      await applicantAct(opened, "advance", "Advanced to the next stage. Recorded in the audit log.");
-    }
-  };
+  // The application opens in a popup (details, negotiation, history and the applicant actions).
+  const open = (id: string) => setOpenApp(id);
   const counterOffer = () => {
     if (!nego) return;
     const next = round + 1;
@@ -143,6 +104,12 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
       </div>
 
       <div className={`${PANEL} relative mt-3.5 p-[18px]`}>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <span className="pb-3 text-[12px] font-semibold text-[#78716c]" aria-live="polite">
+            Showing {rows.length} of {data.applications.length}
+          </span>
+          <SortSelect options={APPLICATION_SORTS} value={sort} onChange={setSort} />
+        </div>
         <table className="w-full border-collapse text-[13px]">
           <thead>
             <tr>
@@ -162,7 +129,7 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
           </thead>
           <tbody>
             {rows.map((a) => {
-              const [bg, fg] = STATE_TONE[a.state] ?? STATE_TONE["Under review"];
+              const [bg, fg] = stateTone(a.state);
               return (
                 <tr key={a.id} style={{ background: a.breach ? "#fff1f2" : "transparent" }}>
                   <td className={`${TD} px-2.5 py-[11px] font-mono text-[11.5px] text-[#57534e]`}>{a.id}</td>
@@ -186,6 +153,8 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
                     <button
                       type="button"
                       onClick={() => open(a.id)}
+                      aria-haspopup="dialog"
+                      aria-label={`Open application ${a.id}, ${a.name}`}
                       className="border-0 bg-transparent p-0 text-[12.5px] font-bold text-amber-700"
                     >
                       Open ›
@@ -196,61 +165,14 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
             })}
           </tbody>
         </table>
+        {rows.length === 0 && (
+          <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">
+            {data.applications.length === 0 ? "No applications yet." : "No applications in this stage."}
+          </p>
+        )}
       </div>
 
-      {openApp && (
-        <div className="mt-4 rounded-[18px] border-2 border-amber-500 bg-amber-50 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="m-0 text-[17px] font-bold">Application {openApp}</h2>
-            <button
-              type="button"
-              aria-label="Close application"
-              onClick={() => setOpenApp(null)}
-              className="h-8 w-8 rounded-[9px] border-0 bg-white text-[15px] text-[#57534e]"
-            >
-              ✕
-            </button>
-          </div>
-          <div className="mt-3.5 flex flex-wrap gap-[7px]">
-            {APP_TABS.map((t, i) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => say(`${t} tab · read-only until you advance the application.`)}
-                className="h-[34px] rounded-full border px-3.5 text-[12.5px] font-bold"
-                style={{
-                  borderColor: i === 0 ? "#f59e0b" : "#e7e0d6",
-                  background: i === 0 ? "#f59e0b" : "#fff",
-                  color: i === 0 ? "#1c1917" : "#57534e",
-                }}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-          <p className="mt-3.5 mb-0 max-w-[74ch] text-[13px] leading-[1.55] text-amber-900">
-            If someone else changes this application while you have it open, your action is stopped and you are asked to
-            reload — nothing is ever overwritten silently.
-          </p>
-          <div className="mt-3.5 flex flex-wrap gap-[9px]">
-            {APP_ACTIONS.map((label) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => void appAction(label)}
-                className="h-10 rounded-[11px] border px-4 text-[13px] font-bold"
-                style={{
-                  background: label === "Advance" ? "#f59e0b" : "#fff",
-                  color: label === "Reject" ? "#be123c" : "#1c1917",
-                  borderColor: label === "Advance" ? "#f59e0b" : label === "Reject" ? "#fecdd3" : "#e7e0d6",
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {openApp && <ApplicationDialog key={openApp} id={openApp} onClose={() => setOpenApp(null)} />}
 
       <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] items-start gap-4">
         {nego && (
@@ -259,7 +181,8 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
               Negotiation · {nego.appId} {nego.applicant}
             </h2>
             <p className="mt-0 mb-3.5 text-[12px] text-[#78716c]">
-              Round {round} of {max}. {left} counter-offer{left === 1 ? "" : "s"} remaining.
+              Round {round} of {max}. {left} counter-offer
+              {left === 1 ? "" : "s"} remaining.
             </p>
             <table className="w-full border-collapse text-[13px]">
               <thead>

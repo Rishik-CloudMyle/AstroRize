@@ -14,6 +14,7 @@ import type {
   ConfigDetail,
   ConfigKey,
   FinanceData,
+  LifecycleAstrologer,
   LifecycleData,
   LiveStat,
   MarketingData,
@@ -24,8 +25,10 @@ import type {
   RecordingData,
   Role,
   SeriesPoint,
+  StaffDepartment,
   SupportCase,
   SupportData,
+  TopAstrologer,
   TrendCard,
   TrustData,
 } from "./types";
@@ -49,8 +52,36 @@ export const getSession = cache(async (): Promise<AdminSession> => {
 
 // ── Overview ──
 
+/** Numbers the API computes from the database (GET /admin/overview → analytics). */
+export interface RawAnalytics {
+  /** IST dates, oldest first, today last. */
+  days: string[];
+  series: {
+    consultations: number[];
+    revenue: number[];
+    activeCustomers: number[];
+    signups: number[];
+    recharges: number[];
+    rechargeAmount: number[];
+  };
+  channels: { day: string; chat: number; voice: number; video: number; instant: number }[];
+  top: TopAstrologer[];
+  /** [last 7 × 24 h, the 7 × 24 h before]. */
+  week: Record<"consultations" | "revenue" | "rechargeAmount" | "recharges" | "signups", [number, number]>;
+  now: {
+    consultations: { chat: number; voice: number; video: number; instant: number };
+    waiting: number;
+    longestWaitSeconds: number;
+    liveRooms: number;
+    liveQueue: number;
+    roster: number;
+    presence: { on: number; busy: number; live: number; off: number };
+  };
+}
+
 interface RawOverview {
   dateLine: string;
+  generatedAt: string;
   kpis: {
     liveSessions: number;
     emergency: number;
@@ -63,14 +94,7 @@ interface RawOverview {
     payoutAwaiting: string;
     payoutBatchesAwaiting: number;
   };
-  metrics: {
-    dau: number[];
-    stickiness: number[];
-    channels: [string, number, number, number][];
-    live: LiveStat[];
-    availability: OverviewData["availability"];
-    registered: number;
-  };
+  analytics: RawAnalytics;
   trialBalance: { title: string; body: string } | null;
   worklist: {
     ico: string;
@@ -85,39 +109,121 @@ interface RawOverview {
 }
 
 const intl = (n: number) => n.toLocaleString("en-IN");
-const pct = (n: number) => n.toFixed(1) + "%";
+const money = (n: number) => "₹" + intl(n);
+const plural = (n: number, one: string, many = one + "s") => `${intl(n)} ${n === 1 ? one : many}`;
 
-/** A 30-day trend card; the delta compares the last day with the same day a week earlier. */
+/** "Thu 8 Oct" for an IST date key (2026-10-08). */
+function dayLabel(key: string): string {
+  const d = new Date(key + "T00:00:00Z");
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+/** "+12.4% vs previous 7 days" with its tone; no percentage when the earlier week had nothing. */
+function weekDelta([now, before]: [number, number]): { text: string; tone: "up" | "down" | "flat" } {
+  if (before === 0)
+    return now === 0 ? { text: "none in either week", tone: "flat" } : { text: "none the week before", tone: "up" };
+  const pct = ((now - before) / before) * 100;
+  if (Math.abs(pct) < 0.05) return { text: "same as previous 7 days", tone: "flat" };
+  return {
+    text: `${pct > 0 ? "+" : "−"}${Math.abs(pct).toFixed(1)}% vs previous 7 days`,
+    tone: pct > 0 ? "up" : "down",
+  };
+}
+
+const TONE_FG = { up: "#047857", down: "#be123c", flat: "#78716c" } as const;
+
+/** A 30-day chart card: the headline is the 30-day total, the delta compares the last two weeks. */
 function trend(
+  a: RawAnalytics,
   values: number[],
   fmt: (n: number) => string,
-  delta: (last: number, weekAgo: number) => string,
-  card: Pick<TrendCard, "title" | "window" | "color" | "ariaLabel">,
+  unit: (n: number) => string,
+  card: Pick<TrendCard, "title" | "color" | "ariaLabel"> & { headline: string; headlineNote: string },
+  delta: { text: string; tone: "up" | "down" | "flat" },
 ): TrendCard {
-  const points: SeriesPoint[] = values.map((value) => ({ value, label: fmt(value) }));
-  const last = values.at(-1) ?? 0;
-  const weekAgo = values.at(-8) ?? last;
+  const last = a.days.length - 1;
+  const points: SeriesPoint[] = values.map((value, i) => ({
+    value,
+    label: `${dayLabel(a.days[i])}${i === last ? " (today so far)" : ""} · ${unit(value)}`,
+  }));
   return {
-    ...card,
-    headline: fmt(last),
-    delta: values.length ? delta(last, weekAgo) : "",
+    title: card.title,
+    window: `last ${a.days.length} days`,
+    color: card.color,
+    ariaLabel: card.ariaLabel,
+    headline: card.headline,
+    headlineNote: card.headlineNote,
+    delta: delta.text,
+    deltaTone: delta.tone,
     points,
     topLabel: values.length ? fmt(Math.max(...values)) : "",
     bottomLabel: values.length ? fmt(Math.min(...values)) : "",
   };
 }
 
-const signed = (n: number, digits: number) => (n >= 0 ? "+" : "−") + Math.abs(n).toFixed(digits);
+const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
 
-export function toLiveStats(raw: RawOverview["metrics"]["live"]): LiveStat[] {
-  return raw.map((s) => ({ label: s.label, value: s.value, sub: s.sub, color: s.color }));
+/** "3 m 10 s" */
+function waitLabel(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} m` : m ? `${m} m ${s} s` : `${s} s`;
+}
+
+/** The "Live right now" tiles, from the current state of consultations, rooms and presence. */
+export function toLiveStats(n: RawAnalytics["now"]): LiveStat[] {
+  const c = n.consultations;
+  const inProgress = c.chat + c.voice + c.video + c.instant;
+  const online = n.presence.on + n.presence.busy + n.presence.live;
+  const occupied = n.presence.busy + n.presence.live;
+  return [
+    {
+      label: "Consultations now",
+      value: inProgress,
+      sub: inProgress
+        ? `chat ${c.chat} · voice ${c.voice} · video ${c.video} · instant ${c.instant}`
+        : "none in progress",
+      color: "#1c1917",
+    },
+    {
+      label: "Waiting in queue",
+      value: n.waiting,
+      sub: n.waiting ? `longest wait ${waitLabel(n.longestWaitSeconds)}` : "nobody waiting",
+      color: "#b45309",
+    },
+    {
+      label: "Public live rooms",
+      value: n.liveRooms,
+      sub: `${plural(n.liveQueue, "customer")} in live queues`,
+      color: "#eb6834",
+    },
+    { label: "Astrologers online", value: online, sub: `of ${n.roster} on the public roster`, color: "#2a78d6" },
+    { label: "Available now", value: n.presence.on, sub: "ready for a consultation", color: "#047857" },
+    {
+      label: "Busy or live",
+      value: occupied,
+      sub: online ? `${Math.round((occupied / online) * 100)}% of those online` : "nobody online",
+      color: "#be123c",
+    },
+  ];
 }
 
 export async function getOverview(): Promise<OverviewData> {
   const { overview: o } = await apiGet<{ overview: RawOverview }>("/admin/overview");
   const k = o.kpis;
+  const a = o.analytics;
+  const s = a.series;
+  const weekKpi = (label: string, value: string, d: { text: string; tone: "up" | "down" | "flat" }) =>
+    kpi(label, value, d.text, TONE_FG[d.tone]);
+  const consultDelta = weekDelta(a.week.consultations);
+  const revenueDelta = weekDelta(a.week.revenue);
+  const rechargeDelta = weekDelta(a.week.rechargeAmount);
+  const signupDelta = weekDelta(a.week.signups);
+  const avgActive = s.activeCustomers.length ? Math.round(sum(s.activeCustomers) / s.activeCustomers.length) : 0;
+
   return {
     dateLine: o.dateLine,
+    generatedAt: o.generatedAt,
     kpis: [
       kpi("Live sessions", String(k.liveSessions), `${k.emergency} emergency`, "#c2410c"),
       kpi("Public lives", String(k.publicLives), `${k.flaggedLives} flagged for review`, "#b45309"),
@@ -130,22 +236,109 @@ export async function getOverview(): Promise<OverviewData> {
         "#78716c",
       ),
     ],
-    live: toLiveStats(o.metrics.live),
-    dau: trend(o.metrics.dau, intl, (a, b) => `${signed(((a - b) / b) * 100, 1)}% vs last week`, {
-      title: "Daily active users",
-      window: "last 30 days",
-      color: "#2a78d6",
-      ariaLabel: "Daily active users, last 30 days",
-    }),
-    stickiness: trend(o.metrics.stickiness, pct, (a, b) => `${signed(a - b, 1)} pts vs last week`, {
-      title: "Stickiness · DAU ÷ MAU",
-      window: "last 30 days",
-      color: "#eb6834",
-      ariaLabel: "DAU over MAU, last 30 days",
-    }),
-    channels: o.metrics.channels.map(([day, chat, voice, video]) => ({ day, chat, voice, video })),
-    availability: o.metrics.availability,
-    registered: o.metrics.registered,
+    weekKpis: [
+      weekKpi("Consultations · 7 days", intl(a.week.consultations[0]), consultDelta),
+      weekKpi("Revenue · 7 days", money(a.week.revenue[0]), revenueDelta),
+      weekKpi("Recharges · 7 days", money(a.week.rechargeAmount[0]), rechargeDelta),
+      weekKpi("New customers · 7 days", intl(a.week.signups[0]), signupDelta),
+    ],
+    live: toLiveStats(a.now),
+    trends: [
+      {
+        id: "azConsults",
+        card: trend(
+          a,
+          s.consultations,
+          intl,
+          (n) => plural(n, "consultation"),
+          {
+            title: "Consultations per day",
+            color: "#2a78d6",
+            ariaLabel: "Completed consultations per day, last 30 days",
+            headline: intl(sum(s.consultations)),
+            headlineNote: "completed in 30 days",
+          },
+          consultDelta,
+        ),
+      },
+      {
+        id: "azRevenue",
+        card: trend(
+          a,
+          s.revenue,
+          money,
+          money,
+          {
+            title: "Revenue per day",
+            color: "#eb6834",
+            ariaLabel: "Amount billed for completed consultations per day, last 30 days",
+            headline: money(sum(s.revenue)),
+            headlineNote: "billed in 30 days",
+          },
+          revenueDelta,
+        ),
+      },
+      {
+        id: "azRecharges",
+        card: trend(
+          a,
+          s.rechargeAmount,
+          money,
+          (n) => `${money(n)} recharged`,
+          {
+            title: "Wallet recharges per day",
+            color: "#1baf7a",
+            ariaLabel: "Wallet recharge amount per day (before GST), last 30 days",
+            headline: money(sum(s.rechargeAmount)),
+            headlineNote: `${plural(sum(s.recharges), "payment")} in 30 days`,
+          },
+          rechargeDelta,
+        ),
+      },
+      {
+        id: "azActive",
+        card: trend(
+          a,
+          s.activeCustomers,
+          intl,
+          (n) => plural(n, "customer"),
+          {
+            title: "Customers who consulted",
+            color: "#7c3aed",
+            ariaLabel: "Customers with at least one completed consultation per day, last 30 days",
+            headline: intl(avgActive),
+            headlineNote: "a day on average",
+          },
+          { text: `${intl(s.activeCustomers.at(-1) ?? 0)} today so far`, tone: "flat" },
+        ),
+      },
+      {
+        id: "azSignups",
+        card: trend(
+          a,
+          s.signups,
+          intl,
+          (n) => plural(n, "sign-up"),
+          {
+            title: "New customer sign-ups",
+            color: "#b45309",
+            ariaLabel: "New customer accounts per day, last 30 days",
+            headline: intl(sum(s.signups)),
+            headlineNote: "in 30 days",
+          },
+          signupDelta,
+        ),
+      },
+    ],
+    channels: a.channels.map((c) => ({ ...c, day: c.day.slice(8), date: dayLabel(c.day) })),
+    top: a.top,
+    availability: [
+      { label: "Available", count: a.now.presence.on, color: "#047857" },
+      { label: "Busy", count: a.now.presence.busy, color: "#be123c" },
+      { label: "Live", count: a.now.presence.live, color: "#b45309" },
+      { label: "Offline", count: a.now.presence.off, color: "#a8a29e" },
+    ],
+    registered: a.now.roster,
     trialBalance: o.trialBalance,
     worklist: o.worklist.map((w) => ({
       ico: w.ico,
@@ -194,10 +387,13 @@ interface RawFinance {
     id: string;
     astrologers: number;
     gross: string;
+    grossValue: number;
+    createdAt: string;
     tds: string;
     state: BatchState;
     approvedBy?: Role;
     approvedByName: string | null;
+    approvedById: string | null;
   }[];
   denominations: number[];
   enabledDenominations: number[];
@@ -228,10 +424,13 @@ export async function getFinance(): Promise<FinanceData> {
       id: b.id,
       astrologers: b.astrologers,
       gross: b.gross,
+      grossValue: b.grossValue,
+      createdAt: b.createdAt,
       tds: b.tds,
       state: b.state,
       approvedBy: b.approvedBy,
       approvedByName: b.approvedByName,
+      approvedById: b.approvedById,
     })),
     denominations: f.denominations,
     enabledDenominations: f.enabledDenominations,
@@ -249,6 +448,8 @@ interface RawTicket {
   state: string;
   sla: string;
   slaTone: string;
+  slaDueAt: string;
+  createdAt: string;
   alias: string;
   session: string;
   refundState: "NONE" | "PROPOSED" | "INITIATED";
@@ -263,6 +464,8 @@ export async function getSupport(): Promise<SupportData> {
       state: t.state,
       sla: t.sla,
       ...slaColours(t.slaTone),
+      slaDueAt: t.slaDueAt,
+      createdAt: t.createdAt,
       alias: t.alias,
       session: t.session,
       refundState: t.refundState,
@@ -282,6 +485,19 @@ export async function getLifecycle(): Promise<LifecycleData> {
     "/admin/lifecycle",
   );
   return lifecycle;
+}
+
+/** Every astrologer with their lifecycle stage (the console filters the list). */
+export async function getLifecycleAstrologers(): Promise<LifecycleAstrologer[]> {
+  const { astrologers } = await apiGet<{ astrologers: LifecycleAstrologer[] }>("/admin/lifecycle/astrologers");
+  return astrologers;
+}
+
+// ── Team ──
+
+export async function getStaff(): Promise<StaffDepartment[]> {
+  const { departments } = await apiGet<{ departments: StaffDepartment[] }>("/admin/staff");
+  return departments;
 }
 
 // ── Marketing ──
@@ -346,8 +562,9 @@ export async function getRbac(): Promise<RbacData> {
   return rbac;
 }
 
-export async function getAuditLog(): Promise<AuditEntry[]> {
-  const { entries } = await apiGet<{ entries: AuditEntry[] }>("/admin/audit");
+/** The audit log in the given order (sorted by the API, since the list is capped). */
+export async function getAuditLog(sort = "newest"): Promise<AuditEntry[]> {
+  const { entries } = await apiGet<{ entries: AuditEntry[] }>(`/admin/audit?sort=${encodeURIComponent(sort)}`);
   return entries;
 }
 

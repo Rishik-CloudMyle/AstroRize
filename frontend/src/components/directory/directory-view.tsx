@@ -4,53 +4,35 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import type { Astrologer } from "@/lib/types";
-import { AVAILABILITY, RECOGNITION, languageLine, ratingLabel, rupee, skillLine } from "@/lib/format";
+import { languageLine, ratingLabel, rupee, skillLine } from "@/lib/format";
 import { AvailabilityBadge, DiscountBadge, Portrait, RecognitionBadge, VerifiedTick, WasPrice } from "../astrologer/parts";
-
-const FACETS = [
-  { key: "expertise", label: "Expertise", options: ["Vedic", "Numerology", "Tarot", "KP", "Nadi", "Vastu", "Palmistry"] },
-  { key: "language", label: "Language", options: ["Hindi", "English", "Tamil", "Marathi", "Bengali", "Punjabi"] },
-  { key: "mode", label: "Mode", options: ["Chat", "Voice", "Video", "Instant Call"] },
-  { key: "availability", label: "Availability", options: ["Available", "In consultation", "Live", "Instant Call"] },
-  { key: "recognition", label: "Recognition", options: ["Premium", "Trusted", "Proven Expert", "Rising", "New"] },
-] as const;
-
-type FacetKey = (typeof FACETS)[number]["key"];
-
-const SORTS = [
-  { key: "popularity", label: "Popularity" },
-  { key: "rating", label: "Rating — High to Low" },
-  { key: "price", label: "Price — Low to High" },
-  { key: "experience", label: "Experience — High to Low" },
-] as const;
-
-/** Does an astrologer match one option of a facet? */
-function matches(a: Astrologer, facet: FacetKey, option: string): boolean {
-  switch (facet) {
-    case "expertise":
-      return a.skills.includes(option);
-    case "language":
-      return a.languages.includes(option);
-    case "mode":
-      // Every astrologer offers chat, voice and video; Instant Call needs them online.
-      return option === "Instant Call" ? a.availability !== "off" : true;
-    case "availability":
-      return option === "Instant Call" ? a.availability !== "off" : AVAILABILITY[a.availability].label.startsWith(option);
-    case "recognition":
-      return RECOGNITION[a.recognition].label === option;
-  }
-}
+import FilterPanel from "./filter-panel";
+import {
+  CATEGORIES,
+  SORTS,
+  activeFilterCount,
+  categoryCount,
+  emptyFilters,
+  matchesFilters,
+  matchesQuery,
+  readState,
+  sortAstrologers,
+  stateToParams,
+  type FilterState,
+  type SortKey,
+} from "./filters";
 
 export default function DirectoryView({ astrologers }: { astrologers: Astrologer[] }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Category the Filters panel is open on, or null when closed.
+  const [panelCategory, setPanelCategory] = useState<string | null>(null);
 
-  const selected = (key: FacetKey) => params.get(key)?.split(",").filter(Boolean) ?? [];
+  const state = readState(new URLSearchParams(params.toString()), astrologers);
   const query = params.get("q") ?? "";
-  const sort = params.get("sort") ?? "popularity";
-  const activeCount = FACETS.reduce((n, f) => n + selected(f.key).length, 0);
+  const activeCount = activeFilterCount(state.filters);
+  const anyActive = activeCount > 0 || state.sort !== "popularity";
 
   function update(changes: Record<string, string | null>) {
     const next = new URLSearchParams(params.toString());
@@ -62,146 +44,149 @@ export default function DirectoryView({ astrologers }: { astrologers: Astrologer
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 
-  function toggle(key: FacetKey, option: string) {
-    const current = selected(key);
-    const next = current.includes(option) ? current.filter((o) => o !== option) : [...current, option];
-    update({ [key]: next.join(",") || null });
+  function apply(nextState: FilterState) {
+    update(stateToParams(nextState));
+    setPanelCategory(null);
   }
 
-  function clearFilters() {
-    update(Object.fromEntries(FACETS.map((f) => [f.key, null])));
+  function clearAll() {
+    update(stateToParams({ filters: emptyFilters(), sort: "popularity" }));
   }
 
-  // Filter: any option within a facet, all facets together.
-  const q = query.trim().toLowerCase();
-  const results = astrologers
-    .filter((a) => FACETS.every((f) => selected(f.key).length === 0 || selected(f.key).some((o) => matches(a, f.key, o))))
-    .filter(
-      (a) =>
-        !q ||
-        a.name.toLowerCase().includes(q) ||
-        a.skills.some((s) => s.toLowerCase().includes(q)) ||
-        a.languages.some((l) => l.toLowerCase().includes(q)),
-    )
-    .sort((x, y) => {
-      switch (sort) {
-        case "rating":
-          return (y.rating ?? -1) - (x.rating ?? -1);
-        case "price":
-          return x.price - y.price;
-        case "experience":
-          return y.years - x.years;
-        default:
-          // Popularity: keep the ranking order the data comes in.
-          return 0;
-      }
-    });
+  const results = sortAstrologers(
+    astrologers.filter((a) => matchesFilters(a, state.filters) && matchesQuery(a, query)),
+    state.sort,
+  );
 
-  const sortLabel = SORTS.find((s) => s.key === sort)?.label.split(" — ")[0].toLowerCase() ?? "popularity";
   const countLabel =
     results.length === astrologers.length
-      ? `${astrologers.length} astrologers · sorted by ${sortLabel}`
-      : `${results.length} of ${astrologers.length} astrologers · sorted by ${sortLabel}`;
+      ? `${astrologers.length} astrologers`
+      : `${results.length} of ${astrologers.length} astrologers`;
+
+  const chipBase =
+    "inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[12.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600";
+  const chipOn = "border-amber-600 bg-amber-50 text-amber-800";
+  const chipOff = "border-[#ecd9b6] bg-paper text-ink hover:border-amber-500";
 
   return (
-    <div className="mt-[26px] grid grid-cols-[minmax(0,1fr)] items-start gap-5 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-7">
-      <button
-        type="button"
-        onClick={() => setFiltersOpen((o) => !o)}
-        aria-expanded={filtersOpen}
-        aria-controls="directory-filters"
-        className="flex h-11 items-center justify-between rounded-xl border border-line bg-paper px-4 text-sm font-bold text-ink lg:hidden"
-      >
-        <span>Filters{activeCount > 0 ? ` (${activeCount})` : ""}</span>
-        <span aria-hidden="true">{filtersOpen ? "▴" : "▾"}</span>
-      </button>
+    <div className="mt-[26px] min-w-0">
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex h-11 min-w-[220px] flex-1 items-center gap-2 rounded-full border border-line bg-white px-4 focus-within:border-amber-500">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" className="size-4 shrink-0 text-muted" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="m16 16 4 4" />
+          </svg>
+          <span className="sr-only">Search astrologers</span>
+          <input
+            type="search"
+            defaultValue={query}
+            onChange={(e) => update({ q: e.target.value || null })}
+            placeholder="Search by name, skill or language"
+            className="min-w-0 flex-1 border-0 bg-transparent text-sm text-ink outline-none"
+          />
+        </label>
+        <label className="flex w-full items-center gap-2 sm:w-auto">
+          <span className="shrink-0 text-[12.5px] text-stone-500">Sort by</span>
+          <select
+            value={state.sort}
+            onChange={(e) => update({ sort: e.target.value === "popularity" ? null : e.target.value })}
+            className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-white px-3 text-[13.5px] font-semibold text-ink sm:flex-none"
+          >
+            {SORTS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
-      <aside
-        id="directory-filters"
-        className={`${filtersOpen ? "block" : "hidden"} rounded-[20px] border border-line bg-paper p-[18px] lg:sticky lg:top-24 lg:block`}
+      {/* Chip row like the app: Filter, then a shortcut into each category of the panel. */}
+      <div
+        role="group"
+        aria-label="Filters"
+        className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:-mx-6 sm:px-6 [&::-webkit-scrollbar]:hidden"
       >
-        <div className="flex items-center justify-between">
-          <b className="text-[13px] font-bold">Filters</b>
-          <button type="button" onClick={clearFilters} className="p-0 text-xs font-semibold text-amber-700">
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          onClick={() => setPanelCategory(CATEGORIES[0].id)}
+          className={`${chipBase} font-bold ${anyActive ? chipOn : chipOff}`}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" className="size-3.5" aria-hidden="true">
+            <path d="M4 6h16M7 12h10M10 18h4" />
+          </svg>
+          Filter
+          {activeCount > 0 && <ChipCount n={activeCount} label="filters on" />}
+        </button>
+        {CATEGORIES.filter((c) => c.id !== "orders").map((c) => {
+          const n = categoryCount(c, state);
+          return (
+            <button
+              key={c.id}
+              type="button"
+              aria-haspopup="dialog"
+              onClick={() => setPanelCategory(c.id)}
+              className={`${chipBase} font-semibold ${n ? chipOn : chipOff}`}
+            >
+              {c.label}
+              {n > 0 && <ChipCount n={n} label={c.kind === "sort" ? "sort on" : "selected"} />}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mb-3 mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-stone-500">
+        <span aria-live="polite">
+          {countLabel} · sorted by {sortName(state.sort)}
+        </span>
+        {anyActive && (
+          <button type="button" onClick={clearAll} className="p-0 text-xs font-semibold text-amber-700 hover:text-amber-800">
             Clear
           </button>
-        </div>
-        {FACETS.map((f) => (
-          <fieldset key={f.key} className="mt-[18px]">
-            <legend className="mb-2 text-[11px] font-bold uppercase tracking-[.1em] text-stone-500">{f.label}</legend>
-            <div className="flex flex-wrap gap-1.5">
-              {f.options.map((o) => {
-                const on = selected(f.key).includes(o);
-                return (
-                  <button
-                    key={o}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => toggle(f.key, o)}
-                    className={`h-[30px] rounded-full border px-[11px] text-xs font-semibold ${
-                      on ? "border-amber-500 bg-amber-500 text-ink" : "border-line bg-white text-stone-600"
-                    }`}
-                  >
-                    {o}
-                  </button>
-                );
-              })}
-            </div>
-          </fieldset>
-        ))}
-      </aside>
-
-      <div className="min-w-0">
-        <div className="mb-3.5 flex flex-wrap items-center gap-3">
-          <label className="flex h-11 min-w-[220px] flex-1 items-center gap-2 rounded-full border border-line bg-white px-4">
-            <span className="text-muted" aria-hidden="true">
-              ⌕
-            </span>
-            <span className="sr-only">Search astrologers</span>
-            <input
-              type="search"
-              defaultValue={query}
-              onChange={(e) => update({ q: e.target.value || null })}
-              placeholder="Search by name, skill or language"
-              className="min-w-0 flex-1 border-0 bg-transparent text-sm text-ink outline-none"
-            />
-          </label>
-          <label className="flex items-center gap-2">
-            <span className="text-[12.5px] text-stone-500">Sort</span>
-            <select
-              value={sort}
-              onChange={(e) => update({ sort: e.target.value === "popularity" ? null : e.target.value })}
-              className="h-11 rounded-xl border border-line bg-white px-3 text-[13.5px] font-semibold text-ink"
-            >
-              {SORTS.map((s) => (
-                <option key={s.key} value={s.key}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="mb-3 text-[12.5px] text-stone-500" aria-live="polite">
-          {countLabel}
-        </div>
-
-        {results.length === 0 ? (
-          <div className="rounded-[20px] border border-dashed border-[#e0d4bd] bg-paper px-6 py-9 text-center">
-            <div className="text-[15px] font-bold text-ink">No astrologers match these filters</div>
-            <p className="mb-3.5 mt-1.5 text-[13px] text-stone-500">Try removing a filter or searching for something else.</p>
-            <button type="button" onClick={clearFilters} className="az-cta h-10 rounded-full px-[18px] text-sm font-bold">
-              Clear filters
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {results.map((a) => (
-              <DirectoryCard key={a.id} astrologer={a} />
-            ))}
-          </div>
         )}
       </div>
+
+      {results.length === 0 ? (
+        <div className="rounded-[20px] border border-dashed border-[#e0d4bd] bg-paper px-6 py-9 text-center">
+          <div className="text-[15px] font-bold text-ink">No astrologers match these filters</div>
+          <p className="mb-3.5 mt-1.5 text-[13px] text-stone-500">Try removing a filter or searching for something else.</p>
+          <button type="button" onClick={clearAll} className="az-cta h-10 rounded-full px-[18px] text-sm font-bold">
+            Clear filters
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-2 lg:gap-4">
+          {results.map((a) => (
+            <DirectoryCard key={a.id} astrologer={a} />
+          ))}
+        </div>
+      )}
+
+      {panelCategory && (
+        <FilterPanel
+          astrologers={astrologers}
+          initial={state}
+          initialCategory={panelCategory}
+          onApply={apply}
+          onClose={() => setPanelCategory(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** "rating, high to low" for the count line. */
+function sortName(key: SortKey): string {
+  return (SORTS.find((s) => s.key === key)?.label ?? "Popularity").replace(" — ", ", ").toLowerCase();
+}
+
+function ChipCount({ n, label }: { n: number; label: string }) {
+  return (
+    <span className="grid h-4 min-w-4 place-items-center rounded-full bg-amber-100 px-[5px] text-[10px] font-bold text-amber-800">
+      {n}
+      <span className="sr-only"> {label}</span>
+    </span>
   );
 }
 

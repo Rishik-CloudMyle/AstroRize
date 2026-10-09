@@ -194,8 +194,14 @@ export default function ProfileView({ data }: { data: ProfileData }) {
             <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#f3e9d8] pt-2.5">
               <div className="flex items-baseline gap-1.5">
                 {discount && me.was && <span className="text-[11px] text-[#b0a8b8] line-through">{rupee(me.was)}</span>}
-                <span className="text-[17px] font-bold text-plum">{rupee(me.price)}</span>
-                <span className="text-[10px] font-semibold text-mauve">/min</span>
+                {me.price > 0 ? (
+                  <>
+                    <span className="text-[17px] font-bold text-plum">{rupee(me.price)}</span>
+                    <span className="text-[10px] font-semibold text-mauve">/min</span>
+                  </>
+                ) : (
+                  <span className="text-[13px] font-bold text-mauve">Rate not set yet</span>
+                )}
                 {discount && (
                   <span className="inline-flex h-[18px] items-center rounded-full bg-amber-100 px-1.5 text-[9px] font-extrabold text-amber-800">
                     {discount}
@@ -205,14 +211,18 @@ export default function ProfileView({ data }: { data: ProfileData }) {
               <span className="az-cta inline-flex h-[34px] items-center rounded-full px-3.5 shadow-none text-[12.5px] font-bold">Consult ›</span>
             </div>
           </div>
-          <a
-            href={data.publicProfileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 inline-block text-[12.5px] font-bold text-amber-700"
-          >
-            Open the live public profile ›
-          </a>
+          {data.publicProfileUrl ? (
+            <a
+              href={data.publicProfileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-block text-[12.5px] font-bold text-amber-700"
+            >
+              Open the live public profile ›
+            </a>
+          ) : (
+            <p className="mt-3 text-[12.5px] text-stone-500">Your public profile goes live once your application is approved.</p>
+          )}
         </div>
       </div>
     </div>

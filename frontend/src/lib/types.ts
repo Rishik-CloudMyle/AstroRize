@@ -16,6 +16,8 @@ export interface Astrologer {
   slug: string;
   name: string;
   initials: string;
+  /** "Male" | "Female", or null when not recorded */
+  gender: string | null;
   recognition: RecognitionKey;
   availability: AvailabilityKey;
   skills: string[];
@@ -61,6 +63,8 @@ export interface LiveRoom {
   /** myVote is the option this viewer voted for, or null. */
   poll: { question: string; options: { label: string; pct: number }[]; myVote: number | null };
   chat: { who: string; text: string }[];
+  /** Announcements from the astrologer, newest first. */
+  announcements: { id: string; text: string; at: string }[];
   /** What viewers currently see: normal, a private consult, a compliance monitor, or high-load mode. */
   state: "normal" | "private" | "monitor" | "degrade";
 }

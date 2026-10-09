@@ -33,7 +33,9 @@ export default function Sidebar({
   const [envLabel, envBg, envBorder, envDot, envFg] = ENV_STYLES[environment];
 
   return (
-    <aside className="az-rail flex flex-col gap-0.5 px-3 py-[18px] text-[#d6cbb8]">
+    // Pinned to the screen: only the page on the right scrolls. Log out stays at the bottom, and
+    // the rail scrolls on its own if the menu is ever taller than the screen.
+    <aside className="az-rail sticky top-0 flex h-screen flex-col gap-0.5 self-start overflow-y-auto px-3 py-[18px] text-[#d6cbb8]">
       <Link href="/admin" className="flex items-center gap-2.5 px-2 pb-3.5 hover:no-underline">
         <Image
           src="/assets/brand/logo-mark.png"

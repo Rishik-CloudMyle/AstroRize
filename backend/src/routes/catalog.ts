@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "../db.ts";
 import { badRequest, conflict, notFound } from "../lib/errors.ts";
 import { instantRate } from "../lib/billing.ts";
-import { istDate, percentages } from "../lib/format.ts";
+import { istDate, istTime, percentages } from "../lib/format.ts";
 import { rateLimit } from "../lib/safety.ts";
 import { requireRole, requireUser } from "../middleware/auth.ts";
 import type { Astrologer, LiveRoom, Review } from "../generated/prisma/client.ts";
@@ -22,6 +22,7 @@ export function astrologerView(a: AstrologerWithReviews) {
     slug: a.slug,
     name: a.name,
     initials: a.initials,
+    gender: a.gender,
     recognition: a.recognition.toLowerCase(),
     availability: a.presence.toLowerCase(),
     skills: a.skills,
@@ -71,10 +72,11 @@ function viewerKey(req: Request, res: Response): string {
 }
 
 async function roomView(room: LiveRoom, voterKey: string | null, userId: string | null) {
-  const [chat, waiting, myVote] = await Promise.all([
+  const [chat, waiting, myVote, announcements] = await Promise.all([
     db.chatMessage.findMany({ where: { roomId: room.id }, orderBy: { createdAt: "desc" }, take: 50 }),
     db.liveQueueEntry.findMany({ where: { roomId: room.id, status: "WAITING" }, orderBy: { createdAt: "asc" }, select: { id: true, userId: true } }),
     voterKey ? db.pollVote.findUnique({ where: { roomId_voterKey: { roomId: room.id, voterKey } } }) : null,
+    db.liveAnnouncement.findMany({ where: { roomId: room.id }, orderBy: { createdAt: "desc" }, take: 5 }),
   ]);
   const pollPct = percentages(room.pollOptions.map((_, i) => room.pollCounts[i] ?? 0));
   const myIndex = userId ? waiting.findIndex((w) => w.userId === userId) : -1;
@@ -98,6 +100,8 @@ async function roomView(room: LiveRoom, voterKey: string | null, userId: string 
       myVote: myVote?.optionIndex ?? null,
     },
     chat: chat.reverse().map((c) => ({ who: c.author, text: c.text })),
+    /** Newest first. Posted by the astrologer from the portal. */
+    announcements: announcements.map((a) => ({ id: a.id, text: a.text, at: istTime(a.createdAt) })),
   };
 }
 
@@ -153,8 +157,9 @@ catalogRouter.post("/live-rooms/:id/reactions", async (req, res) => {
 
 catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
   const auth = requireRole(req, "customer");
+  // Private unless the customer explicitly chooses Public (which also needs consent).
   const { mode, consent } = z
-    .object({ mode: z.enum(["PRIVATE", "PUBLIC"]), consent: z.boolean().default(false) })
+    .object({ mode: z.enum(["PRIVATE", "PUBLIC"]).default("PRIVATE"), consent: z.boolean().default(false) })
     .parse(req.body);
   if (mode === "PUBLIC" && !consent) throw badRequest("Public consultations need your on-camera consent.");
   const room = await db.liveRoom.findUnique({ where: { id: String(req.params.id) } });

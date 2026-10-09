@@ -1,8 +1,8 @@
-import Image from "next/image";
 import Link from "next/link";
 import FeaturedCard from "@/components/astrologer/featured-card";
 import { Portrait } from "@/components/astrologer/parts";
 import LiveBand from "@/components/home/live-band";
+import LiveSky, { Sparkles } from "@/components/home/navagraha-sky";
 import Voices from "@/components/home/voices";
 import LiveRoomCard from "@/components/live-room-card";
 import ToolCard from "@/components/tool-card";
@@ -10,10 +10,15 @@ import { rupee, skillLine } from "@/lib/format";
 import { STEPS, TESTIMONIALS, TRUST_STRIP } from "@/lib/mock/home";
 import { APP_STORE_URL, PLAY_STORE_URL } from "@/lib/mock/site";
 import { getTools } from "@/lib/mock/tools";
+import { grahaPositions } from "@/lib/sky";
 import { getAstrologers, getLiveRooms } from "./data";
 
 export default async function HomePage() {
   const [{ astrologers, total }, liveRooms, tools] = await Promise.all([getAstrologers(), getLiveRooms(), getTools()]);
+  // Where the planets really are as this page is served (the hero animation starts from here).
+  const skyAt = new Date();
+  const sky = grahaPositions(skyAt);
+  const skyTime = skyAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
   const availableNow = astrologers.filter((a) => a.availability === "on").slice(0, 3);
   const featured = astrologers.slice(0, 3);
   const rooms = liveRooms
@@ -23,23 +28,16 @@ export default async function HomePage() {
   return (
     <div>
       {/* ---------- Hero ---------- */}
-      <section className="relative overflow-hidden border-b border-line-warm bg-[linear-gradient(170deg,#fffbeb_0%,#fde68a_46%,#fcd34d_74%,#f59e0b_100%)]">
-        <Image
-          src="/assets/tools/hero.jpg"
-          alt=""
-          fill
-          priority
-          sizes="100vw"
-          className="object-cover object-[center_60%]"
-        />
-        <div className="absolute inset-0 bg-[linear-gradient(100deg,rgba(255,251,235,.94)_0%,rgba(255,251,235,.78)_38%,rgba(253,230,138,.28)_64%,rgba(245,158,11,.12)_100%)]" />
+      <section className="relative overflow-hidden border-b border-line-warm bg-[radial-gradient(ellipse_at_74%_50%,#fff9ea_0%,#fdf0d3_45%,#f8e2b4_100%)]">
+        <Sparkles className="absolute inset-0" />
         <div className="relative mx-auto grid max-w-[1240px] items-center gap-8 px-4 pb-12 pt-10 sm:px-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)] lg:gap-12 lg:pb-[60px] lg:pt-16">
-          <div className="az-rise min-w-0">
+          {/* Above the sky, so planets passing behind never cover the headline. */}
+          <div className="az-rise relative z-10 min-w-0">
             <div className="az-glass inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[.1em] text-amber-800">
               Verified Vedic guidance
             </div>
             <h1 className="mt-[18px] text-pretty font-display text-[42px] font-semibold leading-[1.02] tracking-[-.02em] text-ink sm:text-[52px] lg:text-[60px]">
-              Talk to a verified astrologer, today
+              Talk To A Verified Astrologer, Today
             </h1>
             <p className="mt-[18px] max-w-[44ch] text-pretty text-base leading-normal text-stone-600 sm:text-[17px]">
               Pay by the minute. Masked calls, so your number stays private. Wallet money is held, never nibbled — you see
@@ -66,34 +64,41 @@ export default async function HomePage() {
             </div>
           </div>
 
-          <div className="az-rise az-d2 az-glass min-w-0 rounded-3xl p-4 sm:p-5">
-            <div className="text-[11px] font-bold uppercase tracking-[.12em] text-amber-800">Available right now</div>
-            <div className="mt-3 flex flex-col gap-2.5">
-              {availableNow.map((a) => (
-                <Link
-                  key={a.id}
-                  href={`/astrologer/${a.slug}`}
-                  className="az-lift flex w-full items-center gap-3 rounded-2xl border border-[rgba(240,228,208,.9)] bg-[rgba(255,252,248,.86)] px-3 py-2.5 text-left hover:no-underline"
-                >
-                  <Portrait astrologer={a} size={46} />
-                  <span className="block min-w-0 flex-1">
-                    <b className="block truncate font-name text-[15px] font-bold tracking-[-.02em] text-plum">{a.name}</b>
-                    <span className="mt-px block truncate text-xs text-mauve">{skillLine(a)}</span>
-                  </span>
-                  <span className="shrink-0 text-right">
-                    <b className="block text-[15px] font-bold tabular-nums text-plum">{rupee(a.price)}</b>
-                    <span className="block text-[10px] text-mauve">per minute</span>
-                  </span>
-                </Link>
-              ))}
+          <LiveSky
+            positions={sky}
+            skyTime={skyTime}
+            className="lg:-translate-x-8"
+            skyClassName="left-1/2 top-1/2 w-[min(440px,92vw)] -translate-x-1/2 -translate-y-1/2 lg:left-[44%] lg:w-[400px] xl:left-[40%] xl:w-[600px]"
+          >
+            <div className="group/list az-rise az-d2 min-w-0 rounded-3xl border border-amber-900/15 bg-[rgba(255,253,248,.14)] p-4 transition-[background-color,backdrop-filter,box-shadow] duration-300 focus-within:bg-[rgba(255,253,248,.94)] focus-within:shadow-[0_18px_40px_rgba(92,58,20,.18)] focus-within:backdrop-blur-md hover:bg-[rgba(255,253,248,.94)] hover:shadow-[0_18px_40px_rgba(92,58,20,.18)] hover:backdrop-blur-md sm:p-5 [@media(hover:none)]:bg-[rgba(255,253,248,.5)]">
+              <div className="text-[11px] font-bold uppercase tracking-[.12em] text-amber-800">Available right now</div>
+              <div className="mt-3 flex flex-col gap-2.5">
+                {availableNow.map((a) => (
+                  <Link
+                    key={a.id}
+                    href={`/astrologer/${a.slug}`}
+                    className="az-lift flex w-full items-center gap-3 rounded-2xl border border-amber-900/10 bg-[rgba(255,252,248,.22)] px-3 py-2.5 transition-colors duration-300 group-hover/list:bg-white group-focus-within/list:bg-white [@media(hover:none)]:bg-[rgba(255,252,248,.75)] text-left hover:no-underline"
+                  >
+                    <Portrait astrologer={a} size={46} />
+                    <span className="block min-w-0 flex-1">
+                      <b className="block truncate font-name text-[15px] font-bold tracking-[-.02em] text-plum">{a.name}</b>
+                      <span className="mt-px block truncate text-xs text-mauve">{skillLine(a)}</span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <b className="block text-[15px] font-bold tabular-nums text-plum">{rupee(a.price)}</b>
+                      <span className="block text-[10px] text-mauve">per minute</span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+              <Link
+                href="/astrologers"
+                className="mt-3 flex h-[42px] w-full items-center justify-center rounded-xl border border-amber-900/20 bg-transparent text-sm font-bold text-amber-800 hover:no-underline"
+              >
+                See all {total} astrologers
+              </Link>
             </div>
-            <Link
-              href="/astrologers"
-              className="mt-3 flex h-[42px] w-full items-center justify-center rounded-xl border border-amber-900/20 bg-transparent text-sm font-bold text-amber-800 hover:no-underline"
-            >
-              See all {total} astrologers
-            </Link>
-          </div>
+          </LiveSky>
         </div>
       </section>
 

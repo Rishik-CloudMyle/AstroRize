@@ -9,7 +9,7 @@ import { config } from "../config.ts";
 export const SESSION_COOKIE = "astrorize_session";
 
 export type RoleClaim = "customer" | "astrologer" | "admin";
-export type AdminRoleClaim = "super" | "finance" | "support" | "compliance";
+export type AdminRoleClaim = "super" | "finance" | "support" | "compliance" | "marketing";
 
 export interface SessionClaims {
   sid: string;

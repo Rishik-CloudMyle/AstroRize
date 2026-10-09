@@ -2,9 +2,11 @@
 //   1. npm run db:seed      (the checks expect the demo data as seeded)
 //   2. npm run dev          (the API must be running)
 //   3. npm test
+// The application-flow checks alone (any database state): node --env-file=.env test/application-flow.ts
 // Set API_URL to test through the website's proxy, e.g. API_URL=http://localhost:3000/api
 
 import { db } from "../src/db.ts";
+import { applicationFlow } from "./application-flow.ts";
 
 const API = process.env.API_URL ?? `http://localhost:${process.env.PORT ?? 4000}/api`;
 let pass = 0, fail = 0;
@@ -90,6 +92,13 @@ r = await cust("POST", `/consultations/${cid}/rating`, { stars: 5, review: "Help
 check("rating saved", r.status === 200, r);
 r = await cust("POST", "/instant-calls", { astrologerId: "raghav" });
 check("instant call at ₹84", r.status < 300 && JSON.stringify(r.body).includes("84"), r);
+const instantId: string = r.body.id ?? r.body.consultation?.id;
+r = await cust("POST", "/consultations", { astrologerId: "arjun", mode: "CHAT" });
+check("second consultation refused while one is open", r.status === 409, r);
+r = await cust("POST", "/instant-calls", { astrologerId: "arjun" });
+check("second instant call refused", r.status === 409, r);
+r = await cust("GET", "/consultations/active");
+check("open consultation is reported", r.body.consultation?.id === instantId || r.body.id === instantId || JSON.stringify(r.body).includes(instantId), r.body);
 r = await cust("GET", "/admin/overview");
 check("customer blocked from admin", r.status === 403 || r.status === 401, r);
 r = await cust("GET", "/portal/account");
@@ -116,6 +125,23 @@ r = await astro("POST", `/portal/messages/${thread}`, { text: "Call me on 987654
 check("contact details blocked", JSON.stringify(r.body).toLowerCase().includes("contact details"), r);
 r = await astro("PATCH", "/portal/multiplier", { multiplier: 10 });
 check("multiplier above max rejected", r.status === 400, r);
+
+// Instant Call: the astrologer sees who is calling, accepts, and the customer is in session
+r = await astro("GET", `/portal/consultations/${instantId}/profile`);
+check("astrologer sees the caller's details", r.status === 200 && JSON.stringify(r.body).includes("Sneha"), r.body);
+r = await cust("GET", `/portal/consultations/${instantId}/profile`);
+check("customer can't open request details", r.status === 403, r);
+r = await astro("GET", "/portal/consultations");
+const activeNow = r.body.consultations?.session?.id;
+if (activeNow) await astro("POST", `/portal/consultations/${activeNow}/end`);
+r = await astro("POST", `/portal/consultations/${instantId}/accept`);
+check("astrologer accepts the instant call", r.status === 200, r);
+r = await cust("GET", "/consultations/active");
+check("customer is now in session", JSON.stringify(r.body).includes("ACTIVE") || JSON.stringify(r.body).toLowerCase().includes('"status":"active"'), r.body);
+r = await cust("POST", `/consultations/${instantId}/end`);
+check("customer ends the session", r.status === 200 && !!r.body.settlement, r);
+r = await cust("GET", "/consultations/active");
+check("nothing open after ending", r.status === 200 && !r.body.consultation, r.body);
 
 // Admin separation of duties
 const superA = await login("admin@astrorize.com");
@@ -153,6 +179,90 @@ r = await comp("POST", "/admin/monitoring/LIVE-8804/join", {});
 check("private consult can't be observed", r.status >= 400, r);
 r = await superA("GET", "/admin/audit/export");
 check("audit CSV export", r.status === 200 && typeof r.body === "string" && r.body.includes("payout.batch.release"), String(r.body).slice(0, 200));
+
+// ── Client requests, Oct 2026: profiles, live announcements, departments ──
+
+// Customer profile
+r = await cust("GET", "/me/profile");
+check("customer profile loads", r.status === 200 && r.body.profile?.firstName === "Sneha" && r.body.profile?.birthTime === "06:42", r.body);
+const profile = r.body.profile;
+r = await cust("PUT", "/me/profile", { ...profile, birthDate: "2999-01-01" });
+check("future date of birth rejected", r.status === 400, r);
+r = await cust("PUT", "/me/profile", { ...profile, city: "Pune" });
+check("profile saves", r.status === 200 && r.body.profile?.city === "Pune", r);
+r = await fetch(API + "/me/photo", { method: "POST", headers: { "content-type": "image/jpeg", cookie: "" }, body: "not an image" }).then((x) => ({ status: x.status, body: null }));
+check("photo upload needs sign-in", r.status === 401, r);
+r = await fetch(API + "/media/..%2F.env").then((x) => ({ status: x.status, body: null }));
+check("media can't reach server files", r.status === 404, r);
+
+// Astrologer sees who is in their live queue; nobody else does
+r = await astro("GET", "/portal/live");
+const queue = r.body.room?.queue ?? [];
+const withProfile = queue.find((q: any) => q.profile);
+check("portal live lists queue with profiles", r.status === 200 && queue.length >= 3 && !!withProfile, r.body.room?.queue);
+check("portal live lists announcements", (r.body.room?.announcements ?? []).length >= 2, r.body.room?.announcements);
+r = await astro("GET", `/portal/live/queue/${withProfile?.id}/profile`);
+check("astrologer opens See more", r.status === 200 && !!r.body.person?.profile?.birthPlace, r.body);
+r = await cust("GET", `/portal/live/queue/${withProfile?.id}/profile`);
+check("customer can't open a queue profile", r.status === 403, r);
+r = await anon("GET", "/live-rooms/raghav");
+check("public room has no customer profiles", !JSON.stringify(r.body).includes("birth"), "");
+
+// Announcements
+r = await astro("POST", "/portal/live/announcements", { text: "Smoke test announcement" });
+const annId = r.body.announcement?.id;
+check("astrologer posts announcement", r.status === 201 && !!annId, r);
+r = await anon("GET", "/live-rooms/raghav");
+check("viewers see the announcement", r.body.room?.announcements?.[0]?.text === "Smoke test announcement", r.body.room?.announcements);
+r = await astro("POST", "/portal/live/announcements", { text: "Call me on 9876543210" });
+check("announcement with phone number blocked", r.status >= 400, r);
+r = await astro("DELETE", `/portal/live/announcements/${annId}`);
+r = await anon("GET", "/live-rooms/raghav");
+check("deleted announcement disappears", !(r.body.room?.announcements ?? []).some((a: any) => a.id === annId), r.body.room?.announcements);
+
+// Joining a live consult queue is private unless chosen otherwise
+r = await cust("POST", "/live-rooms/sneha/queue", {});
+const joined = await db.liveQueueEntry.findFirst({ where: { roomId: "sneha", user: { email: "customer@astrorize.com" } }, orderBy: { createdAt: "desc" } });
+check("queue join defaults to private", r.status < 300 && joined?.mode === "PRIVATE", { status: r.status, mode: joined?.mode });
+
+// Marketing department
+const mkt = await login("marketing@astrorize.com");
+r = await mkt("GET", "/admin/marketing");
+check("marketing opens Marketing", r.status === 200, r);
+r = await mkt("GET", "/admin/finance");
+check("marketing can't open Finance", r.status === 403, r);
+r = await mkt("POST", "/admin/campaigns/CMP-15/approve");
+check("marketing can't approve a campaign", r.status === 403, r);
+
+// Several people per department, managed by the Super Admin
+r = await superA("GET", "/admin/staff");
+const support = r.body.departments?.find((d: any) => d.label === "Customer Support" || d.role === "support");
+check("team lists departments incl. Marketing", r.status === 200 && r.body.departments?.some((d: any) => d.role === "marketing") && (support?.people?.length ?? 0) >= 3, r.body);
+r = await mkt("GET", "/admin/staff");
+check("only Super Admin manages the team", r.status === 403, r);
+const newEmail = `smoke.${Date.now()}@astrorize.com`;
+r = await superA("POST", "/admin/staff", { name: "Smoke Tester", email: newEmail, department: "support", password: "Temp12345x" });
+const staffId = r.body.id;
+check("super adds a staff member", r.status === 201 && !!staffId, r);
+const newbie = client();
+r = await newbie("POST", "/auth/login", { email: newEmail, password: "Temp12345x" });
+check("new staff member signs in", r.status === 200 && r.body.user?.adminRole === "support", r);
+r = await superA("PATCH", `/admin/staff/${staffId}`, { active: false });
+check("super switches them off", r.status === 200, r);
+r = await newbie("GET", "/admin/support");
+check("switched-off person's session ends at once", r.status === 401, r);
+r = await client()("POST", "/auth/login", { email: newEmail, password: "Temp12345x" });
+check("switched-off person can't sign in", r.status === 401, r);
+r = await client()("POST", "/auth/login", { email: "fatima.shaikh@astrorize.com", password: "Astrorize@2026" });
+check("seeded switched-off account refused", r.status === 401, r);
+
+// Lifecycle list includes astrologers who aren't public
+r = await superA("GET", "/admin/lifecycle/astrologers");
+const ids = (r.body.astrologers ?? []).map((a: any) => a.id);
+check("lifecycle lists every astrologer", r.status === 200 && ids.includes("rohit") && ids.includes("sameer") && ids.includes("raghav"), ids);
+
+// A self-signed-up astrologer's application: submit → HR stages → activate / reject (test/application-flow.ts)
+await applicationFlow(API, check);
 
 // Logout revokes session
 r = await cust("POST", "/auth/logout");

@@ -7,20 +7,36 @@ import { useEffect, useRef, useState } from "react";
 import type { Astrologer, ConsultMode, Settlement } from "@/lib/types";
 import { ApiError, api } from "@/lib/api/client";
 import { clock, duration, rateFor, rupee, skillLine } from "@/lib/format";
+import { consultationActions, rememberMinimised, type ConsultationView } from "@/lib/consultation-store";
 import { sessionActions, totalBalance, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 
-type Step = "phone" | "otp" | "mode" | "connecting" | "session" | "settle" | "rate";
+type Step = "phone" | "otp" | "mode" | "connecting" | "waiting" | "session" | "settle" | "rate" | "outcome";
 
 const STEP_LABEL: Record<Step, string> = {
   phone: "Step 1 of 4 · Sign in",
   otp: "Step 2 of 4 · Verify",
   mode: "Step 3 of 4 · Choose how to talk",
   connecting: "Step 4 of 4 · Connecting",
+  waiting: "Instant Call · Waiting for the astrologer",
   session: "In consultation",
   settle: "Settlement",
   rate: "Rate your consultation",
+  outcome: "Not connected",
 };
+
+/** How often the waiting screen and the session check in with the API. */
+const POLL_MS = 3000;
+const NOT_CONNECTED = ["rejected", "timed_out", "cancelled"];
+
+/** Where a re-opened consultation picks up. */
+function resumeStep(c: ConsultationView): Step {
+  if (c.status === "requested") return "waiting";
+  if (c.status === "connecting") return "connecting";
+  if (c.status === "active") return "session";
+  if (c.status === "ended") return "settle";
+  return "outcome";
+}
 
 const MODE_CARDS: { key: ConsultMode; icon: string; title: string; body: string }[] = [
   { key: "chat", icon: "💬", title: "Chat", body: "Type back and forth. Best for a single, specific question." },
@@ -50,39 +66,50 @@ interface Meter {
 export default function ConsultJourney({
   astrologer,
   initialMode,
+  resume,
   onClose,
 }: {
   astrologer: Astrologer;
   initialMode: ConsultMode | null;
+  /** A consultation already under way (Instant Call waiting, or re-opened after a reload). */
+  resume: ConsultationView | null;
   onClose: () => void;
 }) {
   const session = useSession();
   const router = useRouter();
-  const { toast } = useAppUI();
+  const { toast, resumeConsult } = useAppUI();
 
-  const [step, setStep] = useState<Step>(session.loggedIn ? "mode" : "phone");
+  const [step, setStep] = useState<Step>(() => (resume ? resumeStep(resume) : session.loggedIn ? "mode" : "phone"));
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [resendIn, setResendIn] = useState(RESEND_SECS);
   const [devCode, setDevCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [mode, setMode] = useState<ConsultMode | null>(initialMode);
-  const [connectStep, setConnectStep] = useState(0);
-  const [placed, setPlaced] = useState<Placed | null>(null);
-  const [meter, setMeter] = useState<Meter>({ freeSeconds: 60, maxSeconds: 900 });
-  const [elapsed, setElapsed] = useState(0);
+  const [mode, setMode] = useState<ConsultMode | null>(resume?.mode ?? initialMode);
+  const [connectStep, setConnectStep] = useState(resume?.status === "connecting" ? 2 : 0);
+  const [placed, setPlaced] = useState<Placed | null>(resume ? { id: resume.id, rate: resume.rate, held: resume.held } : null);
+  const [meter, setMeter] = useState<Meter>(
+    resume ? { freeSeconds: resume.freeSeconds, maxSeconds: resume.maxSeconds } : { freeSeconds: 60, maxSeconds: 900 },
+  );
+  const [elapsed, setElapsed] = useState(resume?.elapsedSeconds ?? 0);
   const [ending, setEnding] = useState(false);
-  const [settlement, setSettlement] = useState<Settlement | null>(null);
+  const [settlement, setSettlement] = useState<Settlement | null>(resume?.settlement ?? null);
   const [stars, setStars] = useState(0);
   const [review, setReview] = useState("");
-  const elapsedRef = useRef(0);
+  // The latest answer about this consultation and when it arrived; countdowns tick from there.
+  const [live, setLive] = useState(() => (resume ? { view: resume, at: Date.now() } : null));
+  const [now, setNow] = useState(() => Date.now());
+  const [endedByAstrologer, setEndedByAstrologer] = useState(resume?.status === "ended" && resume.endReason === "astrologer");
+  // When the session connected, by this browser's clock (from the server's elapsed seconds).
+  const startedAt = useRef(now - (resume?.elapsedSeconds ?? 0) * 1000);
   const connectingRef = useRef(false);
+  const instant = (live?.view.kind ?? resume?.kind) === "instant";
 
   // Always the astrologer's own price, so it matches every other page.
   const baseRate = astrologer.price;
   const balance = totalBalance(session);
-  const rate = placed?.rate ?? rateFor(baseRate, mode);
+  const rate = placed?.rate ?? (instant ? astrologer.instant : rateFor(baseRate, mode));
   const held = placed?.held ?? 0;
   const needed = rate * 5;
   const eligible = balance >= needed;
@@ -185,8 +212,16 @@ export default function ConsultJourney({
         mode: mode.toUpperCase(),
       });
       setPlaced(consultation);
+      void consultationActions.refresh();
       void sessionActions.refreshWallet().catch(() => {});
     } catch (e) {
+      if (e instanceof ApiError && e.code === "consultation_in_progress") {
+        // Another tab started one in the meantime: go back to that one instead.
+        await consultationActions.refresh();
+        toast(e.message);
+        resumeConsult();
+        return;
+      }
       setError(errorText(e));
       setStep("mode");
     } finally {
@@ -202,9 +237,11 @@ export default function ConsultJourney({
       const res = await api.post<Meter>(`/consultations/${c.id}/connect`);
       setMeter({ freeSeconds: res.freeSeconds, maxSeconds: res.maxSeconds });
       setConnectStep(3);
+      void consultationActions.refresh();
     } catch (e) {
       // Release the hold; nothing is charged for a consultation that never connected.
       await api.post(`/consultations/${c.id}/end`).catch(() => {});
+      void consultationActions.refresh();
       void sessionActions.refreshWallet().catch(() => {});
       setPlaced(null);
       setError(`${errorText(e)} You have not been charged.`);
@@ -225,7 +262,7 @@ export default function ConsultJourney({
       if (connectStep === 2) {
         if (placed) void connectRef.current(placed);
       } else if (connectStep >= 3) {
-        elapsedRef.current = 0;
+        startedAt.current = Date.now();
         setElapsed(0);
         setStep("session");
       } else {
@@ -243,6 +280,7 @@ export default function ConsultJourney({
       const res = await api.post<{ settlement: Settlement }>(`/consultations/${placed.id}/end`);
       setSettlement(res.settlement);
       setStep("settle");
+      void consultationActions.refresh();
       void sessionActions.refreshWallet().catch(() => {});
     } catch (e) {
       toast(errorText(e));
@@ -260,8 +298,8 @@ export default function ConsultJourney({
     if (step !== "session") return;
     const cap = meter.maxSeconds;
     const id = setInterval(() => {
-      const next = elapsedRef.current + 1;
-      elapsedRef.current = next;
+      // From the connect time, so a re-opened session shows the true elapsed time.
+      const next = Math.max(0, Math.floor((Date.now() - startedAt.current) / 1000));
       setElapsed(next);
       if (next >= cap) {
         // The 15-minute cap or the held balance is used up: the API settles it.
@@ -272,16 +310,111 @@ export default function ConsultJourney({
     return () => clearInterval(id);
   }, [step, meter.maxSeconds]);
 
+  // ---- Waiting for the astrologer (Instant Call), and watching the session from their side ----
+  /** A fresh answer about this consultation: move to the screen it calls for. */
+  function applyView(v: ConsultationView) {
+    consultationActions.apply(v);
+    setLive({ view: v, at: Date.now() });
+    setNow(Date.now());
+    if (step === "waiting") {
+      if (v.status === "active") {
+        // Accepted: straight into the session.
+        setPlaced({ id: v.id, rate: v.rate, held: v.held });
+        setMeter({ freeSeconds: v.freeSeconds, maxSeconds: v.maxSeconds });
+        startedAt.current = Date.now() - v.elapsedSeconds * 1000;
+        setElapsed(v.elapsedSeconds);
+        setStep("session");
+      } else if (v.status === "ended" && v.settlement) {
+        setSettlement(v.settlement);
+        setEndedByAstrologer(v.endReason === "astrologer");
+        setStep("settle");
+      } else if (NOT_CONNECTED.includes(v.status)) {
+        setStep("outcome");
+      }
+    } else if (step === "session" && v.status === "ended" && v.settlement && !ending) {
+      // The astrologer ended it (or it ran out) on their side.
+      setSettlement(v.settlement);
+      setEndedByAstrologer(v.endReason === "astrologer");
+      setStep("settle");
+      void sessionActions.refreshWallet().catch(() => {});
+    }
+  }
+
+  const applyViewRef = useRef(applyView);
+  useEffect(() => {
+    applyViewRef.current = applyView;
+  });
+
+  const consultationId = placed?.id ?? resume?.id ?? null;
+  useEffect(() => {
+    if (!consultationId || (step !== "waiting" && step !== "session")) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const { consultation } = await api.get<{ consultation: ConsultationView }>(`/consultations/${consultationId}`);
+        if (!cancelled) applyViewRef.current(consultation);
+      } catch {
+        // A missed poll is retried on the next tick.
+      }
+    };
+    if (step === "waiting") void poll();
+    const id = setInterval(poll, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [consultationId, step]);
+
+  // The accept countdown ticks every second between polls.
+  useEffect(() => {
+    if (step !== "waiting") return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [step]);
+
+  async function cancelRequest() {
+    if (!consultationId || ending) return;
+    setEnding(true);
+    try {
+      const res = await api.post<{ settlement: Settlement; status: string }>(`/consultations/${consultationId}/end`);
+      void consultationActions.refresh();
+      if (res.status === "ended") {
+        // The astrologer accepted at the same moment: settle it like any session.
+        setSettlement(res.settlement);
+        setStep("settle");
+        void sessionActions.refreshWallet().catch(() => {});
+      } else {
+        onClose();
+        toast("Instant Call cancelled. You have not been charged.");
+      }
+    } catch (e) {
+      toast(errorText(e));
+    } finally {
+      setEnding(false);
+    }
+  }
+
+  const waitView = live?.view ?? null;
+  const secsToAccept =
+    waitView?.secondsToAccept != null && live ? Math.max(0, waitView.secondsToAccept - Math.floor((now - live.at) / 1000)) : null;
+
   const free = meter.freeSeconds;
   const billedSoFar = Math.ceil(Math.max(0, elapsed - free) / 60);
   const remainingMins = Math.max(0, Math.floor(held / rate) - Math.ceil(elapsed / 60));
   const lowBalance = elapsed > 0 && remainingMins <= 2;
+  const costSoFar = Math.min(billedSoFar * rate, held > 0 ? held : Number.MAX_SAFE_INTEGER);
+  const modeTitle = instant ? "Voice call" : (MODE_CARDS.find((m) => m.key === mode)?.title ?? "Chat");
 
   function headerAction() {
     if (step === "session") {
       void finish();
       return;
     }
+    if (step === "waiting") {
+      void cancelRequest();
+      return;
+    }
+    if (step === "settle" || step === "rate" || step === "outcome") void consultationActions.refresh();
     if (step === "connecting" && placed) {
       // Cancelled before connecting: release the hold, nothing is charged.
       void api
@@ -317,17 +450,34 @@ export default function ConsultJourney({
     <div className="fixed inset-0 z-[150] overflow-auto bg-cream" role="dialog" aria-modal="true" aria-label={`Consultation with ${astrologer.name}`}>
       <div className="sticky top-0 z-[5] flex flex-wrap items-center gap-3.5 bg-ink px-4 py-3 text-line sm:px-6">
         <FlowPortrait astrologer={astrologer} size={34} />
-        <div className="min-w-0">
-          <b className="block text-sm text-paper">{astrologer.name}</b>
+        <div className="min-w-0 flex-1">
+          <b className="block truncate text-sm text-paper">{astrologer.name}</b>
           <span className="block text-[11.5px] text-muted">{STEP_LABEL[step]}</span>
         </div>
-        <button
-          type="button"
-          onClick={headerAction}
-          className="ml-auto h-9 rounded-full border border-stone-700 bg-transparent px-[15px] text-[13px] font-bold text-line"
-        >
-          {step === "session" ? "End" : step === "settle" || step === "rate" ? "Close" : "Cancel"}
-        </button>
+        <div className="ml-auto flex shrink-0 gap-2">
+          {(step === "waiting" || step === "session") && (
+            // Keeps it running: the header shows a way back, and other consult buttons stay frozen.
+            <button
+              type="button"
+              onClick={() => {
+                rememberMinimised(consultationId);
+                onClose();
+              }}
+              title="Keep this running and browse the site"
+              className="h-9 rounded-full border border-stone-700 bg-transparent px-3.5 text-[13px] font-bold text-muted"
+            >
+              Minimise
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={headerAction}
+            disabled={ending}
+            className="h-9 rounded-full border border-stone-700 bg-transparent px-[15px] text-[13px] font-bold text-line disabled:opacity-60"
+          >
+            {step === "session" ? "End" : step === "settle" || step === "rate" || step === "outcome" ? "Close" : "Cancel"}
+          </button>
+        </div>
       </div>
 
       <div className="mx-auto max-w-[520px] px-4 pb-14 pt-9 sm:px-6">
@@ -504,13 +654,86 @@ export default function ConsultJourney({
           </div>
         )}
 
+        {step === "waiting" && (
+          <div className="pt-2 text-center">
+            <span className="inline-flex h-[26px] items-center gap-[7px] rounded-full bg-blue-50 px-[11px] text-[11.5px] font-extrabold text-blue-700">
+              ⚡ Instant Call · {rupee(rate)}/min
+            </span>
+            <span className="relative mx-auto mt-6 grid size-[118px] place-items-center">
+              <span className="az-pulse-ring absolute inset-0 rounded-full border-2 border-amber-400" />
+              <FlowPortrait astrologer={astrologer} size={104} />
+            </span>
+            <h1 className="mt-5 font-display text-[30px] font-semibold leading-tight text-ink sm:text-[32px]">
+              Waiting for {astrologer.name} to accept…
+            </h1>
+            <p className="mt-2 text-[14px] leading-[1.55] text-stone-600">
+              You&apos;ll go straight into the call as soon as they accept. Stay on this page, or minimise it and keep browsing.
+            </p>
+
+            <div className="mt-6 rounded-[18px] border border-line bg-white p-5" aria-live="polite">
+              {secsToAccept !== null ? (
+                <>
+                  <div className="text-[11.5px] font-bold uppercase tracking-[.08em] text-stone-500">Time left to accept</div>
+                  <div className="mt-1 text-[44px] font-bold leading-none tabular-nums text-ink">{clock(secsToAccept)}</div>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-amber-100">
+                    <span
+                      className="block h-full rounded-full bg-amber-500 transition-[width] duration-1000 ease-linear"
+                      style={{ width: `${Math.min(100, (secsToAccept / 180) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="mt-3 text-[12.5px] leading-normal text-stone-500">
+                    If {astrologer.name} doesn&apos;t accept in time, the request closes and you are not charged.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <b className="block text-[15px] text-ink">
+                    {waitView && waitView.ahead > 0
+                      ? `${waitView.ahead} ${waitView.ahead === 1 ? "person is" : "people are"} ahead of you`
+                      : "Sending your request…"}
+                  </b>
+                  <p className="mt-1.5 text-[12.5px] leading-normal text-stone-500">
+                    {astrologer.name} can see your request now. The 3-minute window to accept starts when it reaches the front.
+                  </p>
+                </>
+              )}
+            </div>
+
+            <div className="mt-3.5 rounded-[14px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-[13px] leading-[1.55] text-emerald-800">
+              Nothing is charged while you wait. Billing starts only once the call connects, and the first minute is free.
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void cancelRequest()}
+              disabled={ending}
+              className="mt-5 min-h-[52px] w-full rounded-[14px] border border-line bg-white text-[15px] font-bold text-ink disabled:opacity-60"
+            >
+              {ending ? "Cancelling…" : "Cancel request"}
+            </button>
+          </div>
+        )}
+
         {step === "session" && (
           <div>
-            <div className="rounded-[22px] bg-ink p-6 text-center text-line sm:p-7">
-              <span className="inline-flex h-[26px] items-center gap-[7px] rounded-full bg-green-400/15 px-3 text-[11.5px] font-extrabold text-green-400">
-                ● {MODE_CARDS.find((m) => m.key === mode)?.title ?? "Chat"} · connected
+            <div className="overflow-hidden rounded-[22px] bg-ink px-5 pb-6 pt-6 text-center text-line sm:px-7">
+              <div className="flex flex-wrap justify-center gap-2">
+                <span className="inline-flex h-[26px] items-center gap-[7px] rounded-full bg-green-400/15 px-3 text-[11.5px] font-extrabold text-green-400">
+                  ● {modeTitle} · connected
+                </span>
+                {instant && (
+                  <span className="inline-flex h-[26px] items-center rounded-full bg-blue-400/15 px-3 text-[11.5px] font-extrabold text-blue-300">
+                    ⚡ Instant Call
+                  </span>
+                )}
+              </div>
+              <span className="relative mx-auto mt-5 grid size-[108px] place-items-center">
+                <span className="az-pulse-ring absolute inset-0 rounded-full border-2 border-green-400/70" />
+                <FlowPortrait astrologer={astrologer} size={96} />
               </span>
-              <div className="mt-3.5 text-[54px] font-bold leading-none tabular-nums text-paper" aria-live="off">
+              <b className="mt-3 block text-lg text-paper">{astrologer.name}</b>
+              <span className="block text-[12.5px] text-muted">{skillLine(astrologer)}</span>
+              <div className="mt-4 text-[54px] font-bold leading-none tabular-nums text-paper" aria-live="off">
                 {clock(elapsed)}
               </div>
               <div className="mt-2 text-[13px] text-muted">elapsed — your balance does not tick down during the session</div>
@@ -519,16 +742,23 @@ export default function ConsultJourney({
                   First minute is free · {free - elapsed}s left
                 </div>
               )}
-              <div className="mt-[22px] flex flex-wrap justify-center gap-[26px]">
+              <div className="mt-[22px] grid grid-cols-3 gap-2 border-t border-white/10 pt-4">
                 <div>
-                  <div className="text-[11.5px] font-bold text-stone-500">Billed so far</div>
-                  <b className="text-xl tabular-nums text-amber-300">{billedSoFar} min</b>
+                  <div className="text-[11px] font-bold text-stone-500">Cost so far</div>
+                  <b className="text-lg tabular-nums text-amber-300 sm:text-xl">{rupee(costSoFar)}</b>
                 </div>
                 <div>
-                  <div className="text-[11.5px] font-bold text-stone-500">Remaining at this rate</div>
-                  <b className="text-xl tabular-nums text-amber-300">≈ {remainingMins} min</b>
+                  <div className="text-[11px] font-bold text-stone-500">Billed</div>
+                  <b className="text-lg tabular-nums text-amber-300 sm:text-xl">
+                    {billedSoFar} min
+                  </b>
+                </div>
+                <div>
+                  <div className="text-[11px] font-bold text-stone-500">Remaining</div>
+                  <b className="text-lg tabular-nums text-amber-300 sm:text-xl">≈ {remainingMins} min</b>
                 </div>
               </div>
+              <div className="mt-2 text-[12px] text-stone-500">at {rupee(rate)}/min</div>
             </div>
             {lowBalance && (
               <div className="mt-3.5 flex flex-wrap items-start gap-3 rounded-2xl border-2 border-rose-700 bg-rose-50 px-[17px] py-[15px]">
@@ -562,7 +792,27 @@ export default function ConsultJourney({
           </div>
         )}
 
-        {step === "settle" && settlement && <SettlementView s={settlement} onContinue={() => setStep("rate")} />}
+        {step === "settle" && settlement && (
+          <>
+            {endedByAstrologer && (
+              <p className="mb-4 rounded-[14px] border border-line bg-white px-4 py-3 text-center text-[13px] text-stone-600">
+                {astrologer.name} ended the consultation.
+              </p>
+            )}
+            <SettlementView s={settlement} onContinue={() => setStep("rate")} />
+          </>
+        )}
+
+        {step === "outcome" && (
+          <OutcomeView
+            astrologer={astrologer}
+            status={live?.view.status ?? "cancelled"}
+            onClose={() => {
+              void consultationActions.refresh();
+              onClose();
+            }}
+          />
+        )}
 
         {step === "rate" && (
           <div className="text-center">
@@ -620,6 +870,51 @@ function FlowPortrait({ astrologer, size }: { astrologer: Astrologer; size: numb
     <span className="relative block shrink-0 overflow-hidden rounded-full border-2 border-gold" style={{ width: size, height: size }}>
       <Image src={astrologer.photo} alt="" fill sizes={`${size * 2}px`} className="object-cover" />
     </span>
+  );
+}
+
+/** The Instant Call didn't connect: declined, not answered in time, or cancelled. Nothing was charged. */
+function OutcomeView({ astrologer, status, onClose }: { astrologer: Astrologer; status: string; onClose: () => void }) {
+  const title =
+    status === "rejected"
+      ? `${astrologer.name} couldn't take your call`
+      : status === "timed_out"
+        ? `${astrologer.name} didn't answer in time`
+        : "This request was cancelled";
+  const lead =
+    status === "rejected"
+      ? "They declined this request — they may be preparing for another consultation."
+      : status === "timed_out"
+        ? "The 3-minute window to accept ran out before they picked up."
+        : "The request closed before the call connected.";
+  return (
+    <div className="text-center">
+      <span className="mx-auto mt-2 block w-fit opacity-80 grayscale">
+        <FlowPortrait astrologer={astrologer} size={84} />
+      </span>
+      <h1 className="mt-4 font-display text-[30px] font-semibold leading-tight text-ink sm:text-[32px]">{title}</h1>
+      <p className="mt-2 text-sm leading-[1.55] text-stone-600">{lead}</p>
+      <div className="mt-[18px] flex items-start gap-3 rounded-2xl border-2 border-emerald-700 bg-emerald-50 px-[17px] py-[15px] text-left">
+        <span className="text-base">₹</span>
+        <div className="text-[13.5px] leading-[1.55] text-emerald-800">
+          <b>You have not been charged.</b> Nothing was held from your balance. You can start a new consultation now.
+        </div>
+      </div>
+      <Link
+        href="/astrologers"
+        onClick={onClose}
+        className="az-cta mt-5 flex min-h-[54px] w-full items-center justify-center rounded-[14px] text-base font-bold hover:text-cta-ink hover:no-underline"
+      >
+        Try another astrologer
+      </Link>
+      <button
+        type="button"
+        onClick={onClose}
+        className="mt-2.5 min-h-[50px] w-full rounded-[14px] border border-line bg-white text-[15px] font-bold text-ink"
+      >
+        Close
+      </button>
+    </div>
   );
 }
 

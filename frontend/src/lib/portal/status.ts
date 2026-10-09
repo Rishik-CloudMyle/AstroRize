@@ -38,7 +38,23 @@ export function bannerFor(status: AccountStatus): Banner {
     };
   }
   const stage = LIFECYCLE.find((l) => l.key === status.lifecycle) ?? LIFECYCLE[7];
-  return { icon: stage.icon, title: stage.title, body: stage.body, bg: stage.bg, border: stage.border, fg: stage.fg };
+  return { icon: stage.icon, title: stage.title, body: stageBody(status, stage.body), bg: stage.bg, border: stage.border, fg: stage.fg };
+}
+
+/** The stage's text with the real details: when it was sent, HR's review time, HR's note. */
+function stageBody(status: AccountStatus, fallback: string): string {
+  const note = status.note?.trim();
+  if (status.lifecycle === "review" && status.submittedOn) {
+    const days = status.reviewDays ? ` HR typically responds within ${status.reviewDays} ${status.reviewDays === 1 ? "day" : "days"}.` : "";
+    return `Submitted ${status.submittedOn}.${days}`;
+  }
+  if (status.lifecycle === "docs" && note) {
+    return `HR asks: “${note}” Update your application and send it again from the last step.`;
+  }
+  if (status.lifecycle === "rejected" && note) {
+    return `Reason: ${/[.!?]$/.test(note) ? note : `${note}.`} If you have questions, contact Astrorize support.`;
+  }
+  return fallback;
 }
 
 /** Why the online toggle is unavailable, when it is. */

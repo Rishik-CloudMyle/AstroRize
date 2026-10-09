@@ -31,11 +31,13 @@ export default async function ToolPage(props: PageProps<"/free-tools/[tool]">) {
 
       <div className="relative mt-1 overflow-hidden rounded-3xl" style={{ background: tool.bg }}>
         <Image src={tool.art} alt="" fill priority sizes="(max-width: 1240px) 100vw, 1240px" className="object-cover" />
+        {/* Text sits on solid colour; the art stays visible beside it (sm+) or below it (phones,
+            where the text spans the full width). */}
         <div
-          className="absolute inset-0"
-          style={{ background: `linear-gradient(90deg, ${tool.scrim} 0%, ${tool.scrim} 40%, transparent 85%)` }}
+          className="absolute inset-0 bg-[linear-gradient(180deg,var(--scrim)_0%,var(--scrim)_58%,transparent_100%)] sm:bg-[linear-gradient(90deg,var(--scrim)_0%,var(--scrim)_40%,transparent_85%)]"
+          style={{ "--scrim": tool.scrim } as React.CSSProperties}
         />
-        <div className="relative max-w-[560px] px-5 py-9 sm:px-8 sm:py-12">
+        <div className="relative max-w-[560px] px-5 pb-28 pt-9 sm:px-8 sm:py-12">
           <div className="text-[11px] font-bold uppercase tracking-[.12em]" style={{ color: tool.ink, opacity: 0.8 }}>
             Free tool · {tool.sub}
           </div>

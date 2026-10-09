@@ -68,7 +68,7 @@ const TOOLS: Tool[] = [
     id: "daily",
     name: "Daily insight",
     sub: "One thing today",
-    art: "/assets/tools/daily.jpg",
+    art: "/assets/tools/daily-mountains.jpg",
     bg: "#fcf3e2",
     ink: "#5c5340",
     scrim: "rgba(252,243,226,.94)",

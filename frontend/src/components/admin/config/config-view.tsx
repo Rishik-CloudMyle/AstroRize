@@ -1,10 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useId, useState } from "react";
 import { useAction, useAdmin } from "@/components/admin/admin-provider";
+import SortSelect, { FilterSelect, useUrlParam, useUrlSort } from "@/components/admin/sort-select";
 import { EYEBROW, PANEL, TD, TH_SM } from "@/components/admin/ui";
-import { api } from "@/lib/api/client";
-import { draftValue } from "@/lib/admin/config-values";
+import { api, ApiError } from "@/lib/api/client";
+import { valueHint, valueProblem } from "@/lib/admin/config-values";
+import { CONFIG_SORTS, sortRows } from "@/lib/admin/sort";
 import type { ConfigData, ConfigDetail, ConfigDomain } from "@/lib/admin/types";
 
 export default function ConfigView({
@@ -18,39 +21,64 @@ export default function ConfigView({
 }) {
   const { session, say } = useAdmin();
   const { run } = useAction();
+  const router = useRouter();
+  const formId = useId();
   const actor = session.actor;
 
   const [selected, setSelected] = useState(initialKey);
-  const [facet, setFacet] = useState<ConfigDomain | "all">("all");
+  // Department filter, kept in the URL as ?dept=… (only departments that have keys are offered).
+  const deptIds = data.facets
+    .filter((x) => x.id !== "all" && data.keys.some((k) => k.domain === x.id))
+    .map((x) => x.id);
+  const [facetParam, setFacetParam] = useUrlParam("dept", deptIds, "all");
+  const facet = facetParam as ConfigDomain | "all";
   const [filter, setFilter] = useState("");
+  const [sort, setSort] = useUrlSort(CONFIG_SORTS);
+  const grouped = sort === "department";
   // Versions and the pending change of the selected key (GET /admin/config/:key).
   const [detail, setDetail] = useState<ConfigDetail | null>(initialDetail);
   const [simulated, setSimulated] = useState<string | null>(null);
   // Shown after this admin approves, until another key is picked.
   const [justApproved, setJustApproved] = useState<{ key: string; version: number } | null>(null);
+  // The value typed into "Proposed value", and the problem with it (checked here, then by the API).
+  const [proposed, setProposed] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const cfg = data.keys.find((k) => k.key === selected) ?? data.keys[0];
   const d = detail?.key === cfg.key ? detail : null;
   const pending = d?.pending ?? null;
   const version = d?.version ?? cfg.version;
   const prevVersion = Math.max(1, version - 1);
-  const draft = pending ? pending.toValue : draftValue(cfg);
+  // The draft card previews the typed value only once it is a valid proposal.
+  const typedOk = proposed.trim() !== "" && valueProblem(proposed, cfg) === null;
+  const draft = pending ? pending.toValue : typedOk ? proposed.trim() : "—";
   const maker = pending?.draftedBy ?? actor;
   const stage = justApproved?.key === cfg.key ? "approved" : pending ? "submitted" : "draft";
   const financeCo = cfg.domain === "finance" || cfg.domain === "marketing";
-  const isMaker = actor === maker;
+  // Compare people, not short names: two people in a department could share one.
+  const isMaker = pending
+    ? pending.draftedById
+      ? pending.draftedById === session.id
+      : pending.draftedBy === actor
+    : true;
 
   const f = filter.trim().toLowerCase();
-  const visibleKeys = data.keys.filter(
+  const sortedKeys = sortRows(data.keys, CONFIG_SORTS, sort);
+  const visibleKeys = sortedKeys.filter(
     (k) => (facet === "all" || k.domain === facet) && (!f || k.key.toLowerCase().includes(f)),
   );
-  const facets = data.facets
-    .map((x) => ({ ...x, n: x.id === "all" ? data.keys.length : data.keys.filter((k) => k.domain === x.id).length }))
-    .filter((x) => x.n > 0);
+  // "Finance (5)": the number of keys in each department, whatever the text filter says.
+  const facetOptions = data.facets
+    .map((x) => ({ x, n: x.id === "all" ? data.keys.length : data.keys.filter((k) => k.domain === x.id).length }))
+    .filter(({ n }) => n > 0)
+    .map(({ x, n }) => ({ key: x.id, label: `${x.id === "all" ? "All departments" : x.label} (${n})` }));
 
   const select = async (key: string) => {
     setSelected(key);
     setJustApproved(null);
+    setProposed("");
+    setProblem(null);
     if (detail?.key === key) return;
     try {
       const res = await api.get<{ detail: ConfigDetail }>(`/admin/config/${encodeURIComponent(key)}`);
@@ -61,8 +89,10 @@ export default function ConfigView({
   };
 
   const pickFacet = (id: ConfigDomain | "all") => {
-    setFacet(id);
-    const first = data.keys.find((k) => id === "all" || k.domain === id);
+    setFacetParam(id);
+    // Keep the open key if it is in the department; otherwise open the department's first key.
+    if (id === "all" || cfg.domain === id) return;
+    const first = sortedKeys.find((k) => k.domain === id);
     if (first) void select(first.key);
   };
 
@@ -71,12 +101,26 @@ export default function ConfigView({
     setSimulated(cfg.key);
     say("Dry run complete — projected impact shown below.");
   };
-  const submit = async () => {
-    const res = await run(
-      () => api.post<{ detail: ConfigDetail }>(`/admin/config/${encodeURIComponent(cfg.key)}/draft`, { value: draft }),
-      `Submitted for approval. Audited: ${actor} · config.draft.submit`,
-    );
-    if (res) setDetail(res.detail);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const local = valueProblem(proposed, cfg);
+    setProblem(local);
+    if (local || submitting) return;
+    setSubmitting(true);
+    try {
+      // The API re-checks the range and answers in the same words, shown under the input.
+      const res = await api.post<{ detail: ConfigDetail }>(`/admin/config/${encodeURIComponent(cfg.key)}/draft`, {
+        value: proposed.trim(),
+      });
+      setDetail(res.detail);
+      setProposed("");
+      say(`Submitted for approval. Audited: ${actor} · config.draft.submit`);
+      router.refresh();
+    } catch (err) {
+      setProblem(err instanceof ApiError ? err.message : "Couldn't submit the change. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
   const approve = async () => {
     if (!pending) return;
@@ -104,11 +148,23 @@ export default function ConfigView({
 
   const approved = stage === "approved";
   const draftLabel = approved ? "Approved value" : stage === "submitted" ? "Submitted value" : "Draft value";
+  const problemId = `${formId}-problem`;
+  const hintId = `${formId}-hint`;
+  // Department label of each key, for the group headings in the key browser and the dropdown.
+  const domainLabel = (d: ConfigDomain) => data.facets.find((x) => x.id === d)?.label ?? "Other";
+  // The setting dropdown, grouped like the facets in the key browser.
+  const groups = data.facets
+    .filter((x) => x.id !== "all")
+    .map((x) => ({ label: x.label, keys: data.keys.filter((k) => k.domain === x.id) }))
+    .filter((g) => g.keys.length > 0);
+  const ungrouped = data.keys.filter((k) => !data.facets.some((x) => x.id === k.domain));
   const draftNote = approved
     ? "Live now"
     : stage === "submitted"
       ? `Drafted by ${maker} · awaiting a different approver`
-      : "Not yet submitted";
+      : typedOk
+        ? "Not yet submitted"
+        : "Enter a valid value above";
   const draftTone = approved
     ? { bg: "#ecfdf5", border: "#a7f3d0", fg: "#047857" }
     : { bg: "#fffbeb", border: "#fde68a", fg: "#92400e" };
@@ -140,6 +196,15 @@ export default function ConfigView({
     <div className="mt-5 grid grid-cols-[300px_minmax(0,1fr)] items-start gap-[18px]">
       {/* Key browser */}
       <div className={`${PANEL} p-3.5`}>
+        <SortSelect options={CONFIG_SORTS} value={sort} onChange={setSort} className="mb-3 w-full" />
+        <FilterSelect
+          label="Department"
+          icon="▦"
+          options={facetOptions}
+          value={facet}
+          onChange={(id) => pickFacet(id as ConfigDomain | "all")}
+          className="mb-3 w-full"
+        />
         <div className="flex h-9 items-center gap-2 rounded-full border border-line bg-white px-3">
           <span className="text-[13px] text-muted" aria-hidden>
             ⌕
@@ -153,55 +218,53 @@ export default function ConfigView({
             className="min-w-0 flex-1 border-0 bg-transparent text-[12.5px] outline-none [&::-webkit-search-cancel-button]:hidden"
           />
         </div>
-        <div className="mt-2.5 flex flex-wrap gap-[5px]">
-          {facets.map((x) => {
-            const on = facet === x.id;
-            return (
-              <button
-                key={x.id}
-                type="button"
-                aria-pressed={on}
-                onClick={() => pickFacet(x.id)}
-                className="inline-flex h-[25px] items-center gap-[5px] rounded-full border px-[9px] text-[10.5px] font-bold"
-                style={{
-                  borderColor: on ? "#1c1917" : "#e7e0d6",
-                  background: on ? "#1c1917" : "#fff",
-                  color: on ? "#fcd34d" : "#57534e",
-                }}
-              >
-                {x.label}
-                <b className="tabular-nums opacity-60">{x.n}</b>
-              </button>
-            );
-          })}
-        </div>
         <div className="mt-3 flex flex-col gap-[3px]">
-          {visibleKeys.map((k) => {
+          {visibleKeys.map((k, i) => {
             const on = k.key === cfg.key;
+            // Grouped by department: a heading wherever the department changes.
+            const heading = grouped && (i === 0 || visibleKeys[i - 1].domain !== k.domain);
             return (
-              <button
-                key={k.key}
-                type="button"
-                aria-pressed={on}
-                onClick={() => void select(k.key)}
-                className="flex w-full items-center gap-2 rounded-[10px] border px-[11px] py-[9px] text-left"
-                style={{
-                  borderColor: on ? "#fcd34d" : "#e7e0d6",
-                  background: on ? "#fef3c7" : "#fff",
-                }}
-              >
-                <span
-                  className="min-w-0 flex-1 truncate font-mono text-[11px]"
-                  style={{ color: on ? "#92400e" : "#57534e" }}
-                >
-                  {k.key}
-                </span>
-                {k.flagged && (
-                  <span className="flex-none text-[11px]" title="Dual control + step-up MFA">
-                    🔒
-                  </span>
+              <div key={k.key}>
+                {heading && (
+                  <div
+                    className={`px-1 pb-1 text-[10.5px] font-bold tracking-[.08em] text-amber-800 uppercase ${i === 0 ? "pt-0" : "pt-2.5"}`}
+                  >
+                    {domainLabel(k.domain)}
+                  </div>
                 )}
-              </button>
+                <button
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => void select(k.key)}
+                  className="flex w-full items-center gap-2 rounded-[10px] border px-[11px] py-[9px] text-left"
+                  style={{ borderColor: on ? "#fcd34d" : "#e7e0d6", background: on ? "#fef3c7" : "#fff" }}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className="block truncate font-mono text-[11px]"
+                      style={{ color: on ? "#92400e" : "#57534e" }}
+                    >
+                      {k.key}
+                    </span>
+                    {sort === "recent" && (
+                      <span className="mt-0.5 block text-[10.5px] text-[#78716c]">Changed {k.changed}</span>
+                    )}
+                  </span>
+                  {k.pending && (
+                    <span
+                      className="inline-flex h-[18px] flex-none items-center rounded-full bg-blue-50 px-1.5 text-[9.5px] font-extrabold text-blue-800"
+                      title="A change is waiting for a second approver"
+                    >
+                      Pending
+                    </span>
+                  )}
+                  {k.flagged && (
+                    <span className="flex-none text-[11px]" title="Dual control + step-up MFA">
+                      🔒
+                    </span>
+                  )}
+                </button>
+              </div>
             );
           })}
           {visibleKeys.length === 0 && (
@@ -211,6 +274,93 @@ export default function ConfigView({
       </div>
 
       <div className="min-w-0">
+        {/* Propose a change: pick the setting, type the value, submit it for a second approver */}
+        <form onSubmit={submit} noValidate className={`${PANEL} mb-4 p-[18px]`}>
+          <h2 className="mt-0 mb-3 text-[15px] font-bold">Propose a change</h2>
+          <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto] items-start gap-3">
+            <label className="min-w-0">
+              <span className={`${EYEBROW} mb-1.5 block`}>Setting</span>
+              <select
+                value={cfg.key}
+                onChange={(e) => void select(e.target.value)}
+                className="h-11 w-full rounded-xl border border-line bg-white px-3 font-mono text-[12.5px] text-ink"
+              >
+                {grouped ? (
+                  <>
+                    {groups.map((g) => (
+                      <optgroup key={g.label} label={g.label}>
+                        {g.keys.map((k) => (
+                          <option key={k.key} value={k.key}>
+                            {k.key}
+                            {k.flagged ? " 🔒" : ""}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                    {ungrouped.map((k) => (
+                      <option key={k.key} value={k.key}>
+                        {k.key}
+                      </option>
+                    ))}
+                  </>
+                ) : (
+                  // Any other sort: one list in the chosen order, as in the key browser.
+                  sortedKeys.map((k) => (
+                    <option key={k.key} value={k.key}>
+                      {k.key}
+                      {k.flagged ? " 🔒" : ""}
+                    </option>
+                  ))
+                )}
+              </select>
+              <span className="mt-1 block text-[11px] text-[#78716c]">Current value {cfg.current}</span>
+            </label>
+            <label className="min-w-0">
+              <span className={`${EYEBROW} mb-1.5 block`}>Proposed value</span>
+              <input
+                type="text"
+                inputMode={cfg.range?.integer ? "numeric" : "decimal"}
+                autoComplete="off"
+                value={pending ? "" : proposed}
+                placeholder={pending ? "Waiting for approval" : cfg.bounds}
+                disabled={!!pending || !cfg.range}
+                aria-invalid={problem ? true : undefined}
+                aria-describedby={problem ? `${problemId} ${hintId}` : hintId}
+                onChange={(e) => {
+                  setProposed(e.target.value);
+                  if (problem) setProblem(null);
+                }}
+                className="h-11 w-full rounded-xl border bg-white px-3 font-mono text-[14px] text-ink disabled:bg-stone-100 disabled:text-muted"
+                style={{ borderColor: problem ? "#be123c" : "#e7e0d6" }}
+              />
+              <span id={hintId} className="mt-1 block text-[11px] text-[#78716c]">
+                {pending ? "A change to this setting is already waiting for approval." : valueHint(cfg)}
+              </span>
+            </label>
+            <div>
+              <span className={`${EYEBROW} mb-1.5 block`} aria-hidden>
+                &nbsp;
+              </span>
+              <button
+                type="submit"
+                disabled={!!pending || !cfg.range || submitting}
+                className="h-11 rounded-xl border-0 bg-[linear-gradient(90deg,#ffd233,#ff8c1a)] px-[22px] text-[13.5px] font-bold whitespace-nowrap text-cta-ink disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {submitting ? "Submitting…" : "Submit for approval"}
+              </button>
+            </div>
+          </div>
+          {problem && (
+            <p
+              id={problemId}
+              role="alert"
+              className="mt-3 mb-0 rounded-[10px] border border-rose-200 bg-rose-50 px-3 py-2 text-[12.5px] font-semibold text-rose-700"
+            >
+              {problem}
+            </p>
+          )}
+        </form>
+
         {/* Selected key */}
         <div className={`${PANEL} relative p-[22px]`}>
           <div className="flex flex-wrap items-start justify-between gap-3.5">
@@ -289,15 +439,6 @@ export default function ConfigView({
               Roll back to v{prevVersion}
             </button>
             <div className="ml-auto flex flex-wrap items-center gap-2.5">
-              {stage === "draft" && (
-                <button
-                  type="button"
-                  onClick={submit}
-                  className="h-11 rounded-xl border-0 bg-[linear-gradient(90deg,#ffd233,#ff8c1a)] px-[22px] text-[13.5px] font-bold text-cta-ink"
-                >
-                  Submit for approval
-                </button>
-              )}
               {stage === "submitted" && (
                 <button
                   type="button"

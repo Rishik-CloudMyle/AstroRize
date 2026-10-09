@@ -9,6 +9,7 @@ import { homeFor } from "@/lib/auth";
 import { rupee } from "@/lib/format";
 import { sessionActions, totalBalance, useSession } from "@/lib/session-store";
 import { useAppUI } from "./app-provider";
+import { ConsultInProgressBar } from "./consult/consult-lock";
 
 export default function SiteHeader() {
   const session = useSession();
@@ -96,6 +97,13 @@ export default function SiteHeader() {
                 Log in
               </button>
               <Link
+                href="/signup"
+                aria-current={pathname === "/signup" ? "page" : undefined}
+                className="hidden h-[38px] items-center rounded-xl border border-ink bg-ink px-4 text-sm font-bold text-amber-300 hover:text-amber-200 hover:no-underline sm:inline-flex"
+              >
+                Sign up
+              </Link>
+              <Link
                 href="/astrologers"
                 className="az-cta az-sheen hidden h-[38px] items-center rounded-full px-[18px] text-sm font-bold hover:text-cta-ink hover:no-underline sm:inline-flex"
               >
@@ -118,6 +126,9 @@ export default function SiteHeader() {
           </button>
         </div>
       </div>
+
+      {/* A consultation is open: the way back to it, on every page. */}
+      <ConsultInProgressBar />
 
       {menuOpen && (
         <nav id="mobile-menu" aria-label="Main" className="border-t border-line px-4 pb-4 pt-2 sm:px-6 lg:hidden">
@@ -165,6 +176,13 @@ export default function SiteHeader() {
                 >
                   Log in
                 </button>
+                <Link
+                  href="/signup"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex h-11 items-center justify-center rounded-xl border border-ink bg-ink text-sm font-bold text-amber-300 hover:text-amber-200 hover:no-underline sm:hidden"
+                >
+                  Sign up
+                </Link>
                 <Link
                   href="/astrologers"
                   onClick={() => setMenuOpen(false)}

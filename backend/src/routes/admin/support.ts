@@ -52,6 +52,20 @@ async function caseFile(ticket: { id: string; sessionRef: string }) {
   return stored ?? { metering: [], evidence: [], billed: 0, buckets: { service: 0, promo: 0 } };
 }
 
+/**
+ * Who proposed the open refund on a ticket, as a user id. The ticket only stores the
+ * proposer's short name (two people can share one), so the id comes from the audit entry
+ * written in the same request as the proposal.
+ */
+async function refundProposerId(ticketId: string): Promise<string | null> {
+  const entry = await db.auditLog.findFirst({
+    where: { action: "dispute.refund.propose", object: ticketId },
+    orderBy: { at: "desc" },
+    select: { actorId: true },
+  });
+  return entry?.actorId ?? null;
+}
+
 supportRouter.get("/support", async (req, res) => {
   requirePage(req, "support");
   const now = new Date();
@@ -65,6 +79,8 @@ supportRouter.get("/support", async (req, res) => {
         state: t.state,
         sla: sla.label,
         slaTone: sla.tone,
+        slaDueAt: t.slaDueAt.toISOString(),
+        createdAt: t.createdAt.toISOString(),
         alias: t.customerAlias,
         session: t.sessionRef,
         refundState: t.refundState,
@@ -78,13 +94,14 @@ supportRouter.get("/support/:id", async (req, res) => {
   requirePage(req, "support");
   const t = await db.supportTicket.findUnique({ where: { id: String(req.params.id) } });
   if (!t) throw notFound("Ticket not found.");
-  const file = await caseFile(t);
+  const [file, proposedById] = await Promise.all([caseFile(t), t.refundState === "NONE" ? null : refundProposerId(t.id)]);
   res.json({
     case: {
       id: t.id,
       state: t.state,
       refundState: t.refundState,
       proposedBy: t.proposedBy,
+      proposedById,
       approvedBy: t.approvedBy,
       metering: file.metering,
       evidence: file.evidence,
@@ -125,7 +142,10 @@ supportRouter.post("/support/:id/refund/approve", async (req, res) => {
   const t = await db.supportTicket.findUnique({ where: { id: String(req.params.id) } });
   if (!t) throw notFound("Ticket not found.");
   if (t.refundState !== "PROPOSED") throw conflict("There is no proposed refund to approve.");
-  if (t.proposedBy === actorName(admin)) throw forbidden("Blocked — you proposed this refund. A second approver is required.");
+  // Compare people, not names. A proposal with no audit entry (older data) falls back to the name, which can only over-block.
+  const proposerId = await refundProposerId(t.id);
+  const samePerson = proposerId ? proposerId === admin.user.id : t.proposedBy === actorName(admin);
+  if (samePerson) throw forbidden("Blocked — you proposed this refund. A second approver is required.");
 
   const c = await db.consultation.findUnique({ where: { ref: t.sessionRef } });
   const ops: Prisma.PrismaPromise<unknown>[] = [

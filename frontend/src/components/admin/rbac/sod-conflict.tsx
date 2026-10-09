@@ -7,10 +7,18 @@ import type { RbacData } from "@/lib/admin/types";
 const CODE = "rounded-[5px] bg-white px-1.5 py-0.5 font-mono";
 
 /** Separation-of-duties warning with the two ways out (prototype rbacAct). */
-export default function SodConflict({ conflict }: { conflict: NonNullable<RbacData["conflict"]> }) {
+export default function SodConflict({
+  conflict,
+  canAct,
+}: {
+  conflict: NonNullable<RbacData["conflict"]>;
+  /** Only a Super Admin can resolve it; others see the case read-only. */
+  canAct: boolean;
+}) {
   const { run } = useAction();
   const { user, requested, existing, alternative } = conflict;
-  const grant = conflict.resolved === "grant-alternative" ? "review" : conflict.resolved === "revoke" ? "revoked" : null;
+  const grant =
+    conflict.resolved === "grant-alternative" ? "review" : conflict.resolved === "revoke" ? "revoked" : null;
 
   // The API records the decision (and refuses a second one once the case is resolved).
   const grantReview = () =>
@@ -39,22 +47,24 @@ export default function SodConflict({ conflict }: { conflict: NonNullable<RbacDa
             : `✓ ${existing} revoked — restore may now be granted`}
         </div>
       )}
-      <div className="mt-3.5 flex flex-wrap gap-2.5">
-        <button
-          type="button"
-          onClick={grantReview}
-          className="h-[42px] rounded-[11px] border border-rose-700 bg-white px-[17px] text-[13px] font-bold text-rose-700"
-        >
-          Grant the review capability instead
-        </button>
-        <button
-          type="button"
-          onClick={revoke}
-          className="h-[42px] rounded-[11px] border border-rose-200 bg-white px-[17px] text-[13px] font-bold text-rose-900"
-        >
-          Revoke suspend first
-        </button>
-      </div>
+      {canAct && !grant && (
+        <div className="mt-3.5 flex flex-wrap gap-2.5">
+          <button
+            type="button"
+            onClick={grantReview}
+            className="h-[42px] rounded-[11px] border border-rose-700 bg-white px-[17px] text-[13px] font-bold text-rose-700"
+          >
+            Grant the review capability instead
+          </button>
+          <button
+            type="button"
+            onClick={revoke}
+            className="h-[42px] rounded-[11px] border border-rose-200 bg-white px-[17px] text-[13px] font-bold text-rose-900"
+          >
+            Revoke suspend first
+          </button>
+        </div>
+      )}
     </div>
   );
 }

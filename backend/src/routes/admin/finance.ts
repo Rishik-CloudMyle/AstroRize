@@ -42,6 +42,8 @@ financeRouter.get("/finance", async (req, res) => {
         id: b.id,
         astrologers: b.astrologers,
         gross: rupee(b.gross),
+        grossValue: b.gross,
+        createdAt: b.createdAt.toISOString(),
         tds: "−" + rupee(b.tds),
         state: b.state,
         approvedBy: b.approvedRole?.toLowerCase(),

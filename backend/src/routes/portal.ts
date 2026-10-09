@@ -3,10 +3,19 @@ import { z } from "zod";
 import { db } from "../db.ts";
 import { audit } from "../lib/audit.ts";
 import { VIDEO_PREMIUM, instantRate } from "../lib/billing.ts";
-import { endConsultation, holdBalance, settlementView } from "../lib/consultations.ts";
+import { META, draftValues, metaValues, missingFor, nextApplicantId, submittedOn, wizardValues } from "../lib/application.ts";
+import {
+  INCOMING_WINDOW_SECS,
+  acceptConsultation,
+  endConsultation,
+  expireStaleRequests,
+  lockKey,
+  settlementView,
+} from "../lib/consultations.ts";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
 import { ageLabel, istDate, istDateKey, istDayMonth, istTime, makeRef, weekdayLabel } from "../lib/format.ts";
-import { CONTACT_BLOCKED_NOTICE, containsContactDetails } from "../lib/safety.ts";
+import { consultSummary, queueProfile, queueSummary } from "../lib/profile.ts";
+import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "../lib/safety.ts";
 import { configNumber, getSetting } from "../lib/settings.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
 import type { Astrologer, EarningsLine } from "../generated/prisma/client.ts";
@@ -15,7 +24,6 @@ import type { Astrologer, EarningsLine } from "../generated/prisma/client.ts";
 export const portalRouter = Router();
 portalRouter.use(roleGuard("astrologer"));
 
-const INCOMING_WINDOW_SECS = 180;
 const MULTIPLIER_OPTIONS = [1.5, 2, 3, 4];
 const SKILL_POOL = ["Prashna", "Vastu", "Numerology", "Tarot", "Palmistry", "Life Coaching"];
 const HOURS = ["10:00", "11:00", "12:00", "13:00", "14:00", "16:00", "18:00", "20:00"];
@@ -31,39 +39,19 @@ function canWork(a: Astrologer) {
   return a.lifecycle === "active" && a.suspension === "none";
 }
 
-/**
- * Requests wait in a queue. The one at the front is offered to the astrologer, who has
- * 3 minutes to accept; if not, it times out (the customer is told and charged ₹0) and the
- * next request is offered.
- */
-async function expireStaleRequests(astrologerId: string) {
-  const now = Date.now();
-  for (;;) {
-    const head = await db.consultation.findFirst({ where: { astrologerId, status: "REQUESTED" }, orderBy: { requestedAt: "asc" } });
-    if (!head) return;
-    if (!head.offeredAt) {
-      await db.consultation.update({ where: { id: head.id }, data: { offeredAt: new Date(now) } });
-      return;
-    }
-    const expiresAt = head.offeredAt.getTime() + INCOMING_WINDOW_SECS * 1000;
-    if (expiresAt > now) return;
-    await db.consultation.update({ where: { id: head.id }, data: { status: "TIMED_OUT", endedAt: new Date(expiresAt) } });
-    const next = await db.consultation.findFirst({ where: { astrologerId, status: "REQUESTED" }, orderBy: { requestedAt: "asc" } });
-    if (!next) return;
-    await db.consultation.update({ where: { id: next.id }, data: { offeredAt: new Date(Math.min(now, expiresAt)) } });
-  }
-}
-
 // ── Account & dashboard ──
 
 portalRouter.get("/account", async (req, res) => {
   const a = await me(req);
   await expireStaleRequests(a.id);
-  const [requests, threads, notices] = await Promise.all([
+  const [requests, threads, notices, draft, slaDays] = await Promise.all([
     db.consultation.count({ where: { astrologerId: a.id, status: "REQUESTED" } }),
     db.messageThread.findMany({ where: { astrologerId: a.id }, include: { messages: { orderBy: { createdAt: "desc" }, take: 1 } } }),
     db.complianceNotice.count({ where: { astrologerId: a.id, status: "OPEN" } }),
+    db.applicationDraft.findUnique({ where: { astrologerId: a.id }, select: { values: true } }),
+    configNumber("hr.application.review_sla_days", 5),
   ]);
+  const meta = draftValues(draft?.values);
   res.json({
     account: {
       astrologer: {
@@ -82,7 +70,14 @@ portalRouter.get("/account", async (req, res) => {
         instantMultiplier: a.instantMultiplier,
         bio: a.about,
       },
-      status: { lifecycle: a.lifecycle, suspension: a.suspension },
+      status: {
+        lifecycle: a.lifecycle,
+        suspension: a.suspension,
+        // Where the application stands, for the banner: when it went to HR and HR's latest note.
+        submittedOn: submittedOn(meta),
+        note: meta[META.note] ?? null,
+        reviewDays: slaDays,
+      },
       counts: {
         consultations: requests,
         messages: threads.filter((t) => t.messages[0]?.sender === "CUSTOMER").length,
@@ -179,27 +174,46 @@ portalRouter.patch("/multiplier", async (req, res) => {
 
 // ── Application wizard ──
 
-portalRouter.get("/application", async (req, res) => {
-  const a = await me(req);
-  const [draft, user] = await Promise.all([
+/** The wizard can be edited before it goes to HR, and again when HR asks for more information. */
+const EDITABLE = ["draft", "docs"];
+
+async function applicationContext(a: Astrologer) {
+  const [draft, user, pendingBio, applicant] = await Promise.all([
     db.applicationDraft.findUnique({ where: { astrologerId: a.id } }),
     a.userId ? db.user.findUnique({ where: { id: a.userId }, select: { phone: true, email: true } }) : null,
+    db.profileSubmission.count({ where: { astrologerId: a.id, status: "PENDING" } }),
+    db.applicant.findUnique({ where: { astrologerId: a.id }, select: { id: true } }),
   ]);
+  const values = draftValues(draft?.values);
+  const known = { phone: user?.phone ?? null, email: user?.email ?? null };
+  // "docs" is only editable when it's an application this portal sent (HR waits for the update).
+  const editable = a.lifecycle === "draft" || (a.lifecycle === "docs" && applicant !== null);
+  return { draft, values, known, editable, missing: missingFor(values, a, known, a.about.trim().length > 0 || pendingBio > 0) };
+}
+
+portalRouter.get("/application", async (req, res) => {
+  const a = await me(req);
+  const { draft, values, known, editable, missing } = await applicationContext(a);
   res.json({
     application: {
       currentStep: draft?.currentStep ?? 0,
-      values: draft?.values ?? {},
+      values: wizardValues(values),
       lastSaved: draft ? `Auto-saved ${istTime(draft.savedAt)}` : "Not saved yet",
       // What the platform already knows, used to pre-fill the wizard.
       known: {
-        phone: user?.phone ?? null,
-        email: user?.email ?? null,
+        phone: known.phone,
+        email: known.email,
         languages: a.languages,
         years: a.years,
         skills: a.skills,
         price: a.price,
         videoRate: a.price + VIDEO_PREMIUM,
       },
+      // What still stops it going to HR (empty = ready), and where it stands once sent.
+      missing,
+      editable,
+      submittedOn: submittedOn(values),
+      note: values[META.note] ?? null,
     },
   });
 });
@@ -209,12 +223,70 @@ portalRouter.put("/application", async (req, res) => {
   const { currentStep, values } = z
     .object({ currentStep: z.number().int().min(0).max(12), values: z.record(z.string(), z.string().max(2000)) })
     .parse(req.body);
+  if (!(await applicationContext(a)).editable) throw conflict("Your application is with HR, so it can't be changed now.");
+  const existing = await db.applicationDraft.findUnique({ where: { astrologerId: a.id } });
+  // The platform's own "_" keys (submitted date, HR's note) are kept; the wizard can't write them.
+  const merged = { ...wizardValues(values), ...metaValues(draftValues(existing?.values)) };
   const saved = await db.applicationDraft.upsert({
     where: { astrologerId: a.id },
-    create: { astrologerId: a.id, currentStep, values, savedAt: new Date() },
-    update: { currentStep, values, savedAt: new Date() },
+    create: { astrologerId: a.id, currentStep, values: merged, savedAt: new Date() },
+    update: { currentStep, values: merged, savedAt: new Date() },
   });
   res.json({ lastSaved: `Auto-saved ${istTime(saved.savedAt)}` });
+});
+
+/**
+ * Sends the application to HR. From "draft" it creates the HR application (APP-NNNN, "Under review");
+ * from "docs" (HR asked for more information) it sends the updated answers back to "Under review".
+ * Repeating it once it is with HR (a double click) changes nothing.
+ */
+portalRouter.post("/application/submit", async (req, res) => {
+  const a = await me(req);
+  if (a.lifecycle === "active") throw conflict("Your application has already been approved.");
+  if (a.lifecycle === "rejected") throw conflict("This application was not approved, so it can't be sent again.");
+  if (!EDITABLE.includes(a.lifecycle)) return res.json({ lifecycle: a.lifecycle, alreadySubmitted: true });
+
+  const { values, missing, editable } = await applicationContext(a);
+  if (!editable) throw conflict("HR isn't waiting for an update on this application. They'll contact you if anything is needed.");
+  if (missing.length) {
+    throw badRequest(`Finish these before you submit: ${missing.map((m) => `${m.label} (step ${m.step + 1})`).join("; ")}.`);
+  }
+
+  const now = new Date();
+  const result = await db.$transaction(async (tx) => {
+    // One submission at a time, so two clicks can't both create an application or share an id.
+    await lockKey(tx, "applicant:create");
+    const fresh = await tx.astrologer.findUniqueOrThrow({ where: { id: a.id }, select: { lifecycle: true } });
+    if (!EDITABLE.includes(fresh.lifecycle)) return { lifecycle: fresh.lifecycle, applicantId: null, resubmitted: false };
+    const existing = await tx.applicant.findUnique({ where: { astrologerId: a.id } });
+    let applicantId: string;
+    if (fresh.lifecycle === "docs") {
+      if (!existing) throw conflict("HR isn't waiting for an update on this application. They'll contact you if anything is needed.");
+      await tx.applicant.update({ where: { id: existing.id }, data: { state: "Under review", version: { increment: 1 } } });
+      applicantId = existing.id;
+    } else {
+      if (existing) throw conflict("Your application is already with HR.");
+      applicantId = await nextApplicantId(tx);
+      await tx.applicant.create({
+        data: { id: applicantId, astrologerId: a.id, name: a.name, skill: a.skills[0] ?? "—", state: "Under review", submittedAt: now },
+      });
+    }
+    await tx.astrologer.update({ where: { id: a.id }, data: { lifecycle: "review" } });
+    // HR's note has been answered; the first submission date stays.
+    const next: Record<string, string> = { ...values, [META.submittedAt]: values[META.submittedAt] ?? now.toISOString() };
+    delete next[META.note];
+    delete next[META.noteAt];
+    await tx.applicationDraft.update({ where: { astrologerId: a.id }, data: { values: next, savedAt: now } });
+    return { lifecycle: "review", applicantId, resubmitted: fresh.lifecycle === "docs" };
+  });
+  if (!result.applicantId) return res.json({ lifecycle: result.lifecycle, alreadySubmitted: true });
+  await audit(
+    req.auth ?? null,
+    result.resubmitted ? "application.resubmit" : "application.submit",
+    result.applicantId,
+    `${result.resubmitted ? "Docs pending" : "Draft"} → Under review · ${a.id}`,
+  );
+  res.status(201).json({ lifecycle: result.lifecycle, alreadySubmitted: false, applicationId: result.applicantId });
 });
 
 // ── Availability ──
@@ -293,14 +365,15 @@ portalRouter.post("/availability/:id/cancel", async (req, res) => {
 // ── Consultations ──
 
 const MODE_LABEL: Record<string, string> = { CHAT: "Chat", VOICE: "Voice", VIDEO: "Video" };
+const modeLabel = (c: { kind: string; mode: string }) => (c.kind === "INSTANT" ? "Instant Call" : MODE_LABEL[c.mode] ?? c.mode);
 
 portalRouter.get("/consultations", async (req, res) => {
   const a = await me(req);
   await expireStaleRequests(a.id);
   const now = new Date();
   const [requests, active, queueMax] = await Promise.all([
-    db.consultation.findMany({ where: { astrologerId: a.id, status: "REQUESTED" }, orderBy: { requestedAt: "asc" } }),
-    db.consultation.findFirst({ where: { astrologerId: a.id, status: "ACTIVE" }, orderBy: { connectedAt: "desc" } }),
+    db.consultation.findMany({ where: { astrologerId: a.id, status: "REQUESTED" }, orderBy: { requestedAt: "asc" }, include: { customer: true } }),
+    db.consultation.findFirst({ where: { astrologerId: a.id, status: "ACTIVE" }, orderBy: { connectedAt: "desc" }, include: { customer: true } }),
     configNumber("live.queue.max_depth", 20),
   ]);
   const first = requests[0];
@@ -312,10 +385,13 @@ portalRouter.get("/consultations", async (req, res) => {
     session = {
       id: active.id,
       alias: active.customerAlias,
+      mode: modeLabel(active),
+      instant: active.kind === "INSTANT",
       elapsed: `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`,
       elapsedSeconds: secs,
       lowBalance: remaining <= 2,
       hasWallet: !!wallet,
+      profile: active.customer ? consultSummary(active.customer) : null,
     };
   }
   res.json({
@@ -324,16 +400,50 @@ portalRouter.get("/consultations", async (req, res) => {
         ? {
             id: first.id,
             alias: first.customerAlias,
-            mode: first.kind === "INSTANT" ? "Instant Call" : MODE_LABEL[first.mode] ?? first.mode,
+            mode: modeLabel(first),
             instant: first.kind === "INSTANT",
             windowSecs: INCOMING_WINDOW_SECS,
             remainingSecs: Math.max(0, INCOMING_WINDOW_SECS - Math.floor((now.getTime() - (first.offeredAt ?? now).getTime()) / 1000)),
             rate: first.rate,
+            profile: first.customer ? consultSummary(first.customer) : null,
           }
         : null,
-      queue: requests.map((r) => ({ id: r.id, alias: r.customerAlias, mode: MODE_LABEL[r.mode] ?? r.mode, waiting: ageLabel(r.requestedAt, now, "long") })),
+      // Everyone waiting, oldest first, with the profile summary only this astrologer may see.
+      queue: requests.map((r) => ({
+        id: r.id,
+        alias: r.customerAlias,
+        mode: modeLabel(r),
+        instant: r.kind === "INSTANT",
+        rate: r.rate,
+        waiting: waitedFor(r.requestedAt, now),
+        profile: r.customer ? consultSummary(r.customer) : null,
+      })),
       queueMax,
       session,
+    },
+  });
+});
+
+/**
+ * Full profile of a customer who asked this astrologer for a consultation (tapping a row in
+ * "Incoming"). Only while the request is waiting or the session is in progress.
+ */
+portalRouter.get("/consultations/:id/profile", async (req, res) => {
+  const a = await me(req);
+  const c = await db.consultation.findUnique({ where: { id: String(req.params.id) }, include: { customer: true } });
+  if (!c || c.astrologerId !== a.id || !["REQUESTED", "ACTIVE"].includes(c.status)) {
+    throw notFound("This request is no longer waiting.");
+  }
+  res.json({
+    person: {
+      id: c.id,
+      alias: c.customerAlias,
+      mode: modeLabel(c),
+      instant: c.kind === "INSTANT",
+      rate: c.rate,
+      status: c.status === "ACTIVE" ? "active" : "waiting",
+      waiting: waitedFor(c.requestedAt, new Date()),
+      profile: c.customer ? queueProfile(c.customer) : null,
     },
   });
 });
@@ -341,22 +451,20 @@ portalRouter.get("/consultations", async (req, res) => {
 portalRouter.post("/consultations/:id/accept", async (req, res) => {
   const a = await me(req);
   if (!canWork(a)) throw forbidden("Your account can't take new sessions right now.");
-  const c = await db.consultation.findUnique({ where: { id: String(req.params.id) } });
-  if (!c || c.astrologerId !== a.id) throw notFound("Request not found.");
-  if (c.status !== "REQUESTED") throw conflict("This request is no longer waiting.");
-  const busy = await db.consultation.findFirst({ where: { astrologerId: a.id, status: "ACTIVE" } });
-  if (busy) throw conflict("Only one active consult at a time. End your current session first.");
-  await holdBalance(c);
-  await db.consultation.update({ where: { id: c.id }, data: { status: "ACTIVE", connectedAt: new Date() } });
-  res.json({ ok: true, rate: c.rate });
+  const result = await acceptConsultation(String(req.params.id), a.id);
+  if (!result.ok) {
+    if (result.reason === "busy") throw conflict("Only one active consult at a time. End your current session first.");
+    throw conflict("This request is no longer waiting — the customer may have cancelled it.");
+  }
+  res.json({ ok: true, rate: result.consultation.rate });
 });
 
 portalRouter.post("/consultations/:id/reject", async (req, res) => {
   const a = await me(req);
   const c = await db.consultation.findUnique({ where: { id: String(req.params.id) } });
   if (!c || c.astrologerId !== a.id) throw notFound("Request not found.");
-  if (c.status !== "REQUESTED") throw conflict("This request is no longer waiting.");
-  await db.consultation.update({ where: { id: c.id }, data: { status: "REJECTED", endedAt: new Date() } });
+  const { count } = await db.consultation.updateMany({ where: { id: c.id, status: "REQUESTED" }, data: { status: "REJECTED", endedAt: new Date() } });
+  if (!count) throw conflict("This request is no longer waiting.");
   res.json({ ok: true });
 });
 
@@ -374,7 +482,11 @@ portalRouter.get("/live", async (req, res) => {
   const a = await me(req);
   const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
   if (!room) return res.json({ room: null });
-  const entries = await db.liveQueueEntry.findMany({ where: { roomId: room.id, status: "WAITING" }, orderBy: { createdAt: "asc" } });
+  const [entries, announcements] = await Promise.all([
+    db.liveQueueEntry.findMany({ where: { roomId: room.id, status: "WAITING" }, orderBy: { createdAt: "asc" }, include: { user: true } }),
+    db.liveAnnouncement.findMany({ where: { roomId: room.id }, orderBy: { createdAt: "desc" }, take: MAX_ANNOUNCEMENTS_SHOWN }),
+  ]);
+  const now = new Date();
   const secs = Math.max(0, Math.floor((Date.now() - room.startedAt.getTime()) / 1000));
   res.json({
     room: {
@@ -388,8 +500,74 @@ portalRouter.get("/live", async (req, res) => {
       pollQuestion: room.pollQuestion,
       pollOptions: room.pollOptions,
       rate: a.price,
+      announcements: announcements.map(announcementView),
+      // Who is waiting, with the profile summary only this astrologer may see.
+      queue: entries.map((e) => ({
+        id: e.id,
+        alias: e.alias,
+        mode: e.mode === "PUBLIC" ? "public" : "private",
+        waiting: waitedFor(e.createdAt, now),
+        profile: e.user ? queueSummary(e.user) : null,
+      })),
     },
   });
+});
+
+/**
+ * Full profile of someone in this astrologer's live queue ("See more"). Only for entries in
+ * the astrologer's own room that are still waiting or were accepted; anything else is "not found".
+ */
+portalRouter.get("/live/queue/:entryId/profile", async (req, res) => {
+  const a = await me(req);
+  const entry = await db.liveQueueEntry.findUnique({ where: { id: String(req.params.entryId) }, include: { room: true, user: true } });
+  if (!entry || entry.room.astrologerId !== a.id || !["WAITING", "ACCEPTED"].includes(entry.status)) {
+    throw notFound("This person is no longer in your queue.");
+  }
+  res.json({
+    person: {
+      id: entry.id,
+      alias: entry.alias,
+      mode: entry.mode === "PUBLIC" ? "public" : "private",
+      status: entry.status.toLowerCase(),
+      waiting: waitedFor(entry.createdAt, new Date()),
+      profile: entry.user ? queueProfile(entry.user) : null,
+    },
+  });
+});
+
+/** "12 min", or "under a minute" for someone who just joined. */
+function waitedFor(since: Date, now: Date): string {
+  const label = ageLabel(since, now, "long");
+  return label === "0 min" ? "under a minute" : label;
+}
+
+// Announcements: short notes the astrologer posts to the room, shown above the room chat.
+
+const MAX_ANNOUNCEMENTS_SHOWN = 20;
+
+function announcementView(n: { id: string; text: string; createdAt: Date }) {
+  return { id: n.id, text: n.text, at: istTime(n.createdAt), date: istDayMonth(n.createdAt) };
+}
+
+portalRouter.post("/live/announcements", async (req, res) => {
+  const a = await me(req);
+  const { text } = z
+    .object({ text: z.string().trim().min(1, "Write an announcement first.").max(280, "Announcements can be up to 280 characters.") })
+    .parse(req.body);
+  rateLimit(`announce:${a.id}`, 5, 60_000, "You're posting announcements too quickly. Wait a minute.");
+  if (containsContactDetails(text)) throw badRequest(CONTACT_BLOCKED_NOTICE);
+  const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
+  if (!room) throw notFound("You don't have a live room.");
+  const created = await db.liveAnnouncement.create({ data: { roomId: room.id, text } });
+  res.status(201).json({ announcement: announcementView(created) });
+});
+
+portalRouter.delete("/live/announcements/:id", async (req, res) => {
+  const a = await me(req);
+  const n = await db.liveAnnouncement.findUnique({ where: { id: String(req.params.id) }, include: { room: true } });
+  if (!n || n.room.astrologerId !== a.id) throw notFound("Announcement not found.");
+  await db.liveAnnouncement.deleteMany({ where: { id: n.id } });
+  res.json({ ok: true });
 });
 
 portalRouter.post("/live/requests/:id/:decision", async (req, res) => {
@@ -525,7 +703,8 @@ portalRouter.get("/profile", async (req, res) => {
       pendingChanges: pending.length,
       skillPool: SKILL_POOL,
       videoRenewalDays: 14,
-      publicProfileUrl: `/astrologer/${a.slug}`,
+      // Only astrologers listed on the site have a public profile (same rule as the directory).
+      publicProfileUrl: a.lifecycle === "active" && a.suspension !== "full" ? `/astrologer/${a.slug}` : null,
       published: { bio: a.about, skills: a.skills },
       draft: pending[0] ? { bio: pending[0].bio, skills: pending[0].skills } : null,
     },

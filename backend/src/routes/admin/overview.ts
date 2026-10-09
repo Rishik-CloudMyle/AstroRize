@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
 import { db } from "../../db.ts";
-import { ageLabel, istTime, rupee } from "../../lib/format.ts";
-import { PAGES, adminOf, requirePage } from "../../lib/rbac.ts";
+import { Prisma } from "../../generated/prisma/client.ts";
+import { ageLabel, istDateKey, istTime, rupee } from "../../lib/format.ts";
+import { adminOf, capabilitiesOf, pagesOf, requirePage } from "../../lib/rbac.ts";
 import { configNumber, getSetting } from "../../lib/settings.ts";
 
 export const overviewRouter = Router();
@@ -16,7 +17,8 @@ export function lakh(n: number): string {
 
 overviewRouter.get("/session", async (req, res) => {
   const admin = adminOf(req);
-  const pages = PAGES[admin.adminRole];
+  // From the access matrix in force (defaults + the Super Admin's changes), so the nav follows a change at once.
+  const pages = pagesOf(admin.adminRole);
   // Open-work counts for the nav badges, only for pages this role can open.
   const [hr, finance, support, compliance, trust] = await Promise.all([
     pages.includes("hr") ? db.applicant.count() : 0,
@@ -27,15 +29,127 @@ overviewRouter.get("/session", async (req, res) => {
   ]);
   res.json({
     session: {
+      id: admin.user.id,
       name: admin.user.name,
       initials: admin.user.initials,
       actor: admin.user.actorName ?? admin.user.name,
       role: admin.adminRole,
       pages,
+      capabilities: capabilitiesOf(admin.adminRole),
       counts: { hr, finance, support, compliance, trust },
     },
   });
 });
+
+// ── Analytics, computed from the database on every request ──
+
+const DAYS = 30;
+const DAY_MS = 86400000;
+/** A stored UTC timestamp column as its IST calendar date, e.g. 2026-10-08 (for GROUP BY). */
+const istDay = (col: string) => Prisma.raw(`to_char((("${col}" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')`);
+/** An Instant Call counts as its own channel whatever its mode. */
+const CHANNEL = Prisma.sql`CASE WHEN "kind" = 'INSTANT' THEN 'instant' ELSE lower("mode") END`;
+
+/** Midnight IST at the start of the IST day `daysBack` days before `now`. */
+function istMidnight(now: Date, daysBack: number): Date {
+  return new Date(new Date(`${istDateKey(now)}T00:00:00+05:30`).getTime() - daysBack * DAY_MS);
+}
+
+const num = (v: bigint | number | null | undefined) => Number(v ?? 0);
+
+/**
+ * The overview's charts and live numbers. A "consultation" is an ENDED one, dated by when it
+ * connected; revenue is what customers were billed for them; a recharge is a PAID payment.
+ * Trend windows are the last 30 IST days (today so far included); week-on-week figures compare
+ * the last 7 × 24 hours with the 7 × 24 hours before, so a part-day never skews them.
+ */
+async function analytics(now: Date) {
+  const start = istMidnight(now, DAYS - 1);
+  const dayKeys = Array.from({ length: DAYS }, (_, i) => istDateKey(new Date(start.getTime() + (i + 0.5) * DAY_MS)));
+  const weekAgo = new Date(now.getTime() - 7 * DAY_MS);
+  const twoWeeksAgo = new Date(now.getTime() - 14 * DAY_MS);
+  const thisWeek = { gte: weekAgo };
+  const lastWeek = { gte: twoWeeksAgo, lt: weekAgo };
+
+  const [byDay, activeByDay, recharges, signups, top, liveConsults, waiting, oldestWaiting, liveRooms, liveQueue, presence, c7, cPrev, p7, pPrev, s7, sPrev] =
+    await Promise.all([
+      db.$queryRaw<{ day: string; channel: string; n: bigint; revenue: bigint }[]>`
+        SELECT ${istDay("connectedAt")} AS day, ${CHANNEL} AS channel, count(*) AS n, coalesce(sum("total"), 0) AS revenue
+        FROM "Consultation" WHERE "status" = 'ENDED' AND "connectedAt" >= ${start} GROUP BY 1, 2`,
+      // A customer who consulted twice in a day counts once.
+      db.$queryRaw<{ day: string; n: bigint }[]>`
+        SELECT ${istDay("connectedAt")} AS day, count(DISTINCT "customerId") AS n
+        FROM "Consultation" WHERE "status" = 'ENDED' AND "connectedAt" >= ${start} GROUP BY 1`,
+      db.$queryRaw<{ day: string; n: bigint; amount: bigint }[]>`
+        SELECT ${istDay("paidAt")} AS day, count(*) AS n, coalesce(sum("amount"), 0) AS amount
+        FROM "Payment" WHERE "status" = 'PAID' AND "paidAt" >= ${start} GROUP BY 1`,
+      db.$queryRaw<{ day: string; n: bigint }[]>`
+        SELECT ${istDay("createdAt")} AS day, count(*) AS n
+        FROM "User" WHERE "role" = 'CUSTOMER' AND "createdAt" >= ${start} GROUP BY 1`,
+      db.$queryRaw<{ id: string; name: string; n: bigint; revenue: bigint }[]>`
+        SELECT a."id", a."name", count(*) AS n, coalesce(sum(c."total"), 0) AS revenue
+        FROM "Consultation" c JOIN "Astrologer" a ON a."id" = c."astrologerId"
+        WHERE c."status" = 'ENDED' AND c."connectedAt" >= ${start}
+        GROUP BY a."id", a."name" ORDER BY revenue DESC, n DESC LIMIT 5`,
+      db.$queryRaw<{ channel: string; n: bigint }[]>`
+        SELECT ${CHANNEL} AS channel, count(*) AS n FROM "Consultation" WHERE "status" = 'ACTIVE' GROUP BY 1`,
+      db.consultation.count({ where: { status: "REQUESTED" } }),
+      db.consultation.findFirst({ where: { status: "REQUESTED" }, orderBy: { requestedAt: "asc" }, select: { requestedAt: true } }),
+      db.liveRoom.count({ where: { isLive: true } }),
+      db.liveQueueEntry.count({ where: { status: "WAITING", room: { isLive: true } } }),
+      // The public roster: the astrologers the directory lists.
+      db.astrologer.groupBy({ by: ["presence"], where: { lifecycle: "active", suspension: { not: "full" } }, _count: { _all: true } }),
+      db.consultation.aggregate({ where: { status: "ENDED", connectedAt: thisWeek }, _count: { _all: true }, _sum: { total: true } }),
+      db.consultation.aggregate({ where: { status: "ENDED", connectedAt: lastWeek }, _count: { _all: true }, _sum: { total: true } }),
+      db.payment.aggregate({ where: { status: "PAID", paidAt: thisWeek }, _count: { _all: true }, _sum: { amount: true } }),
+      db.payment.aggregate({ where: { status: "PAID", paidAt: lastWeek }, _count: { _all: true }, _sum: { amount: true } }),
+      db.user.count({ where: { role: "CUSTOMER", createdAt: thisWeek } }),
+      db.user.count({ where: { role: "CUSTOMER", createdAt: lastWeek } }),
+    ]);
+
+  const perDay = <T extends { day: string }>(rows: T[], pick: (r: T) => number) =>
+    dayKeys.map((d) => rows.filter((r) => r.day === d).reduce((sum, r) => sum + pick(r), 0));
+  const channelOf = (d: string, ch: string) => num(byDay.find((r) => r.day === d && r.channel === ch)?.n);
+  const live = Object.fromEntries(liveConsults.map((r) => [r.channel, num(r.n)]));
+  const pres = Object.fromEntries(presence.map((p) => [p.presence, p._count._all]));
+
+  return {
+    days: dayKeys,
+    series: {
+      consultations: perDay(byDay, (r) => num(r.n)),
+      revenue: perDay(byDay, (r) => num(r.revenue)),
+      activeCustomers: perDay(activeByDay, (r) => num(r.n)),
+      signups: perDay(signups, (r) => num(r.n)),
+      recharges: perDay(recharges, (r) => num(r.n)),
+      rechargeAmount: perDay(recharges, (r) => num(r.amount)),
+    },
+    channels: dayKeys.slice(-14).map((d) => ({
+      day: d,
+      chat: channelOf(d, "chat"),
+      voice: channelOf(d, "voice"),
+      video: channelOf(d, "video"),
+      instant: channelOf(d, "instant"),
+    })),
+    top: top.map((t) => ({ id: t.id, name: t.name, consultations: num(t.n), revenue: num(t.revenue) })),
+    /** [last 7 × 24 h, the 7 × 24 h before]. */
+    week: {
+      consultations: [c7._count._all, cPrev._count._all],
+      revenue: [num(c7._sum.total), num(cPrev._sum.total)],
+      rechargeAmount: [num(p7._sum.amount), num(pPrev._sum.amount)],
+      recharges: [p7._count._all, pPrev._count._all],
+      signups: [s7, sPrev],
+    },
+    now: {
+      consultations: { chat: live.chat ?? 0, voice: live.voice ?? 0, video: live.video ?? 0, instant: live.instant ?? 0 },
+      waiting,
+      longestWaitSeconds: oldestWaiting ? Math.max(0, Math.round((now.getTime() - oldestWaiting.requestedAt.getTime()) / 1000)) : 0,
+      liveRooms,
+      liveQueue,
+      roster: presence.reduce((sum, p) => sum + p._count._all, 0),
+      presence: { on: pres.ON ?? 0, busy: pres.BUSY ?? 0, live: pres.LIVE ?? 0, off: pres.OFF ?? 0 },
+    },
+  };
+}
 
 overviewRouter.get("/overview", async (req, res) => {
   requirePage(req, "overview");
@@ -43,7 +157,7 @@ overviewRouter.get("/overview", async (req, res) => {
   const slaDays = await configNumber("hr.application.review_sla_days", 5);
   const slaCutoff = new Date(now.getTime() - slaDays * 86400000);
 
-  const [activeSessions, emergency, liveRooms, flaggedRooms, openTickets, breached, applicants, overSla, awaiting, submittedChanges, flaggedReviews, audits, metrics, trial] =
+  const [activeSessions, emergency, liveRooms, flaggedRooms, openTickets, breached, applicants, overSla, awaiting, submittedChanges, flaggedReviews, audits, analyticsData, trial] =
     await Promise.all([
       db.consultation.count({ where: { status: "ACTIVE" } }),
       db.consultation.count({ where: { status: "ACTIVE", kind: "INSTANT" } }),
@@ -57,14 +171,7 @@ overviewRouter.get("/overview", async (req, res) => {
       db.configChange.findMany({ where: { status: "SUBMITTED" }, orderBy: { createdAt: "asc" } }),
       db.review.count({ where: { status: "FLAGGED" } }),
       db.auditLog.findMany({ orderBy: { at: "desc" }, take: 4 }),
-      getSetting<{ dau: number[]; stickiness: number[]; channels: [string, number, number, number][]; live: { label: string; value: number; sub: string; color: string }[]; availability: { label: string; count: number; color: string }[]; registered: number }>("metrics.overview", {
-        dau: [],
-        stickiness: [],
-        channels: [],
-        live: [],
-        availability: [],
-        registered: 0,
-      }),
+      analytics(now),
       getSetting<{ title: string; body: string } | null>("finance.trialBalance", null),
     ]);
   const pendingGross = awaiting.reduce((s, b) => s + b.gross, 0);
@@ -112,7 +219,8 @@ overviewRouter.get("/overview", async (req, res) => {
         payoutAwaiting: lakh(pendingGross),
         payoutBatchesAwaiting: awaiting.length,
       },
-      metrics,
+      generatedAt: now.toISOString(),
+      analytics: analyticsData,
       trialBalance: trial,
       worklist,
       recentAudit: audits.map((a) => ({ time: istTime(a.at), action: a.action, who: a.actorName, object: a.object, breakGlass: a.breakGlass })),
@@ -124,7 +232,7 @@ overviewRouter.get("/search", async (req, res) => {
   const admin = adminOf(req);
   const q = z.string().trim().max(80).parse(req.query.q ?? "");
   if (q.length < 2) return res.json({ hits: [] });
-  const pages = PAGES[admin.adminRole];
+  const pages = pagesOf(admin.adminRole);
   const contains = { contains: q, mode: "insensitive" as const };
   const [tickets, applicants, keys, batches, campaigns, targets] = await Promise.all([
     pages.includes("support") ? db.supportTicket.findMany({ where: { OR: [{ id: contains }, { subject: contains }, { sessionRef: contains }] }, take: 5 }) : [],

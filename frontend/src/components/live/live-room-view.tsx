@@ -5,8 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import type { Astrologer, LiveRoom } from "@/lib/types";
 import { ApiError, api } from "@/lib/api/client";
 import { discountLabel, rupee } from "@/lib/format";
+import { useOpenConsultation } from "@/lib/consultation-store";
 import { useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
+import { FROZEN_HINT } from "../consult/consult-lock";
 
 const REACTIONS = ["❤️", "🙏", "🔥", "✨", "👏"];
 const REACTION_LIMIT = 5; // per 10 seconds
@@ -26,6 +28,8 @@ interface Floating {
 export default function LiveRoomView({ room: initialRoom, host }: { room: LiveRoom; host: Astrologer }) {
   const { startConsult, openConsultModes, openLogin, toast } = useAppUI();
   const session = useSession();
+  // One consultation at a time: frozen while the customer has another one open.
+  const frozen = !!useOpenConsultation();
 
   const [room, setRoom] = useState(initialRoom);
   const [ended, setEnded] = useState(false);
@@ -134,7 +138,19 @@ export default function LiveRoomView({ room: initialRoom, host }: { room: LiveRo
       <div className="min-w-0">
         {/* ---------- Video ---------- */}
         <div className="relative aspect-[4/5] overflow-hidden rounded-[22px] bg-ink sm:aspect-[16/10]">
-          <Image src={room.thumb} alt={`${host.name} live`} fill priority sizes="(max-width: 1024px) 100vw, 860px" className="object-cover" />
+          {/* Looping studio video until real live streaming (RTC) is connected; the room's photo shows
+              while it loads. Muted, because browsers only autoplay silent video. */}
+          <video
+            src="/assets/videos/live-room.mp4"
+            poster={room.thumb}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            aria-label={`${host.name} live`}
+            className="absolute inset-0 size-full object-cover"
+          />
           <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.42)_0%,rgba(28,25,23,.08)_38%,rgba(28,25,23,.72)_100%)]" />
 
           <div className="absolute inset-x-3.5 top-3.5 flex flex-wrap items-center gap-2">
@@ -204,10 +220,12 @@ export default function LiveRoomView({ room: initialRoom, host }: { room: LiveRo
               </span>
               <button
                 type="button"
+                disabled={frozen}
+                title={frozen ? FROZEN_HINT : undefined}
                 onClick={() => startConsult({ astrologer: host })}
-                className="az-cta ml-auto h-11 rounded-full px-[22px] text-[14.5px] font-bold shadow-[0_6px_16px_rgba(255,140,26,.32)]"
+                className={`ml-auto h-11 rounded-full px-[22px] text-[14.5px] font-bold ${frozen ? "cursor-not-allowed bg-stone-300/90 text-stone-600" : "az-cta shadow-[0_6px_16px_rgba(255,140,26,.32)]"}`}
               >
-                Consult now
+                {frozen ? "🔒 Consultation in progress" : "Consult now"}
               </button>
             </div>
           </div>
@@ -264,6 +282,29 @@ export default function LiveRoomView({ room: initialRoom, host }: { room: LiveRo
       </div>
 
       <aside className="flex flex-col gap-3.5">
+        {/* ---------- Announcements from the astrologer (newest first) ---------- */}
+        {room.announcements.length > 0 && (
+          <section aria-labelledby="announcements-title" className="rounded-[20px] border border-amber-200 bg-amber-50 p-4">
+            <b id="announcements-title" className="block text-[13.5px]">
+              Announcements
+            </b>
+            <ul className="mt-2.5 flex flex-col gap-2.5" aria-live="polite">
+              {room.announcements.map((a) => (
+                <li key={a.id} className="rounded-[14px] border border-amber-200/70 bg-paper px-3 py-2.5">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="inline-flex h-5 items-center rounded-full bg-amber-500 px-2 text-[10.5px] font-extrabold uppercase tracking-[.04em] text-ink">
+                      Astrologer
+                    </span>
+                    <b className="text-[12.5px] text-amber-800">{host.name}</b>
+                    <time className="ml-auto text-[11px] tabular-nums text-stone-500">{a.at}</time>
+                  </div>
+                  <p className="mt-1.5 text-[13px] leading-[1.45] break-words text-ink">{a.text}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {/* ---------- Chat ---------- */}
         <div className="flex min-h-[340px] flex-col rounded-[20px] border border-line bg-paper p-4">
           <b className="block text-[13.5px]">Room chat</b>
@@ -335,10 +376,11 @@ export default function LiveRoomView({ room: initialRoom, host }: { room: LiveRo
           <button
             type="button"
             onClick={joinQueue}
-            disabled={room.queue.inQueue || ended}
-            className="mt-3 h-[42px] w-full rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink disabled:cursor-default"
+            disabled={room.queue.inQueue || ended || frozen}
+            title={frozen && !room.queue.inQueue ? FROZEN_HINT : undefined}
+            className={`mt-3 h-[42px] w-full rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink disabled:cursor-default ${frozen && !room.queue.inQueue ? "opacity-45" : ""}`}
           >
-            {room.queue.inQueue ? "✓ You're in the queue" : "Join the consult queue"}
+            {room.queue.inQueue ? "✓ You're in the queue" : frozen ? "🔒 Consultation in progress" : "Join the consult queue"}
           </button>
         </div>
       </aside>

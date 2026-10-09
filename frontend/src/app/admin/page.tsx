@@ -1,6 +1,6 @@
 import Link from "next/link";
 import AccessDenied from "@/components/admin/access-denied";
-import { AvailabilityCard, ChannelChart, TrendChart } from "@/components/admin/overview/charts";
+import { AvailabilityCard, ChannelChart, TopAstrologers, TrendChart } from "@/components/admin/overview/charts";
 import LiveNow from "@/components/admin/overview/live-now";
 import SearchBox from "@/components/admin/overview/search-box";
 import { KpiCard, PANEL } from "@/components/admin/ui";
@@ -36,11 +36,25 @@ export default async function OverviewPage() {
         ))}
       </div>
 
-      <LiveNow initial={data.live} />
+      <LiveNow stats={data.live} generatedAt={data.generatedAt} />
 
-      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] items-start gap-4">
-        <TrendChart card={data.dau} gradientId="azDau" />
-        <TrendChart card={data.stickiness} gradientId="azStick" />
+      <div className="mt-[22px] flex flex-wrap items-baseline gap-2.5">
+        <h2 className="m-0 text-[16px] font-bold text-ink">Business</h2>
+        <span className="text-[11.5px] font-semibold text-mauve">
+          Completed consultations, wallet recharges and sign-ups · times in IST
+        </span>
+      </div>
+      <div className="mt-2.5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+        {data.weekKpis.map((k) => (
+          <KpiCard key={k.label} {...k} />
+        ))}
+      </div>
+
+      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(290px,1fr))] items-start gap-4">
+        {data.trends.map((t) => (
+          <TrendChart key={t.id} card={t.card} gradientId={t.id} />
+        ))}
+        <TopAstrologers rows={data.top} />
       </div>
 
       <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] items-start gap-4">
@@ -72,7 +86,7 @@ export default async function OverviewPage() {
           <div className="flex flex-col gap-2">
             {worklist.map((w) => (
               <Link
-                key={w.title}
+                key={w.href + w.title}
                 href={w.href}
                 className="flex w-full items-center gap-[11px] rounded-xl border px-[13px] py-[11px] text-left hover:no-underline"
                 style={{ borderColor: w.border, background: w.bg }}
@@ -99,9 +113,9 @@ export default async function OverviewPage() {
           <h2 className="mt-0 mb-1 text-[16px] font-bold">Recent privileged actions</h2>
           <p className="mt-0 mb-3 text-[12px] text-[#78716c]">Every privileged action is recorded in the audit log.</p>
           <div className="flex flex-col gap-2.5">
-            {data.recentAudit.map((a) => (
+            {data.recentAudit.map((a, i) => (
               <div
-                key={a.time + a.action + a.object}
+                key={`${i}-${a.time}-${a.action}-${a.object}`}
                 className="flex items-start gap-2.5 border-b border-line-soft pb-2.5"
               >
                 <span className="pt-0.5 font-mono text-[10.5px] whitespace-nowrap text-muted">{a.time}</span>

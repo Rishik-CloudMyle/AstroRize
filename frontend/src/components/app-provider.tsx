@@ -1,7 +1,16 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Astrologer, ConsultMode, LiveRoom } from "@/lib/types";
+import {
+  consultationActions,
+  lockLabel,
+  rememberMinimised,
+  useConsultationState,
+  wasMinimised,
+  type ConsultationView,
+} from "@/lib/consultation-store";
+import { useSession } from "@/lib/session-store";
 import LoginModal, { type LoginOptions } from "./modals/login-modal";
 import InstantCallModal from "./modals/instant-call-modal";
 import ConsultModeModal from "./modals/consult-mode-modal";
@@ -11,6 +20,8 @@ export interface ConsultRequest {
   astrologer: Astrologer;
   /** Pre-select chat or voice when the customer clicked that button. */
   mode?: ConsultMode;
+  /** Re-open a consultation that is already under way (waiting, connecting or in session). */
+  resume?: ConsultationView;
 }
 
 interface AppUI {
@@ -20,6 +31,8 @@ interface AppUI {
   /** Live room: choose private or public, then join that room's consult queue. */
   openConsultModes: (request: QueueRequest) => void;
   startConsult: (request: ConsultRequest) => void;
+  /** Back to the open consultation (from the header pill or a frozen consult button). */
+  resumeConsult: () => void;
 }
 
 export interface QueueRequest {
@@ -44,10 +57,17 @@ type Overlay =
   | null;
 
 export default function AppProvider({ children }: { children: React.ReactNode }) {
+  const session = useSession();
+  const { checked, open } = useConsultationState();
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [consult, setConsult] = useState<ConsultRequest | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Read inside the stable callbacks below without re-creating them on every poll.
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  });
 
   const toast = useCallback((message: string) => {
     setToastMessage(message);
@@ -58,32 +78,73 @@ export default function AppProvider({ children }: { children: React.ReactNode })
   const closeOverlay = useCallback(() => setOverlay(null), []);
   const closeConsult = useCallback(() => setConsult(null), []);
 
-  const ui = useMemo<AppUI>(
-    () => ({
+  // Only customers consult; follow their open consultation while they are signed in.
+  const isCustomer = session.ready && session.loggedIn && session.role === "customer";
+  useEffect(() => {
+    consultationActions.track(isCustomer);
+  }, [isCustomer]);
+
+  // Reloaded mid-wait or mid-session: take the customer straight back to it, once per page load.
+  const [autoResumed, setAutoResumed] = useState(false);
+  if (checked && !autoResumed) {
+    setAutoResumed(true);
+    if (open && !wasMinimised(open.id)) setConsult((current) => current ?? { astrologer: open.astrologer, resume: open });
+  }
+
+  const ui = useMemo<AppUI>(() => {
+    const resumeConsult = () => {
+      const current = openRef.current;
+      setOverlay(null);
+      rememberMinimised(null);
+      if (current) setConsult({ astrologer: current.astrologer, resume: current });
+    };
+    /** True (and the customer is told why) when another consultation is still open. */
+    const blocked = () => {
+      const current = openRef.current;
+      if (!current) return false;
+      toast(`${lockLabel(current)}. End or cancel it before starting another.`);
+      return true;
+    };
+    return {
       toast,
       openLogin: (options = {}) => setOverlay({ kind: "login", options }),
-      openInstantCall: (astrologer) => setOverlay({ kind: "instant", astrologer }),
-      openConsultModes: (request) => setOverlay({ kind: "modes", request }),
+      openInstantCall: (astrologer) => {
+        if (!blocked()) setOverlay({ kind: "instant", astrologer });
+      },
+      openConsultModes: (request) => {
+        if (!blocked()) setOverlay({ kind: "modes", request });
+      },
       startConsult: (request) => {
+        if (blocked()) return;
         setOverlay(null);
         setConsult(request);
       },
-    }),
-    [toast],
-  );
+      resumeConsult,
+    };
+  }, [toast]);
+
+  /** Instant Call placed: go straight to the waiting screen, which turns into the session when accepted. */
+  const onInstantPlaced = useCallback((view: ConsultationView) => {
+    consultationActions.apply(view);
+    setOverlay(null);
+    setConsult({ astrologer: view.astrologer, resume: view });
+  }, []);
 
   return (
     <AppContext.Provider value={ui}>
       {children}
 
       {overlay?.kind === "login" && <LoginModal onClose={closeOverlay} options={overlay.options} />}
-      {overlay?.kind === "instant" && <InstantCallModal astrologer={overlay.astrologer} onClose={closeOverlay} />}
+      {overlay?.kind === "instant" && (
+        <InstantCallModal astrologer={overlay.astrologer} onClose={closeOverlay} onPlaced={onInstantPlaced} />
+      )}
       {overlay?.kind === "modes" && <ConsultModeModal request={overlay.request} onClose={closeOverlay} />}
       {consult && (
         <ConsultJourney
-          key={`${consult.astrologer.id}-${consult.mode ?? ""}`}
+          key={consult.resume?.id ?? `${consult.astrologer.id}-${consult.mode ?? ""}`}
           astrologer={consult.astrologer}
           initialMode={consult.mode ?? null}
+          resume={consult.resume ?? null}
           onClose={closeConsult}
         />
       )}

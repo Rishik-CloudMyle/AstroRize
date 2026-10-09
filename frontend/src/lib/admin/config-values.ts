@@ -1,37 +1,30 @@
 import type { ConfigKey } from "./types";
 
-/**
- * Multiply a config value without float noise: at most 2 decimals, trailing zeros trimmed,
- * but never fewer decimals than the original ("4.0" × 1.1 → "4.4", "80" × 1.1 → "88", "2" × 0.95 → "1.9").
- */
-export function scaleValue(value: string, factor: number): string {
-  const minDecimals = value.includes(".") ? value.split(".")[1].length : 0;
-  const rounded = Math.round(Number(value) * factor * 100) / 100;
-  const decimals = Math.max(minDecimals, (String(rounded).split(".")[1] ?? "").length);
-  return rounded.toFixed(decimals);
+/** Decimal keys take at most this many decimal places (the API applies the same rule). */
+const MAX_DECIMALS = 2;
+const NUMBER = /^-?\d+(?:\.\d+)?$/;
+
+/** "Whole number, 0–100" / "Up to 2 decimals, 1.0–6.0" — the hint under the value input. */
+export function valueHint(c: ConfigKey): string {
+  if (!c.range) return "This setting has no valid range, so it can't be changed here.";
+  return `${c.range.integer ? "Whole number" : `Up to ${MAX_DECIMALS} decimals`} · allowed ${c.bounds}`;
 }
 
-function inBounds(value: string, bounds: string): boolean {
-  const [lo, hi] = bounds.split(/[–-]/).map(Number);
+/**
+ * Checks a proposed value before it is sent, with the same rules and messages as the API
+ * (which re-checks it). Returns the problem, or null when the value can be submitted.
+ */
+export function valueProblem(raw: string, c: ConfigKey): string | null {
+  const value = raw.trim();
+  if (!value) return "Enter the proposed value.";
+  const range = c.range;
+  if (!range) return "This setting has no valid range configured, so it can't be changed here.";
+  if (!NUMBER.test(value)) return `Enter a number${range.integer ? "" : " (use a dot for decimals)"} — allowed ${c.bounds}.`;
+  const places = (value.replace(/0+$/, "").replace(/\.$/, "").split(".")[1] ?? "").length;
+  if (range.integer && places > 0) return `Use a whole number for this setting — allowed ${c.bounds}.`;
+  if (!range.integer && places > MAX_DECIMALS) return `Use at most ${MAX_DECIMALS} decimal places — allowed ${c.bounds}.`;
   const n = Number(value);
-  return Number.isFinite(n) && n >= lo && n <= hi;
-}
-
-/**
- * The value the console proposes when drafting a change (the console has no free-text input,
- * as in the prototype): the multiplier drops 4.0 → 3.0, anything else moves 5% down, or
- * 5% up when down would leave the permitted range or not change the value.
- */
-export function draftValue(c: ConfigKey): string {
-  if (c.key === "consult.emergency.max_multiplier" && c.current === "4.0") return "3.0";
-  // Whole-number keys (seconds, days, counts) stay whole numbers.
-  const scale = (f: number) =>
-    c.current.includes(".") ? scaleValue(c.current, f) : String(Math.round(Number(c.current) * f));
-  const down = scale(0.95);
-  if (down !== c.current && inBounds(down, c.bounds)) return down;
-  const up = scale(1.05);
-  if (up !== c.current && inBounds(up, c.bounds)) return up;
-  // Small integers (e.g. "1", range 1–3): step by one.
-  const step = String(Number(c.current) + 1);
-  return inBounds(step, c.bounds) ? step : down;
+  if (n < range.min || n > range.max) return `Out of range — allowed ${c.bounds}.`;
+  if (n === Number(c.current)) return `${c.current} is already the current value. Enter a different one.`;
+  return null;
 }
