@@ -1,6 +1,7 @@
 import { db } from "../db.ts";
 import { MAX_SESSION_SECONDS, affordableSeconds, settle } from "./billing.ts";
 import { rupee } from "./format.ts";
+import { syncPresence } from "./presence.ts";
 import { configNumber } from "./settings.ts";
 import type { Consultation, Prisma } from "../generated/prisma/client.ts";
 
@@ -80,7 +81,7 @@ export function settlementView(c: Pick<Consultation, "billedSeconds" | "billedMi
  * cancelled, it timed out, or another tab accepted it first).
  */
 export async function acceptConsultation(id: string, astrologerId: string) {
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     await lockKey(tx, `astro:${astrologerId}`);
     const c = await tx.consultation.findUnique({ where: { id } });
     if (!c || c.astrologerId !== astrologerId || c.status !== "REQUESTED") return { ok: false as const, reason: "gone" as const };
@@ -100,6 +101,8 @@ export async function acceptConsultation(id: string, astrologerId: string) {
     });
     return { ok: true as const, consultation: updated };
   });
+  if (result.ok) await syncPresence(astrologerId); // in a session → BUSY
+  return result;
 }
 
 /**
@@ -167,6 +170,8 @@ export async function endConsultation(c: Consultation, endedBy: "user" | "astrol
       await tx.earningsLine.create({ data: { astrologerId: fresh.astrologerId, date: now, sessionRef: fresh.ref, kind, mode, minutes: s.billedMinutes } });
     }
   });
+  // Session over → back to ON (or LIVE), if they are still online.
+  await syncPresence(c.astrologerId);
   return db.consultation.findUniqueOrThrow({ where: { id: c.id } });
 }
 

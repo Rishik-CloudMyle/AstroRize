@@ -79,7 +79,11 @@ export interface Account {
   counts: NavCounts;
   /** Taking requests right now (presence is not OFF) */
   online: boolean;
+  /** available · in a consultation · hosting a live room · offline */
+  presence: Presence;
 }
+
+export type Presence = "on" | "busy" | "live" | "off";
 
 // ── Dashboard ──
 export interface ScheduleItem {
@@ -289,6 +293,8 @@ export interface LiveRequest {
 export interface LiveRoom {
   id: string;
   isLive: boolean;
+  /** This live's topic (when not live: the last one used, to pre-fill "Go live"). */
+  topic: string;
   elapsed: string;
   viewers: number;
   image: string;

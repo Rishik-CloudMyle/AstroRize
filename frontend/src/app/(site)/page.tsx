@@ -72,6 +72,15 @@ export default async function HomePage() {
           >
             <div className="group/list az-rise az-d2 min-w-0 rounded-3xl border border-amber-900/15 bg-[rgba(255,253,248,.14)] p-4 transition-[background-color,backdrop-filter,box-shadow] duration-300 focus-within:bg-[rgba(255,253,248,.94)] focus-within:shadow-[0_18px_40px_rgba(92,58,20,.18)] focus-within:backdrop-blur-md hover:bg-[rgba(255,253,248,.94)] hover:shadow-[0_18px_40px_rgba(92,58,20,.18)] hover:backdrop-blur-md sm:p-5 [@media(hover:none)]:bg-[rgba(255,253,248,.5)]">
               <div className="text-[11px] font-bold uppercase tracking-[.12em] text-amber-800">Available right now</div>
+              {availableNow.length === 0 ? (
+                // Nobody is online: say so in the same card, and keep the way to every profile.
+                <div className="mt-3 rounded-2xl border border-dashed border-amber-900/20 bg-[rgba(255,252,248,.22)] px-4 py-5 text-center transition-colors duration-300 group-hover/list:bg-white group-focus-within/list:bg-white [@media(hover:none)]:bg-[rgba(255,252,248,.75)]">
+                  <b className="block text-[15px] font-bold text-plum">No astrologers are online right now</b>
+                  <span className="mt-1 block text-[12.5px] leading-normal text-mauve">
+                    They come online through the day. Browse every astrologer and see who&apos;s live.
+                  </span>
+                </div>
+              ) : (
               <div className="mt-3 flex flex-col gap-2.5">
                 {availableNow.map((a) => (
                   <Link
@@ -91,11 +100,12 @@ export default async function HomePage() {
                   </Link>
                 ))}
               </div>
+              )}
               <Link
                 href="/astrologers"
                 className="mt-3 flex h-[42px] w-full items-center justify-center rounded-xl border border-amber-900/20 bg-transparent text-sm font-bold text-amber-800 hover:no-underline"
               >
-                See all {total} astrologers
+                {availableNow.length === 0 ? `Browse all ${total} astrologers` : `See all ${total} astrologers`}
               </Link>
             </div>
           </LiveSky>

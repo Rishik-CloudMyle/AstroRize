@@ -16,6 +16,7 @@ import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
 import { ageLabel, istDate, istDateKey, istDayMonth, istTime, makeRef, weekdayLabel } from "../lib/format.ts";
 import { consultSummary, queueProfile, queueSummary } from "../lib/profile.ts";
 import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "../lib/safety.ts";
+import { canWork, effectivePresence, endLiveRoom, goOffline, goOnline, markSeen, syncPresence, viewerCount } from "../lib/presence.ts";
 import { configNumber, getSetting } from "../lib/settings.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
 import type { Astrologer, EarningsLine } from "../generated/prisma/client.ts";
@@ -35,9 +36,6 @@ async function me(req: Request): Promise<Astrologer> {
   return a;
 }
 
-function canWork(a: Astrologer) {
-  return a.lifecycle === "active" && a.suspension === "none";
-}
 
 // ── Account & dashboard ──
 
@@ -83,7 +81,9 @@ portalRouter.get("/account", async (req, res) => {
         messages: threads.filter((t) => t.messages[0]?.sender === "CUSTOMER").length,
         compliance: notices,
       },
-      online: a.presence !== "OFF",
+      online: effectivePresence(a) !== "OFF",
+      /** on | busy | live | off */
+      presence: effectivePresence(a).toLowerCase(),
     },
   });
 });
@@ -154,12 +154,35 @@ portalRouter.get("/dashboard", async (req, res) => {
   });
 });
 
+/**
+ * Online / offline toggle. Going online makes the astrologer bookable straight away; going
+ * offline ends their live room (if live) and times out requests still waiting for them.
+ */
 portalRouter.patch("/presence", async (req, res) => {
   const a = await me(req);
   const { online } = z.object({ online: z.boolean() }).parse(req.body);
   if (online && !canWork(a)) throw forbidden(a.suspension !== "none" ? "Blocked — account suspended." : "Blocked — your account isn't active yet.");
-  const updated = await db.astrologer.update({ where: { id: a.id }, data: { presence: online ? "ON" : "OFF" } });
-  res.json({ online: updated.presence !== "OFF" });
+  let presence: string;
+  if (online) {
+    presence = await goOnline(a.id);
+  } else {
+    const { endedLive } = await goOffline(a.id);
+    if (endedLive) await audit(req.auth ?? null, "live.end", a.id, "LIVE → ended · went offline");
+    presence = "OFF";
+  }
+  res.json({ online: presence !== "OFF", presence: presence.toLowerCase() });
+});
+
+/**
+ * Sent every ~45 s while any portal page is open. Keeps an online astrologer online; after
+ * a few minutes without it they are switched offline (lib/presence.ts). It never brings an
+ * offline astrologer back online — that is always the astrologer's own choice.
+ */
+portalRouter.post("/heartbeat", async (req, res) => {
+  const a = await me(req);
+  const stored = await markSeen(a.id);
+  const presence = canWork(a) ? stored : "OFF";
+  res.json({ online: presence !== "OFF", presence: presence.toLowerCase() });
 });
 
 portalRouter.patch("/multiplier", async (req, res) => {
@@ -492,8 +515,9 @@ portalRouter.get("/live", async (req, res) => {
     room: {
       id: room.id,
       isLive: room.isLive,
+      topic: room.topic,
       elapsed: `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`,
-      viewers: room.viewers,
+      viewers: room.isLive ? viewerCount(room.id) : 0,
       image: room.thumb,
       requests: entries.slice(0, 3).map((e, i) => ({ id: e.id, alias: e.alias, kind: e.mode === "PUBLIC" ? "stage" : "private", actionable: i < 2 })),
       waiting: entries.length,
@@ -511,6 +535,61 @@ portalRouter.get("/live", async (req, res) => {
       })),
     },
   });
+});
+
+/**
+ * Go live: opens the astrologer's room to customers with a topic. Only while online and not
+ * in a consultation; one room per astrologer, so one live at a time. Starts a fresh session:
+ * the viewer count, chat shown and poll votes begin again from zero.
+ */
+portalRouter.post("/live/start", async (req, res) => {
+  const a = await me(req);
+  const { topic } = z
+    .object({
+      topic: z
+        .string({ error: "Give your live a topic." })
+        .trim()
+        .min(3, "Give your live a topic, e.g. “Saturn transit Q&A”.")
+        .max(80, "Keep the topic under 80 characters."),
+    })
+    .parse(req.body);
+  if (!canWork(a)) throw forbidden(a.suspension !== "none" ? "Blocked — account suspended." : "Blocked — your account isn't active yet.");
+  if (containsContactDetails(topic)) throw badRequest(CONTACT_BLOCKED_NOTICE);
+  const presence = effectivePresence(a);
+  if (presence === "OFF") throw conflict("Go online first — you can go live only while you're online.");
+  if (presence === "BUSY") throw conflict("Finish your current consultation before going live.");
+  await expireStaleRequests(a.id);
+  const waiting = await db.consultation.count({ where: { astrologerId: a.id, status: "REQUESTED" } });
+  if (waiting) throw conflict(`${waiting === 1 ? "A customer is" : `${waiting} customers are`} waiting for you in Consultations — accept or decline first, then go live.`);
+  const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
+  if (!room) throw notFound("You don't have a live room yet.");
+  if (room.isLive) return res.json({ ok: true, alreadyLive: true });
+
+  const now = new Date();
+  const started = await db.$transaction(async (tx) => {
+    const { count } = await tx.liveRoom.updateMany({
+      where: { id: room.id, isLive: false },
+      data: { isLive: true, startedAt: now, topic, viewers: 0, state: "normal", pollCounts: room.pollOptions.map(() => 0) },
+    });
+    if (!count) return false;
+    await tx.pollVote.deleteMany({ where: { roomId: room.id } });
+    await tx.liveQueueEntry.updateMany({ where: { roomId: room.id, status: "WAITING" }, data: { status: "LEFT" } });
+    await tx.astrologer.updateMany({ where: { id: a.id, presence: { not: "OFF" } }, data: { presence: "LIVE", lastSeenAt: now } });
+    return true;
+  });
+  if (started) await audit(req.auth ?? null, "live.start", room.id, `OFF → LIVE · ${topic}`);
+  res.status(started ? 201 : 200).json({ ok: true, alreadyLive: !started });
+});
+
+/** End live: the room closes for viewers, people still waiting leave the queue, and the astrologer is back to Available. */
+portalRouter.post("/live/end", async (req, res) => {
+  const a = await me(req);
+  const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id }, select: { id: true } });
+  if (!room) throw notFound("You don't have a live room yet.");
+  const ended = await endLiveRoom(a.id);
+  const presence = (await syncPresence(a.id)) ?? "OFF";
+  if (ended) await audit(req.auth ?? null, "live.end", room.id, "LIVE → ended");
+  res.json({ ok: true, ended, presence: presence.toLowerCase() });
 });
 
 /**

@@ -146,7 +146,8 @@ export async function seedHistory(): Promise<void> {
       const connectedAt = new Date(dayStart.getTime() + (hour + rand()) * 3600000);
       const seconds = Math.round(120 + rand() * rand() * 780); // 2–15 min, most of them short
       const endedAt = new Date(connectedAt.getTime() + seconds * 1000);
-      if (endedAt.getTime() > now.getTime() - 10 * 60000) continue; // only finished ones, never "now"
+      // Only past days: today's figures (the website's "consultations today") come from real sessions.
+      if (endedAt.getTime() > today.getTime()) continue;
 
       const eligible = customers.filter((c) => c.createdAt.getTime() < connectedAt.getTime() - 15 * 60000);
       if (!eligible.length) continue;

@@ -7,6 +7,7 @@ import { instantMultiplier, rupee } from "@/lib/format";
 import { consultationActions, type ConsultationView } from "@/lib/consultation-store";
 import { useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
+import { recheckAvailability } from "../astrologer/use-fresh-astrologer";
 import Modal from "../ui/modal";
 
 /**
@@ -49,6 +50,8 @@ export default function InstantCallModal({
         resumeConsult();
         return;
       }
+      // The astrologer just went offline, live or into another consultation: the page behind re-checks.
+      if (e instanceof ApiError && e.status === 409) recheckAvailability();
       setError(e instanceof ApiError ? e.message : "Something went wrong. Check your connection and try again.");
       setBusy(false);
     }

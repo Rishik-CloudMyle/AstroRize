@@ -51,6 +51,11 @@ Password for every email account: `Astrorize@2026`
 | --- | --- |
 | Customer | `customer@astrorize.com`, or mobile `9876543210` + one-time code |
 | Astrologer (Pt. Raghav Joshi) | `raghav.joshi@email.com` |
+| Astrologer (Acharya Meera Iyer) | `meera.iyer@email.com` |
+| Astrologer (Pandit Arjun Deshmukh) | `arjun.deshmukh@email.com` |
+| Astrologer (Sneha Ramanathan) | `sneha.ramanathan@email.com` |
+| Astrologer (Vikram Sethi) | `vikram.sethi@email.com` |
+| Astrologer (Dr. Lalita Bose) | `lalita.bose@email.com` |
 | Super Admin | `admin@astrorize.com` |
 | Finance | `finance@astrorize.com` |
 | Support | `support@astrorize.com` |

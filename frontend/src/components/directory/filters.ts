@@ -127,10 +127,10 @@ function matches(a: Astrologer, facet: FacetKey, option: string): boolean {
     case "language":
       return a.languages.includes(option);
     case "mode":
-      // Every astrologer offers chat, voice and video; Instant Call needs them online.
-      return option === "Instant Call" ? a.availability !== "off" : true;
+      // Every astrologer offers chat, voice and video; Instant Call needs them available.
+      return option === "Instant Call" ? a.availability === "on" : true;
     case "availability":
-      return option === "Instant Call" ? a.availability !== "off" : AVAILABILITY[a.availability].label.startsWith(option);
+      return option === "Instant Call" ? a.availability === "on" : AVAILABILITY[a.availability].label.startsWith(option);
     case "recognition":
       return RECOGNITION[a.recognition].label === option;
     case "gender":

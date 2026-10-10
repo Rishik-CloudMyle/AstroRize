@@ -8,6 +8,8 @@ import { discountLabel, rupee } from "@/lib/format";
 import { useOpenConsultation } from "@/lib/consultation-store";
 import { useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
+import { recheckAvailability, useFreshAstrologer } from "../astrologer/use-fresh-astrologer";
+import { ConsultBlockedNote, blockedHint, useConsultGate } from "../consult/consult-gate";
 import { FROZEN_HINT } from "../consult/consult-lock";
 
 const REACTIONS = ["❤️", "🙏", "🔥", "✨", "👏"];
@@ -25,11 +27,26 @@ interface Floating {
   left: number;
 }
 
-export default function LiveRoomView({ room: initialRoom, host }: { room: LiveRoom; host: Astrologer }) {
+export default function LiveRoomView({ room: initialRoom, host: initialHost }: { room: LiveRoom; host: Astrologer }) {
   const { startConsult, openConsultModes, openLogin, toast } = useAppUI();
   const session = useSession();
   // One consultation at a time: frozen while the customer has another one open.
   const frozen = !!useOpenConsultation();
+  // The host's availability, kept current: a one-to-one consult is possible only when they are
+  // available (not while hosting this room); astrologer and staff accounts can't consult at all.
+  const host = useFreshAstrologer(initialHost);
+  const gate = useConsultGate(host);
+  const staff = gate.kind === "staff";
+  // The stage video: a spinner until it can play, then it fades in; a calm message if it fails.
+  const [video, setVideo] = useState<"loading" | "playing" | "error">("loading");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  // The video may have loaded (or failed) before React attached its event handlers.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (el.error) setVideo("error");
+    else if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) setVideo("playing");
+  }, []);
 
   const [room, setRoom] = useState(initialRoom);
   const [ended, setEnded] = useState(false);
@@ -55,7 +72,11 @@ export default function LiveRoomView({ room: initialRoom, host }: { room: LiveRo
         const { room: fresh } = await api.get<{ room: LiveRoom }>(`/live-rooms/${encodeURIComponent(initialRoom.id)}`);
         if (!cancelled) setRoom(fresh);
       } catch (e) {
-        if (!cancelled && e instanceof ApiError && e.status === 404) setEnded(true);
+        if (!cancelled && e instanceof ApiError && e.status === 404) {
+          setEnded(true);
+          // The host may be free for a one-to-one now.
+          recheckAvailability();
+        }
       }
     };
     void refresh();
@@ -138,19 +159,40 @@ export default function LiveRoomView({ room: initialRoom, host }: { room: LiveRo
       <div className="min-w-0">
         {/* ---------- Video ---------- */}
         <div className="relative aspect-[4/5] overflow-hidden rounded-[22px] bg-ink sm:aspect-[16/10]">
-          {/* Looping studio video until real live streaming (RTC) is connected; the room's photo shows
-              while it loads. Muted, because browsers only autoplay silent video. */}
+          {/* Looping studio video until real live streaming (RTC) is connected. Muted, because
+              browsers only autoplay silent video. No poster: a spinner shows until it can play. */}
           <video
+            ref={videoRef}
             src="/assets/videos/live-room.mp4"
-            poster={room.thumb}
             autoPlay
             muted
             loop
             playsInline
             preload="auto"
             aria-label={`${host.name} live`}
-            className="absolute inset-0 size-full object-cover"
+            onCanPlay={() => setVideo((v) => (v === "loading" ? "playing" : v))}
+            onPlaying={() => setVideo("playing")}
+            onError={() => setVideo("error")}
+            className={`absolute inset-0 size-full object-cover transition-opacity duration-500 ${video === "playing" ? "opacity-100" : "opacity-0"}`}
           />
+          {video === "loading" && (
+            <div role="status" className="absolute inset-0 grid place-items-center">
+              <span className="flex flex-col items-center gap-3">
+                <span
+                  aria-hidden="true"
+                  className="size-10 animate-spin rounded-full border-[3px] border-white/20 border-t-amber-400"
+                />
+                <span className="text-[13px] font-semibold text-white/80">Loading live video…</span>
+              </span>
+            </div>
+          )}
+          {video === "error" && (
+            <div role="status" className="absolute inset-0 grid place-items-center px-6 text-center">
+              <span className="max-w-[34ch] text-[13.5px] leading-normal text-white/80">
+                The live video couldn&apos;t load. Check your connection — the chat, poll and queue still work.
+              </span>
+            </div>
+          )}
           <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.42)_0%,rgba(28,25,23,.08)_38%,rgba(28,25,23,.72)_100%)]" />
 
           <div className="absolute inset-x-3.5 top-3.5 flex flex-wrap items-center gap-2">
@@ -218,18 +260,44 @@ export default function LiveRoomView({ room: initialRoom, host }: { room: LiveRo
                   <span className="text-[11px] font-bold text-amber-300">{discountLabel(host.price, host.was)}</span>
                 )}
               </span>
-              <button
-                type="button"
-                disabled={frozen}
-                title={frozen ? FROZEN_HINT : undefined}
-                onClick={() => startConsult({ astrologer: host })}
-                className={`ml-auto h-11 rounded-full px-[22px] text-[14.5px] font-bold ${frozen ? "cursor-not-allowed bg-stone-300/90 text-stone-600" : "az-cta shadow-[0_6px_16px_rgba(255,140,26,.32)]"}`}
-              >
-                {frozen ? "🔒 Consultation in progress" : "Consult now"}
-              </button>
+              {gate.kind === "live" && !ended ? (
+                // Hosting this room: the way to consult them now is the room's queue.
+                <button
+                  type="button"
+                  disabled={room.queue.inQueue}
+                  onClick={joinQueue}
+                  className={`ml-auto h-11 rounded-full px-[22px] text-[14.5px] font-bold ${room.queue.inQueue ? "cursor-default bg-stone-300/90 text-stone-600" : "az-cta shadow-[0_6px_16px_rgba(255,140,26,.32)]"}`}
+                >
+                  {room.queue.inQueue ? "✓ You're in the queue" : "Join the consult queue"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={gate.kind !== "ok"}
+                  title={gate.kind === "frozen" ? FROZEN_HINT : blockedHint(gate)}
+                  onClick={() => startConsult({ astrologer: host })}
+                  className={`ml-auto h-11 rounded-full px-[22px] text-[14.5px] font-bold ${gate.kind !== "ok" ? "cursor-not-allowed bg-stone-300/90 text-stone-600" : "az-cta shadow-[0_6px_16px_rgba(255,140,26,.32)]"}`}
+                >
+                  {gate.kind === "frozen"
+                    ? "🔒 Consultation in progress"
+                    : gate.kind === "busy"
+                      ? "In a consultation"
+                      : gate.kind === "off"
+                        ? "Offline right now"
+                        : gate.kind === "live"
+                          ? "Live now"
+                          : "Consult now"}
+                </button>
+              )}
             </div>
           </div>
         </div>
+
+        {staff && (
+          <div className="mt-3.5">
+            <ConsultBlockedNote gate={gate} astrologer={host} />
+          </div>
+        )}
 
         <div className="mt-3.5 flex items-start gap-3 rounded-2xl border border-line bg-paper px-4 py-3.5">
           <span className="text-[15px] leading-[1.3]">⌁</span>
@@ -376,11 +444,17 @@ export default function LiveRoomView({ room: initialRoom, host }: { room: LiveRo
           <button
             type="button"
             onClick={joinQueue}
-            disabled={room.queue.inQueue || ended || frozen}
-            title={frozen && !room.queue.inQueue ? FROZEN_HINT : undefined}
-            className={`mt-3 h-[42px] w-full rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink disabled:cursor-default ${frozen && !room.queue.inQueue ? "opacity-45" : ""}`}
+            disabled={room.queue.inQueue || ended || frozen || staff}
+            title={staff ? blockedHint(gate) : frozen && !room.queue.inQueue ? FROZEN_HINT : undefined}
+            className={`mt-3 h-[42px] w-full rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink disabled:cursor-default ${(frozen || staff) && !room.queue.inQueue ? "opacity-45" : ""}`}
           >
-            {room.queue.inQueue ? "✓ You're in the queue" : frozen ? "🔒 Consultation in progress" : "Join the consult queue"}
+            {room.queue.inQueue
+              ? "✓ You're in the queue"
+              : staff
+                ? "For customer accounts"
+                : frozen
+                  ? "🔒 Consultation in progress"
+                  : "Join the consult queue"}
           </button>
         </div>
       </aside>

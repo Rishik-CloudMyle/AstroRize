@@ -15,6 +15,7 @@ import LoginModal, { type LoginOptions } from "./modals/login-modal";
 import InstantCallModal from "./modals/instant-call-modal";
 import ConsultModeModal from "./modals/consult-mode-modal";
 import ConsultJourney from "./consult/consult-journey";
+import { staffConsultNote } from "./consult/consult-gate";
 
 export interface ConsultRequest {
   astrologer: Astrologer;
@@ -65,8 +66,10 @@ export default function AppProvider({ children }: { children: React.ReactNode })
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Read inside the stable callbacks below without re-creating them on every poll.
   const openRef = useRef(open);
+  const sessionRef = useRef(session);
   useEffect(() => {
     openRef.current = open;
+    sessionRef.current = session;
   });
 
   const toast = useCallback((message: string) => {
@@ -98,8 +101,16 @@ export default function AppProvider({ children }: { children: React.ReactNode })
       rememberMinimised(null);
       if (current) setConsult({ astrologer: current.astrologer, resume: current });
     };
-    /** True (and the customer is told why) when another consultation is still open. */
+    /**
+     * True (and the person is told why) when they can't start a consultation: signed in as an
+     * astrologer or staff (consultations are for customer accounts), or another one is still open.
+     */
     const blocked = () => {
+      const s = sessionRef.current;
+      if (s.loggedIn && s.role !== "customer") {
+        toast(staffConsultNote(s.role));
+        return true;
+      }
       const current = openRef.current;
       if (!current) return false;
       toast(`${lockLabel(current)}. End or cancel it before starting another.`);

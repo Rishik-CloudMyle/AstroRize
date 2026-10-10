@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api/client";
 import type { Astrologer } from "@/lib/types";
 import { languageLine, ratingLabel, rupee, skillLine } from "@/lib/format";
 import { AvailabilityBadge, DiscountBadge, Portrait, RecognitionBadge, VerifiedTick, WasPrice } from "../astrologer/parts";
@@ -22,7 +23,11 @@ import {
   type SortKey,
 } from "./filters";
 
-export default function DirectoryView({ astrologers }: { astrologers: Astrologer[] }) {
+/** How often the list re-reads who is available while the page is open. */
+const REFRESH_MS = 30_000;
+
+export default function DirectoryView({ astrologers: initial }: { astrologers: Astrologer[] }) {
+  const astrologers = useCurrentAstrologers(initial);
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -174,6 +179,37 @@ export default function DirectoryView({ astrologers }: { astrologers: Astrologer
       )}
     </div>
   );
+}
+
+/** The list, with availability kept current (every 30 s while visible, and on focus). */
+function useCurrentAstrologers(initial: Astrologer[]): Astrologer[] {
+  const [state, setState] = useState({ from: initial, list: initial });
+  if (state.from !== initial) setState({ from: initial, list: initial });
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      if (document.hidden) return;
+      try {
+        const { astrologers } = await api.get<{ astrologers: Astrologer[] }>("/astrologers");
+        if (!cancelled) setState((s) => ({ ...s, list: astrologers }));
+      } catch {
+        // Keep what we have; the next tick retries.
+      }
+    };
+    const onVisible = () => {
+      if (!document.hidden) void refresh();
+    };
+    const id = setInterval(refresh, REFRESH_MS);
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+  return state.list;
 }
 
 /** "rating, high to low" for the count line. */

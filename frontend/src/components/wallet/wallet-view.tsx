@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ApiError, api } from "@/lib/api/client";
 import { homeFor } from "@/lib/auth";
@@ -53,10 +53,14 @@ export default function WalletView() {
     // Astrologers and staff have no customer wallet; point them back to their portal.
     return (
       <div className="mx-auto max-w-[520px] rounded-3xl border border-line bg-paper px-6 py-10 text-center">
-        <h2 className="font-display text-[28px] font-semibold text-ink">No customer wallet on this account</h2>
+        <div className="mx-auto grid size-14 place-items-center rounded-full bg-amber-100 text-2xl" aria-hidden="true">
+          👋
+        </div>
+        <h2 className="mt-4 font-display text-[28px] font-semibold text-ink">Wallets are for customer accounts</h2>
         <p className="mx-auto mt-2 max-w-[42ch] text-sm leading-normal text-stone-600">
-          You&apos;re signed in as {session.role === "astrologer" ? "an astrologer" : "Astrorize staff"}. Wallets belong to
-          customer accounts.
+          You&apos;re signed in as {session.role === "astrologer" ? "an astrologer account" : "an Astrorize staff account"}, so
+          there&apos;s no balance to show here — recharges and consultations happen on customer accounts.{" "}
+          {session.role === "astrologer" ? "Your earnings and availability are in your portal." : "Your tools are in the admin console."}
         </p>
         <Link
           href={homeFor(session.role)}
@@ -82,6 +86,33 @@ function SignedInWallet() {
   const [paidAmount, setPaidAmount] = useState(0);
   const [payError, setPayError] = useState("");
   const [requesting, setRequesting] = useState<string | null>(null);
+  const addMoneyHeading = useRef<HTMLHeadingElement>(null);
+  const [highlight, setHighlight] = useState(false);
+
+  /** Bring the Add money card into view and focus it (from the balance card, or a /wallet#add-money link). */
+  const showAddMoney = useCallback((smooth: boolean) => {
+    const heading = addMoneyHeading.current;
+    if (!heading) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.getElementById("add-money")?.scrollIntoView({ behavior: smooth && !reduce ? "smooth" : "auto", block: "start" });
+    heading.focus({ preventScroll: true });
+    setHighlight(true);
+  }, []);
+
+  // Arrived from "Add money" elsewhere (consult screen, header): the page renders after the
+  // sign-in check, so the browser's own jump to #add-money has already been missed.
+  useEffect(() => {
+    if (window.location.hash === "#add-money") showAddMoney(false);
+    const onHash = () => window.location.hash === "#add-money" && showAddMoney(true);
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [showAddMoney]);
+
+  useEffect(() => {
+    if (!highlight) return;
+    const id = setTimeout(() => setHighlight(false), 1600);
+    return () => clearTimeout(id);
+  }, [highlight]);
 
   // Recharge amounts, bonuses and GST come from the API; the balance is re-read so it is current.
   useEffect(() => {
@@ -147,10 +178,10 @@ function SignedInWallet() {
         : `Pay ${rupee(denom + gst)}`;
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-[22px] lg:grid-cols-[minmax(0,1fr)_380px]">
-      <div className="flex min-w-0 flex-col gap-[18px]">
+    // Phones: balance, Add money, then the rest. Wider: the rest under the balance, Add money alongside.
+    <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-[18px] lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-x-[22px]">
         {/* ---------- Balance ---------- */}
-        <div className="rounded-[22px] border border-amber-200 bg-amber-50 p-5 sm:p-6">
+        <div className="min-w-0 rounded-[22px] border border-amber-200 bg-amber-50 p-5 sm:p-6 lg:col-start-1 lg:row-start-1">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-xs font-bold uppercase tracking-[.08em] text-amber-800">Total spendable</div>
@@ -177,7 +208,16 @@ function SignedInWallet() {
               )}
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => showAddMoney(true)}
+            className="az-cta mt-4 h-11 rounded-full px-6 text-[14.5px] font-bold shadow-[0_6px_16px_rgba(255,140,26,.28)]"
+          >
+            + Add money
+          </button>
         </div>
+
+      <div className="order-last flex min-w-0 flex-col gap-[18px] lg:order-none lg:col-start-1 lg:row-start-2">
 
         {/* ---------- Transactions ---------- */}
         <div className="rounded-[22px] border border-line bg-paper p-4 sm:p-[22px]">
@@ -272,9 +312,14 @@ function SignedInWallet() {
       </div>
 
       {/* ---------- Add money ---------- */}
-      <aside className="flex flex-col gap-3.5 lg:sticky lg:top-24">
-        <div className="rounded-[22px] border border-line-warm bg-card p-5 shadow-[0_12px_28px_rgba(90,62,40,.09)]">
-          <h2 className="mb-3 text-base font-bold">Add money</h2>
+      <aside className="flex flex-col gap-3.5 lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+        <div
+          id="add-money"
+          className={`scroll-mt-24 rounded-[22px] border bg-card p-5 shadow-[0_12px_28px_rgba(90,62,40,.09)] transition-[border-color,box-shadow] duration-500 ${highlight ? "border-amber-500 ring-4 ring-amber-200" : "border-line-warm"}`}
+        >
+          <h2 ref={addMoneyHeading} tabIndex={-1} className="mb-3 text-base font-bold outline-none">
+            Add money
+          </h2>
           <div role="radiogroup" aria-label="Recharge amount" className="grid grid-cols-3 gap-2">
             {!denominations &&
               Array.from({ length: 6 }, (_, i) => (

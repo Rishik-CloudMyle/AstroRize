@@ -26,6 +26,7 @@ import {
   sessionCapSeconds,
   settlementView,
 } from "../lib/consultations.ts";
+import { effectivePresence, syncPresence } from "../lib/presence.ts";
 import { astrologerView } from "./catalog.ts";
 import { configNumber } from "../lib/settings.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
@@ -152,13 +153,19 @@ function inProgress(res: Response, open: { id: string; ref: string }) {
   });
 }
 
-/** An astrologer who can take a new consultation right now, or a clear reason why not. */
-async function availableAstrologer(astrologerId: string, what: string) {
+/**
+ * An astrologer who can take a new consultation right now (online and available), or a clear
+ * reason why not. Only "Available" (ON) astrologers can be consulted: offline, in another
+ * session, or hosting a live room (consults then go through the room's queue) are refused.
+ */
+async function availableAstrologer(astrologerId: string) {
   const astrologer = await db.astrologer.findUnique({ where: { id: astrologerId } });
-  if (!astrologer || astrologer.lifecycle !== "active") throw notFound("This astrologer isn't available.");
-  if (astrologer.presence === "OFF" || astrologer.suspension !== "none") {
-    throw conflict(`${astrologer.name} is offline — ${what} isn't available right now.`);
-  }
+  if (!astrologer || astrologer.lifecycle !== "active" || astrologer.suspension === "full") throw notFound("This astrologer isn't available.");
+  if (astrologer.suspension !== "none") throw conflict(`${astrologer.name} isn't taking consultations right now.`);
+  const presence = effectivePresence(astrologer);
+  if (presence === "OFF") throw conflict(`${astrologer.name} is offline right now. You can consult them once they come online — you have not been charged.`);
+  if (presence === "BUSY") throw conflict(`${astrologer.name} is in another consultation right now. Try again in a few minutes — you have not been charged.`);
+  if (presence === "LIVE") throw conflict(`${astrologer.name} is hosting a live room right now. Join the room's consult queue to talk to them.`);
   return astrologer;
 }
 
@@ -229,7 +236,7 @@ customerRouter.get("/consultations/:id", async (req, res) => {
 customerRouter.post("/consultations", async (req, res) => {
   const me = auth(req);
   const { astrologerId, mode } = z.object({ astrologerId: z.string(), mode: modeSchema }).parse(req.body);
-  const astrologer = await availableAstrologer(astrologerId, "a consultation");
+  const astrologer = await availableAstrologer(astrologerId);
   const rate = rateFor(astrologer.price, mode as Mode);
   const needed = rate * ELIGIBILITY_MINUTES;
   await walletOf(me.user.id);
@@ -267,6 +274,7 @@ customerRouter.post("/consultations/:id/connect", async (req, res) => {
   if (await astrologerBusy(c.astrologerId)) throw conflict("The astrologer is in another consultation right now.");
   const { count } = await db.consultation.updateMany({ where: { id: c.id, status: "CONNECTING" }, data: { status: "ACTIVE", connectedAt: new Date() } });
   if (!count) throw conflict("This consultation can no longer connect.");
+  await syncPresence(c.astrologerId); // the astrologer is now in a session → BUSY
   const updated = await db.consultation.findUniqueOrThrow({ where: { id: c.id } });
   const freeSeconds = await configNumber("consult.free_seconds", 60);
   res.json({
@@ -331,7 +339,7 @@ customerRouter.post("/consultations/:id/rating", async (req, res) => {
 customerRouter.post("/instant-calls", async (req, res) => {
   const me = auth(req);
   const { astrologerId } = z.object({ astrologerId: z.string() }).parse(req.body);
-  const astrologer = await availableAstrologer(astrologerId, "Instant Call");
+  const astrologer = await availableAstrologer(astrologerId);
   const rate = instantRate(astrologer.price, astrologer.instantMultiplier);
   const needed = rate * ELIGIBILITY_MINUTES;
   await walletOf(me.user.id);

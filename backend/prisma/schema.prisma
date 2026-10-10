@@ -119,6 +119,9 @@ model Astrologer {
   name               String
   /// Male | Female (directory filter)
   gender             String?
+  /// Last time the astrologer's portal was open (heartbeat). Online astrologers who go quiet
+  /// are switched offline automatically, so customers never see a stale "online".
+  lastSeenAt         DateTime?
   initials           String
   greeting           String
   recognition        Recognition

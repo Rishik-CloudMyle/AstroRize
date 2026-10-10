@@ -10,6 +10,8 @@ import { clock, duration, rateFor, rupee, skillLine } from "@/lib/format";
 import { consultationActions, rememberMinimised, type ConsultationView } from "@/lib/consultation-store";
 import { sessionActions, totalBalance, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
+import { recheckAvailability } from "../astrologer/use-fresh-astrologer";
+import { staffConsultNote } from "./consult-gate";
 
 type Step = "phone" | "otp" | "mode" | "connecting" | "waiting" | "session" | "settle" | "rate" | "outcome";
 
@@ -123,6 +125,17 @@ export default function ConsultJourney({
     };
   }, []);
 
+  // Opened before the sign-in check finished: catch up with who is signed in. Astrologer and
+  // staff accounts can't consult (the buttons say so); a signed-in customer skips the sign-in steps.
+  const staffRole = session.ready && session.loggedIn && session.role !== "customer" ? session.role : null;
+  useEffect(() => {
+    if (staffRole && !resume) {
+      toast(staffConsultNote(staffRole));
+      onClose();
+    }
+  }, [staffRole, resume, toast, onClose]);
+  if (!staffRole && session.loggedIn && (step === "phone" || step === "otp") && !busy) setStep("mode");
+
   // ---- Sign in (mobile number + six-digit code) ----
   async function verify(code: string) {
     setBusy(true);
@@ -222,6 +235,9 @@ export default function ConsultJourney({
         resumeConsult();
         return;
       }
+      // Refused because the astrologer just went offline, live or into another consultation:
+      // say why here, and let the page behind re-check so its buttons match.
+      if (e instanceof ApiError && e.status === 409) recheckAvailability();
       setError(errorText(e));
       setStep("mode");
     } finally {
@@ -600,7 +616,7 @@ export default function ConsultJourney({
             ) : (
               <div className="mt-[18px] rounded-[14px] border border-rose-200 bg-rose-50 px-4 py-3.5 text-[13px] leading-[1.55] text-rose-900">
                 Your balance is {rupee(balance)}. You need {rupee(needed)} for five minutes at {rupee(rate)}/min.{" "}
-                <Link href="/wallet" onClick={onClose} className="font-bold">
+                <Link href="/wallet#add-money" onClick={onClose} className="font-bold underline">
                   Add money
                 </Link>{" "}
                 to continue.

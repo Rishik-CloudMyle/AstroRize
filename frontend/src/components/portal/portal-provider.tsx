@@ -1,15 +1,21 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import { ApiError } from "@/lib/api/client";
-import type { Account } from "@/lib/portal/types";
+import { useRouter } from "next/navigation";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { ApiError, api } from "@/lib/api/client";
+import type { Account, Presence } from "@/lib/portal/types";
 
 type Store = Record<string, unknown>;
 type SetStateArg<T> = T | ((previous: T) => T);
 type Toast = (message: string, tone?: "ok" | "error") => void;
 
+/** While a portal page is open it tells the server so every ~45 s (see backend lib/presence.ts). */
+const HEARTBEAT_MS = 45_000;
+
 interface PortalContextValue {
   account: Account;
+  presence: Presence;
+  setPresence: (presence: Presence) => void;
   toast: Toast;
   store: Store;
   setStore: React.Dispatch<React.SetStateAction<Store>>;
@@ -26,6 +32,15 @@ function usePortal(): PortalContextValue {
 /** The signed-in astrologer's account (from the layout's getAccount()). */
 export function useAccount(): Account {
   return usePortal().account;
+}
+
+/**
+ * The astrologer's presence right now (on / busy / live / off), shared by the dashboard toggle
+ * and the live console. Call setPresence with what the server answered after a change.
+ */
+export function usePresence(): [Presence, (presence: Presence) => void] {
+  const { presence, setPresence } = usePortal();
+  return [presence, setPresence];
 }
 
 /** Shows the dark confirmation toast at the bottom of the screen (prototype's say()). */
@@ -77,7 +92,58 @@ export default function PortalProvider({ account, children }: { account: Account
     toastTimer.current = setTimeout(() => setToastMessage(null), 4000);
   }, []);
 
-  const value = useMemo(() => ({ account, toast, store, setStore }), [account, toast, store]);
+  // Presence: starts from the layout's account and follows the server (a refresh of the layout,
+  // a toggle, or the heartbeat's answer).
+  const router = useRouter();
+  const [presence, setPresenceState] = useState<Presence>(account.presence);
+  const [accountPresence, setAccountPresence] = useState(account.presence);
+  if (account.presence !== accountPresence) {
+    setAccountPresence(account.presence);
+    setPresenceState(account.presence);
+  }
+  const presenceRef = useRef(presence);
+  const changes = useRef(0);
+  useEffect(() => {
+    presenceRef.current = presence;
+  }, [presence]);
+  const setPresence = useCallback((next: Presence) => {
+    changes.current += 1; // a heartbeat already on its way must not undo this
+    setPresenceState(next);
+  }, []);
+
+  // Heartbeat: keeps an online astrologer online while any portal page is open (also in a
+  // background tab). If the server switched them off meanwhile (the portal was closed or the
+  // computer slept for a few minutes), say so — it never switches them back on by itself.
+  useEffect(() => {
+    let stopped = false;
+    const beat = async () => {
+      const startedAt = changes.current;
+      try {
+        const res = await api.post<{ presence: Presence }>("/portal/heartbeat");
+        if (stopped || changes.current !== startedAt) return;
+        if (presenceRef.current !== "off" && res.presence === "off") {
+          toast("You're offline now — the portal was closed or inactive for a few minutes. Go online again when you're ready.", "error");
+          router.refresh();
+        }
+        setPresenceState(res.presence);
+      } catch {
+        // Offline or the API restarting: the next beat tries again.
+      }
+    };
+    void beat();
+    const id = setInterval(beat, HEARTBEAT_MS);
+    const onVisible = () => {
+      if (!document.hidden) void beat();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [toast, router]);
+
+  const value = useMemo(() => ({ account, presence, setPresence, toast, store, setStore }), [account, presence, setPresence, toast, store]);
 
   return (
     <PortalContext.Provider value={value}>

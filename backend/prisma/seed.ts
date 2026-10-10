@@ -63,7 +63,7 @@ async function main() {
     ],
   });
 
-  // Customers waiting in Raghav's live queue, so the portal can show their profiles.
+  // More customers with full profiles (they join live queues and consult like anyone else).
   const queueCustomers: { id: string }[] = [];
   for (const c of [
     { first: "Kavya", last: "Menon", gender: "Woman", dob: "1997-11-02", tob: "21:15", pob: "Kochi", city: "Kochi", state: "Kerala", photo: "/assets/avatars/astro-kavya.jpg", phone: "9811100001" },
@@ -92,9 +92,15 @@ async function main() {
     );
   }
 
-  const raghavUser = await db.user.create({
-    data: { role: "ASTROLOGER", name: "Pt. Raghav Joshi", initials: "RJ", email: "raghav.joshi@email.com", phone: "9876543242", passwordHash },
-  });
+  // Every listed astrologer has their own portal login, so each can come online and go live.
+  const astrologerLogin = (name: string, initials: string, email: string, phone: string) =>
+    db.user.create({ data: { role: "ASTROLOGER", name, initials, email, phone, passwordHash } });
+  const raghavUser = await astrologerLogin("Pt. Raghav Joshi", "RJ", "raghav.joshi@email.com", "9876543242");
+  const meeraUser = await astrologerLogin("Acharya Meera Iyer", "MI", "meera.iyer@email.com", "9876543243");
+  const arjunUser = await astrologerLogin("Pandit Arjun Deshmukh", "AD", "arjun.deshmukh@email.com", "9876543244");
+  const snehaUser = await astrologerLogin("Sneha Ramanathan", "SR", "sneha.ramanathan@email.com", "9876543245");
+  const vikramUser = await astrologerLogin("Vikram Sethi", "VS", "vikram.sethi@email.com", "9876543246");
+  const lalitaUser = await astrologerLogin("Dr. Lalita Bose", "LB", "lalita.bose@email.com", "9876543247");
 
   const admins = {
     super: await db.user.create({ data: { role: "ADMIN", adminRole: "SUPER", name: "Kunal Prasad", initials: "KP", actorName: "K. Prasad", email: "admin@astrorize.com", passwordHash } }),
@@ -116,40 +122,42 @@ async function main() {
   });
 
   // ── Astrologers (prices identical to the public website) ──
+  // Everyone starts offline: an astrologer is shown online only after they switch it on in
+  // their portal, and is switched off again when the portal is closed (src/lib/presence.ts).
   const astrologers = [
     {
       id: "raghav", slug: "pt-raghav-joshi", userId: raghavUser.id, name: "Pt. Raghav Joshi", initials: "RJ", greeting: "Raghav", gender: "Male",
-      recognition: "PREMIUM", presence: "ON", skills: ["Vedic", "Face Reading"], languages: ["Hindi", "English"], years: 18, rating: 4.9, consults: 1204,
+      recognition: "PREMIUM", presence: "OFF", skills: ["Vedic", "Face Reading"], languages: ["Hindi", "English"], years: 18, rating: 4.9, consults: 1204,
       price: 28, was: 35, eta: null, photo: "/assets/avatars/astro-raghav.jpg", ratingDistribution: [990, 168, 36, 8, 2],
       about: "Eighteen years reading career and dharma charts for working professionals. Sessions stay practical — timing, not fear.",
     },
     {
-      id: "meera", slug: "acharya-meera-iyer", name: "Acharya Meera Iyer", initials: "MI", greeting: "Meera", gender: "Female",
-      recognition: "TRUSTED", presence: "BUSY", skills: ["Nadi", "Counseling"], languages: ["Tamil", "English", "Hindi"], years: 14, rating: 4.8, consults: 860,
+      id: "meera", slug: "acharya-meera-iyer", userId: meeraUser.id, name: "Acharya Meera Iyer", initials: "MI", greeting: "Meera", gender: "Female",
+      recognition: "TRUSTED", presence: "OFF", skills: ["Nadi", "Counseling"], languages: ["Tamil", "English", "Hindi"], years: 14, rating: 4.8, consults: 860,
       price: 32, was: null, eta: "~6–12 min", photo: "/assets/avatars/astro-meera.jpg", ratingDistribution: [666, 140, 40, 10, 4],
       about: "Relationship and family charts with a calm, specific style. She names what the chart can answer and what it cannot.",
     },
     {
-      id: "arjun", slug: "pandit-arjun-deshmukh", name: "Pandit Arjun Deshmukh", initials: "AD", greeting: "Arjun", gender: "Male",
-      recognition: "PROVEN", presence: "ON", skills: ["KP", "Timing"], languages: ["Marathi", "Hindi", "English"], years: 9, rating: 4.7, consults: 412,
+      id: "arjun", slug: "pandit-arjun-deshmukh", userId: arjunUser.id, name: "Pandit Arjun Deshmukh", initials: "AD", greeting: "Arjun", gender: "Male",
+      recognition: "PROVEN", presence: "OFF", skills: ["KP", "Timing"], languages: ["Marathi", "Hindi", "English"], years: 9, rating: 4.7, consults: 412,
       price: 22, was: 28, eta: null, photo: "/assets/avatars/astro-arjun.jpg", ratingDistribution: [300, 80, 22, 7, 3],
       about: "KP timings for money decisions. Speaks plainly. Offers Fixed Sessions of 15, 30, 45 or 60 minutes.",
     },
     {
-      id: "sneha", slug: "sneha-ramanathan", name: "Sneha Ramanathan", initials: "SR", greeting: "Sneha", gender: "Female",
-      recognition: "RISING", presence: "LIVE", skills: ["Tarot", "Numerology"], languages: ["English", "Tamil"], years: 6, rating: 4.6, consults: 188,
+      id: "sneha", slug: "sneha-ramanathan", userId: snehaUser.id, name: "Sneha Ramanathan", initials: "SR", greeting: "Sneha", gender: "Female",
+      recognition: "RISING", presence: "OFF", skills: ["Tarot", "Numerology"], languages: ["English", "Tamil"], years: 6, rating: 4.6, consults: 188,
       price: 18, was: 24, eta: "~3–7 min", photo: "/assets/avatars/astro-ananya.jpg", ratingDistribution: [130, 38, 12, 5, 3],
       about: "Tarot with a counselling background. Best for people who want language for a decision they have already half-made.",
     },
     {
-      id: "vikram", slug: "vikram-sethi", name: "Vikram Sethi", initials: "VS", greeting: "Vikram", gender: "Male",
+      id: "vikram", slug: "vikram-sethi", userId: vikramUser.id, name: "Vikram Sethi", initials: "VS", greeting: "Vikram", gender: "Male",
       recognition: "FRESH", presence: "OFF", skills: ["Vastu", "Palmistry"], languages: ["Hindi", "Punjabi"], years: 4, rating: null, consults: 24,
       price: 15, was: null, eta: null, photo: "/assets/avatars/astro-vikram.jpg", ratingDistribution: [16, 5, 2, 1, 0],
       about: "New on Astrorize. Vastu walkthroughs for homes and small commercial spaces.",
     },
     {
-      id: "lalita", slug: "dr-lalita-bose", name: "Dr. Lalita Bose", initials: "LB", greeting: "Lalita", gender: "Female",
-      recognition: "PREMIUM", presence: "ON", skills: ["Vedic", "Prashna"], languages: ["Bengali", "English", "Hindi"], years: 22, rating: 4.9, consults: 2140,
+      id: "lalita", slug: "dr-lalita-bose", userId: lalitaUser.id, name: "Dr. Lalita Bose", initials: "LB", greeting: "Lalita", gender: "Female",
+      recognition: "PREMIUM", presence: "OFF", skills: ["Vedic", "Prashna"], languages: ["Bengali", "English", "Hindi"], years: 22, rating: 4.9, consults: 2140,
       price: 45, was: 60, eta: null, photo: "/assets/avatars/astro-leela.jpg", ratingDistribution: [1800, 260, 58, 16, 6],
       about: "Twenty-two years, mostly Prashna. Answers the question you actually asked, in the time you actually have.",
     },
@@ -195,50 +203,20 @@ async function main() {
   });
 
   // ── Live rooms (no promo rates: consults use the astrologer's own price) ──
+  // One room per astrologer, none of them live: a room opens to customers only when its
+  // astrologer presses "Go live" in the portal. The topic is the last one used (the portal
+  // pre-fills it) and the poll is ready to launch, with no votes. No chat, queue or viewers.
   const rooms = [
-    {
-      id: "sneha", astrologerId: "sneha", topic: "Tarot: career crossroads", viewers: 312, state: "private", thumb: "/assets/spotlight/spotlight-live.jpg", eta: "~3–7 min", waiting: 7,
-      pollQuestion: "Which spread should I pull next?", pollOptions: ["Past · present · future", "Career crossroads", "Yes / no card"], pollCounts: [52, 33, 15],
-      chat: [["Meghna", "the tower card scared me but this explanation helps"], ["Arvind", "watching from Kochi 👋"], ["Priya", "can you do a reading for job switch?"], ["Moderator", "Tap Consult now to start a private consultation."]],
-    },
-    {
-      id: "raghav", astrologerId: "raghav", topic: "Saturn transit Q&A", viewers: 846, state: "normal", thumb: "/assets/gallery/gallery-live.jpg", eta: "~6–12 min", waiting: 12,
-      pollQuestion: "Which house should I read next?", pollOptions: ["7th house — relationships", "10th house — career", "2nd house — money"], pollCounts: [46, 31, 23],
-      chat: [["Ananya", "pranam 🙏 can you look at 7th house next"], ["Ravi", "joined from Pune, listening"], ["Deepa", "the timing point was useful, thank you"], ["Karthik", "can I book a one-to-one after this?"], ["Moderator", "Yes — tap Consult now to start a private consultation."]],
-    },
-    {
-      id: "lalita", astrologerId: "lalita", topic: "Prashna hour", viewers: 204, state: "normal", thumb: "/assets/gallery/gallery-study.jpg", eta: "~10–18 min", waiting: 15,
-      pollQuestion: "What should the next Prashna be about?", pollOptions: ["Health of a parent", "Property purchase", "Travel abroad"], pollCounts: [38, 41, 21],
-      chat: [["Sourav", "namaskar didi 🙏"], ["Rina", "the clarity on timing was very helpful"], ["Moderator", "Tap Consult now to start a private consultation."]],
-    },
-    {
-      id: "arjun", astrologerId: "arjun", topic: "KP timing clinic", viewers: 97, state: "normal", thumb: "/assets/gallery/gallery-desk.jpg", eta: "~4–9 min", waiting: 5,
-      pollQuestion: "Which decision should we time next?", pollOptions: ["Job change", "Business launch", "Loan / investment"], pollCounts: [44, 35, 21],
-      chat: [["Nikhil", "sub-lord explanation was excellent"], ["Swati", "joined late, is there a recording?"], ["Moderator", "Tap Consult now to start a private consultation."]],
-    },
+    { id: "raghav", topic: "Saturn transit Q&A", thumb: "/assets/gallery/gallery-live.jpg", eta: "~6–12 min", pollQuestion: "Which house should I read next?", pollOptions: ["7th house — relationships", "10th house — career", "2nd house — money"] },
+    { id: "meera", topic: "Marriage timing, gently", thumb: "/assets/gallery/gallery-courtyard.jpg", eta: "~6–12 min", pollQuestion: "What should we look at next?", pollOptions: ["Marriage timing", "Family harmony", "Children"] },
+    { id: "arjun", topic: "KP timing clinic", thumb: "/assets/gallery/gallery-desk.jpg", eta: "~4–9 min", pollQuestion: "Which decision should we time next?", pollOptions: ["Job change", "Business launch", "Loan / investment"] },
+    { id: "sneha", topic: "Tarot: career crossroads", thumb: "/assets/spotlight/spotlight-live.jpg", eta: "~3–7 min", pollQuestion: "Which spread should I pull next?", pollOptions: ["Past · present · future", "Career crossroads", "Yes / no card"] },
+    { id: "vikram", topic: "Vastu for small homes", thumb: "/assets/gallery/gallery-palm.jpg", eta: "~5–10 min", pollQuestion: "Which room should we walk through next?", pollOptions: ["Kitchen", "Bedroom", "Entrance"] },
+    { id: "lalita", topic: "Prashna hour", thumb: "/assets/gallery/gallery-study.jpg", eta: "~10–18 min", pollQuestion: "What should the next Prashna be about?", pollOptions: ["Health of a parent", "Property purchase", "Travel abroad"] },
   ];
   for (const [rank, r] of rooms.entries()) {
-    const { chat, waiting, ...room } = r;
-    await db.liveRoom.create({ data: { ...room, rank, startedAt: r.id === "raghav" ? new Date(now - (42 * 60 + 10) * 1000) : minutesAgo(30 + rank * 7) } });
-    await db.chatMessage.createMany({ data: chat.map(([author, text], i) => ({ roomId: r.id, author: author!, text: text!, createdAt: new Date(now - (chat.length - i) * 45000) })) });
-    if (r.id === "raghav") {
-      await db.liveAnnouncement.createMany({
-        data: [
-          { roomId: r.id, text: "Saturn transit Q&A runs till 8 PM. Questions about career and the 10th house first.", createdAt: minutesAgo(40) },
-          { roomId: r.id, text: "Private consults open after this segment — join the queue if you want a one-to-one.", createdAt: minutesAgo(12) },
-        ],
-      });
-    }
-    await db.liveQueueEntry.createMany({
-      data: Array.from({ length: waiting }, (_, i) => ({
-        roomId: r.id,
-        alias: `${String.fromCharCode(65 + (i % 26))}-${1000 + ((i * 7919 + rank * 131) % 8999)}`,
-        // The first few people in Raghav's queue are signed-in customers with profiles.
-        userId: r.id === "raghav" ? queueCustomers[i]?.id : undefined,
-        mode: i % 4 === 1 ? "PUBLIC" : "PRIVATE",
-        consent: i % 4 === 1,
-        createdAt: minutesAgo(30 - i),
-      })),
+    await db.liveRoom.create({
+      data: { ...r, astrologerId: r.id, rank, isLive: false, viewers: 0, state: "normal", pollCounts: r.pollOptions.map(() => 0), startedAt: daysAgo(1 + rank) },
     });
   }
 
@@ -268,16 +246,8 @@ async function main() {
   if (todayDow !== 4) slots.push({ date: dayKey(4 - todayDow), start: "16:00", end: "17:00", state: "CANCELLED" });
   await db.availabilitySlot.createMany({ data: slots.map((s) => ({ astrologerId: "raghav", ...s })) });
 
-  // Waiting requests and the session in progress.
-  await db.consultation.createMany({
-    data: [
-      { ref: "SES-90001", astrologerId: "raghav", customerId: queueCustomers[0]!.id, customerAlias: "A-8821", mode: "VOICE", kind: "INSTANT", rate: 84, status: "REQUESTED", requestedAt: minutesAgo(6), offeredAt: new Date(now - 19000) },
-      { ref: "SES-90002", astrologerId: "raghav", customerId: queueCustomers[1]!.id, customerAlias: "C-5512", mode: "VIDEO", rate: 40, status: "REQUESTED", requestedAt: minutesAgo(5) },
-      { ref: "SES-90003", astrologerId: "raghav", customerId: queueCustomers[2]!.id, customerAlias: "D-7703", mode: "CHAT", rate: 28, status: "REQUESTED", requestedAt: minutesAgo(3) },
-      { ref: "SES-90004", astrologerId: "raghav", customerAlias: "E-4410", mode: "CHAT", rate: 28, status: "REQUESTED", requestedAt: minutesAgo(1) },
-      { ref: "SES-90000", astrologerId: "raghav", customerAlias: "B-1290", mode: "CHAT", rate: 28, status: "ACTIVE", requestedAt: minutesAgo(15), connectedAt: new Date(now - (4 * 60 + 2) * 1000), heldAmount: 28 * 6 },
-    ],
-  });
+  // No requests waiting and no session in progress: Raghav is offline until he comes online,
+  // and customers can only ask an astrologer who is online.
 
   const threads: [string, [string, string, boolean?][]][] = [
     ["A-8821", [
@@ -301,15 +271,16 @@ async function main() {
     });
   }
 
-  // Earnings statement: today, recent days and earlier in the period.
+  // Earnings statement: recent days and earlier in the period (none today — Raghav hasn't
+  // been online yet today).
   const lines: [number, string, string, string, number, number][] = [
-    [0, "SES-88301", "voice", "Voice", 22, 0],
-    [0, "SES-88296", "chat", "Chat", 31, 111],
-    [0, "SES-88290", "emergency", "Emergency voice", 9, 0],
-    [0, "SES-88281", "voice", "Voice", 18, 501],
-    [0, "SES-88276", "emergency", "Emergency voice", 6, 0],
-    [0, "SES-88270", "video", "Video", 14, 0],
-    [0, "SES-88262", "chat", "Chat", 12, 0],
+    [1, "SES-88301", "voice", "Voice", 22, 0],
+    [1, "SES-88296", "chat", "Chat", 31, 111],
+    [1, "SES-88290", "emergency", "Emergency voice", 9, 0],
+    [1, "SES-88281", "voice", "Voice", 18, 501],
+    [1, "SES-88276", "emergency", "Emergency voice", 6, 0],
+    [1, "SES-88270", "video", "Video", 14, 0],
+    [1, "SES-88262", "chat", "Chat", 12, 0],
     [1, "SES-88214", "voice", "Voice", 12, 0],
     [1, "SES-88190", "chat", "Chat", 25, 501],
     [2, "SES-88044", "emergency", "Emergency voice", 8, 0],

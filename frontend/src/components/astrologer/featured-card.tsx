@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Astrologer } from "@/lib/types";
-import { languageLine, modeTiles, ratingLabel, rupee, skillLine } from "@/lib/format";
+import { languageLine, ratingLabel, rupee, skillLine } from "@/lib/format";
 import { AvailabilityBadge, DiscountBadge, Portrait, RecognitionBadge, VerifiedTick, WasPrice, priceNote } from "./parts";
 
 /** Glassy astrologer card from the home page "Featured astrologers" row. */
@@ -50,13 +50,40 @@ export default function FeaturedCard({ astrologer: a }: { astrologer: Astrologer
           </div>
           <div className="mt-0.5 text-[10px] text-mauve">{priceNote(a)}</div>
         </div>
-        <Link
-          href={`/astrologer/${a.slug}`}
-          className="az-cta az-sheen inline-flex h-[34px] shrink-0 items-center gap-1 rounded-full px-3.5 text-[12.5px] font-bold hover:-translate-y-0.5 hover:text-cta-ink hover:no-underline hover:shadow-[0_10px_20px_rgba(255,140,26,.38)]"
-        >
-          Consult ›
-        </Link>
+        {a.availability === "on" ? (
+          <Link
+            href={`/astrologer/${a.slug}`}
+            className="az-cta az-sheen inline-flex h-[34px] shrink-0 items-center gap-1 rounded-full px-3.5 text-[12.5px] font-bold hover:-translate-y-0.5 hover:text-cta-ink hover:no-underline hover:shadow-[0_10px_20px_rgba(255,140,26,.38)]"
+          >
+            Consult ›
+          </Link>
+        ) : (
+          // Not available to consult right now: the profile is still open to everyone.
+          <Link
+            href={`/astrologer/${a.slug}`}
+            className="inline-flex h-[34px] shrink-0 items-center gap-1 rounded-full border border-[#f0d9a8] bg-white px-3.5 text-[12.5px] font-bold text-ink hover:text-ink hover:no-underline"
+          >
+            View profile ›
+          </Link>
+        )}
       </div>
     </div>
   );
+}
+
+/** Chat / Voice / Instant status tiles: what the customer can do with this astrologer right now. */
+function modeTiles(a: Astrologer) {
+  const [state, fg] =
+    a.availability === "on"
+      ? ["Online", "#16a34a"]
+      : a.availability === "busy"
+        ? ["Busy", "#c81e4a"]
+        : a.availability === "live"
+          ? ["Live", "#c2410c"]
+          : ["Offline", "#9a93a5"];
+  return [
+    { icon: "💬", label: "Chat", state, stateFg: fg },
+    { icon: "📞", label: "Voice", state, stateFg: fg },
+    { icon: "⚡", label: "Instant", state: a.availability === "on" ? "Ready" : state, stateFg: a.availability === "on" ? "#2563eb" : fg },
+  ];
 }

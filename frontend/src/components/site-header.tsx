@@ -9,12 +9,15 @@ import { homeFor } from "@/lib/auth";
 import { rupee } from "@/lib/format";
 import { sessionActions, totalBalance, useSession } from "@/lib/session-store";
 import { useAppUI } from "./app-provider";
+import { useLiveNow } from "./live-notifier";
 import { ConsultInProgressBar } from "./consult/consult-lock";
 
 export default function SiteHeader() {
   const session = useSession();
   const { openLogin } = useAppUI();
   const pathname = usePathname();
+  // The "Live" dot shows (and pulses) only while someone is actually live.
+  const someoneLive = (useLiveNow()?.liveRooms ?? 0) > 0;
   const [menuOpen, setMenuOpen] = useState(false);
   // Close the mobile menu whenever the page changes.
   const [lastPath, setLastPath] = useState(pathname);
@@ -46,7 +49,7 @@ export default function SiteHeader() {
               aria-current={pathname.startsWith(link.href) ? "page" : undefined}
               className="inline-flex items-center gap-1.5 rounded-[10px] px-3 py-2 text-sm font-semibold text-stone-600 hover:bg-amber-100 hover:text-amber-800 hover:no-underline"
             >
-              {link.live && <span className="size-[7px] rounded-full bg-urgent" />}
+              {link.live && someoneLive && <span aria-hidden="true" className="az-live-dot size-[7px] rounded-full bg-urgent" />}
               {link.label}
             </Link>
           ))}
@@ -73,11 +76,15 @@ export default function SiteHeader() {
           ) : session.loggedIn ? (
             <>
               <Link
-                href="/wallet"
-                className="inline-flex h-[38px] items-center gap-[7px] rounded-full border border-line bg-white pl-[11px] pr-3.5 text-[13px] font-bold tabular-nums text-ink hover:no-underline"
+                href="/wallet#add-money"
+                aria-label={`Balance ${rupee(totalBalance(session))} — add money`}
+                className="inline-flex h-[38px] items-center gap-[7px] rounded-full border border-line bg-white pl-[11px] pr-3.5 text-[13px] font-bold tabular-nums text-ink hover:no-underline min-[440px]:pr-[5px]"
               >
                 <span className="size-2 rounded-full bg-amber-500" />
                 {rupee(totalBalance(session))}
+                <span aria-hidden="true" className="hidden size-[26px] place-items-center rounded-full bg-amber-500 text-[16px] leading-none text-ink min-[440px]:grid">
+                  +
+                </span>
               </Link>
               <Link
                 href="/wallet"
@@ -139,7 +146,7 @@ export default function SiteHeader() {
               onClick={() => setMenuOpen(false)}
               className="flex items-center gap-2 rounded-[10px] px-3 py-3 text-[15px] font-semibold text-stone-600 hover:bg-amber-100 hover:text-amber-800 hover:no-underline"
             >
-              {link.live && <span className="size-[7px] rounded-full bg-urgent" />}
+              {link.live && someoneLive && <span aria-hidden="true" className="az-live-dot size-[7px] rounded-full bg-urgent" />}
               {link.label}
             </Link>
           ))}

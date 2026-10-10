@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api/client";
 import { rupee } from "@/lib/portal/format";
-import type { LiveRequest, LiveRoom } from "@/lib/portal/types";
-import { useErrorToast, usePortalState, useToast } from "../portal-provider";
+import type { LiveRequest, LiveRoom, Presence } from "@/lib/portal/types";
+import Modal from "../modal";
+import { useErrorToast, usePortalState, usePresence, useToast } from "../portal-provider";
 import { PageHeader, Panel } from "../ui";
 import LiveAnnouncements from "./live-announcements";
 import LiveQueuePeople from "./live-queue-people";
@@ -20,6 +21,7 @@ function modMessage(label: string): string {
 }
 
 const MAX_POLL_OPTIONS = 6;
+const MAX_TOPIC = 80;
 /** How often the console re-reads the queue and announcements while open. */
 const REFRESH_MS = 15_000;
 
@@ -46,8 +48,13 @@ function LiveConsole({ data }: { data: LiveRoom }) {
   const showError = useErrorToast();
   const [micOn, setMicOn] = usePortalState("liveMic", true);
   const [camOn, setCamOn] = usePortalState("liveCam", true);
-  const [privateOn, setPrivateOn] = usePortalState("livePrivate", true);
+  const [privateOn, setPrivateOn] = usePortalState("livePrivate", false);
   const [busy, setBusy] = useState(false);
+  const [presence, setPresence] = usePresence();
+  const [topic, setTopic] = useState(data.topic);
+  const [topicError, setTopicError] = useState<string | null>(null);
+  const [confirmEnd, setConfirmEnd] = useState(false);
+  const live = data.isLive;
   const [question, setQuestion] = useState(data.pollQuestion);
   const [options, setOptions] = useState(data.pollOptions.length ? data.pollOptions : ["", ""]);
   const rate = `${rupee(data.rate)}/min`;
@@ -72,6 +79,36 @@ function LiveConsole({ data }: { data: LiveRoom }) {
       setBusy(false);
     }
   };
+
+  const goOnline = () =>
+    run(async () => {
+      const res = await api.patch<{ presence: Presence }>("/portal/presence", { online: true });
+      setPresence(res.presence);
+      toast("You're online. Add a topic and go live when you're ready.");
+    });
+
+  const goLive = (e: React.FormEvent) => {
+    e.preventDefault();
+    const t = topic.trim();
+    if (t.length < 3) {
+      setTopicError("Give your live a topic, e.g. “Saturn transit Q&A”.");
+      return;
+    }
+    setTopicError(null);
+    void run(async () => {
+      await api.post("/portal/live/start", { topic: t });
+      setPresence("live");
+      toast("You're live. Customers on Astrorize are being told right now.");
+    });
+  };
+
+  const endLive = () =>
+    run(async () => {
+      const res = await api.post<{ presence: Presence }>("/portal/live/end");
+      setPresence(res.presence);
+      setConfirmEnd(false);
+      toast("Live ended. The room is closed and anyone still waiting has been told.");
+    });
 
   const decide = (q: LiveRequest, decision: "accept" | "decline") =>
     run(async () => {
@@ -132,15 +169,63 @@ function LiveConsole({ data }: { data: LiveRoom }) {
 
       <div className="mt-5 grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <div className="min-w-0">
+          {!live && (
+            <Panel warm className="p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex h-[26px] items-center rounded-full bg-stone-200 px-[11px] text-[11px] font-extrabold text-stone-600">○ NOT LIVE</span>
+                <span className="text-[12.5px] text-stone-500">Customers see your room only while you&apos;re live.</span>
+              </div>
+              <form onSubmit={goLive} noValidate className="mt-4">
+                <label htmlFor="live-topic" className="block text-[13px] font-bold text-ink">
+                  Topic for this live
+                </label>
+                <input
+                  id="live-topic"
+                  value={topic}
+                  onChange={(e) => {
+                    setTopic(e.target.value);
+                    if (topicError) setTopicError(null);
+                  }}
+                  maxLength={MAX_TOPIC}
+                  required
+                  aria-invalid={!!topicError}
+                  aria-describedby="live-topic-help"
+                  placeholder="e.g. Saturn transit Q&A"
+                  className="mt-1.5 h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 text-[14px] text-ink outline-none focus:border-amber-400"
+                />
+                <p id="live-topic-help" className={`mt-1.5 text-[12px] ${topicError ? "font-semibold text-rose-700" : "text-stone-500"}`}>
+                  {topicError ?? `Customers see it in the “just went live” notice. Up to ${MAX_TOPIC} characters.`}
+                </p>
+                {presence === "off" ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <button type="button" onClick={goOnline} disabled={busy} className="h-11 rounded-xl bg-amber-500 px-5 text-[14px] font-bold text-ink">
+                      Go online
+                    </button>
+                    <span className="text-[12.5px] text-stone-500">You&apos;re offline. Go online first, then go live.</span>
+                  </div>
+                ) : presence === "busy" ? (
+                  <p className="mt-3 text-[12.5px] font-semibold text-stone-600">You&apos;re in a consultation. Finish it, then go live.</p>
+                ) : (
+                  <button type="submit" disabled={busy} className="mt-3 h-11 rounded-xl bg-urgent px-6 text-[14px] font-bold text-white">
+                    ● Go live
+                  </button>
+                )}
+              </form>
+            </Panel>
+          )}
+          {live && (
           <div className="relative aspect-[4/3] overflow-hidden rounded-[20px] bg-ink sm:aspect-video">
             <Image src={data.image} alt="" fill sizes="(min-width: 900px) 60vw, 100vw" className="object-cover" priority />
             <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.45)_0%,rgba(28,25,23,.08)_40%,rgba(28,25,23,.7)_100%)]" />
             <div className="absolute top-3.5 right-3.5 left-3.5 flex flex-wrap items-center gap-2">
               <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-urgent px-[11px] text-[11px] font-extrabold text-white">
-                {data.isLive ? `● LIVE ${data.elapsed}` : "○ OFFLINE"}
+                ● LIVE {data.elapsed}
               </span>
               <span className="inline-flex h-[26px] items-center rounded-full bg-[rgba(0,0,0,.45)] px-[11px] text-[11px] font-bold text-white">
-                👁 {data.viewers}
+                👁 {data.viewers} watching
+              </span>
+              <span className="inline-block h-[26px] max-w-full min-w-0 truncate rounded-full bg-[rgba(0,0,0,.45)] px-[11px] text-[11px] leading-[26px] font-bold text-white">
+                {data.topic}
               </span>
               {privateOn && (
                 <span className="inline-flex h-[26px] items-center rounded-full bg-amber-300 px-[11px] text-[11px] font-extrabold text-ink">
@@ -163,13 +248,15 @@ function LiveConsole({ data }: { data: LiveRoom }) {
               ))}
               <button
                 type="button"
-                onClick={() => toast("End live? An active consult continues to its own end. Confirmation required.")}
+                onClick={() => setConfirmEnd(true)}
+                disabled={busy}
                 className="ml-auto h-10 rounded-xl bg-urgent px-5 text-[13.5px] font-bold text-white"
               >
                 End live
               </button>
             </div>
           </div>
+          )}
 
           <Panel className="relative mt-4 p-5">
             <h2 className="m-0 mb-3 text-base font-bold">Rate for this live</h2>
@@ -184,12 +271,15 @@ function LiveConsole({ data }: { data: LiveRoom }) {
             </p>
           </Panel>
 
-          <div className="mt-4">
-            <LiveQueuePeople queue={data.queue} />
-          </div>
+          {live && (
+            <div className="mt-4">
+              <LiveQueuePeople queue={data.queue} />
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-4">
+          {live && (
           <Panel className="p-[18px]">
             <div className="flex items-center justify-between">
               <h2 className="m-0 text-[15px] font-bold">Consult queue</h2>
@@ -235,9 +325,11 @@ function LiveConsole({ data }: { data: LiveRoom }) {
             </div>
             <p className="mt-2.5 text-[11.5px] text-stone-500">One active consult at a time.</p>
           </Panel>
+          )}
 
           <LiveAnnouncements announcements={data.announcements} />
 
+          {live && (
           <Panel className="p-[18px]">
             <h2 className="m-0 mb-3 text-[15px] font-bold">Moderation</h2>
             <div className="flex flex-wrap gap-[7px]">
@@ -256,6 +348,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
               Mutes and blocks are room-scoped. Deleting a message removes it from the transcript and is audited.
             </p>
           </Panel>
+          )}
 
           <Panel className="p-[18px]">
             <h2 className="m-0 mb-1 text-[15px] font-bold">Launch a poll</h2>
@@ -301,6 +394,27 @@ function LiveConsole({ data }: { data: LiveRoom }) {
           </Panel>
         </div>
       </div>
+
+      {confirmEnd && (
+        <Modal onClose={() => setConfirmEnd(false)} labelledBy="end-live-title">
+          <h2 id="end-live-title" className="m-0 font-display text-[26px] font-semibold text-ink">
+            End this live?
+          </h2>
+          <p className="mt-2 text-[13.5px] leading-normal text-stone-600">
+            The room closes for everyone watching
+            {data.waiting > 0 ? `, and ${data.waiting === 1 ? "the 1 person" : `the ${data.waiting} people`} waiting in your consult queue leave it` : ""}. A
+            consultation already in progress continues to its own end.
+          </p>
+          <div className="mt-5 flex flex-wrap justify-end gap-2.5">
+            <button type="button" onClick={() => setConfirmEnd(false)} className="h-11 rounded-xl border border-line bg-white px-5 text-[14px] font-bold text-ink">
+              Keep going
+            </button>
+            <button type="button" onClick={endLive} disabled={busy} className="h-11 rounded-xl bg-urgent px-5 text-[14px] font-bold text-white">
+              End live
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -1,21 +1,4 @@
-// Home page content from the prototype (01-home.html and its live-band script).
-
-/** Live activity band: [starting value, random drift, suffix] */
-export const LIVE_STATS = [
-  { key: "online", value: 142, drift: 5, suffix: "", label: "astrologers online" },
-  { key: "rooms", value: 23, drift: 3, suffix: "", label: "public live rooms" },
-  { key: "today", value: 3184, drift: 26, suffix: "", label: "consultations today" },
-  { key: "wait", value: 42, drift: 6, suffix: "s", label: "median wait to connect" },
-];
-
-export const LIVE_FEED = [
-  "A consultation just started in Hyderabad · Vedic",
-  "Pt. Raghav Joshi opened a live room · Saturn transit Q&A",
-  "A customer in Pune rated a session 5 stars",
-  "Dr. Lalita Bose is taking instant calls · under a minute",
-  "A Kundli match was generated in Bengaluru",
-  "Acharya Meera Iyer came online · KP timing",
-];
+// Home page content from the prototype (01-home.html).
 
 export const VOICES = [
   {

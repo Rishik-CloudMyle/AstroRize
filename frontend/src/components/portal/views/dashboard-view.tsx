@@ -6,9 +6,9 @@ import { useState } from "react";
 import { api } from "@/lib/api/client";
 import { instantRate, ratingLabel, rupee } from "@/lib/portal/format";
 import { blockedReason, isActive } from "@/lib/portal/status";
-import type { Dashboard, ScheduleItem } from "@/lib/portal/types";
+import type { Dashboard, Presence, ScheduleItem } from "@/lib/portal/types";
 import Modal from "../modal";
-import { useAccount, useErrorToast, useToast } from "../portal-provider";
+import { useAccount, useErrorToast, usePresence, useToast } from "../portal-provider";
 import { Panel } from "../ui";
 
 const SCHEDULE_STYLE: Record<ScheduleItem["kind"], { chip: string; bg: string; border: string; chipBg: string; chipFg: string }> = {
@@ -17,15 +17,23 @@ const SCHEDULE_STYLE: Record<ScheduleItem["kind"], { chip: string; bg: string; b
   live: { chip: "Live", bg: "#fff7ed", border: "#fed7aa", chipBg: "#ea580c", chipFg: "#fff" },
 };
 
+const PRESENCE_LABEL: Record<Presence, string> = {
+  on: "Online — taking requests",
+  busy: "Online — in a consultation",
+  live: "Online — live now",
+  off: "Offline — go online",
+};
+
 const outlineButton =
   "h-10 w-full rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink grid place-items-center hover:no-underline hover:text-ink";
 
 export default function DashboardView({ data }: { data: Dashboard }) {
-  const { astrologer: me, status, online: initiallyOnline } = useAccount();
+  const { astrologer: me, status } = useAccount();
+  const [presence, setPresence] = usePresence();
+  const online = presence !== "off";
   const router = useRouter();
   const toast = useToast();
   const showError = useErrorToast();
-  const [online, setOnline] = useState(initiallyOnline);
   const [busy, setBusy] = useState(false);
   const mult = me.instantMultiplier;
   const [pendingMult, setPendingMult] = useState<number | null>(null);
@@ -38,8 +46,16 @@ export default function DashboardView({ data }: { data: Dashboard }) {
     if (busy) return;
     setBusy(true);
     try {
-      const res = await api.patch<{ online: boolean }>("/portal/presence", { online: !online });
-      setOnline(res.online);
+      const wasLive = presence === "live";
+      const res = await api.patch<{ online: boolean; presence: Presence }>("/portal/presence", { online: !online });
+      setPresence(res.presence);
+      toast(
+        res.online
+          ? "You're online. Customers can consult you now — keep the portal open to stay online."
+          : wasLive
+            ? "You're offline. Your live room has ended."
+            : "You're offline. Customers can't start new consultations with you.",
+      );
       router.refresh();
     } catch (e) {
       showError(e);
@@ -98,7 +114,7 @@ export default function DashboardView({ data }: { data: Dashboard }) {
               }`}
             >
               <span className="size-[9px] rounded-full bg-current" />
-              {online ? "Online — taking requests" : "Offline"}
+              {PRESENCE_LABEL[presence]}
             </button>
           ) : (
             <div className="inline-flex h-11 items-center gap-2 rounded-full border border-dashed border-stone-300 bg-stone-100 px-[18px] text-sm font-bold text-stone-400">

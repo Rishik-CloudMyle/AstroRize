@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import AppProvider from "./app-provider";
+import LiveNotifier from "./live-notifier";
 import LoginFromQuery from "./login-from-query";
 import SiteFooter from "./site-footer";
 import SiteHeader from "./site-header";
@@ -12,6 +13,7 @@ export default function SiteChrome({ children }: { children: React.ReactNode }) 
         <SiteHeader />
         <main className="flex-1">{children}</main>
         <SiteFooter />
+        <LiveNotifier />
         {/* Opens the sign-in window when a portal sent the visitor here (?login=portal|admin). */}
         <Suspense fallback={null}>
           <LoginFromQuery />

@@ -11,6 +11,7 @@ import { catalogRouter } from "./routes/catalog.ts";
 import { customerRouter } from "./routes/customer.ts";
 import { mediaRouter } from "./routes/media.ts";
 import { portalRouter } from "./routes/portal.ts";
+import { statsRouter } from "./routes/stats.ts";
 
 export function createApp() {
   const app = express();
@@ -59,6 +60,7 @@ export function createApp() {
   app.use("/api", loadSession);
   app.use("/api/auth", authRouter);
   app.use("/api", catalogRouter);
+  app.use("/api/stats", statsRouter);
   app.use("/api/media", mediaRouter);
   app.use("/api/portal", portalRouter);
   app.use("/api/admin", adminRouter);

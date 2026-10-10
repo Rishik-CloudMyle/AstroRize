@@ -5,6 +5,7 @@ import { db } from "../db.ts";
 import { badRequest, conflict, notFound } from "../lib/errors.ts";
 import { instantRate } from "../lib/billing.ts";
 import { istDate, istTime, percentages } from "../lib/format.ts";
+import { effectivePresence, hostedLiveRoom, touchViewer, viewerCount } from "../lib/presence.ts";
 import { rateLimit } from "../lib/safety.ts";
 import { requireRole, requireUser } from "../middleware/auth.ts";
 import type { Astrologer, LiveRoom, Review } from "../generated/prisma/client.ts";
@@ -24,7 +25,8 @@ export function astrologerView(a: AstrologerWithReviews) {
     initials: a.initials,
     gender: a.gender,
     recognition: a.recognition.toLowerCase(),
-    availability: a.presence.toLowerCase(),
+    // The truth right now: an astrologer whose portal went quiet reads as offline at once.
+    availability: effectivePresence(a).toLowerCase(),
     skills: a.skills,
     languages: a.languages,
     years: a.years,
@@ -73,7 +75,8 @@ function viewerKey(req: Request, res: Response): string {
 
 async function roomView(room: LiveRoom, voterKey: string | null, userId: string | null) {
   const [chat, waiting, myVote, announcements] = await Promise.all([
-    db.chatMessage.findMany({ where: { roomId: room.id }, orderBy: { createdAt: "desc" }, take: 50 }),
+    // This session's chat only (earlier sessions' messages stay on record but aren't shown).
+    db.chatMessage.findMany({ where: { roomId: room.id, createdAt: { gte: room.startedAt } }, orderBy: { createdAt: "desc" }, take: 50 }),
     db.liveQueueEntry.findMany({ where: { roomId: room.id, status: "WAITING" }, orderBy: { createdAt: "asc" }, select: { id: true, userId: true } }),
     voterKey ? db.pollVote.findUnique({ where: { roomId_voterKey: { roomId: room.id, voterKey } } }) : null,
     db.liveAnnouncement.findMany({ where: { roomId: room.id }, orderBy: { createdAt: "desc" }, take: 5 }),
@@ -84,7 +87,7 @@ async function roomView(room: LiveRoom, voterKey: string | null, userId: string 
     id: room.id,
     astrologerId: room.astrologerId,
     topic: room.topic,
-    viewers: room.viewers,
+    viewers: viewerCount(room.id),
     thumb: room.thumb,
     state: room.state,
     queue: {
@@ -106,31 +109,39 @@ async function roomView(room: LiveRoom, voterKey: string | null, userId: string 
 }
 
 catalogRouter.get("/live-rooms", async (req, res) => {
-  const rooms = await db.liveRoom.findMany({ where: { isLive: true }, orderBy: { rank: "asc" } });
+  // Only rooms an astrologer is hosting right now.
+  const rooms = await db.liveRoom.findMany({ where: hostedLiveRoom(), orderBy: { startedAt: "desc" } });
   const key = viewerKey(req, res);
   res.json({ rooms: await Promise.all(rooms.map((r) => roomView(r, key, req.auth?.user.id ?? null))) });
 });
 
+/** A room that is live with its host present, or "ended". */
+async function liveRoomOr404(id: string) {
+  const room = await db.liveRoom.findFirst({ where: { id, ...hostedLiveRoom() } });
+  if (!room) throw notFound("This live room has ended.");
+  return room;
+}
+
+/** The open room page polls this every few seconds; each poll counts the viewer as watching. */
 catalogRouter.get("/live-rooms/:id", async (req, res) => {
-  const room = await db.liveRoom.findUnique({ where: { id: req.params.id } });
-  if (!room || !room.isLive) throw notFound("This live room has ended.");
-  res.json({ room: await roomView(room, viewerKey(req, res), req.auth?.user.id ?? null) });
+  const room = await liveRoomOr404(String(req.params.id));
+  const key = viewerKey(req, res);
+  touchViewer(room.id, key);
+  res.json({ room: await roomView(room, key, req.auth?.user.id ?? null) });
 });
 
 catalogRouter.post("/live-rooms/:id/chat", async (req, res) => {
   const auth = requireUser(req);
   const { text } = z.object({ text: z.string().trim().min(1).max(200) }).parse(req.body);
   rateLimit(`chat:${auth.user.id}`, 5, 10_000, "You're sending messages too quickly. Wait a few seconds.");
-  const room = await db.liveRoom.findUnique({ where: { id: String(req.params.id) } });
-  if (!room?.isLive) throw notFound("This live room has ended.");
+  const room = await liveRoomOr404(String(req.params.id));
   const msg = await db.chatMessage.create({ data: { roomId: room.id, author: auth.user.name, text, userId: auth.user.id } });
   res.status(201).json({ message: { who: msg.author, text: msg.text } });
 });
 
 catalogRouter.post("/live-rooms/:id/poll-vote", async (req, res) => {
   const { optionIndex } = z.object({ optionIndex: z.number().int().min(0) }).parse(req.body);
-  const room = await db.liveRoom.findUnique({ where: { id: String(req.params.id) } });
-  if (!room?.isLive) throw notFound("This live room has ended.");
+  const room = await liveRoomOr404(String(req.params.id));
   if (optionIndex >= room.pollOptions.length) throw badRequest("That option doesn't exist.");
   const key = viewerKey(req, res);
   // One vote per viewer; votes cannot be changed (the unique index enforces it).
@@ -162,8 +173,7 @@ catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
     .object({ mode: z.enum(["PRIVATE", "PUBLIC"]).default("PRIVATE"), consent: z.boolean().default(false) })
     .parse(req.body);
   if (mode === "PUBLIC" && !consent) throw badRequest("Public consultations need your on-camera consent.");
-  const room = await db.liveRoom.findUnique({ where: { id: String(req.params.id) } });
-  if (!room?.isLive) throw notFound("This live room has ended.");
+  const room = await liveRoomOr404(String(req.params.id));
 
   const existing = await db.liveQueueEntry.findFirst({ where: { roomId: room.id, userId: auth.user.id, status: "WAITING" } });
   if (!existing) {

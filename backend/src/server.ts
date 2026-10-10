@@ -3,6 +3,7 @@ import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { sweepAbandonedConsultations } from "./lib/consultations.ts";
 import { isDatabaseDown } from "./lib/errors.ts";
+import { sweepStalePresence } from "./lib/presence.ts";
 
 const app = createApp();
 const server = app.listen(config.port, () => {
@@ -18,11 +19,17 @@ const server = app.listen(config.port, () => {
   });
 });
 
-// Settle consultations left open (closed tab, dropped connection) once a minute.
+// Once a minute: settle consultations left open (closed tab, dropped connection), then switch
+// off astrologers whose portal has been closed for a while (ending their live room).
 const sweeper = setInterval(() => {
-  sweepAbandonedConsultations().catch((e: unknown) => {
-    if (!isDatabaseDown(e)) console.error("Consultation sweep failed:", e);
-  });
+  sweepAbandonedConsultations()
+    .catch((e: unknown) => {
+      if (!isDatabaseDown(e)) console.error("Consultation sweep failed:", e);
+    })
+    .then(() => sweepStalePresence())
+    .catch((e: unknown) => {
+      if (!isDatabaseDown(e)) console.error("Presence sweep failed:", e);
+    });
 }, 60_000);
 
 // Finish in-flight requests and close the database cleanly on shutdown.

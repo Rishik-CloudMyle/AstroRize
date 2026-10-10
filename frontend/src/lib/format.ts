@@ -69,18 +69,6 @@ export const AVAILABILITY: Record<AvailabilityKey, { label: string; bg: string; 
   off: { label: "Offline", bg: "#f3f1ef", fg: "#7a736c", dot: "#a8a29e" },
 };
 
-/** Chat / Voice / Instant status tiles on the featured cards. */
-export function modeTiles(a: Astrologer) {
-  const off = a.availability === "off";
-  const busy = a.availability === "busy";
-  const state: [string, string] = off ? ["Offline", "#9a93a5"] : busy ? ["Busy", "#c81e4a"] : ["Online", "#16a34a"];
-  return [
-    { icon: "💬", label: "Chat", state: state[0], stateFg: state[1] },
-    { icon: "📞", label: "Voice", state: state[0], stateFg: state[1] },
-    { icon: "⚡", label: "Instant", state: off ? "Offline" : "Ready", stateFg: off ? "#9a93a5" : "#2563eb" },
-  ];
-}
-
 /** Trust card values on the profile page. */
 export function trustMetrics(a: Astrologer) {
   const none = a.rating === null;
