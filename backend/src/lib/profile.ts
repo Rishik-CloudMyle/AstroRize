@@ -50,10 +50,12 @@ export function ownProfileView(u: User) {
 
 type ProfileFields = Pick<
   User,
-  "name" | "initials" | "firstName" | "lastName" | "gender" | "birthDate" | "birthTime" | "birthPlace" | "city" | "state" | "photoUrl"
+  "name" | "initials" | "firstName" | "lastName" | "gender" | "birthDate" | "birthTime" | "birthPlace" | "city" | "state" | "photoUrl" | "pausedAt"
 >;
 
 function displayName(u: ProfileFields): string {
+  // A customer who paused their account ("Deactivate") is shown as such until they sign in again.
+  if (u.pausedAt) return "Account paused";
   return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.name;
 }
 
@@ -70,6 +72,12 @@ export function queueSummary(u: ProfileFields) {
 /** One row of the astrologer's "Incoming" consultation requests. */
 export function consultSummary(u: ProfileFields) {
   return { ...queueSummary(u), gender: u.gender, city: u.city };
+}
+
+/** A conversation partner in the astrologer's Messages: summary plus a short "29 · Pune" line. */
+export function messageSummary(u: ProfileFields) {
+  const s = queueSummary(u);
+  return { ...s, line: [s.age !== null ? String(s.age) : null, u.city].filter(Boolean).join(" · ") };
 }
 
 /** Everything the astrologer sees in "See more". Empty values are null ("Not shared"). */

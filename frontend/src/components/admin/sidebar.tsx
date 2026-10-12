@@ -3,8 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import type { AdminSession, Environment, NavGroup } from "@/lib/admin/types";
 import LogoutButton from "../logout-button";
+import MessagesUnreadBadge from "./messages/unread-badge";
 
 // [label, background, border, dot, text] — from the prototype's envMap.
 const ENV_STYLES: Record<Environment, [string, string, string, string, string]> = {
@@ -18,39 +20,39 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
-export default function Sidebar({
-  session,
-  roleLabel,
-  environment,
-  nav,
-}: {
+type RailProps = {
   session: AdminSession;
   roleLabel: string;
   environment: Environment;
   nav: NavGroup[];
-}) {
+};
+
+function Brand({ onNavigate }: { onNavigate?: () => void }) {
+  return (
+    <Link href="/admin" onNavigate={onNavigate} className="flex items-center gap-2.5 px-2 hover:no-underline">
+      <Image
+        src="/assets/brand/logo-mark.png"
+        alt=""
+        width={34}
+        height={34}
+        priority
+        className="h-[34px] w-[34px] flex-[0_0_34px] object-contain"
+      />
+      <div className="min-w-0">
+        <div className="font-display text-[19px] leading-none font-semibold text-[#f8f4ec]">Astrorize</div>
+        <div className="mt-0.5 text-[9.5px] font-bold tracking-[.1em] text-[#78716c] uppercase">Admin console</div>
+      </div>
+    </Link>
+  );
+}
+
+/** Environment, signed-in admin and the console menu; shared by the desktop rail and the phone menu. */
+function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProps & { onNavigate?: () => void }) {
   const pathname = usePathname();
   const [envLabel, envBg, envBorder, envDot, envFg] = ENV_STYLES[environment];
 
   return (
-    // Pinned to the screen: only the page on the right scrolls. Log out stays at the bottom, and
-    // the rail scrolls on its own if the menu is ever taller than the screen.
-    <aside className="az-rail sticky top-0 flex h-screen flex-col gap-0.5 self-start overflow-y-auto px-3 py-[18px] text-[#d6cbb8]">
-      <Link href="/admin" className="flex items-center gap-2.5 px-2 pb-3.5 hover:no-underline">
-        <Image
-          src="/assets/brand/logo-mark.png"
-          alt=""
-          width={34}
-          height={34}
-          priority
-          className="h-[34px] w-[34px] flex-[0_0_34px] object-contain"
-        />
-        <div className="min-w-0">
-          <div className="font-display text-[19px] leading-none font-semibold text-[#f8f4ec]">Astrorize</div>
-          <div className="mt-0.5 text-[9.5px] font-bold tracking-[.1em] text-[#78716c] uppercase">Admin console</div>
-        </div>
-      </Link>
-
+    <>
       <div
         className="mb-3 flex items-center gap-2 rounded-[10px] border px-[11px] py-2"
         style={{ background: envBg, borderColor: envBorder }}
@@ -83,6 +85,7 @@ export default function Sidebar({
                 <Link
                   key={n.key}
                   href={n.href}
+                  onNavigate={onNavigate}
                   aria-current={active ? "page" : undefined}
                   className={`flex w-full items-center gap-[9px] rounded-[9px] px-2.5 py-2 text-left text-[13px] transition-colors hover:no-underline ${
                     active
@@ -92,7 +95,9 @@ export default function Sidebar({
                 >
                   <span className="w-4 text-center text-[12px] opacity-85">{n.icon}</span>
                   <span className="min-w-0 flex-1">{n.label}</span>
-                  {n.count ? (
+                  {n.key === "messages" ? (
+                    <MessagesUnreadBadge />
+                  ) : n.count ? (
                     <span className="grid h-[19px] min-w-[19px] place-items-center rounded-full bg-urgent px-[5px] text-[10px] font-extrabold text-white">
                       {n.count}
                     </span>
@@ -110,6 +115,65 @@ export default function Sidebar({
           <span>Log out</span>
         </LogoutButton>
       </div>
+    </>
+  );
+}
+
+/** Desktop (1024px and up): the dark rail, pinned to the screen. */
+export default function Sidebar(props: RailProps) {
+  return (
+    // Pinned to the screen: only the page on the right scrolls. Log out stays at the bottom, and
+    // the rail scrolls on its own if the menu is ever taller than the screen.
+    <aside className="az-rail sticky top-0 hidden h-screen flex-col gap-0.5 self-start overflow-y-auto px-3 py-[18px] text-[#d6cbb8] lg:flex">
+      <div className="pb-3.5">
+        <Brand />
+      </div>
+      <RailBody {...props} />
     </aside>
+  );
+}
+
+/** Phones and tablets (below 1024px): a dark top bar whose menu button opens the same rail. */
+export function AdminTopBar(props: RailProps) {
+  const [open, setOpen] = useState(false);
+  const close = () => setOpen(false);
+  // Links close the menu as they navigate; Escape closes it too.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  return (
+    // The blurred bar would trap fixed-position children, so the menu and its backdrop sit beside it.
+    <div className="sticky top-0 z-50 lg:hidden">
+      <header className="az-rail flex h-[58px] items-center justify-between gap-3 px-3 text-[#d6cbb8]">
+        <Brand onNavigate={close} />
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-controls="admin-menu"
+          aria-label={open ? "Close menu" : "Open menu"}
+          className="grid size-10 place-items-center rounded-xl border border-[#44403c] text-lg text-[#f8f4ec]"
+        >
+          {open ? "✕" : "☰"}
+        </button>
+      </header>
+      {open && (
+        <>
+          <div className="fixed inset-0 top-[58px] bg-[rgba(28,25,23,.45)]" onClick={close} aria-hidden="true" />
+          <div
+            id="admin-menu"
+            className="fixed inset-x-0 top-[58px] flex max-h-[calc(100dvh-58px)] flex-col gap-0.5 overflow-y-auto bg-[#0c0b09] px-3 pt-3 pb-4 text-[#d6cbb8] shadow-[0_16px_40px_rgba(0,0,0,.35)]"
+          >
+            <RailBody {...props} onNavigate={close} />
+          </div>
+        </>
+      )}
+    </div>
   );
 }

@@ -212,30 +212,32 @@ export function ChannelChart({ days }: { days: ChannelDay[] }) {
         </svg>
         <details className="mt-2.5">
           <summary className="cursor-pointer text-[11.5px] font-bold text-[#57534e]">Table view</summary>
-          <table className="mt-2 w-full border-collapse text-[11.5px]">
-            <thead>
-              <tr className="text-left text-[10px] tracking-[.06em] text-mauve uppercase">
-                <th className="pr-2.5 pb-1">Day</th>
-                <th className="px-2.5 pb-1 text-right">Chat</th>
-                <th className="px-2.5 pb-1 text-right">Voice</th>
-                <th className="px-2.5 pb-1 text-right">Video</th>
-                <th className="px-2.5 pb-1 text-right">Instant</th>
-                <th className="pb-1 pl-2.5 text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {days.map((d) => (
-                <tr key={d.date}>
-                  <td className="py-[3px] pr-2.5 text-[#57534e]">{d.date}</td>
-                  <td className="px-2.5 py-[3px] text-right tabular-nums">{intl(d.chat)}</td>
-                  <td className="px-2.5 py-[3px] text-right tabular-nums">{intl(d.voice)}</td>
-                  <td className="px-2.5 py-[3px] text-right tabular-nums">{intl(d.video)}</td>
-                  <td className="px-2.5 py-[3px] text-right tabular-nums">{intl(d.instant)}</td>
-                  <td className="py-[3px] pl-2.5 text-right font-bold tabular-nums">{intl(dayTotal(d))}</td>
+          <div className="overflow-x-auto mt-2">
+            <table className="w-full border-collapse text-[11.5px]">
+              <thead>
+                <tr className="text-left text-[10px] tracking-[.06em] text-mauve uppercase">
+                  <th className="pr-2.5 pb-1">Day</th>
+                  <th className="px-2.5 pb-1 text-right">Chat</th>
+                  <th className="px-2.5 pb-1 text-right">Voice</th>
+                  <th className="px-2.5 pb-1 text-right">Video</th>
+                  <th className="px-2.5 pb-1 text-right">Instant</th>
+                  <th className="pb-1 pl-2.5 text-right">Total</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {days.map((d) => (
+                  <tr key={d.date}>
+                    <td className="py-[3px] pr-2.5 text-[#57534e]">{d.date}</td>
+                    <td className="px-2.5 py-[3px] text-right tabular-nums">{intl(d.chat)}</td>
+                    <td className="px-2.5 py-[3px] text-right tabular-nums">{intl(d.voice)}</td>
+                    <td className="px-2.5 py-[3px] text-right tabular-nums">{intl(d.video)}</td>
+                    <td className="px-2.5 py-[3px] text-right tabular-nums">{intl(d.instant)}</td>
+                    <td className="py-[3px] pl-2.5 text-right font-bold tabular-nums">{intl(dayTotal(d))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </details>
       </div>
       {node}

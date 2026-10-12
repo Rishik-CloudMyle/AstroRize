@@ -8,6 +8,7 @@ import { instantRate, ratingLabel, rupee } from "@/lib/portal/format";
 import { blockedReason, isActive } from "@/lib/portal/status";
 import type { Dashboard, Presence, ScheduleItem } from "@/lib/portal/types";
 import Modal from "../modal";
+import BookingDialog from "./booking-dialog";
 import { useAccount, useErrorToast, usePresence, useToast } from "../portal-provider";
 import { Panel } from "../ui";
 
@@ -27,6 +28,12 @@ const PRESENCE_LABEL: Record<Presence, string> = {
 const outlineButton =
   "h-10 w-full rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink grid place-items-center hover:no-underline hover:text-ink";
 
+/** "Good morning" / "Good afternoon" / "Good evening" for the current time in India. */
+function greetingNow() {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: "Asia/Kolkata" }).format(new Date()));
+  return hour >= 5 && hour < 12 ? "Good morning" : hour >= 12 && hour < 17 ? "Good afternoon" : "Good evening";
+}
+
 export default function DashboardView({ data }: { data: Dashboard }) {
   const { astrologer: me, status } = useAccount();
   const [presence, setPresence] = usePresence();
@@ -37,6 +44,7 @@ export default function DashboardView({ data }: { data: Dashboard }) {
   const [busy, setBusy] = useState(false);
   const mult = me.instantMultiplier;
   const [pendingMult, setPendingMult] = useState<number | null>(null);
+  const [bookingId, setBookingId] = useState<string | null>(null);
   const canGoOnline = isActive(status);
   const bounds = data.multiplierOptions.length
     ? `${Math.min(...data.multiplierOptions)}×–${Math.max(...data.multiplierOptions)}×`
@@ -99,7 +107,10 @@ export default function DashboardView({ data }: { data: Dashboard }) {
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="m-0 font-display text-[34px] font-semibold text-ink min-[420px]:text-[38px]">Good morning, {me.greeting}</h1>
+          {/* The server and browser can straddle an hour boundary, so allow the text to differ on hydration. */}
+          <h1 suppressHydrationWarning className="m-0 font-display text-[34px] font-semibold text-ink min-[420px]:text-[38px]">
+            {greetingNow()}, {me.greeting}
+          </h1>
           <p className="mt-1 text-[13.5px] text-stone-500">{data.dateLine}</p>
         </div>
         <div className="flex items-center gap-2.5">
@@ -155,12 +166,9 @@ export default function DashboardView({ data }: { data: Dashboard }) {
             )}
             {data.schedule.map((s, i) => {
               const st = SCHEDULE_STYLE[s.kind];
-              return (
-                <div
-                  key={`${s.time}-${i}`}
-                  className="flex items-center gap-3 rounded-[14px] border px-[13px] py-[11px]"
-                  style={{ background: st.bg, borderColor: st.border }}
-                >
+              const row = "flex w-full items-center gap-3 rounded-[14px] border px-[13px] py-[11px] text-left hover:no-underline hover:brightness-[.98]";
+              const body = (
+                <>
                   <b className="flex-none text-[13px] text-ink tabular-nums min-[480px]:w-[104px] min-[480px]:flex-[0_0_104px]">{s.time}</b>
                   <span className="min-w-0 flex-1 text-[13px] text-stone-600">{s.what}</span>
                   <span
@@ -169,7 +177,23 @@ export default function DashboardView({ data }: { data: Dashboard }) {
                   >
                     {st.chip}
                   </span>
-                </div>
+                </>
+              );
+              const style = { background: st.bg, borderColor: st.border };
+              // Every row opens something: a booking shows who booked it, an open slot the
+              // calendar, the live room the Live page.
+              if (s.kind === "booked" && s.id && s.customer) {
+                const id = s.id;
+                return (
+                  <button key={id} type="button" onClick={() => setBookingId(id)} className={row} style={style} aria-label={`${s.time}: ${s.what} — view booking`}>
+                    {body}
+                  </button>
+                );
+              }
+              return (
+                <Link key={`${s.time}-${i}`} href={s.kind === "live" ? "/portal/live" : "/portal/availability"} className={row} style={style}>
+                  {body}
+                </Link>
               );
             })}
           </div>
@@ -290,6 +314,7 @@ export default function DashboardView({ data }: { data: Dashboard }) {
         </Panel>
       </div>
 
+      {bookingId && <BookingDialog slotId={bookingId} onClose={() => setBookingId(null)} />}
       {pendingMult !== null && (
         <Modal onClose={() => setPendingMult(null)} labelledBy="mult-title">
           <h2 id="mult-title" className="m-0 text-[18px] font-bold">

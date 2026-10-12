@@ -144,104 +144,106 @@ export default function AstrologersList({ astrologers }: { astrologers: Lifecycl
           )}
         </div>
 
-        <table className="mt-4 w-full border-collapse text-[13px]">
-          <thead>
-            <tr>
-              {(
-                [
-                  ["Astrologer", "left"],
-                  ["Skills", "left"],
-                  ["Stage", "left"],
-                  ["Joined", "left"],
-                  ["Consults", "right"],
-                  ["Rating", "right"],
-                  ["", "right"],
-                ] as const
-              ).map(([label, align], i) => (
-                <th key={i} className={TH} style={{ textAlign: align }}>
-                  {label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((a) => {
-              const st = stageOf(a.lifecycle);
-              const sus = SUSPENSION[a.suspension];
-              return (
-                <tr key={a.id}>
-                  <td className={`${TD} px-2.5 py-[10px]`}>
-                    <div className="flex items-center gap-2.5">
-                      <Image
-                        src={a.photo}
-                        alt=""
-                        width={34}
-                        height={34}
-                        className="h-[34px] w-[34px] flex-[0_0_34px] rounded-full object-cover"
-                      />
-                      <div className="min-w-0">
-                        <b className="block truncate text-ink">{a.name}</b>
-                        <span className="font-mono text-[11px] text-[#78716c]">{a.id}</span>
+        <div className="overflow-x-auto mt-4">
+          <table className="w-full border-collapse text-[13px]">
+            <thead>
+              <tr>
+                {(
+                  [
+                    ["Astrologer", "left"],
+                    ["Skills", "left"],
+                    ["Stage", "left"],
+                    ["Joined", "left"],
+                    ["Consults", "right"],
+                    ["Rating", "right"],
+                    ["", "right"],
+                  ] as const
+                ).map(([label, align], i) => (
+                  <th key={i} className={TH} style={{ textAlign: align }}>
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((a) => {
+                const st = stageOf(a.lifecycle);
+                const sus = SUSPENSION[a.suspension];
+                return (
+                  <tr key={a.id}>
+                    <td className={`${TD} px-2.5 py-[10px]`}>
+                      <div className="flex items-center gap-2.5">
+                        <Image
+                          src={a.photo}
+                          alt=""
+                          width={34}
+                          height={34}
+                          className="h-[34px] w-[34px] flex-[0_0_34px] rounded-full object-cover"
+                        />
+                        <div className="min-w-0">
+                          <b className="block truncate text-ink">{a.name}</b>
+                          <span className="font-mono text-[11px] text-[#78716c]">{a.id}</span>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className={`${TD} px-2.5 py-[10px] text-[#57534e]`}>{a.skills.join(", ") || "—"}</td>
-                  <td className={`${TD} px-2.5 py-[10px]`}>
-                    <div className="flex flex-wrap gap-1.5">
-                      <span
-                        className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[11px] font-bold"
-                        style={{ background: st.bg, color: st.fg }}
-                      >
-                        {st.label}
-                      </span>
-                      {sus && (
+                    </td>
+                    <td className={`${TD} px-2.5 py-[10px] text-[#57534e]`}>{a.skills.join(", ") || "—"}</td>
+                    <td className={`${TD} px-2.5 py-[10px]`}>
+                      <div className="flex flex-wrap gap-1.5">
                         <span
                           className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[11px] font-bold"
-                          style={{ background: sus.bg, color: sus.fg }}
+                          style={{ background: st.bg, color: st.fg }}
                         >
-                          {sus.label}
+                          {st.label}
                         </span>
+                        {sus && (
+                          <span
+                            className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[11px] font-bold"
+                            style={{ background: sus.bg, color: sus.fg }}
+                          >
+                            {sus.label}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className={`${TD} px-2.5 py-[10px] whitespace-nowrap text-[#57534e]`}>{a.joined}</td>
+                    <td className={`${TD} px-2.5 py-[10px] text-right text-[#57534e] tabular-nums`}>
+                      {a.consults.toLocaleString("en-IN")}
+                    </td>
+                    <td className={`${TD} px-2.5 py-[10px] text-right font-bold text-ink tabular-nums`}>
+                      {a.rating != null ? (
+                        `★ ${a.rating.toFixed(1)}`
+                      ) : (
+                        <span className="font-medium text-muted">New</span>
                       )}
-                    </div>
-                  </td>
-                  <td className={`${TD} px-2.5 py-[10px] whitespace-nowrap text-[#57534e]`}>{a.joined}</td>
-                  <td className={`${TD} px-2.5 py-[10px] text-right text-[#57534e] tabular-nums`}>
-                    {a.consults.toLocaleString("en-IN")}
-                  </td>
-                  <td className={`${TD} px-2.5 py-[10px] text-right font-bold text-ink tabular-nums`}>
-                    {a.rating != null ? (
-                      `★ ${a.rating.toFixed(1)}`
-                    ) : (
-                      <span className="font-medium text-muted">New</span>
-                    )}
-                  </td>
-                  <td className={`${TD} px-2.5 py-[10px] text-right whitespace-nowrap`}>
-                    <button
-                      type="button"
-                      onClick={() => setOpenId(a.id)}
-                      aria-haspopup="dialog"
-                      aria-label={`Open profile of ${a.name}`}
-                      className="mr-3.5 border-0 bg-transparent p-0 text-[12.5px] font-bold text-amber-700"
-                    >
-                      Open ›
-                    </button>
-                    {a.lifecycle === "active" && a.suspension !== "full" ? (
-                      <Link
-                        href={`/astrologer/${a.slug}`}
-                        target="_blank"
-                        className="text-[12.5px] font-bold whitespace-nowrap text-amber-700"
+                    </td>
+                    <td className={`${TD} px-2.5 py-[10px] text-right whitespace-nowrap`}>
+                      <button
+                        type="button"
+                        onClick={() => setOpenId(a.id)}
+                        aria-haspopup="dialog"
+                        aria-label={`Open profile of ${a.name}`}
+                        className="mr-3.5 border-0 bg-transparent p-0 text-[12.5px] font-bold text-amber-700"
                       >
-                        Public profile ↗
-                      </Link>
-                    ) : (
-                      <span className="text-[12px] text-muted">Not public</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                        Open ›
+                      </button>
+                      {a.lifecycle === "active" && a.suspension !== "full" ? (
+                        <Link
+                          href={`/astrologer/${a.slug}`}
+                          target="_blank"
+                          className="text-[12.5px] font-bold whitespace-nowrap text-amber-700"
+                        >
+                          Public profile ↗
+                        </Link>
+                      ) : (
+                        <span className="text-[12px] text-muted">Not public</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
         {rows.length === 0 && (
           <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">
             {astrologers.length === 0 ? "No astrologers yet." : "No astrologers match these filters."}

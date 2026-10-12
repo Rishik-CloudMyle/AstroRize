@@ -110,61 +110,63 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
           </span>
           <SortSelect options={APPLICATION_SORTS} value={sort} onChange={setSort} />
         </div>
-        <table className="w-full border-collapse text-[13px]">
-          <thead>
-            <tr>
-              {[
-                ["ID", "left"],
-                ["Applicant", "left"],
-                ["Primary skill", "left"],
-                ["State", "left"],
-                ["Age", "right"],
-                ["", "right"],
-              ].map(([label, align], i) => (
-                <th key={i} className={TH} style={{ textAlign: align as "left" | "right" }}>
-                  {label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((a) => {
-              const [bg, fg] = stateTone(a.state);
-              return (
-                <tr key={a.id} style={{ background: a.breach ? "#fff1f2" : "transparent" }}>
-                  <td className={`${TD} px-2.5 py-[11px] font-mono text-[11.5px] text-[#57534e]`}>{a.id}</td>
-                  <td className={`${TD} px-2.5 py-[11px] font-bold text-ink`}>{a.name}</td>
-                  <td className={`${TD} px-2.5 py-[11px] text-[#57534e]`}>{a.skill}</td>
-                  <td className={`${TD} px-2.5 py-[11px]`}>
-                    <span
-                      className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[11px] font-bold"
-                      style={{ background: bg, color: fg }}
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[13px]">
+            <thead>
+              <tr>
+                {[
+                  ["ID", "left"],
+                  ["Applicant", "left"],
+                  ["Primary skill", "left"],
+                  ["State", "left"],
+                  ["Age", "right"],
+                  ["", "right"],
+                ].map(([label, align], i) => (
+                  <th key={i} className={TH} style={{ textAlign: align as "left" | "right" }}>
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((a) => {
+                const [bg, fg] = stateTone(a.state);
+                return (
+                  <tr key={a.id} style={{ background: a.breach ? "#fff1f2" : "transparent" }}>
+                    <td className={`${TD} px-2.5 py-[11px] font-mono text-[11.5px] text-[#57534e]`}>{a.id}</td>
+                    <td className={`${TD} px-2.5 py-[11px] font-bold text-ink`}>{a.name}</td>
+                    <td className={`${TD} px-2.5 py-[11px] text-[#57534e]`}>{a.skill}</td>
+                    <td className={`${TD} px-2.5 py-[11px]`}>
+                      <span
+                        className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[11px] font-bold"
+                        style={{ background: bg, color: fg }}
+                      >
+                        {a.state}
+                      </span>
+                    </td>
+                    <td
+                      className={`${TD} px-2.5 py-[11px] text-right tabular-nums`}
+                      style={{ fontWeight: a.breach ? 800 : 500, color: a.breach ? "#be123c" : "#78716c" }}
                     >
-                      {a.state}
-                    </span>
-                  </td>
-                  <td
-                    className={`${TD} px-2.5 py-[11px] text-right tabular-nums`}
-                    style={{ fontWeight: a.breach ? 800 : 500, color: a.breach ? "#be123c" : "#78716c" }}
-                  >
-                    {a.age}
-                  </td>
-                  <td className={`${TD} px-2.5 py-[11px] text-right`}>
-                    <button
-                      type="button"
-                      onClick={() => open(a.id)}
-                      aria-haspopup="dialog"
-                      aria-label={`Open application ${a.id}, ${a.name}`}
-                      className="border-0 bg-transparent p-0 text-[12.5px] font-bold text-amber-700"
-                    >
-                      Open ›
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                      {a.age}
+                    </td>
+                    <td className={`${TD} px-2.5 py-[11px] text-right`}>
+                      <button
+                        type="button"
+                        onClick={() => open(a.id)}
+                        aria-haspopup="dialog"
+                        aria-label={`Open application ${a.id}, ${a.name}`}
+                        className="border-0 bg-transparent p-0 text-[12.5px] font-bold text-amber-700"
+                      >
+                        Open ›
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
         {rows.length === 0 && (
           <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">
             {data.applications.length === 0 ? "No applications yet." : "No applications in this stage."}
@@ -184,24 +186,26 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
               Round {round} of {max}. {left} counter-offer
               {left === 1 ? "" : "s"} remaining.
             </p>
-            <table className="w-full border-collapse text-[13px]">
-              <thead>
-                <tr>
-                  <th className={`${TH_SM} text-left`}>Modality</th>
-                  <th className={`${TH_SM} text-right`}>Requested</th>
-                  <th className={`${TH_SM} text-right`}>Proposed</th>
-                </tr>
-              </thead>
-              <tbody>
-                {nego.rows.map((n) => (
-                  <tr key={n.mode}>
-                    <td className={`${TD} p-2.5 font-semibold text-[#57534e]`}>{n.mode}</td>
-                    <td className={`${TD} p-2.5 text-right text-[#78716c] tabular-nums`}>{n.requested}</td>
-                    <td className={`${TD} p-2.5 text-right font-bold text-amber-700 tabular-nums`}>{n.proposed}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-[13px]">
+                <thead>
+                  <tr>
+                    <th className={`${TH_SM} text-left`}>Modality</th>
+                    <th className={`${TH_SM} text-right`}>Requested</th>
+                    <th className={`${TH_SM} text-right`}>Proposed</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {nego.rows.map((n) => (
+                    <tr key={n.mode}>
+                      <td className={`${TD} p-2.5 font-semibold text-[#57534e]`}>{n.mode}</td>
+                      <td className={`${TD} p-2.5 text-right text-[#78716c] tabular-nums`}>{n.requested}</td>
+                      <td className={`${TD} p-2.5 text-right font-bold text-amber-700 tabular-nums`}>{n.proposed}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <div className="mt-3.5 flex flex-wrap gap-[9px]">
               {capReached ? (
                 <span className="inline-flex h-10 items-center rounded-[11px] border border-dashed border-stone-300 bg-stone-100 px-4 text-[13px] font-bold text-[#78716c]">

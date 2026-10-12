@@ -3,7 +3,7 @@ import { cache } from "react";
 import { apiGet } from "@/lib/api/server";
 import { ApiError } from "@/lib/api/errors";
 import { CONFIG_FACETS, FLOOR_MODES, pageLink } from "./constants";
-import { bandColours, flagColours, giftColours, kpi, riskColours, slaColours, workColours } from "./view";
+import { flagColours, giftColours, kpi, slaColours, workColours } from "./view";
 import type {
   AdminSession,
   Application,
@@ -14,6 +14,8 @@ import type {
   ConfigDetail,
   ConfigKey,
   FinanceData,
+  InboxConversation,
+  InboxThread,
   LifecycleAstrologer,
   LifecycleData,
   LiveStat,
@@ -493,6 +495,23 @@ export async function getLifecycleAstrologers(): Promise<LifecycleAstrologer[]> 
   return astrologers;
 }
 
+// ── Messages ──
+
+/** My conversations, newest first (GET /admin/messages). */
+export async function getInbox(): Promise<InboxConversation[]> {
+  return (await apiGet<{ conversations: InboxConversation[] }>("/admin/messages")).conversations;
+}
+
+/** One conversation (GET /admin/messages/:id), or null when I'm not in it / it doesn't exist. Opening it marks it read. */
+export async function getInboxThread(id: string): Promise<InboxThread | null> {
+  try {
+    return (await apiGet<{ conversation: InboxThread }>(`/admin/messages/${encodeURIComponent(id)}`)).conversation;
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
+}
+
 // ── Team ──
 
 export async function getStaff(): Promise<StaffDepartment[]> {
@@ -514,25 +533,9 @@ export async function getMarketing(): Promise<MarketingData> {
 
 // ── Monitoring ──
 
-interface RawMonitoring {
-  capacity: { used: number; total: number };
-  queue: { id: string; band: string; astro: string; reason: string; age: string; denied: boolean }[];
-  risk: { label: string; pct: string; count: string }[];
-  myLease: MonitoringData["myLease"];
-}
-
 export async function getMonitoring(): Promise<MonitoringData> {
-  const { monitoring: m } = await apiGet<{ monitoring: RawMonitoring }>("/admin/monitoring");
-  return {
-    capacity: m.capacity,
-    queue: m.queue.map((q) => ({
-      ...q,
-      band: q.band as MonitoringData["queue"][number]["band"],
-      ...bandColours(q.band),
-    })),
-    risk: m.risk.map((r) => ({ ...r, ...riskColours(r.label) })),
-    myLease: m.myLease,
-  };
+  const { monitoring } = await apiGet<{ monitoring: MonitoringData }>("/admin/monitoring");
+  return monitoring;
 }
 
 // ── Trust ──

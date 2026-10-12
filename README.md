@@ -45,7 +45,7 @@ npm test --prefix backend   # in another: ~70 end-to-end API checks
 
 ## Demo accounts (local only)
 
-Password for every email account: `Astrorize@2026`
+Password for every email account: `123456` (demo data only; the seed refuses to run in production)
 
 | Who | Sign in with |
 | --- | --- |

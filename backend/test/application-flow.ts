@@ -70,7 +70,7 @@ export async function applicationFlow(api: string, check: Check) {
   }
 
   const admin = client(api);
-  let r = await admin("POST", "/auth/login", { email: "admin@astrorize.com", password: "Astrorize@2026" });
+  let r = await admin("POST", "/auth/login", { email: "admin@astrorize.com", password: "123456" });
   check("application: HR (super admin) signs in", r.status === 200, r);
   const act = async (appId: string, action: string, body: Record<string, unknown> = {}) => {
     const cur = await admin("GET", `/admin/applicants/${appId}`);

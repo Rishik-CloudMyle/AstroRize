@@ -14,7 +14,7 @@ export default async function MonitoringPage() {
     <div>
       <PageTitle
         title="Live monitoring"
-        sub="Public lives only. Observers can never publish. Private lives are always denied."
+        sub="Who is live right now. Public lives can be observed watch-only; private consultations are listed for awareness and can never be joined."
       />
       <MonitoringView data={data} />
     </div>

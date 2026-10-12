@@ -1,14 +1,16 @@
 import AccessDenied from "@/components/admin/access-denied";
 import FinanceView from "@/components/admin/finance/finance-view";
+import WalletRefundsPanel from "@/components/admin/finance/wallet-refunds";
 import { KpiCard, PageTitle } from "@/components/admin/ui";
 import { allowed } from "@/lib/admin/guard";
 import { getFinance } from "@/lib/admin/api";
+import { getWalletRefunds } from "@/lib/admin/refunds";
 
 export const metadata = { title: "Finance" };
 
 export default async function FinancePage() {
   if (!(await allowed("finance"))) return <AccessDenied />;
-  const data = await getFinance();
+  const [data, refunds] = await Promise.all([getFinance(), getWalletRefunds()]);
 
   return (
     <div>
@@ -22,6 +24,7 @@ export default async function FinancePage() {
         ))}
       </div>
       <FinanceView data={data} />
+      <WalletRefundsPanel data={refunds} />
     </div>
   );
 }

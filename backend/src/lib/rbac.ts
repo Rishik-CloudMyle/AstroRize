@@ -23,6 +23,7 @@ export const ROLE_LABELS: Record<AdminRoleKey, string> = {
 // Who may open which admin console page (prototype part D → CAPS).
 export type PageKey =
   | "overview"
+  | "messages"
   | "config"
   | "hr"
   | "marketing"
@@ -38,6 +39,7 @@ export type PageKey =
 /** Console order and the names used in the RBAC grid and audit diffs (same as the console nav). */
 export const PAGE_LABELS: Record<PageKey, string> = {
   overview: "Overview",
+  messages: "Messages",
   config: "Config console",
   hr: "Astrologer lifecycle",
   marketing: "Marketing",
@@ -54,11 +56,11 @@ export const PAGE_ORDER = Object.keys(PAGE_LABELS) as PageKey[];
 
 /** The default page access. The Super Admin can override it per department (Setting "rbac.matrix"). */
 export const PAGES: Record<AdminRoleKey, PageKey[]> = {
-  super: ["overview", "config", "hr", "marketing", "finance", "support", "compliance", "trust", "rbac", "audit", "recording", "team"],
-  finance: ["overview", "config", "finance", "audit"],
-  support: ["overview", "support", "audit"],
-  compliance: ["overview", "compliance", "trust", "audit", "recording"],
-  marketing: ["overview", "marketing", "audit"],
+  super: ["overview", "messages", "config", "hr", "marketing", "finance", "support", "compliance", "trust", "rbac", "audit", "recording", "team"],
+  finance: ["overview", "messages", "config", "finance", "audit"],
+  support: ["overview", "messages", "support", "audit"],
+  compliance: ["overview", "messages", "compliance", "trust", "audit", "recording"],
+  marketing: ["overview", "messages", "marketing", "audit"],
 };
 
 /**
@@ -70,6 +72,7 @@ export const CAPABILITIES: { key: string; label: string; page: PageKey | null; r
   { key: "config.write", label: "Draft, approve and roll back settings", page: "config", roles: ["super", "finance"] },
   { key: "payout.approve", label: "Approve a payout batch", page: "finance", roles: ["super", "finance"] },
   { key: "payout.release", label: "Release an approved payout batch", page: "finance", roles: ["super"] },
+  { key: "wallet.refund.process", label: "Mark a customer wallet refund paid or failed", page: "finance", roles: ["super", "finance"] },
   { key: "dispute.refund.propose", label: "Propose a refund on a dispute", page: "support", roles: ["super", "support"] },
   { key: "dispute.refund.approve", label: "Approve a proposed refund", page: "support", roles: ["super", "finance"] },
   { key: "astrologer.suspend", label: "Suspend an astrologer", page: null, roles: ["super", "compliance"] },
@@ -78,7 +81,8 @@ export const CAPABILITIES: { key: string; label: string; page: PageKey | null; r
   { key: "campaign.submit", label: "Submit a campaign for approval", page: "marketing", roles: ["super", "marketing"] },
   { key: "campaign.approve", label: "Approve and activate a campaign", page: "marketing", roles: ["super"] },
   { key: "audit.read", label: "Read and export the audit log", page: "audit", roles: ["super", "finance", "support", "compliance", "marketing"] },
-  { key: "staff.manage", label: "Add, switch off and reset staff accounts", page: "team", roles: ["super"] },
+  { key: "staff.manage", label: "Add, deactivate and reset staff accounts", page: "team", roles: ["super"] },
+  { key: "retention.edit", label: "Change how long chat and messages are kept", page: "recording", roles: ["super"] },
   { key: "rbac.edit", label: "Change this access matrix", page: "rbac", roles: ["super"] },
 ];
 const CAP_KEYS = CAPABILITIES.map((c) => c.key);
@@ -105,6 +109,7 @@ export const CAPABILITY_LOCKS: Record<string, Lock> = {
   "audit.read": { roles: EVERYONE, reason: "Every department keeps read access to the audit log." },
   "staff.manage": { roles: SUPER_ONLY, reason: "Only a Super Admin can manage the team." },
   "rbac.edit": { roles: SUPER_ONLY, reason: "Only a Super Admin can change access." },
+  "retention.edit": { roles: SUPER_ONLY, reason: "Only a Super Admin can change how long conversations are kept." },
 };
 
 export const SUPER_LOCK_REASON = "A Super Admin always has every page and capability.";

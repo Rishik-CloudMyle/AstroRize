@@ -10,7 +10,7 @@ import {
   wasMinimised,
   type ConsultationView,
 } from "@/lib/consultation-store";
-import { useSession } from "@/lib/session-store";
+import { REACTIVATED_EVENT, useSession } from "@/lib/session-store";
 import LoginModal, { type LoginOptions } from "./modals/login-modal";
 import InstantCallModal from "./modals/instant-call-modal";
 import ConsultModeModal from "./modals/consult-mode-modal";
@@ -86,6 +86,13 @@ export default function AppProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     consultationActions.track(isCustomer);
   }, [isCustomer]);
+
+  // Signing in again re-activates a paused account: say so, wherever they signed in.
+  useEffect(() => {
+    const onReactivated = () => toast("Welcome back — your account is active again.");
+    window.addEventListener(REACTIVATED_EVENT, onReactivated);
+    return () => window.removeEventListener(REACTIVATED_EVENT, onReactivated);
+  }, [toast]);
 
   // Reloaded mid-wait or mid-session: take the customer straight back to it, once per page load.
   const [autoResumed, setAutoResumed] = useState(false);

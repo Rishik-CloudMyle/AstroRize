@@ -4,6 +4,7 @@ import { db } from "./db.ts";
 import { sweepAbandonedConsultations } from "./lib/consultations.ts";
 import { isDatabaseDown } from "./lib/errors.ts";
 import { sweepStalePresence } from "./lib/presence.ts";
+import { purgeDaily } from "./lib/retention.ts";
 
 const app = createApp();
 const server = app.listen(config.port, () => {
@@ -20,7 +21,8 @@ const server = app.listen(config.port, () => {
 });
 
 // Once a minute: settle consultations left open (closed tab, dropped connection), then switch
-// off astrologers whose portal has been closed for a while (ending their live room).
+// off astrologers whose portal has been closed for a while (ending their live room); once a
+// day, delete chat and messages older than the retention period.
 const sweeper = setInterval(() => {
   sweepAbandonedConsultations()
     .catch((e: unknown) => {
@@ -29,6 +31,10 @@ const sweeper = setInterval(() => {
     .then(() => sweepStalePresence())
     .catch((e: unknown) => {
       if (!isDatabaseDown(e)) console.error("Presence sweep failed:", e);
+    })
+    .then(() => purgeDaily())
+    .catch((e: unknown) => {
+      if (!isDatabaseDown(e)) console.error("Retention purge failed:", e);
     });
 }, 60_000);
 

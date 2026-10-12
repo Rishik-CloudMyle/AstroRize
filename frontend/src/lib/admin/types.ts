@@ -6,6 +6,7 @@ export type Role = "super" | "finance" | "support" | "compliance" | "marketing";
 /** One key per console page; CAPS decides which keys a role may open. */
 export type PageKey =
   | "overview"
+  | "messages"
   | "config"
   | "hr"
   | "marketing"
@@ -433,35 +434,61 @@ export interface SupportCase {
 }
 
 // ── Live monitoring ──
-export interface MonitorItem {
+/** A public live room being hosted right now. */
+export interface MonitorLive {
   id: string;
-  band: "CRITICAL" | "HIGH" | "PROMOTED" | "PRIVATE" | "SAMPLING";
-  astro: string;
-  reason: string;
-  age: string;
-  bg: string;
-  border: string;
-  bandBg: string;
-  bandFg: string;
-  ageFg: string;
-  denied: boolean;
+  astrologer: string;
+  photo: string;
+  topic: string;
+  /** ISO time the live started. */
+  startedAt: string;
+  viewers: number;
+  waiting: number;
+  /** "review": flagged or contact details in chat; "new": newly approved astrologer; null: no signals. */
+  priority: "review" | "new" | null;
+  signals: string[];
 }
 
-export interface RiskBand {
-  label: string;
-  pct: string;
-  count: string;
-  fill: string;
-  fg: string;
+/** A private consultation in progress: never observable, no customer details. */
+export interface MonitorPrivate {
+  id: string;
+  astrologer: string;
+  mode: string;
+  fromLive: boolean;
+  startedAt: string;
 }
 
 export interface MonitoringData {
+  generatedAt: string;
   capacity: { used: number; total: number };
-  queue: MonitorItem[];
-  risk: RiskBand[];
+  lives: MonitorLive[];
+  privates: MonitorPrivate[];
+  summary: { lives: number; privates: number; review: number; newAstrologers: number };
+  flagReasons: string[];
   /** The observer lease this admin holds right now, if any. */
-  myLease: { id: string; targetId: string; secondsLeft: number } | null;
+  myLease: { id: string; roomId: string; astrologer: string } | null;
 }
+
+/** GET /admin/monitoring/leases/:id — what the observer sees. */
+export type ObserverView =
+  | { status: "ended" | "released" | "expired" }
+  | {
+      status: "observing";
+      lease: { id: string; secondsLeft: number; breakGlass: boolean };
+      room: {
+        id: string;
+        topic: string;
+        astrologer: string;
+        photo: string;
+        slug: string;
+        startedAt: string;
+        viewers: number;
+        queue: { waiting: number; capacity: number };
+        poll: { question: string; totalVotes: number; options: { label: string; votes: number; pct: number }[] };
+        chat: { id: string; who: string; text: string; at: string; contact: boolean }[];
+        announcements: { id: string; text: string; at: string }[];
+      };
+    };
 
 // ── Trust ──
 export interface ModerationItem {
@@ -527,17 +554,20 @@ export interface AuditEntry {
   breakGlass: boolean;
 }
 
-// ── Recording ──
-export interface RecordingModality {
-  mode: string;
-  note: string;
-  retention: string;
-  status: "enabled" | "blocked" | "disabled";
-}
-
+// ── Recording & retention ──
 export interface RecordingData {
-  checklist: { title: string; body: string; complete: boolean };
-  modalities: RecordingModality[];
+  provider: { connected: boolean };
+  stored: { liveChat: number; messages: number; conversations: number; oldest: string | null };
+  retention: {
+    days: number;
+    defaultDays: number;
+    minDays: number;
+    maxDays: number;
+    updatedBy: string | null;
+    updatedAt: string | null;
+    canEdit: boolean;
+  };
+  lastPurge: { at: string; chatMessages: number; messages: number; threads: number } | null;
 }
 
 // ── Search ──
@@ -546,4 +576,50 @@ export interface SearchHit {
   label: string;
   sub: string;
   href: string;
+}
+
+// ── Messages ──
+export type PersonKind = "staff" | "astrologer" | "customer";
+
+/** Someone in a conversation as staff see them. `line`: department, "Astrologer", or "Customer · +91 98••• ••210". */
+export interface MessagePerson {
+  id: string;
+  kind: PersonKind;
+  name: string;
+  initials: string;
+  photo: string | null;
+  line: string;
+}
+
+/** GET /admin/messages */
+export interface InboxConversation {
+  id: string;
+  subject: string | null;
+  /** Everyone in it except me. */
+  people: MessagePerson[];
+  preview: string;
+  lastAt: string;
+  lastFromMe: boolean;
+  unread: number;
+}
+
+export interface InboxMessage {
+  id: string;
+  mine: boolean;
+  author: MessagePerson;
+  text: string;
+  at: string;
+}
+
+/** GET /admin/messages/:id */
+export interface InboxThread {
+  id: string;
+  subject: string | null;
+  startedBy: string | null;
+  startedAt: string;
+  people: MessagePerson[];
+  messages: InboxMessage[];
+  canSend: boolean;
+  /** Why the conversation is closed, when it is. */
+  notice: string | null;
 }

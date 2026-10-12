@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api/client";
 import type { Tool } from "@/lib/types";
 import {
   KARANAS,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/mock/tools";
 import { useAppUI } from "../app-provider";
 import KundliChart from "./kundli-chart";
+import KundliLocked, { useKundliAccess } from "./kundli-locked";
 
 // ⚠ Mock results so every tool works end to end. Numerology uses the real
 // formulas; the astronomical tools return sample values until the backend
@@ -203,11 +205,56 @@ const tdClass = "border-b border-line-soft px-2.5 py-[9px] text-stone-600";
 
 // ---------- Kundli ----------
 
+/** Birth details saved on Wallet & account (GET /me/profile), used to fill the Kundli form. */
+interface BirthProfile {
+  firstName: string;
+  lastName: string;
+  birthDate: string | null;
+  birthTime: string | null;
+  birthPlace: string;
+}
+
+/** The Kundli is for signed-in customers; everyone else sees empty chart frames and a log-in prompt. */
 function KundliTool({ tool }: { tool: Tool }) {
+  const access = useKundliAccess();
+  if (access !== "customer") {
+    return (
+      <section className="mt-6 rounded-3xl border border-line bg-paper p-5 sm:p-[26px]">
+        <h2 className="mb-5 font-display text-[26px] font-semibold text-ink">Your Kundli</h2>
+        <KundliLocked access={access} />
+      </section>
+    );
+  }
+  return <KundliForm tool={tool} />;
+}
+
+function KundliForm({ tool }: { tool: Tool }) {
   const [form, setForm] = useState({ name: "", date: "", time: "", place: "" });
   const [submitted, setSubmitted] = useState<typeof form | null>(null);
   const [chart, setChart] = useState<"north" | "south">("north");
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
+
+  // Fill in the birth details saved on the customer's profile; anything already typed is kept.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ profile: BirthProfile }>("/me/profile")
+      .then(({ profile: p }) => {
+        if (cancelled) return;
+        setForm((f) => ({
+          name: f.name || [p.firstName, p.lastName].filter(Boolean).join(" "),
+          date: f.date || (p.birthDate ?? ""),
+          time: f.time || (p.birthTime ?? ""),
+          place: f.place || p.birthPlace,
+        }));
+      })
+      .catch(() => {
+        // No saved details: the form simply starts empty.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <>

@@ -58,14 +58,89 @@ model User {
   /// Public URL of the profile photo, e.g. /api/media/<file>.
   photoUrl   String?
 
-  astrologer    Astrologer?
-  wallet        Wallet?
-  sessions      Session[]
-  transactions  Transaction[]
-  payments      Payment[]
-  consultations Consultation[]
-  dataRequests  DataRequest[]
-  queueEntries  LiveQueueEntry[]
+  astrologer     Astrologer?
+  wallet         Wallet?
+  sessions       Session[]
+  transactions   Transaction[]
+  payments       Payment[]
+  consultations  Consultation[]
+  dataRequests   DataRequest[]
+  queueEntries   LiveQueueEntry[]
+  messageThreads MessageThread[]
+  bookedSlots    AvailabilitySlot[]
+
+  /// Customer paused their own account ("Deactivate"): signed out everywhere; signing in again
+  /// clears it. Different from `active`, which only staff can change.
+  pausedAt       DateTime?
+  /// Customer deleted their account: personal details are erased; financial records stay
+  /// (anonymised) for the accounting and tax retention the law requires.
+  deletedAt      DateTime?
+  walletRefunds  WalletRefund[]
+  directMembers  DirectMember[]
+  directMessages DirectMessage[]
+}
+
+/// Money owed back to a customer from their wallet (e.g. on account deletion). Paid to the
+/// original payment method: automatic once the payment gateway is connected; until then Finance
+/// processes it in the admin console and marks it paid.
+model WalletRefund {
+  id            String    @id @default(cuid())
+  /// e.g. "WRF-48213"
+  ref           String    @unique
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  /// Service balance only, in rupees (promotional credit is not refundable).
+  amount        Int
+  /// ACCOUNT_DELETION
+  reason        String
+  /// PENDING | PAID | FAILED
+  status        String    @default("PENDING")
+  /// Original payment method (provider + last payment reference, when known).
+  method        String
+  providerRef   String?
+  processedById String?
+  processedBy   String?
+  processedAt   DateTime?
+  note          String?
+  createdAt     DateTime  @default(now())
+
+  @@index([status, createdAt])
+}
+
+/// A conversation started by an admin with anyone: other staff, an astrologer or a customer.
+model DirectThread {
+  id          String          @id @default(cuid())
+  /// Optional topic, e.g. "Payout batch PB-2026-09-B".
+  subject     String?
+  createdById String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @default(now())
+  members     DirectMember[]
+  messages    DirectMessage[]
+}
+
+model DirectMember {
+  threadId   String
+  thread     DirectThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// For unread counts.
+  lastReadAt DateTime?
+
+  @@id([threadId, userId])
+  @@index([userId])
+}
+
+model DirectMessage {
+  id        String       @id @default(cuid())
+  threadId  String
+  thread    DirectThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  text      String
+  createdAt DateTime     @default(now())
+
+  @@index([threadId, createdAt])
 }
 
 /// One signed-in browser. The session cookie carries this id; logging out revokes it.
@@ -385,6 +460,9 @@ model AvailabilitySlot {
   /// OPEN | BOOKED | CANCELLED
   state        String     @default("OPEN")
   detail       String?
+  /// Who booked this slot (BOOKED only). The astrologer sees their real name and profile.
+  customerId   String?
+  customer     User?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   createdAt    DateTime   @default(now())
 
   @@index([astrologerId, date])
@@ -395,8 +473,14 @@ model MessageThread {
   astrologerId  String
   astrologer    Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
   customerAlias String
+  /// The customer account this conversation is with. The astrologer sees their real name and,
+  /// on request, their profile (like the live and consultation queues).
+  customerId    String?
+  customer      User?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   updatedAt     DateTime   @default(now())
   messages      Message[]
+
+  @@unique([astrologerId, customerId])
 }
 
 model Message {

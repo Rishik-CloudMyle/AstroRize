@@ -86,29 +86,32 @@ export default function AuditView({ entries, initialSort }: { entries: AuditEntr
           </span>
           <SortSelect options={AUDIT_SORTS} value={sort} onChange={(next) => void load(lane, next)} />
         </div>
-        <table className="w-full border-collapse text-[12.5px]">
-          <thead>
-            <tr>
-              {HEADS.map((h) => (
-                <th key={h} className={`${TH} text-left`}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((a) => (
-              <tr key={a.corr + a.ts} style={{ background: a.breakGlass ? "#fff1f2" : "transparent" }}>
-                <td className={`${TD} p-2.5 font-mono text-[11px] whitespace-nowrap text-[#78716c]`}>{a.ts}</td>
-                <td className={`${TD} p-2.5 font-semibold text-ink`}>{a.actor}</td>
-                <td className={`${TD} p-2.5 font-mono text-[11px] text-amber-700`}>{a.action}</td>
-                <td className={`${TD} p-2.5 font-mono text-[11px] text-[#57534e]`}>{a.object}</td>
-                <td className={`${TD} p-2.5 text-[#57534e]`}>{a.diff}</td>
-                <td className={`${TD} p-2.5 font-mono text-[11px] text-[#78716c]`}>{a.corr}</td>
+        {/* Long ids and diffs wrap; anything still too wide scrolls inside this card, not the page. */}
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[12.5px]">
+            <thead>
+              <tr>
+                {HEADS.map((h) => (
+                  <th key={h} className={`${TH} text-left`}>
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((a) => (
+                <tr key={a.corr + a.ts} style={{ background: a.breakGlass ? "#fff1f2" : "transparent" }}>
+                  <td className={`${TD} p-2.5 font-mono text-[11px] whitespace-nowrap text-[#78716c]`}>{a.ts}</td>
+                  <td className={`${TD} p-2.5 font-semibold text-ink`}>{a.actor}</td>
+                  <td className={`${TD} p-2.5 font-mono text-[11px] [overflow-wrap:anywhere] text-amber-700`}>{a.action}</td>
+                  <td className={`${TD} p-2.5 font-mono text-[11px] [overflow-wrap:anywhere] text-[#57534e]`}>{a.object}</td>
+                  <td className={`${TD} p-2.5 [overflow-wrap:anywhere] text-[#57534e]`}>{a.diff}</td>
+                  <td className={`${TD} p-2.5 font-mono text-[11px] text-[#78716c]`}>{a.corr}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {ready && rows.length === 0 && (
           <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">No entries in this lane yet.</p>
         )}

@@ -178,17 +178,18 @@ export default function ProfileSection() {
                   [
                     ["Name", fullName || null],
                     ["Gender", profile.gender],
-                    ["Email", profile.email || null, true],
+                    ["Email", profile.email || null],
                     ["Date of birth", profile.birthDate ? `${longDate(profile.birthDate)} · age ${ageFrom(profile.birthDate)}` : null],
                     ["Time of birth", profile.birthTime],
-                    ["Place of birth", profile.birthPlace || null, true],
+                    ["Place of birth", profile.birthPlace || null],
                     ["City", profile.city || null],
                     ["State", profile.state || null],
-                  ] as [string, string | null, boolean?][]
-                ).map(([label, value, wide]) => (
-                  <div key={label} className={`flex justify-between gap-4 border-b border-line-soft py-[10px] ${wide ? "sm:col-span-2" : ""}`}>
-                    <dt className="shrink-0 text-[12.5px] text-stone-500">{label}</dt>
-                    <dd className={`m-0 min-w-0 text-right text-[13.5px] break-words ${value ? "font-semibold text-ink" : "text-stone-400"}`}>
+                  ] as [string, string | null][]
+                ).map(([label, value]) => (
+                  // Same shape for every field: a fixed label column with the value right beside it.
+                  <div key={label} className="grid grid-cols-[104px_minmax(0,1fr)] items-baseline gap-3 border-b border-line-soft py-[10px]">
+                    <dt className="text-[12.5px] text-stone-500">{label}</dt>
+                    <dd className={`m-0 min-w-0 text-[13.5px] [overflow-wrap:anywhere] ${value ? "font-semibold text-ink" : "text-stone-400"}`}>
                       {value ?? "Not added"}
                     </dd>
                   </div>

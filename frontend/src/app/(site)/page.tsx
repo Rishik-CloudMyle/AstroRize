@@ -67,8 +67,8 @@ export default async function HomePage() {
           <LiveSky
             positions={sky}
             skyTime={skyTime}
-            className="lg:-translate-x-8"
-            skyClassName="left-1/2 top-1/2 w-[min(440px,92vw)] -translate-x-1/2 -translate-y-1/2 lg:left-[44%] lg:w-[400px] xl:left-[40%] xl:w-[600px]"
+            className="lg:-translate-x-12 xl:-translate-x-20"
+            skyClassName="left-1/2 top-1/2 w-[min(440px,92vw)] -translate-x-1/2 -translate-y-1/2 lg:left-[52%] lg:w-[400px] xl:left-[50%] xl:w-[600px]"
           >
             <div className="group/list az-rise az-d2 min-w-0 rounded-3xl border border-amber-900/15 bg-[rgba(255,253,248,.14)] p-4 transition-[background-color,backdrop-filter,box-shadow] duration-300 focus-within:bg-[rgba(255,253,248,.94)] focus-within:shadow-[0_18px_40px_rgba(92,58,20,.18)] focus-within:backdrop-blur-md hover:bg-[rgba(255,253,248,.94)] hover:shadow-[0_18px_40px_rgba(92,58,20,.18)] hover:backdrop-blur-md sm:p-5 [@media(hover:none)]:bg-[rgba(255,253,248,.5)]">
               <div className="text-[11px] font-bold uppercase tracking-[.12em] text-amber-800">Available right now</div>
@@ -187,7 +187,7 @@ export default async function HomePage() {
       {/* ---------- Free tools ---------- */}
       <section className="mx-auto max-w-[1240px] px-4 pt-[52px] sm:px-6">
         <h2 className="mb-1 text-[22px] font-bold text-ink">Free tools</h2>
-        <p className="mb-4 text-[13px] text-stone-500">Every result gets a shareable link — no login needed.</p>
+        <p className="mb-4 text-[13px] text-stone-500">Every result gets a shareable link. Kundli needs a free account.</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
           {tools.map((t) => (
             <ToolCard key={t.id} tool={t} />

@@ -5,6 +5,7 @@ import { rupee } from "@/lib/format";
 import { useAppUI } from "../app-provider";
 import { ConsultBlockedNote, blockedHint, blockedLabel, useConsultGate } from "../consult/consult-gate";
 import { ConsultFrozenNote, FROZEN_HINT } from "../consult/consult-lock";
+import MessageButton from "../messages/message-button";
 import { DiscountBadge, WasPrice, priceNote } from "./parts";
 import { useFreshAstrologer } from "./use-fresh-astrologer";
 
@@ -92,6 +93,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
           >
             ⚡ Instant Call · {a.availability === "on" ? `${rupee(a.instant)}/min` : a.availability === "off" ? "offline" : "unavailable"}
           </button>
+          <MessageButton slug={a.slug} name={a.name} />
         </div>
         <div className="mt-3.5 border-t border-[#f3e9d8] pt-3 text-[11.5px] leading-normal text-stone-500">
           Eligibility needs 5 minutes of balance. Nothing is billed before the call connects — failed attempts cost ₹0.

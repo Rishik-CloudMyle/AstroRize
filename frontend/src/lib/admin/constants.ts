@@ -5,6 +5,7 @@ import type { ConfigDomain, Environment, FinanceData, NavGroup, PageKey, Role } 
 
 export const PAGE_HREF: Record<PageKey, string> = {
   overview: "/admin",
+  messages: "/admin/messages",
   config: "/admin/config",
   hr: "/admin/lifecycle",
   marketing: "/admin/marketing",
@@ -24,6 +25,7 @@ export const NAV: NavGroup[] = [
     title: "Platform",
     items: [
       { key: "overview", label: "Overview", icon: "◱", href: PAGE_HREF.overview },
+      { key: "messages", label: "Messages", icon: "✎", href: PAGE_HREF.messages },
       { key: "config", label: "Config console", icon: "⚙", href: PAGE_HREF.config },
     ],
   },

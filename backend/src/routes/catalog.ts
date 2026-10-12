@@ -125,8 +125,11 @@ async function liveRoomOr404(id: string) {
 /** The open room page polls this every few seconds; each poll counts the viewer as watching. */
 catalogRouter.get("/live-rooms/:id", async (req, res) => {
   const room = await liveRoomOr404(String(req.params.id));
+  // A logged-out visitor's first requests can race before their viewer cookie is stored, which
+  // would count one person twice; so only count requests that already carry an identity.
+  const counted = Boolean(req.auth || req.cookies?.astrorize_vid);
   const key = viewerKey(req, res);
-  touchViewer(room.id, key);
+  if (counted) touchViewer(room.id, key);
   res.json({ room: await roomView(room, key, req.auth?.user.id ?? null) });
 });
 

@@ -68,68 +68,71 @@ export default function FinanceView({ data }: { data: FinanceData }) {
           </div>
           <SortSelect options={BATCH_SORTS} value={sort} onChange={setSort} />
         </div>
-        <table className="mt-3.5 w-full border-collapse text-[13px]">
-          <thead>
-            <tr>
-              {HEADS.map(([label, align], i) => (
-                <th key={i} className={TH} style={{ textAlign: align }}>
-                  {label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {batches.map((p) => {
-              const st = p.state;
-              // Same person, not same short name: a department can have several people.
-              const sameActor = st === "APPROVED" && p.approvedById === session.id;
-              const [bg, fg] =
-                st === "RELEASED" ? ["#ecfdf5", "#047857"] : st === "APPROVED" ? ["#eff6ff", "#1d4ed8"] : ["#f7f4ee", "#57534e"];
-              const action =
-                st === "DRAFT"
-                  ? "Approve · MFA"
-                  : st === "APPROVED"
-                    ? sameActor
-                      ? "Release — you approved this"
-                      : "Release"
-                    : "View reference";
-              return (
-                <tr key={p.id}>
-                  <td className={`${TD} px-2.5 py-[11px] font-mono text-[11.5px] text-[#57534e]`}>{p.id}</td>
-                  <td className={`${TD} px-2.5 py-[11px] text-[#57534e]`}>{p.astrologers}</td>
-                  <td className={`${TD} px-2.5 py-[11px] text-right font-bold text-ink tabular-nums`}>{p.gross}</td>
-                  <td className={`${TD} px-2.5 py-[11px] text-right text-rose-700 tabular-nums`}>{p.tds}</td>
-                  <td className={`${TD} px-2.5 py-[11px]`}>
-                    <span
-                      className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[11px] font-bold"
-                      style={{ background: bg, color: fg }}
-                    >
-                      {st}
-                    </span>
-                  </td>
-                  <td className={`${TD} px-2.5 py-[11px] text-right`}>
-                    {sameActor ? (
+        {/* Scrolls inside the card on narrow windows, never the page. */}
+        <div className="mt-3.5 overflow-x-auto">
+          <table className="w-full min-w-[680px] border-collapse text-[13px]">
+            <thead>
+              <tr>
+                {HEADS.map(([label, align], i) => (
+                  <th key={i} className={TH} style={{ textAlign: align }}>
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {batches.map((p) => {
+                const st = p.state;
+                // Same person, not same short name: a department can have several people.
+                const sameActor = st === "APPROVED" && p.approvedById === session.id;
+                const [bg, fg] =
+                  st === "RELEASED" ? ["#ecfdf5", "#047857"] : st === "APPROVED" ? ["#eff6ff", "#1d4ed8"] : ["#f7f4ee", "#57534e"];
+                const action =
+                  st === "DRAFT"
+                    ? "Approve · MFA"
+                    : st === "APPROVED"
+                      ? sameActor
+                        ? "Release — you approved this"
+                        : "Release"
+                      : "View reference";
+                return (
+                  <tr key={p.id}>
+                    <td className={`${TD} px-2.5 py-[11px] font-mono text-[11.5px] whitespace-nowrap text-[#57534e]`}>{p.id}</td>
+                    <td className={`${TD} px-2.5 py-[11px] text-[#57534e]`}>{p.astrologers}</td>
+                    <td className={`${TD} px-2.5 py-[11px] text-right font-bold whitespace-nowrap text-ink tabular-nums`}>{p.gross}</td>
+                    <td className={`${TD} px-2.5 py-[11px] text-right whitespace-nowrap text-rose-700 tabular-nums`}>{p.tds}</td>
+                    <td className={`${TD} px-2.5 py-[11px]`}>
                       <span
-                        className="inline-flex h-[30px] items-center rounded-[9px] border border-dashed border-stone-300 bg-stone-100 px-3 text-[11.5px] font-bold text-muted"
-                        title="Approver and releaser must be different people"
+                        className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[11px] font-bold"
+                        style={{ background: bg, color: fg }}
                       >
-                        {action}
+                        {st}
                       </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => batchAct(p)}
-                        className="h-[30px] rounded-[9px] border-0 bg-amber-500 px-3 text-[12px] font-bold text-ink"
-                      >
-                        {action}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    </td>
+                    <td className={`${TD} px-2.5 py-[11px] text-right whitespace-nowrap`}>
+                      {sameActor ? (
+                        <span
+                          className="inline-flex h-[30px] items-center rounded-[9px] border border-dashed border-stone-300 bg-stone-100 px-3 text-[11.5px] font-bold text-muted"
+                          title="Approver and releaser must be different people"
+                        >
+                          {action}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => batchAct(p)}
+                          className="h-[30px] rounded-[9px] border-0 bg-amber-500 px-3 text-[12px] font-bold text-ink"
+                        >
+                          {action}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
         {batches.length === 0 && (
           <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">No payout batches yet.</p>
         )}

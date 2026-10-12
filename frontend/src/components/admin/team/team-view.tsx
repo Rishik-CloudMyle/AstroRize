@@ -10,7 +10,7 @@ import { api, ApiError } from "@/lib/api/client";
 import { STAFF_SORTS, sortRows } from "@/lib/admin/sort";
 import type { Role, StaffDepartment, StaffMember } from "@/lib/admin/types";
 
-// Team: department → people tree, with switch off/on, password reset and "add a person".
+// Team: department → people tree, with deactivate/activate, password reset and "add a person".
 // The API (Super Admin only) enforces every rule; this view shows its messages as is.
 
 const FIELD = "h-10 w-full rounded-[10px] border bg-white px-3 text-[13px] text-ink";
@@ -56,7 +56,7 @@ function PersonRow({ person, last }: { person: StaffMember; last: boolean }) {
   const toggle = () => {
     if (person.active) {
       const ok = window.confirm(
-        `Switch off ${person.name}? They are signed out everywhere straight away and can't sign in until switched back on.`,
+        `Deactivate ${person.name}? They are signed out everywhere straight away and can't sign in until activated again.`,
       );
       if (!ok) return;
     }
@@ -64,8 +64,8 @@ function PersonRow({ person, last }: { person: StaffMember; last: boolean }) {
       () => api.patch<{ revoked: number }>(`/admin/staff/${person.id}`, { active: !person.active }),
       (r) =>
         person.active
-          ? `${person.name} switched off · ${r.revoked} signed-in session${r.revoked === 1 ? "" : "s"} ended. Audited.`
-          : `${person.name} switched back on. They can sign in again. Audited.`,
+          ? `${person.name} deactivated · ${r.revoked} signed-in session${r.revoked === 1 ? "" : "s"} ended. Audited.`
+          : `${person.name} activated. They can sign in again. Audited.`,
     );
   };
 
@@ -102,7 +102,8 @@ function PersonRow({ person, last }: { person: StaffMember; last: boolean }) {
       <span aria-hidden className="absolute top-[26px] left-[9px] h-px w-[14px] bg-[#d6cbb8]" />
 
       <div
-        className="flex items-center gap-3 rounded-xl border px-3 py-2.5"
+        // Narrow columns: the buttons drop under the details instead of squeezing them.
+        className="flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2.5"
         style={{ borderColor: "#e7e0d6", background: person.active ? "#fff" : "#f7f4ee" }}
       >
         <span
@@ -111,9 +112,9 @@ function PersonRow({ person, last }: { person: StaffMember; last: boolean }) {
         >
           {person.initials}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[170px] flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <b className={`truncate text-[13.5px] ${person.active ? "text-ink" : "text-[#78716c]"}`}>{person.name}</b>
+            <b className={`min-w-0 max-w-full truncate text-[13.5px] ${person.active ? "text-ink" : "text-[#78716c]"}`}>{person.name}</b>
             {person.isYou && (
               <span className="inline-flex h-[19px] items-center rounded-full bg-ink px-[7px] text-[10px] font-extrabold text-amber-300">
                 You
@@ -127,7 +128,7 @@ function PersonRow({ person, last }: { person: StaffMember; last: boolean }) {
                   : { background: "#f5f5f4", color: "#78716c" }
               }
             >
-              {person.active ? "Active" : "Switched off"}
+              {person.active ? "Active" : "Deactivated"}
             </span>
           </div>
           <div className="mt-0.5 truncate text-[12px] text-[#57534e]">
@@ -137,7 +138,7 @@ function PersonRow({ person, last }: { person: StaffMember; last: boolean }) {
             {person.lastLogin ? `Last sign-in ${person.lastLogin} IST` : "Never signed in"} · added {person.added}
           </div>
         </div>
-        <div className="flex flex-none items-center gap-2">
+        <div className="ml-auto flex flex-none items-center gap-2">
           <button
             type="button"
             className={GHOST}
@@ -162,7 +163,7 @@ function PersonRow({ person, last }: { person: StaffMember; last: boolean }) {
                   : { background: "#047857", borderColor: "#047857", color: "#fff" }
               }
             >
-              {person.active ? "Switch off" : "Switch on"}
+              {person.active ? "Deactivate" : "Activate"}
             </button>
           )}
         </div>
@@ -252,7 +253,7 @@ function AddPerson({ departments }: { departments: StaffDepartment[] }) {
   const clearProblem = () => problem && setProblem(null);
 
   return (
-    <form onSubmit={submit} noValidate className={`${PANEL} sticky top-[22px] p-5`}>
+    <form onSubmit={submit} noValidate className={`${PANEL} p-5 lg:sticky lg:top-[22px]`}>
       <h2 className="mt-0 mb-1 text-[16px] font-bold">Add a person</h2>
       <p className="mt-0 mb-4 text-[12px] leading-[1.5] text-[#78716c]">
         They sign in with this email and the temporary password you set. It is never shown again after you save.
@@ -342,7 +343,7 @@ function AddPerson({ departments }: { departments: StaffDepartment[] }) {
 export default function TeamView({ departments }: { departments: StaffDepartment[] }) {
   const [sort, setSort] = useUrlSort(STAFF_SORTS);
   return (
-    <div className="mt-5 grid grid-cols-[minmax(0,1fr)_340px] items-start gap-[18px]">
+    <div className="mt-5 grid grid-cols-1 items-start gap-[18px] lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <span className="pb-3 text-[12px] font-semibold text-[#78716c]">
@@ -376,7 +377,7 @@ export default function TeamView({ departments }: { departments: StaffDepartment
               )}
               {people.length > 0 && active === 0 && (
                 <p className="mt-3 mb-0 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] font-semibold text-amber-900">
-                  Everyone here is switched off — nobody can do this department&apos;s work right now.
+                  Everyone here is deactivated — nobody can do this department&apos;s work right now.
                 </p>
               )}
             </section>

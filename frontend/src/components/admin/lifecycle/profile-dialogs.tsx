@@ -220,29 +220,31 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
           </Section>
 
           <Section title="Price">
-            <table className="w-full border-collapse text-[13px]">
-              <thead>
-                <tr>
-                  <th className={`${TH_SM} text-left`}>Mode</th>
-                  <th className={`${TH_SM} text-right`}>Per minute</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(
-                  [
-                    ["Chat", a.price.chat],
-                    ["Voice", a.price.voice],
-                    ["Video", a.price.video],
-                    [`Instant Call (×${a.price.multiplier})`, a.price.instant],
-                  ] as const
-                ).map(([mode, rate]) => (
-                  <tr key={mode}>
-                    <td className={`${TD} px-2.5 py-2 font-semibold text-[#57534e]`}>{mode}</td>
-                    <td className={`${TD} px-2.5 py-2 text-right font-bold text-ink tabular-nums`}>{rate}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-[13px]">
+                <thead>
+                  <tr>
+                    <th className={`${TH_SM} text-left`}>Mode</th>
+                    <th className={`${TH_SM} text-right`}>Per minute</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {(
+                    [
+                      ["Chat", a.price.chat],
+                      ["Voice", a.price.voice],
+                      ["Video", a.price.video],
+                      [`Instant Call (×${a.price.multiplier})`, a.price.instant],
+                    ] as const
+                  ).map(([mode, rate]) => (
+                    <tr key={mode}>
+                      <td className={`${TD} px-2.5 py-2 font-semibold text-[#57534e]`}>{mode}</td>
+                      <td className={`${TD} px-2.5 py-2 text-right font-bold text-ink tabular-nums`}>{rate}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {a.price.was && (
               <p className="mt-2 mb-0 text-[12px] text-[#78716c]">
                 Shown struck through on the public profile: was {a.price.was}
@@ -526,24 +528,26 @@ export function ApplicationDialog({ id, onClose }: { id: string; onClose: () => 
 
           {nego && (
             <Section title={`Rate negotiation · round ${nego.round} of ${nego.maxRounds}`}>
-              <table className="w-full border-collapse text-[13px]">
-                <thead>
-                  <tr>
-                    <th className={`${TH_SM} text-left`}>Modality</th>
-                    <th className={`${TH_SM} text-right`}>Requested</th>
-                    <th className={`${TH_SM} text-right`}>Proposed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nego.rows.map((n) => (
-                    <tr key={n.mode}>
-                      <td className={`${TD} p-2.5 font-semibold text-[#57534e]`}>{n.mode}</td>
-                      <td className={`${TD} p-2.5 text-right text-[#78716c] tabular-nums`}>{n.requested}</td>
-                      <td className={`${TD} p-2.5 text-right font-bold text-amber-700 tabular-nums`}>{n.proposed}</td>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-[13px]">
+                  <thead>
+                    <tr>
+                      <th className={`${TH_SM} text-left`}>Modality</th>
+                      <th className={`${TH_SM} text-right`}>Requested</th>
+                      <th className={`${TH_SM} text-right`}>Proposed</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {nego.rows.map((n) => (
+                      <tr key={n.mode}>
+                        <td className={`${TD} p-2.5 font-semibold text-[#57534e]`}>{n.mode}</td>
+                        <td className={`${TD} p-2.5 text-right text-[#78716c] tabular-nums`}>{n.requested}</td>
+                        <td className={`${TD} p-2.5 text-right font-bold text-amber-700 tabular-nums`}>{n.proposed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               {app.state === "Negotiation" && (
                 <div className="mt-3 flex flex-wrap gap-[9px]">
                   {capReached ? (

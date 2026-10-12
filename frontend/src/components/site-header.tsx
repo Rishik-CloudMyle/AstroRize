@@ -53,6 +53,15 @@ export default function SiteHeader() {
               {link.label}
             </Link>
           ))}
+          {session.loggedIn && session.role === "customer" && (
+            <Link
+              href="/messages"
+              aria-current={pathname.startsWith("/messages") ? "page" : undefined}
+              className="inline-flex items-center gap-1.5 rounded-[10px] px-3 py-2 text-sm font-semibold text-stone-600 hover:bg-amber-100 hover:text-amber-800 hover:no-underline"
+            >
+              Messages
+            </Link>
+          )}
         </nav>
 
         <div className="ml-auto flex items-center gap-2.5">
@@ -150,6 +159,15 @@ export default function SiteHeader() {
               {link.label}
             </Link>
           ))}
+          {session.loggedIn && session.role === "customer" && (
+            <Link
+              href="/messages"
+              onClick={() => setMenuOpen(false)}
+              className="flex items-center gap-2 rounded-[10px] px-3 py-3 text-[15px] font-semibold text-stone-600 hover:bg-amber-100 hover:text-amber-800 hover:no-underline"
+            >
+              Messages
+            </Link>
+          )}
           <div className="mt-3 flex flex-col gap-2.5">
             {session.loggedIn && session.role !== "customer" && (
               <Link

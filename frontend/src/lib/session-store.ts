@@ -34,6 +34,18 @@ export interface ApiUser {
   adminRole?: AdminRole;
   astrologerId?: string;
   astrologerSlug?: string;
+  /** Set by a sign-in that re-activated an account its owner had paused ("Deactivate"). */
+  reactivated?: boolean;
+}
+
+/** Fired on window when a sign-in re-activates a paused account; the app shows a short note. */
+export const REACTIVATED_EVENT = "astrorize:reactivated";
+
+/** Marks the user and tells the app when the sign-in re-activated a paused account. */
+function withReactivation(user: ApiUser, reactivated: boolean | undefined): ApiUser {
+  if (!reactivated) return user;
+  window.dispatchEvent(new Event(REACTIVATED_EVENT));
+  return { ...user, reactivated: true };
 }
 
 /** What an astrologer gives when signing up (POST /api/auth/signup/astrologer). */
@@ -152,9 +164,9 @@ export const sessionActions = {
 
   /** Step 2 of mobile sign-in: always a customer account (created on first sign-in). */
   async verifyOtp(phone: string, code: string) {
-    const { user } = await api.post<{ user: ApiUser }>("/auth/otp/verify", { phone, code });
+    const { user, reactivated } = await api.post<{ user: ApiUser; reactivated?: boolean }>("/auth/otp/verify", { phone, code });
     await applyUser(user);
-    return user;
+    return withReactivation(user, reactivated);
   },
 
   /**
@@ -162,9 +174,9 @@ export const sessionActions = {
    * number already had an account (they are simply signed in to it).
    */
   async signUpWithOtp(phone: string, code: string) {
-    const { user, created } = await api.post<{ user: ApiUser; created: boolean }>("/auth/otp/verify", { phone, code });
+    const { user, created, reactivated } = await api.post<{ user: ApiUser; created: boolean; reactivated?: boolean }>("/auth/otp/verify", { phone, code });
     await applyUser(user);
-    return { user, created };
+    return { user: withReactivation(user, reactivated), created };
   },
 
   /** Lets a signed-in customer without a password add one, so they can also log in with their email. */
@@ -186,9 +198,9 @@ export const sessionActions = {
 
   /** Email sign-in: the account decides the role (customer, astrologer or admin). */
   async logInWithEmail(email: string, password: string) {
-    const { user } = await api.post<{ user: ApiUser }>("/auth/login", { email, password });
+    const { user, reactivated } = await api.post<{ user: ApiUser; reactivated?: boolean }>("/auth/login", { email, password });
     await applyUser(user);
-    return user;
+    return withReactivation(user, reactivated);
   },
 
   async logOut() {

@@ -177,9 +177,13 @@ function CustomerSignup({ next, onStarted }: { next: string | null; onStarted: (
     try {
       // Mark the flow as started first: the session flips to signed-in during this call.
       onStarted(true);
-      const { created } = await sessionActions.signUpWithOtp(phone, otp);
+      const { created, user } = await sessionActions.signUpWithOtp(phone, otp);
       if (!created) {
-        toast("This number already has an Astrorize account, so we've logged you in.");
+        toast(
+          user.reactivated
+            ? "Welcome back — your account is active again. This number already had an Astrorize account, so we've logged you in."
+            : "This number already has an Astrorize account, so we've logged you in.",
+        );
         done();
         return;
       }

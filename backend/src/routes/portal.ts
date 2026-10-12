@@ -14,7 +14,22 @@ import {
 } from "../lib/consultations.ts";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
 import { ageLabel, istDate, istDateKey, istDayMonth, istTime, makeRef, weekdayLabel } from "../lib/format.ts";
-import { consultSummary, queueProfile, queueSummary } from "../lib/profile.ts";
+import { consultSummary, messageSummary, queueProfile, queueSummary } from "../lib/profile.ts";
+import {
+  checkSendRate,
+  directText,
+  directThreadFor,
+  directUnread,
+  historyWith,
+  lastDelivered,
+  messageText,
+  messageView,
+  postMessage,
+  replyDirect,
+  teamConversations,
+  teamThreadView,
+  visibleTo,
+} from "../lib/messaging.ts";
 import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "../lib/safety.ts";
 import { canWork, effectivePresence, endLiveRoom, goOffline, goOnline, markSeen, syncPresence, viewerCount } from "../lib/presence.ts";
 import { configNumber, getSetting } from "../lib/settings.ts";
@@ -42,9 +57,10 @@ async function me(req: Request): Promise<Astrologer> {
 portalRouter.get("/account", async (req, res) => {
   const a = await me(req);
   await expireStaleRequests(a.id);
-  const [requests, threads, notices, draft, slaDays] = await Promise.all([
+  const [requests, threads, teamUnread, notices, draft, slaDays] = await Promise.all([
     db.consultation.count({ where: { astrologerId: a.id, status: "REQUESTED" } }),
-    db.messageThread.findMany({ where: { astrologerId: a.id }, include: { messages: { orderBy: { createdAt: "desc" }, take: 1 } } }),
+    db.messageThread.findMany({ where: { astrologerId: a.id }, include: { messages: { where: { blocked: false }, orderBy: { createdAt: "desc" }, take: 1 } } }),
+    directUnread((req.auth as AuthContext).user.id),
     db.complianceNotice.count({ where: { astrologerId: a.id, status: "OPEN" } }),
     db.applicationDraft.findUnique({ where: { astrologerId: a.id }, select: { values: true } }),
     configNumber("hr.application.review_sla_days", 5),
@@ -78,7 +94,8 @@ portalRouter.get("/account", async (req, res) => {
       },
       counts: {
         consultations: requests,
-        messages: threads.filter((t) => t.messages[0]?.sender === "CUSTOMER").length,
+        // Customers waiting for a reply, plus Astrorize team conversations with unread messages.
+        messages: threads.filter((t) => t.messages[0]?.sender === "CUSTOMER").length + teamUnread.size,
         compliance: notices,
       },
       online: effectivePresence(a) !== "OFF",
@@ -102,7 +119,7 @@ portalRouter.get("/dashboard", async (req, res) => {
   const since = new Date(now.getTime() - 10 * 86400000);
   const [lines, slots, room, training, reviews, maxMultiplier] = await Promise.all([
     db.earningsLine.findMany({ where: { astrologerId: a.id, date: { gte: since } } }),
-    db.availabilitySlot.findMany({ where: { astrologerId: a.id, date: new Date(todayKey + "T00:00:00Z"), state: { not: "CANCELLED" } }, orderBy: { start: "asc" } }),
+    db.availabilitySlot.findMany({ where: { astrologerId: a.id, date: new Date(todayKey + "T00:00:00Z"), state: { not: "CANCELLED" } }, orderBy: { start: "asc" }, include: { customer: true } }),
     db.liveRoom.findUnique({ where: { astrologerId: a.id } }),
     db.trainingModule.findMany({ where: { astrologerId: a.id }, orderBy: { rank: "asc" } }),
     db.review.findMany({ where: { astrologerId: a.id, status: "VISIBLE" }, orderBy: { createdAt: "desc" }, take: 2 }),
@@ -122,12 +139,17 @@ portalRouter.get("/dashboard", async (req, res) => {
   const yesterday = days[days.length - 2] ?? 0;
   const todayLines = lines.filter((l) => istDateKey(l.date) === todayKey);
 
-  const schedule = slots.map((s) => ({
-    time: `${s.start} – ${s.end}`,
-    what: s.state === "BOOKED" ? s.detail ?? "Booked session" : "Open availability",
-    kind: s.state === "BOOKED" ? "booked" : "open",
-  }));
-  if (room?.isLive) schedule.push({ time: `${istTime(room.startedAt)} – live`, what: `Live room — ${room.topic}`, kind: "live" });
+  const schedule: { id: string | null; time: string; what: string; kind: "open" | "booked" | "live"; customer: ReturnType<typeof messageSummary> | null }[] = slots.map((s) => {
+    const customer = s.state === "BOOKED" && s.customer ? messageSummary(s.customer) : null;
+    return {
+      id: s.id,
+      time: `${s.start} – ${s.end}`,
+      what: s.state === "BOOKED" ? `${s.detail ?? "Booked session"}${customer ? ` with ${customer.name}` : ""}` : "Open availability",
+      kind: s.state === "BOOKED" ? "booked" : "open",
+      customer,
+    };
+  });
+  if (room?.isLive) schedule.push({ id: null, time: `${istTime(room.startedAt)} – live`, what: `Live room — ${room.topic}`, kind: "live", customer: null });
   schedule.sort((x, y) => x.time.localeCompare(y.time));
   const barDays = [...byDay.keys()];
 
@@ -328,6 +350,7 @@ portalRouter.get("/availability", async (req, res) => {
   const slots = await db.availabilitySlot.findMany({
     where: { astrologerId: a.id, date: { gte: new Date(days[0] + "T00:00:00Z"), lte: new Date(days[6] + "T00:00:00Z") } },
     orderBy: [{ date: "asc" }, { start: "asc" }],
+    include: { customer: true },
   });
   const first = new Date(days[0] + "T00:00:00Z");
   const last = new Date(days[6] + "T00:00:00Z");
@@ -350,8 +373,9 @@ portalRouter.get("/availability", async (req, res) => {
         end: s.end,
         state: s.state.toLowerCase(),
         detail: s.detail,
+        customerName: s.state === "BOOKED" && s.customer ? messageSummary(s.customer).name : null,
       })),
-      bookedDetail: "Booked · customer C-5512 · Fixed Session 30 min. Cancelling needs a reason.",
+      bookedDetail: "Booked session. Cancelling needs a reason.",
     },
   });
 });
@@ -367,10 +391,7 @@ portalRouter.post("/availability", async (req, res) => {
     .parse(req.body);
   if (end <= start) throw badRequest("End time must be after start time.");
   const day = new Date(date + "T00:00:00Z");
-  const clash = await db.availabilitySlot.findFirst({
-    where: { astrologerId: a.id, date: day, state: { not: "CANCELLED" }, start: { lt: end }, end: { gt: start } },
-  });
-  if (clash) throw conflict(`That range overlaps a slot you already have on ${weekdayLabel(date)}.`);
+  if (await slotClash(a.id, day, start, end)) throw conflict(`That range overlaps a slot you already have on ${weekdayLabel(date)}.`);
   const slot = await db.availabilitySlot.create({ data: { astrologerId: a.id, date: day, start, end, state: "OPEN" } });
   res.status(201).json({ slot: { id: slot.id, day: weekdayLabel(date), date, start, end, state: "open" } });
 });
@@ -384,6 +405,34 @@ portalRouter.post("/availability/:id/cancel", async (req, res) => {
   await db.availabilitySlot.update({ where: { id: slot.id }, data: { state: "CANCELLED" } });
   res.json({ ok: true });
 });
+
+/** Opens a cancelled slot again, if it hasn't started yet and no live slot now overlaps it. */
+portalRouter.post("/availability/:id/reopen", async (req, res) => {
+  const a = await me(req);
+  const slot = await db.availabilitySlot.findUnique({ where: { id: String(req.params.id) } });
+  if (!slot || slot.astrologerId !== a.id) throw notFound("Slot not found.");
+  if (slot.state === "OPEN") return res.json({ ok: true });
+  if (slot.state !== "CANCELLED") throw conflict("Only a cancelled slot can be opened again.");
+  const dateKey = slot.date.toISOString().slice(0, 10);
+  // Slot times are IST.
+  if (new Date(`${dateKey}T${slot.start}:00+05:30`).getTime() <= Date.now()) {
+    throw conflict("This slot has already started or passed, so it can't be opened again. Add a new slot instead.");
+  }
+  if (await slotClash(a.id, slot.date, slot.start, slot.end, slot.id)) {
+    throw conflict(`Another slot on ${weekdayLabel(dateKey)} now overlaps ${slot.start}–${slot.end}. Remove it first or add a different time.`);
+  }
+  const { count } = await db.availabilitySlot.updateMany({ where: { id: slot.id, state: "CANCELLED" }, data: { state: "OPEN", customerId: null, detail: null } });
+  if (!count) throw conflict("This slot just changed. Refresh and try again.");
+  res.json({ ok: true });
+});
+
+/** A live (open or booked) slot of this astrologer's that overlaps start–end on the day, if any. */
+function slotClash(astrologerId: string, day: Date, start: string, end: string, exceptId?: string) {
+  return db.availabilitySlot.findFirst({
+    where: { astrologerId, date: day, state: { not: "CANCELLED" }, start: { lt: end }, end: { gt: start }, ...(exceptId ? { id: { not: exceptId } } : {}) },
+    select: { id: true },
+  });
+}
 
 // ── Consultations ──
 
@@ -675,40 +724,97 @@ portalRouter.post("/live/poll", async (req, res) => {
 
 // ── Messages ──
 
+// Conversations with customers. The astrologer sees each customer's real name, and on request
+// their profile, only for customers in their own conversations. Conversations the Astrorize
+// team started with the astrologer are in the same list (kind "team").
 portalRouter.get("/messages", async (req, res) => {
   const a = await me(req);
-  const threads = await db.messageThread.findMany({
-    where: { astrologerId: a.id },
-    orderBy: { updatedAt: "desc" },
-    include: { messages: { orderBy: { createdAt: "asc" } } },
-  });
-  res.json({
-    threads: threads.map((t) => {
-      const lastCustomer = [...t.messages].reverse().find((m) => m.sender === "CUSTOMER");
-      return {
-        id: t.id,
-        alias: t.customerAlias,
-        preview: (lastCustomer ?? t.messages[t.messages.length - 1])?.text.slice(0, 40) ?? "",
-        messages: t.messages.map((m) => ({ from: m.blocked ? "blocked" : m.sender === "ASTROLOGER" ? "me" : "customer", text: m.text })),
-      };
+  const userId = (req.auth as AuthContext).user.id;
+  const [threads, team] = await Promise.all([
+    db.messageThread.findMany({
+      where: { astrologerId: a.id },
+      orderBy: { updatedAt: "desc" },
+      include: { messages: { orderBy: { createdAt: "asc" } }, customer: true },
     }),
+    teamConversations(userId, "astrologer"),
+  ]);
+  // Team conversations come with their messages too, so the page can show any of them at once.
+  const teamThreads = await Promise.all(
+    team.map(async (t) => ({
+      kind: "team" as const,
+      ...t,
+      messages: teamThreadView(await directThreadFor(t.id, userId, false), userId, "astrologer").messages,
+    })),
+  );
+  const customerThreads = threads.map((t) => {
+    const last = lastDelivered(t.messages);
+    return {
+      kind: "customer" as const,
+      id: t.id,
+      alias: t.customerAlias,
+      customer: t.customer ? messageSummary(t.customer) : null,
+      preview: last?.text.slice(0, 80) ?? "",
+      lastAt: (last ?? t.messages.at(-1))?.createdAt.toISOString() ?? null,
+      // The customer wrote last: waiting for the astrologer's reply.
+      awaitingReply: last?.sender === "CUSTOMER",
+      messages: t.messages.filter(visibleTo("ASTROLOGER")).map((m) => messageView(m, "ASTROLOGER")),
+    };
+  });
+  // One list, latest activity first.
+  const all = [...teamThreads, ...customerThreads].sort((x, y) => (y.lastAt ?? "").localeCompare(x.lastAt ?? ""));
+  res.json({ threads: all });
+});
+
+/** Reply in a conversation the Astrorize team started. */
+portalRouter.post("/team-messages/:id", async (req, res) => {
+  await me(req);
+  const { text } = z.object({ text: directText }).parse(req.body);
+  res.status(201).json({ message: await replyDirect(String(req.params.id), (req.auth as AuthContext).user.id, text) });
+});
+
+/** The astrologer opened a team conversation: its messages count as read. */
+portalRouter.post("/team-messages/:id/read", async (req, res) => {
+  await me(req);
+  await directThreadFor(String(req.params.id), (req.auth as AuthContext).user.id, true);
+  res.json({ ok: true });
+});
+
+/** Full profile of the customer in one of this astrologer's conversations, with their history together. */
+/** Who booked one of this astrologer's slots, for the schedule's details popup. Own bookings only. */
+portalRouter.get("/schedule/:slotId", async (req, res) => {
+  const a = await me(req);
+  const slot = await db.availabilitySlot.findUnique({ where: { id: String(req.params.slotId) }, include: { customer: true } });
+  if (!slot || slot.astrologerId !== a.id || slot.state !== "BOOKED" || !slot.customer) throw notFound("Booking not found.");
+  res.json({
+    person: {
+      alias: "",
+      profile: queueProfile(slot.customer),
+      history: await historyWith(slot.customer.id, a.id),
+      slot: { date: istDate(slot.date), start: slot.start, end: slot.end, detail: slot.detail ?? "Booked session" },
+    },
+  });
+});
+
+portalRouter.get("/messages/:threadId/customer", async (req, res) => {
+  const a = await me(req);
+  const thread = await db.messageThread.findUnique({ where: { id: String(req.params.threadId) }, include: { customer: true } });
+  if (!thread || thread.astrologerId !== a.id || !thread.customer) throw notFound("Customer not found.");
+  res.json({
+    person: {
+      alias: thread.customerAlias,
+      profile: queueProfile(thread.customer),
+      history: await historyWith(thread.customer.id, a.id),
+    },
   });
 });
 
 portalRouter.post("/messages/:threadId", async (req, res) => {
   const a = await me(req);
-  const { text } = z.object({ text: z.string().trim().min(1).max(1000) }).parse(req.body);
+  const { text } = z.object({ text: messageText }).parse(req.body);
   const thread = await db.messageThread.findUnique({ where: { id: String(req.params.threadId) } });
   if (!thread || thread.astrologerId !== a.id) throw notFound("Conversation not found.");
-  const blocked = containsContactDetails(text);
-  // A message with contact details is never delivered; the sender sees why.
-  const message = await db.message.create({
-    data: blocked
-      ? { threadId: thread.id, sender: "SYSTEM", text: CONTACT_BLOCKED_NOTICE, blocked: true }
-      : { threadId: thread.id, sender: "ASTROLOGER", text },
-  });
-  await db.messageThread.update({ where: { id: thread.id }, data: { updatedAt: new Date() } });
-  res.status(201).json({ blocked, message: { from: blocked ? "blocked" : "me", text: message.text } });
+  checkSendRate((req.auth as AuthContext).user.id);
+  res.status(201).json(await postMessage(thread.id, "ASTROLOGER", text));
 });
 
 // ── Earnings ──

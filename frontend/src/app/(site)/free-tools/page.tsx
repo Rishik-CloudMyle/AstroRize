@@ -6,7 +6,7 @@ import { getTools } from "@/lib/mock/tools";
 
 export const metadata: Metadata = {
   title: "Free tools",
-  description: "Free Kundli, horoscope, matchmaking, panchang, numerology, tarot and daily insight — no login needed.",
+  description: "Free Kundli, horoscope, matchmaking, panchang, numerology, tarot and daily insight. Log in free to see your Kundli.",
 };
 
 export default async function FreeToolsPage() {
@@ -17,8 +17,8 @@ export default async function FreeToolsPage() {
       <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Free tools" }]} />
       <h1 className="font-display text-[36px] font-semibold text-ink sm:text-[42px]">Free tools</h1>
       <p className="mb-6 mt-1.5 max-w-[60ch] text-sm text-stone-600">
-        Free, no login needed. Every result has its own link you can share, and an “ask an astrologer” button that
-        takes your chart with you.
+        All free. Your Kundli needs a free account; the other tools need no login. Every result has its own link you
+        can share, and an “ask an astrologer” button that takes your chart with you.
       </p>
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(230px,100%),1fr))] gap-4">
         {tools.map((t) => (

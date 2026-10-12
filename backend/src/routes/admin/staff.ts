@@ -103,29 +103,29 @@ staffRouter.post("/staff", async (req, res) => {
       passwordHash: await hashPassword(body.password),
     },
   });
-  await audit(admin, "staff.create", `staff:${body.email}`, `— → ${ROLE_LABELS[body.department]} · on`);
+  await audit(admin, "staff.create", `staff:${body.email}`, `— → ${ROLE_LABELS[body.department]} · Active`);
   res.status(201).json({ ok: true, id: user.id });
 });
 
-/** Switch a person off (signs them out everywhere at once) or back on. */
+/** Deactivate a person (signs them out everywhere at once) or activate them again. */
 staffRouter.patch("/staff/:id", async (req, res) => {
   const admin = manager(req);
-  const { active } = z.object({ active: z.boolean({ error: "Say whether the account should be on or off." }) }).parse(req.body ?? {});
+  const { active } = z.object({ active: z.boolean({ error: "Say whether the account should be active or deactivated." }) }).parse(req.body ?? {});
   const user = await staffMember(String(req.params.id));
   if (user.active === active) return res.json({ ok: true, active, revoked: 0 });
-  if (!active && user.id === admin.user.id) throw forbidden("You can't switch yourself off. Ask another Super Admin.");
+  if (!active && user.id === admin.user.id) throw forbidden("You can't deactivate yourself. Ask another Super Admin.");
 
   const revoked = await db.$transaction(async (tx) => {
     if (!active && user.adminRole === "SUPER") {
       const others = await tx.user.count({ where: { role: "ADMIN", adminRole: "SUPER", active: true, id: { not: user.id } } });
-      if (others === 0) throw conflict("This is the last active Super Admin. Switch another Super Admin on first.");
+      if (others === 0) throw conflict("This is the last active Super Admin. Activate another Super Admin first.");
     }
     await tx.user.update({ where: { id: user.id }, data: { active } });
     if (active) return 0;
     const ended = await tx.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
     return ended.count;
   });
-  await audit(admin, active ? "staff.activate" : "staff.deactivate", `staff:${user.email}`, active ? "off → on" : `on → off · ${revoked} session(s) ended`);
+  await audit(admin, active ? "staff.activate" : "staff.deactivate", `staff:${user.email}`, active ? "Deactivated → Active" : `Active → Deactivated · ${revoked} session(s) ended`);
   res.json({ ok: true, active, revoked });
 });
 

@@ -1,5 +1,5 @@
 import { pageLink } from "./constants";
-import type { Gift, Kpi, MonitorItem, ModerationItem, PageKey, RiskBand, SearchHit, Ticket, WorkItem } from "./types";
+import type { Gift, Kpi, ModerationItem, PageKey, SearchHit, Ticket, WorkItem } from "./types";
 
 // The prototype's colours for each state the API reports. The API sends states and
 // numbers only; how they look belongs to the console. Safe to use on server and client.
@@ -38,29 +38,6 @@ export function workColours(tone: string): Pick<WorkItem, "ageFg" | "icoBg" | "i
   };
 }
 
-const BANDS: Record<MonitorItem["band"], Omit<MonitorItem, "id" | "band" | "astro" | "reason" | "age" | "denied">> = {
-  CRITICAL: { bg: "#fff1f2", border: "#fecdd3", bandBg: "#be123c", bandFg: "#fff", ageFg: "#be123c" },
-  HIGH: { bg: "#fff7ed", border: "#fed7aa", bandBg: "#ea580c", bandFg: "#fff", ageFg: "#c2410c" },
-  PROMOTED: { bg: "#fffbeb", border: "#fde68a", bandBg: "#f59e0b", bandFg: "#1c1917", ageFg: "#b45309" },
-  PRIVATE: { bg: "#f7f4ee", border: PLAIN_BORDER, bandBg: "#78716c", bandFg: "#fff", ageFg: "#78716c" },
-  SAMPLING: { bg: "#fffdf8", border: PLAIN_BORDER, bandBg: "#d6d3d1", bandFg: "#1c1917", ageFg: "#78716c" },
-};
-
-export function bandColours(band: string) {
-  return BANDS[band as MonitorItem["band"]] ?? BANDS.SAMPLING;
-}
-
-const RISK: Record<string, Pick<RiskBand, "fill" | "fg">> = {
-  Critical: { fill: "#be123c", fg: "#be123c" },
-  High: { fill: "#ea580c", fg: "#c2410c" },
-  Medium: { fill: "#f59e0b", fg: "#92400e" },
-  Unknown: { fill: "#d6d3d1", fg: "#78716c" },
-};
-
-export function riskColours(label: string): Pick<RiskBand, "fill" | "fg"> {
-  return RISK[label] ?? { fill: PLAIN_BORDER, fg: "#78716c" };
-}
-
 /** Review flag chip: abusive / policy breaches in rose, everything else amber. */
 export function flagColours(flag: string): Pick<ModerationItem, "flagBg" | "flagFg"> {
   return /^R-0[1-4]/.test(flag) ? { flagBg: "#fff1f2", flagFg: "#be123c" } : { flagBg: "#fffbeb", flagFg: "#92400e" };
@@ -83,4 +60,13 @@ export interface RawSearchHit {
 
 export function toSearchHit(h: RawSearchHit): SearchHit {
   return { kind: h.kind, label: h.label, sub: h.sub, href: pageLink(h.page, h.param) };
+}
+
+/** A retention period in days: 30 → "30 days", 365 → "1 year", 1095 → "3 years". */
+export function periodLabel(days: number): string {
+  if (days % 365 === 0) {
+    const years = days / 365;
+    return `${years} ${years === 1 ? "year" : "years"}`;
+  }
+  return `${days} days`;
 }

@@ -219,26 +219,28 @@ export default function RbacMatrix({ data }: { data: RbacData }) {
           Which console pages each department can open. A page someone can&rsquo;t open is hidden from their menu and
           its data is refused by the server.
         </p>
-        <table className="w-full border-collapse text-[13px]">
-          <thead>{head}</thead>
-          <tbody>
-            {data.pages.map((p, pi) => (
-              <tr key={p.key}>
-                <td className={`${TD} p-2.5 font-semibold text-ink`}>{p.label}</td>
-                {p.cells.map((c, ri) => (
-                  <Cell
-                    key={ri}
-                    cell={c}
-                    value={shownPages[pi][ri]}
-                    editing={editing}
-                    label={`${data.roles[ri].label} can open ${p.label}`}
-                    onToggle={() => toggle(pages, setPages, pi, ri)}
-                  />
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[13px]">
+            <thead>{head}</thead>
+            <tbody>
+              {data.pages.map((p, pi) => (
+                <tr key={p.key}>
+                  <td className={`${TD} p-2.5 font-semibold text-ink`}>{p.label}</td>
+                  {p.cells.map((c, ri) => (
+                    <Cell
+                      key={ri}
+                      cell={c}
+                      value={shownPages[pi][ri]}
+                      editing={editing}
+                      label={`${data.roles[ri].label} can open ${p.label}`}
+                      onToggle={() => toggle(pages, setPages, pi, ri)}
+                    />
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className={`${PANEL} mt-4 p-5`}>
@@ -246,42 +248,44 @@ export default function RbacMatrix({ data }: { data: RbacData }) {
         <p className="mt-0 mb-3.5 text-[12px] text-[#78716c]">
           What each department can do. A capability only works together with the page it is used on.
         </p>
-        <table className="w-full border-collapse text-[13px]">
-          <thead>{head}</thead>
-          <tbody>
-            {data.capabilities.map((c, ci) => {
-              const pi = c.page ? pageIndex(c.page) : -1;
-              const pageLabel = pi >= 0 ? data.pages[pi].label : null;
-              return (
-                <tr key={c.key}>
-                  <td className={`${TD} p-2.5`}>
-                    <span className="block font-mono text-[11.5px] text-ink">{c.key}</span>
-                    <span className="block text-[11.5px] text-[#78716c]">
-                      {c.label}
-                      {pageLabel ? ` · on ${pageLabel}` : " · no console action uses it yet"}
-                    </span>
-                  </td>
-                  {c.cells.map((cell, ri) => {
-                    const value = shownCaps[ci][ri];
-                    // Granted, but the department can't open the page where it is used.
-                    const warn = value && pi >= 0 && !shownPages[pi][ri] && !cell.locked ? `needs ${pageLabel}` : null;
-                    return (
-                      <Cell
-                        key={ri}
-                        cell={cell}
-                        value={value}
-                        editing={editing}
-                        warn={warn}
-                        label={`${data.roles[ri].label}: ${c.key}`}
-                        onToggle={() => toggle(caps, setCaps, ci, ri)}
-                      />
-                    );
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[13px]">
+            <thead>{head}</thead>
+            <tbody>
+              {data.capabilities.map((c, ci) => {
+                const pi = c.page ? pageIndex(c.page) : -1;
+                const pageLabel = pi >= 0 ? data.pages[pi].label : null;
+                return (
+                  <tr key={c.key}>
+                    <td className={`${TD} p-2.5`}>
+                      <span className="block font-mono text-[11.5px] text-ink">{c.key}</span>
+                      <span className="block text-[11.5px] text-[#78716c]">
+                        {c.label}
+                        {pageLabel ? ` · on ${pageLabel}` : " · no console action uses it yet"}
+                      </span>
+                    </td>
+                    {c.cells.map((cell, ri) => {
+                      const value = shownCaps[ci][ri];
+                      // Granted, but the department can't open the page where it is used.
+                      const warn = value && pi >= 0 && !shownPages[pi][ri] && !cell.locked ? `needs ${pageLabel}` : null;
+                      return (
+                        <Cell
+                          key={ri}
+                          cell={cell}
+                          value={value}
+                          editing={editing}
+                          warn={warn}
+                          label={`${data.roles[ri].label}: ${c.key}`}
+                          onToggle={() => toggle(caps, setCaps, ci, ri)}
+                        />
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className={`${PANEL} mt-4 p-5`}>

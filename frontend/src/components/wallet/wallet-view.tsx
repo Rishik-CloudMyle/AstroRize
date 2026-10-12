@@ -8,11 +8,32 @@ import { rupee, signedRupee } from "@/lib/format";
 import { DATA_RIGHTS } from "@/lib/mock/wallet";
 import { sessionActions, totalBalance, useHydrated, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
+import AccountSection, { ClosedNotice, type Closed } from "./account-section";
 import ProfileSection from "./profile-section";
 
 interface Denomination {
   amount: number;
   bonus: number;
+}
+
+const CLOSED_KEY = "astrorize.accountClosed";
+
+function readClosed(): Closed | null {
+  try {
+    const raw = typeof window === "undefined" ? null : window.sessionStorage.getItem(CLOSED_KEY);
+    return raw ? (JSON.parse(raw) as Closed) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeClosed(closed: Closed | null) {
+  try {
+    if (closed?.kind === "deleted") window.sessionStorage.setItem(CLOSED_KEY, JSON.stringify(closed));
+    else window.sessionStorage.removeItem(CLOSED_KEY);
+  } catch {
+    // Storage blocked (private mode): the note just won't survive a refresh.
+  }
 }
 
 const errorText = (e: unknown) =>
@@ -26,9 +47,39 @@ export default function WalletView() {
   const hydrated = useHydrated();
   const session = useSession();
   const { openLogin } = useAppUI();
+  // After "Deactivate" or "Delete my account": the note that replaces the wallet. A deletion's
+  // refund reference is kept for this tab, so a refresh doesn't lose it.
+  const [closed, setClosedState] = useState<Closed | null>(readClosed);
+  // A note restored after a reload belongs to an account that is already signed out (deleted),
+  // so anyone signed in now gets their own wallet.
+  const [sawLogout, setSawLogout] = useState(() => readClosed() !== null);
+  const setClosed = (next: Closed | null) => {
+    setClosedState(next);
+    writeClosed(next);
+    // The note replaces the whole page; start it at the top, not where the account boxes were.
+    if (next) window.scrollTo({ top: 0 });
+  };
+  // Signed out after closing, then someone signs in again: show their wallet.
+  if (closed && session.ready && !session.loggedIn && !sawLogout) setSawLogout(true);
+  if (closed && session.loggedIn && sawLogout) {
+    setSawLogout(false);
+    setClosed(null);
+  }
 
   if (!hydrated || !session.ready) {
     return <div className="h-80 rounded-[22px] border border-line bg-paper" aria-busy="true" />;
+  }
+
+  if (closed) {
+    return (
+      <ClosedNotice
+        closed={closed}
+        onLogin={() => {
+          setClosed(null);
+          openLogin();
+        }}
+      />
+    );
   }
 
   if (!session.loggedIn) {
@@ -72,10 +123,10 @@ export default function WalletView() {
     );
   }
 
-  return <SignedInWallet />;
+  return <SignedInWallet onClosed={setClosed} />;
 }
 
-function SignedInWallet() {
+function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
   const session = useSession();
   const { toast } = useAppUI();
   const { wallet } = session;
@@ -300,14 +351,7 @@ function SignedInWallet() {
               </Link>
             </div>
           </div>
-          <div className="mt-3.5 rounded-[14px] border border-rose-200 bg-rose-50 px-4 py-3.5">
-            <b className="text-[13.5px] text-rose-700">Delete my account</b>
-            <p className="mt-[5px] text-[12.5px] leading-normal text-rose-900">
-              Deleting your account is permanent. Your wallet balance ({rupee(totalBalance(session))}) will be
-              forfeited, and we&apos;ll ask you to confirm with an OTP before anything is deleted. Deletion isn&apos;t
-              available while a dispute is open or a legal hold applies.
-            </p>
-          </div>
+          <AccountSection onClosed={onClosed} />
         </div>
       </div>
 

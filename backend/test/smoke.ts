@@ -35,7 +35,7 @@ function client() {
     return { status: r.status, body: json };
   };
 }
-const login = async (email: string) => { const c = client(); const r = await c("POST", "/auth/login", { email, password: "Astrorize@2026" }); check(`login ${email}`, r.status === 200, r); return c; };
+const login = async (email: string) => { const c = client(); const r = await c("POST", "/auth/login", { email, password: "123456" }); check(`login ${email}`, r.status === 200, r); return c; };
 
 // Public
 const anon = client();
@@ -153,6 +153,36 @@ r = await astro("GET", "/portal/messages");
 const thread = r.body.threads?.[0]?.id ?? r.body.messages?.threads?.[0]?.id;
 r = await astro("POST", `/portal/messages/${thread}`, { text: "Call me on 9876543210" });
 check("contact details blocked", JSON.stringify(r.body).toLowerCase().includes("contact details"), r);
+
+// Messages: real customers, profiles only for the astrologer's own conversations
+r = await astro("GET", "/portal/messages");
+const sneha = (r.body.threads ?? []).find((t: any) => t.customer?.name === "Sneha R");
+check("portal messages show the customer's real name and photo", !!sneha?.customer?.photoUrl && /Pune/.test(sneha.customer.line), r.body.threads?.map((t: any) => t.customer));
+r = await astro("GET", `/portal/messages/${sneha?.id}/customer`);
+check("astrologer opens a messaging customer's profile", r.status === 200 && !!r.body.person?.profile?.birthPlace && typeof r.body.person?.history?.consultations === "number", r);
+r = await arjun("GET", `/portal/messages/${sneha?.id}/customer`);
+check("another astrologer can't open that profile (404)", r.status === 404, r);
+r = await cust("GET", "/messages");
+check("customer lists their conversations", r.status === 200 && r.body.conversations?.some((c: any) => c.astrologer.id === "raghav"), r.body);
+r = await cust("POST", "/messages/acharya-meera-iyer", { text: "Hello" });
+check("any listed astrologer can be messaged, no consultation needed", r.status === 201 && r.body.blocked === false, r);
+r = await cust("GET", "/messages/search/astrologers?q=arj");
+check("customer finds astrologers by name", r.status === 200 && r.body.astrologers?.[0]?.slug === "pandit-arjun-deshmukh" && typeof r.body.astrologers[0].presence === "string", r.body);
+r = await cust("GET", "/messages/rohit-not-listed-xyz");
+check("unknown astrologer address is a 404", r.status === 404, r);
+r = await cust("POST", "/messages/pandit-arjun-deshmukh", { text: "Thank you for the reading." });
+check("customer starts a conversation with an astrologer", r.status === 201 && r.body.blocked === false && !!r.body.conversationId, r);
+r = await cust("POST", "/messages/pandit-arjun-deshmukh", { text: "My number is 98765 43210" });
+check("customer's contact details blocked", r.status === 201 && r.body.blocked === true, r);
+r = await cust("POST", "/messages/pandit-arjun-deshmukh", { text: "   " });
+check("empty message rejected", r.status === 400, r);
+r = await arjun("GET", "/portal/messages");
+const fromSneha = (r.body.threads ?? []).find((t: any) => t.customer?.name === "Sneha R");
+check("astrologer receives it; the blocked attempt stays with the sender", fromSneha?.messages?.length === 1 && fromSneha.messages[0].from === "customer", fromSneha);
+r = await arjun("POST", `/portal/messages/${fromSneha?.id}`, { text: "Glad it helped." });
+check("astrologer replies", r.status === 201 && r.body.blocked === false, r);
+r = await cust("GET", "/messages/pandit-arjun-deshmukh");
+check("customer sees the reply", r.body.conversation?.messages?.at(-1)?.from === "astrologer" && r.body.canMessage === true, r.body);
 r = await astro("PATCH", "/portal/multiplier", { multiplier: 10 });
 check("multiplier above max rejected", r.status === 400, r);
 
@@ -211,8 +241,24 @@ r = await superA("POST", "/admin/support/TKT-3384/refund/approve");
 check("super approves refund proposed by support", r.status === 200, r);
 r = await sup("GET", "/admin/finance");
 check("support can't open finance page", r.status === 403, r);
-r = await comp("POST", "/admin/monitoring/LIVE-8804/join", {});
-check("private consult can't be observed", r.status >= 400, r);
+r = await comp("GET", "/admin/monitoring");
+check("monitoring is empty while nobody is live", r.status === 200 && r.body.monitoring?.lives?.length === 0 && r.body.monitoring?.capacity?.used === 0, r.body.monitoring);
+const anyConsult = await db.consultation.findFirstOrThrow({ select: { ref: true } });
+r = await comp("POST", `/admin/monitoring/${anyConsult.ref}/join`, {});
+check("private consult can't be observed", r.status === 403, r);
+r = await comp("POST", "/admin/monitoring/raghav/join", {});
+check("can't observe a room that isn't live", r.status === 404, r);
+// Recording & retention: honest, and only a Super Admin changes retention
+r = await comp("GET", "/admin/recording");
+check("recording page: no provider, chat retention 3 years", r.status === 200 && r.body.recording?.provider?.connected === false && r.body.recording?.retention?.days === 1095, r.body);
+r = await comp("PUT", "/admin/recording/retention", { days: 365 });
+check("compliance can't change retention", r.status === 403, r);
+r = await superA("PUT", "/admin/recording/retention", { days: 10 });
+check("retention below 30 days refused", r.status === 400, r);
+r = await superA("PUT", "/admin/recording/retention", { days: 1825 });
+check("super sets retention to 5 years", r.status === 200, r);
+r = await superA("PUT", "/admin/recording/retention", { days: 1095 });
+check("and back to 3 years (audited)", r.status === 200 && !!(await db.auditLog.findFirst({ where: { action: "retention.update", diff: "1825 days → 1095 days" } })), r);
 r = await superA("GET", "/admin/audit/export");
 check("audit CSV export", r.status === 200 && typeof r.body === "string" && r.body.includes("payout.batch.release"), String(r.body).slice(0, 200));
 
@@ -244,6 +290,24 @@ r = await anon("GET", "/live-rooms");
 check("the room is listed while live", r.body.rooms?.length === 1 && r.body.rooms[0].id === "raghav" && r.body.rooms[0].topic === "Smoke test live", r.body);
 r = await anon("GET", "/live-rooms/raghav");
 check("watching counts as a real viewer", r.status === 200 && r.body.room?.viewers === 1, r.body.room?.viewers);
+
+// Live monitoring sees the real room; the observer is watch-only and invisible to viewers
+r = await comp("GET", "/admin/monitoring");
+check("monitoring lists raghav's live", r.body.monitoring?.lives?.some((l: any) => l.id === "raghav" && l.topic === "Smoke test live"), r.body.monitoring?.lives);
+r = await comp("POST", "/admin/monitoring/raghav/join", {});
+const leaseId = r.body.lease?.id;
+check("compliance joins as observer", r.status === 200 && !!leaseId, r);
+r = await comp("GET", "/admin/monitoring");
+check("one observer seat in use", r.body.monitoring?.capacity?.used === 1 && r.body.monitoring?.myLease?.id === leaseId, r.body.monitoring?.capacity);
+await cust("POST", "/live-rooms/raghav/chat", { text: "Hello from smoke" });
+r = await comp("GET", `/admin/monitoring/leases/${leaseId}`);
+check("observer sees the room and its chat", r.body.status === "observing" && r.body.room?.chat?.some((c: any) => c.text === "Hello from smoke"), r.body);
+r = await anon("GET", "/live-rooms/raghav");
+check("observer isn't counted as a viewer", r.body.room?.viewers === 1, r.body.room?.viewers);
+r = await comp("POST", "/admin/monitoring/raghav/flag", { reason: "Other policy concern", note: "smoke" });
+check("observer flags the live", r.status === 200, r);
+r = await comp("GET", "/admin/monitoring");
+check("the flag shows as a review signal", r.body.monitoring?.lives?.find((l: any) => l.id === "raghav")?.priority === "review", r.body.monitoring?.lives);
 r = await anon("GET", "/astrologers/pt-raghav-joshi");
 check("raghav shows live", r.body.astrologer?.availability === "live", r.body.astrologer?.availability);
 r = await cust("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT" });
@@ -287,6 +351,9 @@ check("queue join defaults to private", joined?.mode === "PRIVATE", { mode: join
 // Ending live closes the room and empties the queue
 r = await astro("POST", "/portal/live/end");
 check("raghav ends live", r.status === 200 && r.body.ended === true && r.body.presence === "on", r);
+r = await comp("GET", `/admin/monitoring/leases/${leaseId}`);
+check("observer is told the live ended", r.body.status === "ended", r.body);
+check("ending the live releases the observer seat", !!(await db.observerLease.findUnique({ where: { id: leaseId } }))?.releasedAt, "");
 r = await anon("GET", "/live-rooms/raghav");
 check("ended room is gone", r.status === 404, r);
 r = await anon("GET", "/live-rooms");
@@ -337,7 +404,7 @@ r = await newbie("GET", "/admin/support");
 check("switched-off person's session ends at once", r.status === 401, r);
 r = await client()("POST", "/auth/login", { email: newEmail, password: "Temp12345x" });
 check("switched-off person can't sign in", r.status === 401, r);
-r = await client()("POST", "/auth/login", { email: "fatima.shaikh@astrorize.com", password: "Astrorize@2026" });
+r = await client()("POST", "/auth/login", { email: "fatima.shaikh@astrorize.com", password: "123456" });
 check("seeded switched-off account refused", r.status === 401, r);
 
 // Lifecycle list includes astrologers who aren't public
@@ -347,6 +414,122 @@ check("lifecycle lists every astrologer", r.status === 200 && ids.includes("rohi
 
 // A self-signed-up astrologer's application: submit → HR stages → activate / reject (test/application-flow.ts)
 await applicationFlow(API, check);
+
+// Admin Messages: staff, astrologers and customers; only admins start; members reply
+{
+  const people = async (q: string) => (await superA("GET", `/admin/messages/people?q=${encodeURIComponent(q)}`)).body.people ?? [];
+  const staff = (await people("")).filter((p: any) => p.kind === "staff");
+  const ragP = (await people("raghav")).find((p: any) => p.kind === "astrologer");
+  const custP = (await people("9876543210")).find((p: any) => p.kind === "customer");
+  check("people search: staff, astrologer, masked customer", staff.length > 0 && !!ragP && !!custP && /•/.test(custP.line) && !custP.line.includes("9876543210"), { staff, ragP, custP });
+  r = await superA("POST", "/admin/messages", { memberIds: [ragP?.id, custP?.id], text: "hi" });
+  check("one astrologer or customer per conversation (400)", r.status === 400, r);
+  r = await astro("POST", "/admin/messages", { memberIds: [custP?.id], text: "hi" });
+  check("an astrologer can't start an admin conversation (403)", r.status === 403, r);
+  r = await superA("POST", "/admin/messages", { memberIds: [ragP?.id], subject: "Smoke payout check", text: "Please confirm your bank details." });
+  const toRaghav = r.body.id;
+  check("admin messages an astrologer", r.status === 201 && !!toRaghav, r);
+  r = await astro("GET", "/portal/messages");
+  const team = (r.body.threads ?? []).find((t: any) => t.id === toRaghav);
+  check("astrologer sees it as Astrorize team, unread", team?.kind === "team" && /^Astrorize team/.test(team.title) && team.unread === 1, team);
+  r = await astro("GET", "/portal/account");
+  check("portal badge counts it", r.body.account?.counts?.messages >= 1, r.body.account?.counts);
+  r = await astro("POST", `/portal/team-messages/${toRaghav}`, { text: "Confirmed, call me on 9876543210 if needed" });
+  check("astrologer replies (contact details allowed with staff)", r.status === 201, r);
+  r = await arjun("POST", `/portal/team-messages/${toRaghav}`, { text: "hi" });
+  check("another astrologer can't reply (404)", r.status === 404, r);
+  r = await superA("POST", "/admin/messages", { memberIds: [custP?.id], text: "Hello from Astrorize support." });
+  const toCust = r.body.id;
+  r = await cust("GET", "/messages");
+  const sup = (r.body.support ?? []).find((t: any) => t.id === toCust);
+  check("customer sees Astrorize support, unread", sup?.title === "Astrorize support" && sup.unread >= 1, r.body.support);
+  r = await cust("GET", `/messages/support/${toCust}`);
+  check("customer opens it (marks read)", r.status === 200 && r.body.conversation?.messages?.at(-1)?.author?.includes("Astrorize support"), r.body);
+  r = await cust("POST", `/messages/support/${toCust}`, { text: "Thanks!" });
+  check("customer replies to support", r.status === 201, r);
+  const finP = staff.find((p: any) => p.line === "Finance");
+  r = await superA("POST", "/admin/messages", { memberIds: [finP?.id], text: "Batch status?" });
+  const toFin = r.body.id;
+  r = await superA("GET", "/admin/messages/unread");
+  check("admin has unread replies", r.status === 200 && r.body.unread >= 2, r.body);
+  r = await superA("GET", `/admin/messages/${toRaghav}`);
+  check("admin reads the astrologer's reply", r.body.conversation?.messages?.at(-1)?.author?.kind === "astrologer", r.body);
+  r = await mkt("GET", `/admin/messages/${toFin}`);
+  check("staff outside a conversation can't open it (404)", r.status === 404, r);
+  r = await cust("GET", "/admin/messages");
+  check("customers can't use admin messages (403)", r.status === 403, r);
+}
+
+// Account deactivate / delete, wallet refunds, slot reopen (HTTP only)
+{
+  const phone = String(6000000000 + Math.floor(Math.random() * 999999999));
+  const signIn = async (c: ReturnType<typeof client>) => {
+    const code = (await c("POST", "/auth/otp/request", { phone })).body.devCode;
+    return c("POST", "/auth/otp/verify", { phone, code });
+  };
+  const acc = client();
+  r = await signIn(acc);
+  check("account: new customer signs up", r.status === 200 && r.body.created === true, r.body);
+  const order = (await acc("POST", "/wallet/recharge", { amount: 500 })).body;
+  await acc("POST", `/wallet/recharge/${order.orderId}/confirm`);
+  r = await acc("GET", "/me/account");
+  check("account: delete preview shows refund ₹500 and forfeited promo", r.body.account?.refund === 500 && r.body.account?.forfeited === order.bonus && r.body.account?.deleteBlocked === null, r.body);
+
+  r = await acc("POST", "/me/account/deactivate");
+  check("account: deactivate signs out everywhere", r.status === 200 && (await acc("GET", "/wallet")).status === 401, r);
+  r = await signIn(acc);
+  check("account: signing in again re-activates", r.status === 200 && r.body.reactivated === true && r.body.created === false, r.body);
+  r = await acc("GET", "/wallet");
+  check("account: wallet kept while paused", r.body.wallet?.service === 500, r.body);
+
+  r = await acc("POST", "/me/account/delete", { code: "000000" });
+  check("account: delete refuses a wrong code", r.status === 400, r);
+  const code = (await acc("POST", "/me/account/delete/code")).body.devCode;
+  r = await acc("POST", "/me/account/delete", { code });
+  const refundRef = r.body.refund?.ref;
+  check("account: delete refunds service balance only", r.status === 200 && r.body.refund?.amount === 500 && r.body.forfeited === order.bonus && /^WRF-\d+$/.test(refundRef), r.body);
+  check("account: deleted customer is signed out", (await acc("GET", "/wallet")).status === 401);
+
+  const fin = await login("finance@astrorize.com");
+  r = await fin("GET", "/admin/refunds");
+  const row = (r.body.refunds ?? []).find((x: any) => x.ref === refundRef);
+  check("refunds: Finance sees it pending, customer anonymised", row?.status === "PENDING" && row.amount === 500 && /^Deleted customer · CUS-/.test(row.customer), row);
+  r = await fin("POST", `/admin/refunds/${refundRef}/paid`, { providerRef: "" });
+  check("refunds: paid needs a reference", r.status === 400, r);
+  r = await fin("POST", `/admin/refunds/${refundRef}/paid`, { providerRef: "UTR12345" });
+  check("refunds: Finance marks it paid", r.status === 200, r);
+  r = await fin("POST", `/admin/refunds/${refundRef}/failed`, { note: "Card closed by bank" });
+  check("refunds: a paid refund can't be marked failed", r.status === 409, r);
+  const sup = await login("support@astrorize.com");
+  r = await sup("GET", "/admin/refunds");
+  check("refunds: Support can't open them (403)", r.status === 403, r);
+
+  const again = client();
+  r = await signIn(again);
+  check("account: the number signs up fresh after deletion", r.status === 200 && r.body.created === true, r.body);
+
+  // Portal: cancel an open slot, then open it again
+  const astro = await login("raghav.joshi@email.com");
+  const days = (await astro("GET", "/portal/availability")).body.availability.dayKeys as string[];
+  // Sunday next week: always in the future.
+  const date = new Date(new Date(days[6] + "T00:00:00Z").getTime() + 7 * 86400000).toISOString().slice(0, 10);
+  const tryHours = ["06:00", "06:30", "07:00", "07:30", "08:00", "08:30"];
+  let slotId: string | undefined, start = "", end = "";
+  for (let i = 0; i < tryHours.length - 1 && !slotId; i++) {
+    start = tryHours[i]!; end = tryHours[i + 1]!;
+    const made = await astro("POST", "/portal/availability", { date, start, end });
+    slotId = made.body.slot?.id;
+  }
+  await astro("POST", `/portal/availability/${slotId}/cancel`);
+  r = await astro("POST", `/portal/availability/${slotId}/reopen`);
+  const slots = (await astro("GET", `/portal/availability?week=${date}`)).body.availability.slots;
+  check("portal: a cancelled future slot opens again", r.status === 200 && slots.find((s: any) => s.id === slotId)?.state === "open", r);
+  await astro("POST", `/portal/availability/${slotId}/cancel`);
+  const blocker = (await astro("POST", "/portal/availability", { date, start, end })).body.slot?.id;
+  r = await astro("POST", `/portal/availability/${slotId}/reopen`);
+  check("portal: reopening is refused when another slot overlaps", r.status === 409, r);
+  await astro("POST", `/portal/availability/${blocker}/cancel`);
+}
 
 // Logout revokes session
 r = await cust("POST", "/auth/logout");

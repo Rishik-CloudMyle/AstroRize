@@ -87,9 +87,13 @@ export type Presence = "on" | "busy" | "live" | "off";
 
 // ── Dashboard ──
 export interface ScheduleItem {
+  /** The availability slot, or null for the live room row. */
+  id: string | null;
   time: string;
   what: string;
   kind: "open" | "booked" | "live";
+  /** Who booked it (booked slots only). */
+  customer: ThreadCustomer | null;
 }
 
 export interface TrainingItem {
@@ -196,6 +200,8 @@ export interface Slot {
   end: string;
   state: SlotState;
   detail?: string | null;
+  /** Real name of whoever booked it (booked slots only). */
+  customerName?: string | null;
 }
 
 export interface Availability {
@@ -361,16 +367,69 @@ export interface LiveQueueDetail {
 
 // ── Messages ──
 export interface ChatMessage {
+  id: string;
   /** "blocked" = the notice shown when a message contained contact details */
   from: "customer" | "me" | "blocked";
   text: string;
+  /** ISO time it was sent */
+  at: string;
 }
 
-export interface Thread {
+/** The customer in a conversation: real name, photo or initials, and "32 · Pune". */
+export interface ThreadCustomer extends LiveQueueSummary {
+  line: string;
+}
+
+export interface CustomerThread {
+  kind: "customer";
   id: string;
+  /** Older conversations may not be linked to a customer account; only then is the alias shown. */
   alias: string;
+  customer: ThreadCustomer | null;
   preview: string;
+  lastAt: string | null;
+  /** The customer wrote last. */
+  awaitingReply: boolean;
   messages: ChatMessage[];
+}
+
+/** A message in a conversation the Astrorize team started. */
+export interface TeamMessage {
+  id: string;
+  from: "me" | "team";
+  /** "Neha Gupta · Finance"; null for my own messages. */
+  author: string | null;
+  text: string;
+  at: string;
+}
+
+/** A conversation the Astrorize team started with the astrologer (same list as customer threads). */
+export interface TeamThread {
+  kind: "team";
+  id: string;
+  /** "Astrorize team · Neha Gupta (Finance)" */
+  title: string;
+  subject: string | null;
+  preview: string;
+  lastAt: string;
+  lastFromMe: boolean;
+  /** Messages from the team the astrologer hasn't opened yet. */
+  unread: number;
+  messages: TeamMessage[];
+}
+
+export type Thread = CustomerThread | TeamThread;
+
+/** GET /portal/messages/:threadId/customer */
+/** A booked slot and the customer who booked it (GET /portal/schedule/:slotId). */
+export interface BookingDetail extends ThreadCustomerDetail {
+  slot: { date: string; start: string; end: string; detail: string };
+}
+
+export interface ThreadCustomerDetail {
+  alias: string;
+  profile: LiveQueueProfile;
+  history: { consultations: number; lastConsultation: string | null };
 }
 
 // ── Earnings ──

@@ -4,7 +4,9 @@ import { db } from "../../db.ts";
 import { Prisma } from "../../generated/prisma/client.ts";
 import { ageLabel, istDateKey, istTime, rupee } from "../../lib/format.ts";
 import { adminOf, capabilitiesOf, pagesOf, requirePage } from "../../lib/rbac.ts";
+import { hostedLiveRoom } from "../../lib/presence.ts";
 import { configNumber, getSetting } from "../../lib/settings.ts";
+import { monitoringCounts } from "./monitoring.ts";
 
 export const overviewRouter = Router();
 
@@ -24,7 +26,7 @@ overviewRouter.get("/session", async (req, res) => {
     pages.includes("hr") ? db.applicant.count() : 0,
     pages.includes("finance") ? db.payoutBatch.count({ where: { state: { not: "RELEASED" } } }) : 0,
     pages.includes("support") ? db.supportTicket.count({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] } } }) : 0,
-    pages.includes("compliance") ? db.monitorTarget.count() : 0,
+    pages.includes("compliance") ? db.liveRoom.count({ where: hostedLiveRoom() }) : 0,
     pages.includes("trust") ? db.review.count({ where: { status: "FLAGGED" } }) : 0,
   ]);
   res.json({
@@ -157,12 +159,11 @@ overviewRouter.get("/overview", async (req, res) => {
   const slaDays = await configNumber("hr.application.review_sla_days", 5);
   const slaCutoff = new Date(now.getTime() - slaDays * 86400000);
 
-  const [activeSessions, emergency, liveRooms, flaggedRooms, openTickets, breached, applicants, overSla, awaiting, submittedChanges, flaggedReviews, audits, analyticsData, trial] =
+  const [activeSessions, emergency, lives, openTickets, breached, applicants, overSla, awaiting, submittedChanges, flaggedReviews, audits, analyticsData, trial] =
     await Promise.all([
       db.consultation.count({ where: { status: "ACTIVE" } }),
       db.consultation.count({ where: { status: "ACTIVE", kind: "INSTANT" } }),
-      db.liveRoom.count({ where: { isLive: true } }),
-      db.monitorTarget.count({ where: { band: { in: ["CRITICAL", "HIGH"] } } }),
+      monitoringCounts(),
       db.supportTicket.count({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] } } }),
       db.supportTicket.findMany({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] }, slaDueAt: { lt: now } } }),
       db.applicant.count(),
@@ -210,8 +211,8 @@ overviewRouter.get("/overview", async (req, res) => {
       kpis: {
         liveSessions: activeSessions,
         emergency,
-        publicLives: liveRooms,
-        flaggedLives: flaggedRooms,
+        publicLives: lives.lives,
+        flaggedLives: lives.review,
         openTickets,
         breachedTickets: breached.length,
         applications: applicants,
@@ -240,11 +241,13 @@ overviewRouter.get("/search", async (req, res) => {
     pages.includes("config") ? db.configKey.findMany({ where: { OR: [{ key: contains }, { description: contains }] }, take: 5 }) : [],
     pages.includes("finance") ? db.payoutBatch.findMany({ where: { id: contains }, take: 5 }) : [],
     pages.includes("marketing") ? db.campaign.findMany({ where: { OR: [{ id: contains }, { name: contains }] }, take: 5 }) : [],
-    pages.includes("compliance") ? db.monitorTarget.findMany({ where: { OR: [{ id: contains }, { astroLabel: contains }] }, take: 5 }) : [],
+    pages.includes("compliance")
+      ? db.liveRoom.findMany({ where: { ...hostedLiveRoom(), OR: [{ topic: contains }, { astrologer: { name: contains } }] }, include: { astrologer: { select: { name: true } } }, take: 5 })
+      : [],
   ]);
   res.json({
     hits: [
-      ...targets.map((t) => ({ kind: "Live", label: t.astroLabel, sub: t.reason, page: "compliance", param: null })),
+      ...targets.map((t) => ({ kind: "Live", label: `${t.astrologer.name} · live now`, sub: t.topic, page: "compliance", param: null })),
       ...tickets.map((t) => ({ kind: "Ticket", label: t.id, sub: t.subject, page: "support", param: `ticket=${t.id}` })),
       ...applicants.map((a) => ({ kind: "Application", label: `${a.id} · ${a.name}`, sub: a.state, page: "hr", param: `app=${a.id}` })),
       ...keys.map((k) => ({ kind: "Config", label: k.key, sub: `current ${k.value}`, page: "config", param: `key=${encodeURIComponent(k.key)}` })),

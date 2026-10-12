@@ -193,7 +193,7 @@ export default function ConfigView({
   const ghostBtn = "h-11 rounded-xl border border-line bg-white px-[18px] text-[13.5px] font-bold";
 
   return (
-    <div className="mt-5 grid grid-cols-[300px_minmax(0,1fr)] items-start gap-[18px]">
+    <div className="mt-5 grid grid-cols-1 items-start gap-[18px] md:grid-cols-[300px_minmax(0,1fr)]">
       {/* Key browser */}
       <div className={`${PANEL} p-3.5`}>
         <SortSelect options={CONFIG_SORTS} value={sort} onChange={setSort} className="mb-3 w-full" />
@@ -277,8 +277,9 @@ export default function ConfigView({
         {/* Propose a change: pick the setting, type the value, submit it for a second approver */}
         <form onSubmit={submit} noValidate className={`${PANEL} mb-4 p-[18px]`}>
           <h2 className="mt-0 mb-3 text-[15px] font-bold">Propose a change</h2>
-          <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto] items-start gap-3">
-            <label className="min-w-0">
+          {/* Narrower windows: the setting gets its own row, value and button share the next (phones: one per row). */}
+          <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto]">
+            <label className="min-w-0 sm:col-span-2 xl:col-span-1">
               <span className={`${EYEBROW} mb-1.5 block`}>Setting</span>
               <select
                 value={cfg.key}
@@ -467,61 +468,65 @@ export default function ConfigView({
               global → country → segment → object → user · the narrowest override wins
             </span>
           </div>
-          <table className="mt-2.5 w-full border-collapse text-[13px]">
-            <thead>
-              <tr>
-                {["Scope", "Value", "Effective", "State"].map((h) => (
-                  <th key={h} className={`${TH_SM} text-left`}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {scopeRows.map((r, i) => (
-                <tr key={i}>
-                  <td className={`${TD} px-2.5 py-[9px] text-[12.5px] font-semibold text-ink`}>{r.level}</td>
-                  <td className={`${TD} px-2.5 py-[9px] font-mono text-[11.5px] text-ink`}>{r.value}</td>
-                  <td className={`${TD} px-2.5 py-[9px] text-[12.5px] text-[#57534e]`}>{r.eff}</td>
-                  <td className={`${TD} px-2.5 py-[9px]`}>
-                    <span
-                      className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[10.5px] font-extrabold"
-                      style={{ background: r.bg, color: r.fg }}
-                    >
-                      {r.state}
-                    </span>
-                  </td>
+          <div className="overflow-x-auto mt-2.5">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr>
+                  {["Scope", "Value", "Effective", "State"].map((h) => (
+                    <th key={h} className={`${TH_SM} text-left`}>
+                      {h}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {scopeRows.map((r, i) => (
+                  <tr key={i}>
+                    <td className={`${TD} px-2.5 py-[9px] text-[12.5px] font-semibold text-ink`}>{r.level}</td>
+                    <td className={`${TD} px-2.5 py-[9px] font-mono text-[11.5px] text-ink`}>{r.value}</td>
+                    <td className={`${TD} px-2.5 py-[9px] text-[12.5px] text-[#57534e]`}>{r.eff}</td>
+                    <td className={`${TD} px-2.5 py-[9px]`}>
+                      <span
+                        className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[10.5px] font-extrabold"
+                        style={{ background: r.bg, color: r.fg }}
+                      >
+                        {r.state}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Version history */}
         <div className={`${PANEL} mt-4 p-5`}>
           <h2 className="mt-0 mb-3 text-[15px] font-bold">Version history</h2>
-          <table className="w-full border-collapse text-[13px]">
-            <thead>
-              <tr>
-                {["Version", "Value", "Drafted by", "Approved by", "When"].map((h) => (
-                  <th key={h} className={`${TH_SM} text-left`}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((h) => (
-                <tr key={`${h.v}-${h.when}-${h.value}`}>
-                  <td className={`${TD} p-2.5 font-mono text-[11.5px] text-[#57534e]`}>v{h.v}</td>
-                  <td className={`${TD} p-2.5 font-mono text-[11.5px] font-semibold text-ink`}>{h.value}</td>
-                  <td className={`${TD} p-2.5 text-[#57534e]`}>{h.by}</td>
-                  <td className={`${TD} p-2.5 text-[#57534e]`}>{h.approver}</td>
-                  <td className={`${TD} p-2.5 text-[#78716c]`}>{h.when}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr>
+                  {["Version", "Value", "Drafted by", "Approved by", "When"].map((h) => (
+                    <th key={h} className={`${TH_SM} text-left`}>
+                      {h}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {history.map((h) => (
+                  <tr key={`${h.v}-${h.when}-${h.value}`}>
+                    <td className={`${TD} p-2.5 font-mono text-[11.5px] text-[#57534e]`}>v{h.v}</td>
+                    <td className={`${TD} p-2.5 font-mono text-[11.5px] font-semibold text-ink`}>{h.value}</td>
+                    <td className={`${TD} p-2.5 text-[#57534e]`}>{h.by}</td>
+                    <td className={`${TD} p-2.5 text-[#57534e]`}>{h.approver}</td>
+                    <td className={`${TD} p-2.5 text-[#78716c]`}>{h.when}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <p className="mt-[11px] mb-0 text-[11.5px] text-[#78716c]">
             A rollback creates a new version equal to the selected prior value. History is never rewritten.
           </p>

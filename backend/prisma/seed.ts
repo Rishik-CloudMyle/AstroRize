@@ -7,7 +7,9 @@ import { db } from "../src/db.ts";
 import { hashPassword } from "../src/lib/password.ts";
 import { istDateKey } from "../src/lib/format.ts";
 
-const DEMO_PASSWORD = "Astrorize@2026";
+// Demo builds only: one easy password for every seeded account. The seed refuses to run in
+// production, and real accounts must meet the sign-up password rules.
+const DEMO_PASSWORD = "123456";
 const now = Date.now();
 const minutesAgo = (m: number) => new Date(now - m * 60000);
 const hoursAgo = (h: number) => minutesAgo(h * 60);
@@ -237,9 +239,9 @@ async function main() {
   // ── Astrologer portal: Raghav ──
   // Today's schedule plus the rest of this week (relative to today, so the portal always has data).
   const todayDow = (dayKey(0).getUTCDay() + 6) % 7; // 0 = Monday
-  const slots = [
+  const slots: { date: Date; start: string; end: string; state: string; detail?: string; customerId?: string }[] = [
     { date: dayKey(0), start: "10:00", end: "11:00", state: "OPEN" },
-    { date: dayKey(0), start: "14:00", end: "14:30", state: "BOOKED", detail: "Fixed Session · customer C-5512" },
+    { date: dayKey(0), start: "14:00", end: "14:30", state: "BOOKED", detail: "Fixed Session · 30 min", customerId: queueCustomers[1]!.id },
     { date: dayKey(0), start: "18:00", end: "19:00", state: "OPEN" },
   ];
   if (todayDow !== 0) slots.push({ date: dayKey(-todayDow), start: "10:00", end: "11:00", state: "OPEN" });
@@ -249,22 +251,24 @@ async function main() {
   // No requests waiting and no session in progress: Raghav is offline until he comes online,
   // and customers can only ask an astrologer who is online.
 
-  const threads: [string, [string, string, boolean?][]][] = [
-    ["A-8821", [
+  // Conversations with real customer accounts, so the astrologer sees who they're talking to.
+  const threads: [{ id: string }, [string, string, boolean?][]][] = [
+    [customer, [
       ["CUSTOMER", "Namaste. When is a good muhurat for registering property?"],
       ["ASTROLOGER", "Let us look at your chart properly. Book a 15-minute voice consult and I will give you two windows."],
       ["CUSTOMER", "Sure. Can I call you on 98765 •••••"],
       ["SYSTEM", "Contact details cannot be shared through Astrorize. Keep the conversation on the platform so both of you stay protected.", true],
     ]],
-    ["B-1290", [["CUSTOMER", "thank you 🙏"]]],
-    ["C-5512", [["CUSTOMER", "can we move the fixed session?"]]],
-    ["D-7703", [["CUSTOMER", "about the reading last week"]]],
+    [queueCustomers[0]!, [["CUSTOMER", "thank you 🙏"]]],
+    [queueCustomers[1]!, [["CUSTOMER", "can we move the fixed session?"]]],
+    [queueCustomers[2]!, [["CUSTOMER", "about the reading last week"]]],
   ];
-  for (const [i, [alias, messages]] of threads.entries()) {
+  for (const [i, [who, messages]] of threads.entries()) {
     await db.messageThread.create({
       data: {
         astrologerId: "raghav",
-        customerAlias: alias,
+        customerId: who.id,
+        customerAlias: `C-${1000 + i}`,
         updatedAt: minutesAgo(10 + i * 30),
         messages: { create: messages.map(([sender, text, blocked], j) => ({ sender, text, blocked: !!blocked, createdAt: minutesAgo(10 + i * 30 + (messages.length - j)) })) },
       },
@@ -341,7 +345,6 @@ async function main() {
     ["trust.review.removal_undo_mins", false, "Window in which a soft-hidden review can be restored before removal becomes permanent.", "30", "global", "5–120", "9 reviews are inside the undo window right now.", "trust"],
     ["trust.rating.min_consults_to_publish", false, "Verified consultations an astrologer needs before a public rating is shown on the profile.", "25", "global", "5–200", "Lowering to 10 would publish ratings for 34 more profiles, 6 of them below 4.0.", "trust"],
     ["live.room.max_concurrent_per_astrologer", false, "Live rooms one astrologer may host at the same time.", "1", "global", "1–3", "No astrologer currently requests more than one. Raising this needs a provider capacity review.", "live"],
-    ["live.recording.retention_days", true, "Days a consultation recording is retained before scheduled deletion. Bounded by the recording capability.", "90", "country", "30–365", "Extending to 180 adds an estimated ₹68,000 a month in storage and needs a DPDP review.", "recording"],
     ["marketing.gift.max_value", true, "Ceiling on a single gift in the catalogue. Anything above needs Admin approval before it goes ACTIVE.", "5100", "global", "100–10000", "3 catalogue items sit at the ceiling. Lowering to ₹3,000 would pull them back to draft.", "marketing"],
     ["marketing.campaign.max_discount_pct", false, "Largest discount a campaign may advertise before the cashback floor clamps it.", "40", "segment", "0–70", "Two live campaigns are at 40%. The floor already clamps them to an effective 32%.", "marketing"],
     ["hr.application.review_sla_days", false, "Days an application may sit in review before it is flagged past SLA on the queue.", "5", "global", "1–21", "3 applications are past SLA today. At 7 days none would be flagged.", "hr"],
@@ -394,15 +397,7 @@ async function main() {
     ],
   });
 
-  await db.monitorTarget.createMany({
-    data: [
-      { id: "LIVE-8821", astroLabel: "Pt. Raghav Joshi · LIVE-8821", band: "CRITICAL", reason: "Two abuse reports in 10 minutes", startedAt: minutesAgo(4) },
-      { id: "LIVE-8817", astroLabel: "Sneha Ramanathan · LIVE-8817", band: "HIGH", reason: "Outcome-guarantee language detected", startedAt: minutesAgo(12) },
-      { id: "LIVE-8809", astroLabel: "Dr. Lalita Bose · LIVE-8809", band: "PROMOTED", reason: "Anti-starvation promotion — waited 48 min", startedAt: minutesAgo(48) },
-      { id: "LIVE-8804", astroLabel: "Pandit Arjun Deshmukh · LIVE-8804", band: "PRIVATE", reason: "Private consultation in progress", startedAt: minutesAgo(6), denied: true },
-      { id: "LIVE-8801", astroLabel: "Vikram Sethi · LIVE-8801", band: "SAMPLING", reason: "Routine sample — no signal", startedAt: minutesAgo(22) },
-    ],
-  });
+  // Live monitoring shows only real live rooms and consultations: no seeded monitoring targets.
 
   await db.campaign.createMany({
     data: [
@@ -420,19 +415,9 @@ async function main() {
       { icon: "✦", name: "Eternal Gratitude", price: 5100, state: "ACTIVE", rank: 3 },
     ],
   });
-  await db.recordingModality.createMany({
-    data: [
-      { mode: "Chat", note: "Transcript retained with the session record", retention: "3 years", status: "enabled", rank: 0 },
-      { mode: "Voice (RTC)", note: "Provider supports up to 3 years", retention: "18 months", status: "enabled", rank: 1 },
-      { mode: "Video (RTC)", note: "Storage cost pending vendor confirmation", retention: "—", status: "blocked", rank: 2 },
-      { mode: "PSTN", note: "Provider ceiling is 3–6 months", retention: "6 months", status: "disabled", rank: 3 },
-    ],
-  });
-
   await db.auditLog.createMany({
     data: [
       { at: ist("2026-09-15", "09:38:12"), actorId: admins.super.id, actorName: "K. Prasad", action: "config.draft.submit", object: "consult.emergency.max_multiplier", diff: "4.0 → 3.0", correlation: "8f21c4a" },
-      { at: ist("2026-09-15", "09:12:44"), actorId: admins.compliance.id, actorName: "M. Rathore", action: "live.observer.break_glass", object: "LIVE-8821", diff: "— → OBSERVING", correlation: "3b90ee1", breakGlass: true },
       { at: ist("2026-09-15", "08:54:03"), actorId: admins.super.id, actorName: "K. Prasad", action: "payout.batch.approve", object: "PB-2026-09-B", diff: "DRAFT → APPROVED", correlation: "77120ab" },
       { at: ist("2026-09-15", "08:31:57"), actorId: admins.support.id, actorName: "S. Banerjee", action: "review.remove", object: "REV-99120", diff: "VISIBLE → SOFT_HIDDEN", correlation: "c4412de" },
       { at: ist("2026-09-15", "07:58:20"), actorId: admins.finance.id, actorName: "A. Verma", action: "rbac.capability.grant", object: "user:priya.nair", diff: "— → dispute.refund.propose", correlation: "5512fab" },
@@ -463,18 +448,11 @@ async function main() {
       billed: 960,
       buckets: { service: 800, promo: 160 },
     },
-    "monitoring.baseObservers": 18,
-    "monitoring.risk": [
-      { label: "Critical", pct: "6%", count: "14" },
-      { label: "High", pct: "14%", count: "34" },
-      { label: "Medium", pct: "31%", count: "76" },
-      { label: "Unknown", pct: "28%", count: "68" },
-      { label: "Insufficient data", pct: "21%", count: "51" },
-    ],
+    // Observer seats on the Live monitoring page (real leases are counted against it).
+    "monitoring.observerCapacity": 25,
     "trust.density": { value: 68, target: 100 },
     "trust.sampleFloor": { floor: "30 consults", below: "41 astrologers" },
     "rbac.conflict": { user: "Priya Nair", requested: "astrologer.restore", existing: "astrologer.suspend", alternative: "astrologer.restore.review" },
-    "recording.checklist": { title: "Cost & capability submission incomplete", body: "Two of five vendor items outstanding. Recording toggles stay disabled until the submission is complete.", complete: false },
     "metrics.overview": {
       dau: [37877, 38146, 38660, 39430, 39595, 44657, 45392, 40652, 41136, 41838, 42013, 42639, 48233, 48407, 43330, 43883, 44420, 44607, 44966, 50705, 51458, 46387, 46563, 47248, 47489, 47830, 54529, 55367, 50029, 50208],
       stickiness: [9.2, 9.2, 9.3, 9.6, 9.5, 10.8, 10.8, 9.7, 9.8, 9.9, 9.9, 10.0, 11.3, 11.2, 10.1, 10.1, 10.3, 10.3, 10.3, 11.5, 11.8, 10.5, 10.6, 10.6, 10.7, 10.7, 12.2, 12.3, 11.1, 11.1],

@@ -63,7 +63,8 @@ async function startSession(res: import("express").Response, userId: string) {
   const expiresAt = new Date(Date.now() + config.sessionDays * 86400000);
   const [session] = await db.$transaction([
     db.session.create({ data: { userId, expiresAt } }),
-    db.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } }),
+    // Signing in again re-activates an account its owner paused ("Deactivate").
+    db.user.update({ where: { id: userId }, data: { lastLoginAt: new Date(), pausedAt: null } }),
   ]);
   const view = publicUser(user);
   const token = await signSession(
@@ -79,7 +80,7 @@ async function startSession(res: import("express").Response, userId: string) {
 const codeSchema = z.string().regex(/^\d{6}$/, "Enter the six-digit code.");
 
 /** Creates a one-time code for the number and texts it (returned as devCode outside production). */
-async function issueOtp(phone: string, ip: string | undefined) {
+export async function issueOtp(phone: string, ip: string | undefined) {
   rateLimit(`otp:${phone}`, 5, 10 * 60 * 1000, "Too many codes requested. Try again in a few minutes.");
   rateLimit(`otp-ip:${ip}`, 20, 10 * 60 * 1000, "Too many codes requested. Try again in a few minutes.");
 
@@ -90,7 +91,7 @@ async function issueOtp(phone: string, ip: string | undefined) {
 }
 
 /** Checks the latest code for the number and uses it up. Throws a friendly 400 otherwise. */
-async function consumeOtp(phone: string, code: string) {
+export async function consumeOtp(phone: string, code: string) {
   const otp = await db.otpCode.findFirst({
     where: { phone, consumedAt: null, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: "desc" },
@@ -125,11 +126,14 @@ authRouter.post("/otp/verify", async (req, res) => {
       data: { phone, name, initials: initialsOf(name), role: "CUSTOMER", wallet: { create: {} } },
     });
   }
+  if (user.deletedAt) throw unauthorized("This account was deleted.");
   if (user.role !== "CUSTOMER") throw badRequest("This number belongs to a staff or astrologer account. Sign in with email.");
-  if (!user.active) throw unauthorized("This account has been switched off. Contact support.");
+  if (!user.active) throw unauthorized("This account has been deactivated. Contact support.");
+  const reactivated = !!user.pausedAt;
 
-  // `created` lets the sign-up page tell a returning customer they already had an account.
-  res.json({ user: await startSession(res, user.id), created });
+  // `created` lets the sign-up page tell a returning customer they already had an account;
+  // `reactivated` that their paused account is active again.
+  res.json({ user: await startSession(res, user.id), created, reactivated });
 });
 
 // ── Sign-up (customers and astrologers; staff accounts are created by a Super Admin) ──
@@ -237,8 +241,10 @@ authRouter.post("/login", async (req, res) => {
   if (!user || !(await verifyPassword(password, user.passwordHash))) {
     throw unauthorized(user ? "That password is not correct." : "No account uses this email. Customers can also sign in with their mobile number.");
   }
-  if (!user.active) throw unauthorized("This account has been switched off. Ask your Super Admin to turn it back on.");
-  res.json({ user: await startSession(res, user.id) });
+  if (user.deletedAt) throw unauthorized("This account was deleted.");
+  if (!user.active) throw unauthorized("This account has been deactivated. Ask your Super Admin to activate it again.");
+  const reactivated = !!user.pausedAt;
+  res.json({ user: await startSession(res, user.id), reactivated });
 });
 
 authRouter.post("/logout", async (req, res) => {

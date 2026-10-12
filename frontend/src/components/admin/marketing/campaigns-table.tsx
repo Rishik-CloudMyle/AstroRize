@@ -65,63 +65,66 @@ export default function CampaignsTable({ campaigns }: { campaigns: Campaign[] })
         <h2 className="m-0 text-[16px] font-bold">Wallet campaigns</h2>
         <SortSelect options={CAMPAIGN_SORTS} value={sort} onChange={setSort} />
       </div>
-      <table className="w-full border-collapse text-[13px]">
-        <thead>
-          <tr>
-            {HEADS.map(([label, align], i) => (
-              <th key={i} className={TH} style={{ textAlign: align }}>
-                {label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((c) => {
-            const st = c.state;
-            const [bg, fg] = tone(st);
-            const locked = st === "UNDER_REVIEW" || st === "SUBMITTED";
-            return (
-              <tr key={c.id}>
-                <td className={`${TD} px-2.5 py-[11px] font-mono text-[11.5px] text-[#57534e]`}>{c.id}</td>
-                <td className={`${TD} px-2.5 py-[11px] font-bold text-ink`}>{c.name}</td>
-                <td className={`${TD} px-2.5 py-[11px] text-[#57534e]`}>{c.denoms}</td>
-                <td className={`${TD} px-2.5 py-[11px] text-right text-[#57534e] tabular-nums`}>{c.cashback}</td>
-                <td className={`${TD} px-2.5 py-[11px]`}>
-                  <span
-                    className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[11px] font-bold"
-                    style={{ background: bg, color: fg }}
-                  >
-                    {st}
-                  </span>
-                </td>
-                <td className={`${TD} px-2.5 py-[11px] text-right`}>
-                  {locked && canApprove ? (
-                    <button
-                      type="button"
-                      onClick={() => act(c.id, st)}
-                      className="h-[30px] rounded-[9px] border-0 bg-emerald-700 px-3 text-[12px] font-bold text-white"
+      {/* Scrolls inside the card on narrow windows, never the page. */}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] border-collapse text-[13px]">
+          <thead>
+            <tr>
+              {HEADS.map(([label, align], i) => (
+                <th key={i} className={TH} style={{ textAlign: align }}>
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((c) => {
+              const st = c.state;
+              const [bg, fg] = tone(st);
+              const locked = st === "UNDER_REVIEW" || st === "SUBMITTED";
+              return (
+                <tr key={c.id}>
+                  <td className={`${TD} px-2.5 py-[11px] font-mono text-[11.5px] whitespace-nowrap text-[#57534e]`}>{c.id}</td>
+                  <td className={`${TD} px-2.5 py-[11px] font-bold text-ink`}>{c.name}</td>
+                  <td className={`${TD} px-2.5 py-[11px] whitespace-nowrap text-[#57534e]`}>{c.denoms}</td>
+                  <td className={`${TD} px-2.5 py-[11px] text-right text-[#57534e] tabular-nums`}>{c.cashback}</td>
+                  <td className={`${TD} px-2.5 py-[11px]`}>
+                    <span
+                      className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[11px] font-bold"
+                      style={{ background: bg, color: fg }}
                     >
-                      Approve &amp; activate
-                    </button>
-                  ) : locked ? (
-                    <span className="inline-flex h-[30px] items-center rounded-[9px] border border-dashed border-stone-300 bg-stone-100 px-3 text-[11.5px] font-bold text-muted">
-                      {actionLabel(st)}
+                      {st}
                     </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => act(c.id, st)}
-                      className="h-[30px] rounded-[9px] border border-line bg-white px-3 text-[12px] font-bold text-[#57534e]"
-                    >
-                      {actionLabel(st)}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                  </td>
+                  <td className={`${TD} px-2.5 py-[11px] text-right whitespace-nowrap`}>
+                    {locked && canApprove ? (
+                      <button
+                        type="button"
+                        onClick={() => act(c.id, st)}
+                        className="h-[30px] rounded-[9px] border-0 bg-emerald-700 px-3 text-[12px] font-bold text-white"
+                      >
+                        Approve &amp; activate
+                      </button>
+                    ) : locked ? (
+                      <span className="inline-flex h-[30px] items-center rounded-[9px] border border-dashed border-stone-300 bg-stone-100 px-3 text-[11.5px] font-bold text-muted">
+                        {actionLabel(st)}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => act(c.id, st)}
+                        className="h-[30px] rounded-[9px] border border-line bg-white px-3 text-[12px] font-bold text-[#57534e]"
+                      >
+                        {actionLabel(st)}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       {rows.length === 0 && <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">No campaigns yet.</p>}
     </>
   );

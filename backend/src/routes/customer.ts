@@ -18,6 +18,20 @@ import { IMAGE_TYPES, MAX_PHOTO_BYTES, deleteMedia, saveImage, sniffImage } from
 import { GENDERS, ageOn, dateKey, initialsOf, ownProfileView } from "../lib/profile.ts";
 import { rateLimit } from "../lib/safety.ts";
 import {
+  checkSendRate,
+  directText,
+  directThreadFor,
+  isMessageable,
+  lastDelivered,
+  messageText,
+  messageView,
+  postMessage,
+  replyDirect,
+  teamConversations,
+  teamThreadView,
+  visibleTo,
+} from "../lib/messaging.ts";
+import {
   acceptBy,
   endConsultation,
   expireStaleRequests,
@@ -30,11 +44,15 @@ import { effectivePresence, syncPresence } from "../lib/presence.ts";
 import { astrologerView } from "./catalog.ts";
 import { configNumber } from "../lib/settings.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
+import { accountStatus, deactivateAccount, deleteAccount } from "../lib/account.ts";
+import { verifyPassword } from "../lib/password.ts";
+import { clearSessionCookie } from "../lib/session.ts";
+import { consumeOtp, issueOtp } from "./auth.ts";
 import type { Astrologer, Consultation, Prisma } from "../generated/prisma/client.ts";
 
 // Everything here belongs to a signed-in customer.
 export const customerRouter = Router();
-customerRouter.use(["/wallet", "/consultations", "/instant-calls", "/me"], roleGuard("customer"));
+customerRouter.use(["/wallet", "/consultations", "/instant-calls", "/me", "/messages"], roleGuard("customer"));
 
 const auth = (req: Request) => req.auth as AuthContext;
 
@@ -381,6 +399,56 @@ customerRouter.post("/me/data-requests", async (req, res) => {
   res.status(201).json({ request: { id: request.id, kind, status: request.status } });
 });
 
+// ── Deactivate or delete my account (see lib/account.ts) ──
+
+/** Refund and forfeit amounts, how to confirm, and whether anything blocks it right now. */
+customerRouter.get("/me/account", async (req, res) => {
+  res.json({ account: await accountStatus(auth(req).user.id) });
+});
+
+/** Pause: signs out everywhere. Signing in again re-activates the account. */
+customerRouter.post("/me/account/deactivate", async (req, res) => {
+  await deactivateAccount(auth(req).user.id);
+  clearSessionCookie(res);
+  res.json({ ok: true });
+});
+
+/** Texts a code to the customer's own mobile number to confirm a deletion. */
+customerRouter.post("/me/account/delete/code", async (req, res) => {
+  const user = auth(req).user;
+  if (!user.phone) throw badRequest("There's no mobile number on this account. Confirm with your password instead.");
+  const blocked = (await accountStatus(user.id)).deleteBlocked;
+  if (blocked) throw conflict(blocked);
+  res.json(await issueOtp(user.phone, req.ip));
+});
+
+/** Permanent deletion, confirmed with the mobile code or the account password. */
+customerRouter.post("/me/account/delete", async (req, res) => {
+  const user = auth(req).user;
+  rateLimit(`account-delete:${user.id}`, 10, 10 * 60 * 1000, "Too many attempts. Try again in a few minutes.");
+  const input = z
+    .object({
+      code: z.string().regex(/^\d{6}$/, "Enter the six-digit code.").optional(),
+      password: z.string().min(1, "Enter your password.").optional(),
+    })
+    .parse(req.body ?? {});
+  // Refuse before using up the code (checked again, under a lock, while deleting).
+  const blocked = (await accountStatus(user.id)).deleteBlocked;
+  if (blocked) throw conflict(blocked);
+  if (input.code !== undefined) {
+    if (!user.phone) throw badRequest("There's no mobile number on this account. Confirm with your password instead.");
+    await consumeOtp(user.phone, input.code);
+  } else if (input.password !== undefined) {
+    if (!user.passwordHash || !user.email) throw badRequest("This account has no password. Confirm with the code sent to your mobile.");
+    if (!(await verifyPassword(input.password, user.passwordHash))) throw badRequest("That password is not correct.");
+  } else {
+    throw badRequest("Confirm with the code sent to your mobile or your password.");
+  }
+  const result = await deleteAccount(user.id);
+  clearSessionCookie(res);
+  res.json(result);
+});
+
 // ── Profile ("A little about you" + "Birth details") ──
 // Shared only with an astrologer whose live consult queue the customer joins.
 
@@ -502,4 +570,121 @@ customerRouter.delete("/me/photo", async (req, res) => {
   await db.user.update({ where: { id: me.id }, data: { photoUrl: null } });
   await deleteMedia(previous);
   res.json({ photoUrl: null });
+});
+
+// ── Astrologer Messenger ──
+// Free, text-only direct messages with an astrologer. One conversation per astrologer; any
+// listed astrologer can be messaged. Conversations started by the Astrorize team sit alongside.
+
+const START_RULE = "This astrologer isn't taking new messages right now.";
+
+const messengerAstrologer = (a: Pick<Astrologer, "id" | "slug" | "name" | "initials" | "photo">) => ({
+  id: a.id,
+  slug: a.slug,
+  name: a.name,
+  initials: a.initials,
+  photo: a.photo,
+});
+
+/** My conversations, latest first, and those with Astrorize support. */
+customerRouter.get("/messages", async (req, res) => {
+  const [threads, support] = await Promise.all([
+    db.messageThread.findMany({
+      where: { customerId: auth(req).user.id },
+      orderBy: { updatedAt: "desc" },
+      include: { astrologer: true, messages: { orderBy: { createdAt: "asc" } } },
+    }),
+    teamConversations(auth(req).user.id, "customer"),
+  ]);
+  res.json({
+    support,
+    conversations: threads.map((t) => {
+      const last = lastDelivered(t.messages);
+      return {
+        id: t.id,
+        astrologer: messengerAstrologer(t.astrologer),
+        preview: last?.text.slice(0, 80) ?? "",
+        lastAt: (last ?? t.messages.at(-1))?.createdAt.toISOString() ?? null,
+        lastFrom: last ? (last.sender === "CUSTOMER" ? "me" : "astrologer") : null,
+      };
+    }),
+  });
+});
+
+/** Who may be messaged at this address, and the conversation with them if there is one. */
+async function conversationWith(customerId: string, slug: string) {
+  const astrologer = await db.astrologer.findUnique({ where: { slug } });
+  if (!astrologer) throw notFound("No astrologer at this address.");
+  const thread = await db.messageThread.findUnique({
+    where: { astrologerId_customerId: { astrologerId: astrologer.id, customerId } },
+    include: { messages: { orderBy: { createdAt: "asc" } } },
+  });
+  // Replying is always allowed; starting needs a listed astrologer.
+  if (!thread && astrologer.lifecycle !== "active") throw notFound("No astrologer at this address.");
+  const canMessage = !!thread || isMessageable(astrologer);
+  return { astrologer, thread, canMessage };
+}
+
+/** Listed astrologers matching a name, for "Start a conversation" in the search box. */
+customerRouter.get("/messages/search/astrologers", async (req, res) => {
+  const q = z.string().trim().max(60).catch("").parse(req.query.q);
+  if (q.length < 2) return void res.json({ astrologers: [] });
+  const list = await db.astrologer.findMany({
+    where: { lifecycle: "active", suspension: { not: "full" }, name: { contains: q, mode: "insensitive" } },
+    orderBy: { rank: "asc" },
+    take: 8,
+  });
+  res.json({
+    astrologers: list.map((a) => ({
+      ...messengerAstrologer(a),
+      skills: a.skills.slice(0, 3),
+      /** on | busy | live | off */
+      presence: effectivePresence(a).toLowerCase(),
+    })),
+  });
+});
+
+// Conversations the Astrorize team started with this customer ("Astrorize support").
+
+customerRouter.get("/messages/support/:id", async (req, res) => {
+  const me = auth(req).user;
+  const thread = await directThreadFor(String(req.params.id), me.id, true);
+  res.json({ conversation: teamThreadView(thread, me.id, "customer") });
+});
+
+customerRouter.post("/messages/support/:id", async (req, res) => {
+  const { text } = z.object({ text: directText }).parse(req.body);
+  res.status(201).json({ message: await replyDirect(String(req.params.id), auth(req).user.id, text) });
+});
+
+customerRouter.get("/messages/:slug", async (req, res) => {
+  const { astrologer, thread, canMessage } = await conversationWith(auth(req).user.id, String(req.params.slug));
+  res.json({
+    astrologer: messengerAstrologer(astrologer),
+    conversation: thread
+      ? { id: thread.id, messages: thread.messages.filter(visibleTo("CUSTOMER")).map((m) => messageView(m, "CUSTOMER")) }
+      : null,
+    canMessage,
+    notice: canMessage ? null : START_RULE,
+  });
+});
+
+/** Send a message; the first one starts the conversation. Contact details are never delivered. */
+customerRouter.post("/messages/:slug", async (req, res) => {
+  const me = auth(req).user;
+  const { text } = z.object({ text: messageText }).parse(req.body);
+  const { astrologer, thread, canMessage } = await conversationWith(me.id, String(req.params.slug));
+  if (!canMessage) throw new HttpError(403, START_RULE, "forbidden");
+  checkSendRate(me.id);
+  // Upsert: two first messages sent at once still make one conversation.
+  const threadId =
+    thread?.id ??
+    (
+      await db.messageThread.upsert({
+        where: { astrologerId_customerId: { astrologerId: astrologer.id, customerId: me.id } },
+        create: { astrologerId: astrologer.id, customerId: me.id, customerAlias: newAlias() },
+        update: {},
+      })
+    ).id;
+  res.status(201).json({ conversationId: threadId, ...(await postMessage(threadId, "CUSTOMER", text)) });
 });

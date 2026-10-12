@@ -90,7 +90,7 @@ export default function SupportView({
   const ok = stage === "initiated";
 
   return (
-    <div className="mt-5 grid grid-cols-[300px_minmax(0,1fr)] items-start gap-[18px]">
+    <div className="mt-5 grid grid-cols-1 items-start gap-[18px] md:grid-cols-[300px_minmax(0,1fr)]">
       <div className={`${PANEL} p-3.5`}>
         <SortSelect options={TICKET_SORTS} value={sort} onChange={setSort} className="mb-3 w-full" />
         <div className={`${EYEBROW} px-1 pb-2`}>Queue · {tickets.length}</div>

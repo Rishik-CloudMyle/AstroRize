@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
-import { ageLabel, istDayMonth, istStamp } from "../../lib/format.ts";
+import { istDayMonth, istStamp } from "../../lib/format.ts";
 import {
   CAPABILITIES,
   CAPABILITY_LOCKS,
@@ -30,82 +30,18 @@ import {
   type PageKey,
   type StoredMatrix,
 } from "../../lib/rbac.ts";
+import {
+  RETENTION_DEFAULT_DAYS,
+  RETENTION_MAX_DAYS,
+  RETENTION_MIN_DAYS,
+  RETENTION_SETTING,
+  lastPurge,
+  retentionPolicy,
+} from "../../lib/retention.ts";
 import { configNumber, getSetting, putSetting } from "../../lib/settings.ts";
 import type { Prisma } from "../../generated/prisma/client.ts";
 
 export const governanceRouter = Router();
-
-// ── Live monitoring ──
-
-const OBSERVER_CAPACITY = 25;
-const LEASE_SECONDS = 600;
-
-governanceRouter.get("/monitoring", async (req, res) => {
-  const admin = requirePage(req, "compliance");
-  const now = new Date();
-  // Expired leases free their capacity.
-  await db.observerLease.updateMany({ where: { releasedAt: null, expiresAt: { lt: now } }, data: { releasedAt: now } });
-  const [targets, active, mine, risk, baseUsed] = await Promise.all([
-    db.monitorTarget.findMany({ orderBy: { startedAt: "asc" } }),
-    db.observerLease.count({ where: { releasedAt: null } }),
-    db.observerLease.findFirst({ where: { adminId: admin.user.id, releasedAt: null } }),
-    getSetting<{ label: string; pct: string; count: string }[]>("monitoring.risk", []),
-    getSetting<number>("monitoring.baseObservers", 0),
-  ]);
-  const order = ["CRITICAL", "HIGH", "PROMOTED", "PRIVATE", "SAMPLING"];
-  res.json({
-    monitoring: {
-      capacity: { used: baseUsed + active, total: OBSERVER_CAPACITY },
-      queue: targets
-        .sort((a, b) => order.indexOf(a.band) - order.indexOf(b.band))
-        .map((t) => ({ id: t.id, band: t.band, astro: t.astroLabel, reason: t.reason, age: ageLabel(t.startedAt, now, "long"), denied: t.denied })),
-      risk,
-      myLease: mine ? { id: mine.id, targetId: mine.targetId, secondsLeft: Math.max(0, Math.floor((mine.expiresAt.getTime() - now.getTime()) / 1000)) } : null,
-    },
-  });
-});
-
-governanceRouter.post("/monitoring/:id/join", async (req, res) => {
-  requirePage(req, "compliance");
-  const admin = requireCapability(req, "live.observer.join");
-  const { breakGlass, justification } = z
-    .object({ breakGlass: z.boolean().default(false), justification: z.string().trim().max(500).optional() })
-    .parse(req.body ?? {});
-  const target = await db.monitorTarget.findUnique({ where: { id: String(req.params.id) } });
-  if (!target) throw notFound("Live session not found.");
-  if (target.denied) throw forbidden("Denied — this is a private consultation. Observers can never join a private live.");
-  if (breakGlass && (!justification || justification.length < 10)) throw forbidden("Break-glass access needs a written justification.");
-  const now = new Date();
-  await db.observerLease.updateMany({ where: { adminId: admin.user.id, releasedAt: null }, data: { releasedAt: now } });
-  const [active, baseUsed] = await Promise.all([
-    db.observerLease.count({ where: { releasedAt: null, expiresAt: { gt: now } } }),
-    getSetting<number>("monitoring.baseObservers", 0),
-  ]);
-  if (baseUsed + active >= OBSERVER_CAPACITY) throw conflict("Observer capacity is full — you're in line and will join when a seat frees up.");
-  const lease = await db.observerLease.create({
-    data: { adminId: admin.user.id, adminName: actorName(admin), targetId: target.id, breakGlass, expiresAt: new Date(now.getTime() + LEASE_SECONDS * 1000) },
-  });
-  await audit(admin, breakGlass ? "live.observer.break_glass" : "live.observer.join", target.id, "— → OBSERVING", { breakGlass });
-  res.json({ lease: { id: lease.id, targetId: target.id, secondsLeft: LEASE_SECONDS } });
-});
-
-governanceRouter.post("/monitoring/leases/:id/release", async (req, res) => {
-  const admin = requirePage(req, "compliance");
-  const lease = await db.observerLease.findUnique({ where: { id: String(req.params.id) } });
-  if (!lease || lease.adminId !== admin.user.id) throw notFound("Lease not found.");
-  if (!lease.releasedAt) await db.observerLease.update({ where: { id: lease.id }, data: { releasedAt: new Date() } });
-  await audit(admin, "live.observer.leave", lease.targetId, "OBSERVING → —");
-  res.json({ ok: true });
-});
-
-governanceRouter.post("/monitoring/:id/flag", async (req, res) => {
-  const admin = requirePage(req, "compliance");
-  const { label } = z.object({ label: z.string().trim().min(2).max(80) }).parse(req.body);
-  const target = await db.monitorTarget.findUnique({ where: { id: String(req.params.id) } });
-  if (!target) throw notFound("Live session not found.");
-  await audit(admin, "live.observer.flag", target.id, label);
-  res.json({ ok: true });
-});
 
 // ── Trust & reviews ──
 
@@ -347,26 +283,56 @@ governanceRouter.get("/audit/export", async (req, res) => {
   res.send(csv);
 });
 
-// ── Recording ──
+// ── Recording & retention ──
+// Nothing is recorded from calls or video: no calling or streaming provider is connected. What is
+// stored today is written conversation — live-room chat and astrologer–customer messages — kept
+// for the retention period below and purged daily (lib/retention.ts).
 
 governanceRouter.get("/recording", async (req, res) => {
-  requirePage(req, "recording");
-  const [modalities, checklist] = await Promise.all([
-    db.recordingModality.findMany({ orderBy: { rank: "asc" } }),
-    getSetting("recording.checklist", { title: "", body: "", complete: false }),
+  const admin = requirePage(req, "recording");
+  const [policy, purge, liveChat, messages, conversations, oldestChat, oldestMessage] = await Promise.all([
+    retentionPolicy(),
+    lastPurge(),
+    db.chatMessage.count(),
+    db.message.count(),
+    db.messageThread.count(),
+    db.chatMessage.findFirst({ orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
+    db.message.findFirst({ orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
   ]);
-  res.json({ recording: { checklist, modalities: modalities.map((m) => ({ mode: m.mode, note: m.note, retention: m.retention, status: m.status })) } });
+  const oldest = [oldestChat?.createdAt, oldestMessage?.createdAt].filter((d): d is Date => !!d).sort((x, y) => x.getTime() - y.getTime())[0];
+  res.json({
+    recording: {
+      provider: { connected: false },
+      stored: { liveChat, messages, conversations, oldest: oldest ? istStamp(oldest) : null },
+      retention: {
+        days: policy.days,
+        defaultDays: RETENTION_DEFAULT_DAYS,
+        minDays: RETENTION_MIN_DAYS,
+        maxDays: RETENTION_MAX_DAYS,
+        updatedBy: policy.updatedBy,
+        updatedAt: policy.updatedAt ? istStamp(new Date(policy.updatedAt)) : null,
+        canEdit: capabilitiesOf(admin.adminRole).includes("retention.edit"),
+      },
+      lastPurge: purge ? { at: istStamp(new Date(purge.at)), chatMessages: purge.chatMessages, messages: purge.messages, threads: purge.threads } : null,
+    },
+  });
 });
 
-governanceRouter.patch("/recording/:mode", async (req, res) => {
-  const admin = requirePage(req, "recording");
-  const { status } = z.object({ status: z.enum(["enabled", "disabled"]) }).parse(req.body);
-  const checklist = await getSetting("recording.checklist", { complete: false } as { complete?: boolean });
-  if (!checklist.complete) throw conflict("Recording toggles stay disabled until the cost & capability submission is complete.");
-  const m = await db.recordingModality.findUnique({ where: { mode: String(req.params.mode) } });
-  if (!m) throw notFound("Unknown recording type.");
-  if (m.status === "blocked") throw conflict(`${m.mode} recording is blocked: ${m.note}.`);
-  await db.recordingModality.update({ where: { mode: m.mode }, data: { status } });
-  await audit(admin, "recording.toggle", m.mode, `${m.status} → ${status}`);
-  res.json({ ok: true });
+governanceRouter.put("/recording/retention", async (req, res) => {
+  requirePage(req, "recording");
+  const admin = requireCapability(req, "retention.edit", "Only a Super Admin can change how long conversations are kept.");
+  const { days } = z
+    .object({
+      days: z
+        .number({ error: "Choose a retention period." })
+        .int("Choose a whole number of days.")
+        .min(RETENTION_MIN_DAYS, `Keep conversations for at least ${RETENTION_MIN_DAYS} days.`)
+        .max(RETENTION_MAX_DAYS, `Conversations can be kept for at most ${RETENTION_MAX_DAYS} days (5 years).`),
+    })
+    .parse(req.body ?? {});
+  const before = await retentionPolicy();
+  if (before.days === days) throw badRequest("That is already the retention period.");
+  await putSetting(RETENTION_SETTING, { days, updatedAt: new Date().toISOString(), updatedBy: actorName(admin) });
+  await audit(admin, "retention.update", "conversations", `${before.days} days → ${days} days`);
+  res.json({ ok: true, days });
 });
