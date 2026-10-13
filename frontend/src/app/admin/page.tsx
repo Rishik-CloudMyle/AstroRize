@@ -83,6 +83,11 @@ export default async function OverviewPage() {
       <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(330px,1fr))] items-start gap-4">
         <div className={`${PANEL} p-5`}>
           <h2 className="mt-0 mb-3 text-[16px] font-bold">Work waiting on you</h2>
+          {worklist.length === 0 && (
+            <p className="m-0 rounded-xl border border-dashed border-line px-4 py-6 text-center text-[13px] text-[#78716c]">
+              Nothing is waiting on you right now.
+            </p>
+          )}
           <div className="flex flex-col gap-2">
             {worklist.map((w) => (
               <Link

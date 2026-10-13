@@ -23,7 +23,10 @@ import type { Prisma } from "../src/generated/prisma/client.ts";
 import { GST_RATE, VIDEO_PREMIUM, instantRate } from "../src/lib/billing.ts";
 import { istDateKey } from "../src/lib/format.ts";
 
-const DAYS = 30;
+// About two months, so month-on-month figures and every recent payout cycle have real activity.
+const DAYS = 62;
+/** Days into the growth curve, counted so the last 30 days look the same whatever DAYS is. */
+const grown = (d: number) => d - (DAYS - 30);
 const DAY_MS = 86400000;
 const MARK = "HIS-";
 
@@ -120,7 +123,7 @@ export async function seedHistory(): Promise<void> {
     const dayStart = new Date(firstDay.getTime() + d * DAY_MS);
     const weekday = new Date(dayStart.getTime() + 6 * 3600000).getUTCDay();
     const weekend = weekday === 0 || weekday === 6;
-    const expected = (2.6 + d * 0.06) * (weekend ? 1.4 : 1);
+    const expected = (2.6 + grown(d) * 0.06) * (weekend ? 1.4 : 1);
     const count = Math.max(0, Math.round(expected + (rand() - 0.5) * 3));
     for (let i = 0; i < count; i++) {
       const at = new Date(dayStart.getTime() + (7 + rand() * 16) * 3600000);
@@ -133,6 +136,8 @@ export async function seedHistory(): Promise<void> {
   const consultations: Prisma.ConsultationCreateManyInput[] = [];
   const payments: { id: string; userId: string; amount: number; gst: number; bonus: number; total: number; status: string; provider: string; providerOrderId: string; createdAt: Date; paidAt: Date }[] = [];
   const transactions: { userId: string; type: string; ref: string; bucket: string; amount: number; createdAt: Date }[] = [];
+  // The astrologer's side of each consultation, as the live API writes it (portal Earnings, payouts).
+  const earnings: Prisma.EarningsLineCreateManyInput[] = [];
   let seq = 0;
   const ref = (kind: string) => `${MARK}${kind}-${String(++seq).padStart(6, "0")}`;
 
@@ -140,7 +145,7 @@ export async function seedHistory(): Promise<void> {
     const dayStart = new Date(firstDay.getTime() + d * DAY_MS);
     const weekday = new Date(dayStart.getTime() + 6 * 3600000).getUTCDay();
     const weekend = weekday === 0 || weekday === 6;
-    const planned = Math.round((16 + d * 0.22) * (weekend ? 1.35 : 1) * (0.85 + rand() * 0.3));
+    const planned = Math.round((16 + grown(d) * 0.22) * (weekend ? 1.35 : 1) * (0.85 + rand() * 0.3));
     for (let i = 0; i < planned; i++) {
       const hour = pickWeighted(rand, HOUR_WEIGHTS.map((_, h) => h), (h) => HOUR_WEIGHTS[h]! / HOUR_TOTAL);
       const connectedAt = new Date(dayStart.getTime() + (hour + rand()) * 3600000);
@@ -223,6 +228,14 @@ export async function seedHistory(): Promise<void> {
       });
       const bucket = promoUsed > 0 ? `Promo ₹${promoUsed.toLocaleString("en-IN")} + Service ₹${serviceUsed.toLocaleString("en-IN")}` : "Service";
       transactions.push({ userId: cust.id, type: "Consultation", ref: sesRef, bucket, amount: -total, createdAt: endedAt });
+      earnings.push({
+        astrologerId: astro.id,
+        date: endedAt,
+        sessionRef: sesRef,
+        kind: instant ? "emergency" : mode.toLowerCase(),
+        mode: instant ? "Emergency voice" : mode[0] + mode.slice(1).toLowerCase(),
+        minutes,
+      });
     }
   }
 
@@ -234,6 +247,7 @@ export async function seedHistory(): Promise<void> {
       await tx.payment.createMany({ data: payments });
       await tx.consultation.createMany({ data: consultations });
       await tx.transaction.createMany({ data: transactions });
+      await tx.earningsLine.createMany({ data: earnings });
     },
     { timeout: 120_000, maxWait: 30_000 },
   );

@@ -1,4 +1,5 @@
 import AccessDenied from "@/components/admin/access-denied";
+import DisputeRefundsPanel from "@/components/admin/finance/dispute-refunds";
 import FinanceView from "@/components/admin/finance/finance-view";
 import WalletRefundsPanel from "@/components/admin/finance/wallet-refunds";
 import { KpiCard, PageTitle } from "@/components/admin/ui";
@@ -16,7 +17,7 @@ export default async function FinancePage() {
     <div>
       <PageTitle
         title="Finance"
-        sub="Denominations, tax profiles, cashback floors and the payout pipeline. Approver and releaser are never the same actor."
+        sub="Payouts, refunds, recharge denominations and the cashback floor. Every money decision needs a second person: approver and releaser, proposer and approver are never the same."
       />
       <div className="mt-[18px] grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
         {data.kpis.map((k) => (
@@ -24,6 +25,7 @@ export default async function FinancePage() {
         ))}
       </div>
       <FinanceView data={data} />
+      <DisputeRefundsPanel refunds={data.disputeRefunds} />
       <WalletRefundsPanel data={refunds} />
     </div>
   );

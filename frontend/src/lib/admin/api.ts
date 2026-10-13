@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/api/errors";
 import { CONFIG_FACETS, FLOOR_MODES, pageLink } from "./constants";
 import { flagColours, giftColours, kpi, slaColours, workColours } from "./view";
 import type {
+  DisputeRefund,
   AdminSession,
   Application,
   AuditEntry,
@@ -89,11 +90,12 @@ interface RawOverview {
     emergency: number;
     publicLives: number;
     flaggedLives: number;
-    openTickets: number;
+    /** Department tiles: null when this department can't open the page behind them. */
+    openTickets: number | null;
     breachedTickets: number;
-    applications: number;
+    applications: number | null;
     applicationsOverSla: number;
-    payoutAwaiting: string;
+    payoutAwaiting: string | null;
     payoutBatchesAwaiting: number;
   };
   analytics: RawAnalytics;
@@ -229,14 +231,20 @@ export async function getOverview(): Promise<OverviewData> {
     kpis: [
       kpi("Live sessions", String(k.liveSessions), `${k.emergency} emergency`, "#c2410c"),
       kpi("Public lives", String(k.publicLives), `${k.flaggedLives} flagged for review`, "#b45309"),
-      kpi("Open tickets", String(k.openTickets), `${k.breachedTickets} SLA breached`, "#be123c", k.breachedTickets > 0),
-      kpi("Applications", String(k.applications), `${k.applicationsOverSla} over SLA`, "#be123c"),
-      kpi(
-        "Payout batch",
-        k.payoutAwaiting,
-        k.payoutBatchesAwaiting ? "awaiting release" : "nothing awaiting release",
-        "#78716c",
-      ),
+      ...(k.openTickets !== null
+        ? [kpi("Open tickets", String(k.openTickets), `${k.breachedTickets} SLA breached`, "#be123c", k.breachedTickets > 0)]
+        : []),
+      ...(k.applications !== null ? [kpi("Applications", String(k.applications), `${k.applicationsOverSla} over SLA`, "#be123c")] : []),
+      ...(k.payoutAwaiting !== null
+        ? [
+            kpi(
+              "Payout batch",
+              k.payoutAwaiting,
+              k.payoutBatchesAwaiting ? "awaiting release" : "nothing awaiting release",
+              "#78716c",
+            ),
+          ]
+        : []),
     ],
     weekKpis: [
       weekKpi("Consultations · 7 days", intl(a.week.consultations[0]), consultDelta),
@@ -377,12 +385,14 @@ export async function getConfigDetail(key: string): Promise<ConfigDetail> {
 interface RawFinance {
   kpis: {
     grossVolume: string;
+    grossMonth: string;
     grossDelta: string;
     pendingPayouts: string;
     batchesAwaiting: number;
     duplicates: number;
     trialBalance: string;
-    trialDate: string;
+    walletsOut: number;
+    walletsChecked: number;
   };
   cycle: string;
   batches: {
@@ -396,7 +406,10 @@ interface RawFinance {
     approvedBy?: Role;
     approvedByName: string | null;
     approvedById: string | null;
+    releasedByName: string | null;
+    releasedAt: string | null;
   }[];
+  disputeRefunds: DisputeRefund[];
   denominations: number[];
   enabledDenominations: number[];
   floorPct: number;
@@ -406,20 +419,25 @@ interface RawFinance {
 export async function getFinance(): Promise<FinanceData> {
   const { finance: f } = await apiGet<{ finance: RawFinance }>("/admin/finance");
   const k = f.kpis;
-  const trialOut = k.trialBalance !== "₹0";
+  const trialOut = k.walletsOut > 0;
   return {
     kpis: [
-      kpi("Gross volume · Sep", k.grossVolume, k.grossDelta, "#047857"),
+      kpi(`Gross volume · ${k.grossMonth}`, k.grossVolume, k.grossDelta, "#047857"),
       kpi(
         "Pending payouts",
         k.pendingPayouts,
         `${k.batchesAwaiting} ${k.batchesAwaiting === 1 ? "batch" : "batches"} awaiting release`,
         "#b45309",
       ),
-      kpi("Duplicate payments", String(k.duplicates), "auto-refund queue", "#78716c"),
+      kpi(
+        "Duplicate payments",
+        String(k.duplicates),
+        k.duplicates ? "same customer and amount within 10 min · 30 days" : "none in the last 30 days",
+        "#78716c",
+      ),
       trialOut
-        ? kpi("Trial balance", k.trialBalance, `out of balance — ${k.trialDate}`, "#be123c", true, true)
-        : kpi("Trial balance", k.trialBalance, "in balance", "#047857"),
+        ? kpi("Wallet trial balance", k.trialBalance, `${k.walletsOut} of ${k.walletsChecked} wallets don't match their ledger`, "#be123c", true, true)
+        : kpi("Wallet trial balance", k.trialBalance, `in balance · ${k.walletsChecked} wallets match their ledger`, "#047857"),
     ],
     cycle: f.cycle,
     batches: f.batches.map((b) => ({
@@ -433,7 +451,10 @@ export async function getFinance(): Promise<FinanceData> {
       approvedBy: b.approvedBy,
       approvedByName: b.approvedByName,
       approvedById: b.approvedById,
+      releasedByName: b.releasedByName,
+      releasedAt: b.releasedAt,
     })),
+    disputeRefunds: f.disputeRefunds,
     denominations: f.denominations,
     enabledDenominations: f.enabledDenominations,
     floorPct: f.floorPct,

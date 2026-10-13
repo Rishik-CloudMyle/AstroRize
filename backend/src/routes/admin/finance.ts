@@ -3,39 +3,42 @@ import { z } from "zod";
 import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { conflict, forbidden, notFound } from "../../lib/errors.ts";
-import { rupee } from "../../lib/format.ts";
+import { istDayMonth, istTime, rupee } from "../../lib/format.ts";
 import { actorName, requireCapability, requirePage } from "../../lib/rbac.ts";
+import { duplicatePayments, grossVolume, walletTrialBalance } from "../../lib/ledger.ts";
 import { configNumber, getSetting, putSetting } from "../../lib/settings.ts";
 import { lakh } from "./overview.ts";
+import { refundProposerId } from "./support.ts";
 
 export const financeRouter = Router();
 
 financeRouter.get("/finance", async (req, res) => {
   requirePage(req, "finance");
-  const [batches, denominations, floorPct, floorMode, kpis] = await Promise.all([
+  const [batches, denominations, floorPct, floorMode, kpis, proposed] = await Promise.all([
     db.payoutBatch.findMany({ orderBy: { createdAt: "desc" } }),
     db.denomination.findMany({ orderBy: { amount: "asc" } }),
     configNumber("wallet.cashback.floor_pct", 80),
     getSetting<"reject" | "adjust">("finance.floorMode", "reject"),
-    getSetting<{ grossVolume: number; grossDelta: string; duplicates: number; trialBalance: number; trialDate: string }>("finance.kpis", {
-      grossVolume: 0,
-      grossDelta: "",
-      duplicates: 0,
-      trialBalance: 0,
-      trialDate: "",
-    }),
+    Promise.all([grossVolume(), duplicatePayments(), walletTrialBalance()]),
+    // Dispute refunds Support has proposed: Finance is the second approver (dispute.refund.approve).
+    db.supportTicket.findMany({ where: { refundState: "PROPOSED" }, orderBy: { createdAt: "asc" } }),
   ]);
+  const [gross, duplicates, trial] = kpis;
   const awaiting = batches.filter((b) => b.state === "APPROVED");
+  const grossDelta = gross.previous ? Math.round(((gross.amount - gross.previous) / gross.previous) * 100) : null;
   res.json({
     finance: {
       kpis: {
-        grossVolume: lakh(kpis.grossVolume),
-        grossDelta: kpis.grossDelta,
+        grossVolume: lakh(gross.amount),
+        grossMonth: gross.month,
+        grossDelta:
+          grossDelta === null ? `nothing in ${gross.previousMonth} to compare` : `${grossDelta >= 0 ? "+" : "−"}${Math.abs(grossDelta)}% vs same days of ${gross.previousMonth}`,
         pendingPayouts: lakh(awaiting.reduce((s, b) => s + b.gross, 0)),
         batchesAwaiting: awaiting.length,
-        duplicates: kpis.duplicates,
-        trialBalance: rupee(kpis.trialBalance),
-        trialDate: kpis.trialDate,
+        duplicates,
+        trialBalance: rupee(trial.off),
+        walletsOut: trial.walletsOut,
+        walletsChecked: trial.checked,
       },
       cycle: batches[0]?.cycle ?? "",
       batches: batches.map((b) => ({
@@ -49,7 +52,20 @@ financeRouter.get("/finance", async (req, res) => {
         approvedBy: b.approvedRole?.toLowerCase(),
         approvedById: b.approvedById,
         approvedByName: b.approvedByName,
+        releasedByName: b.releasedByName,
+        releasedAt: b.releasedAt ? `${istDayMonth(b.releasedAt)}, ${istTime(b.releasedAt)} IST` : null,
       })),
+      disputeRefunds: await Promise.all(
+        proposed.map(async (t) => ({
+          id: t.id,
+          subject: t.subject,
+          customer: t.customerAlias,
+          session: t.sessionRef,
+          amount: rupee(t.refundAmount),
+          proposedBy: t.proposedBy,
+          proposedById: await refundProposerId(t.id),
+        })),
+      ),
       denominations: denominations.map((d) => d.amount),
       enabledDenominations: denominations.filter((d) => d.enabled).map((d) => d.amount),
       floorPct,
@@ -91,8 +107,8 @@ financeRouter.post("/payouts/:id/release", async (req, res) => {
     data: { state: "RELEASED", releasedById: admin.user.id, releasedByName: actorName(admin), releasedAt: new Date() },
   });
   await audit(admin, "payout.batch.release", b.id, "APPROVED → RELEASED");
-  // ⚠ RazorpayX is not connected yet; the reference below is a placeholder.
-  res.json({ ok: true, actor: actorName(admin), reference: `RZP${b.id.slice(-4)}8821` });
+  // RazorpayX isn't connected yet, so no transfer reference exists; the client says so.
+  res.json({ ok: true, actor: actorName(admin) });
 });
 
 financeRouter.patch("/denominations/:amount", async (req, res) => {

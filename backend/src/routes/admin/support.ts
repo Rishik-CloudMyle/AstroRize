@@ -4,7 +4,7 @@ import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { istDayMonth, istTime, makeRef, rupee } from "../../lib/format.ts";
-import { actorName, requireCapability, requirePage } from "../../lib/rbac.ts";
+import { actorName, adminOf, pagesOf, requireCapability, requirePage } from "../../lib/rbac.ts";
 import { getSetting } from "../../lib/settings.ts";
 import type { Prisma } from "../../generated/prisma/client.ts";
 
@@ -57,7 +57,7 @@ async function caseFile(ticket: { id: string; sessionRef: string }) {
  * proposer's short name (two people can share one), so the id comes from the audit entry
  * written in the same request as the proposal.
  */
-async function refundProposerId(ticketId: string): Promise<string | null> {
+export async function refundProposerId(ticketId: string): Promise<string | null> {
   const entry = await db.auditLog.findFirst({
     where: { action: "dispute.refund.propose", object: ticketId },
     orderBy: { at: "desc" },
@@ -123,6 +123,9 @@ supportRouter.post("/support/:id/refund/propose", async (req, res) => {
   const t = await db.supportTicket.findUnique({ where: { id: String(req.params.id) } });
   if (!t) throw notFound("Ticket not found.");
   if (t.refundState !== "NONE") throw conflict("A refund has already been proposed for this ticket.");
+  // One refund per session, whichever ticket it comes through: never pay the same charge back twice.
+  const other = await db.supportTicket.findFirst({ where: { sessionRef: t.sessionRef, id: { not: t.id }, refundState: { in: ["PROPOSED", "INITIATED"] } } });
+  if (other) throw conflict(`${t.sessionRef} already has a refund ${other.refundState === "INITIATED" ? "paid" : "proposed"} on ${other.id}.`);
   const file = await caseFile(t);
   await db.supportTicket.update({
     where: { id: t.id },
@@ -137,7 +140,9 @@ supportRouter.post("/support/:id/refund/propose", async (req, res) => {
  * same buckets it was paid from, never more than was billed.
  */
 supportRouter.post("/support/:id/refund/approve", async (req, res) => {
-  requirePage(req, "support");
+  // Approved on the Support page or, for Finance (who can't open Support), on the Finance page.
+  const pages = pagesOf(adminOf(req).adminRole);
+  if (!pages.includes("support") && !pages.includes("finance")) throw forbidden("You don't have access to this page.");
   const admin = requireCapability(req, "dispute.refund.approve", "Blocked — Support may propose but not approve a refund.");
   const t = await db.supportTicket.findUnique({ where: { id: String(req.params.id) } });
   if (!t) throw notFound("Ticket not found.");

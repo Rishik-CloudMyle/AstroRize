@@ -74,7 +74,7 @@ export const CAPABILITIES: { key: string; label: string; page: PageKey | null; r
   { key: "payout.release", label: "Release an approved payout batch", page: "finance", roles: ["super"] },
   { key: "wallet.refund.process", label: "Mark a customer wallet refund paid or failed", page: "finance", roles: ["super", "finance"] },
   { key: "dispute.refund.propose", label: "Propose a refund on a dispute", page: "support", roles: ["super", "support"] },
-  { key: "dispute.refund.approve", label: "Approve a proposed refund", page: "support", roles: ["super", "finance"] },
+  { key: "dispute.refund.approve", label: "Approve a refund Support proposed", page: "finance", roles: ["super", "finance"] },
   { key: "astrologer.suspend", label: "Suspend an astrologer", page: null, roles: ["super", "compliance"] },
   { key: "astrologer.restore", label: "Restore a suspended astrologer", page: null, roles: ["super"] },
   { key: "live.observer.join", label: "Join a public live as an observer", page: "compliance", roles: ["super", "compliance"] },

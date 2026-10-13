@@ -54,7 +54,7 @@ export const NAV: NavGroup[] = [
 export const ROLE_LABELS: Record<Role, string> = {
   super: "Super Admin",
   finance: "Finance",
-  support: "Customer Support",
+  support: "Support",
   compliance: "Compliance",
   marketing: "Marketing",
 };

@@ -380,12 +380,27 @@ export interface PayoutBatch {
   approvedByName: string | null;
   /** User id of the approver; the releaser must be a different person. */
   approvedById: string | null;
+  releasedByName: string | null;
+  /** "20 Sep, 18:04 IST" */
+  releasedAt: string | null;
+}
+
+/** A refund Support proposed on a dispute, waiting for a second approver (Finance or Super Admin). */
+export interface DisputeRefund {
+  id: string;
+  subject: string;
+  customer: string;
+  session: string;
+  amount: string;
+  proposedBy: string | null;
+  proposedById: string | null;
 }
 
 export interface FinanceData {
   kpis: Kpi[];
   cycle: string;
   batches: PayoutBatch[];
+  disputeRefunds: DisputeRefund[];
   denominations: number[];
   enabledDenominations: number[];
   floorPct: number;

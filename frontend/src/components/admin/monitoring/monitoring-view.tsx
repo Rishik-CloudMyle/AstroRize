@@ -294,14 +294,21 @@ export default function MonitoringView({ data: initial }: { data: MonitoringData
             the join is recorded in the break-glass lane of the audit log with your reason. It never opens a private
             consultation. Use it only in a genuine emergency.
           </p>
+          {/* Only meaningful when capacity is full: with a free seat, an ordinary join works. */}
           <button
             type="button"
             onClick={requestGlass}
             aria-pressed={glass !== null}
-            className="mt-3.5 h-[42px] rounded-[11px] border border-rose-700 bg-white px-[18px] text-[13px] font-bold text-rose-700"
+            disabled={!full && !glass}
+            className="mt-3.5 h-[42px] rounded-[11px] border border-rose-700 bg-white px-[18px] text-[13px] font-bold text-rose-700 disabled:cursor-not-allowed disabled:border-stone-300 disabled:text-stone-400"
           >
             {glass ? "Withdraw break-glass request" : "Request break-glass access"}
           </button>
+          {!full && !glass && (
+            <p className="mt-2 mb-0 text-[12px] text-rose-900">
+              Not needed now: {total - used} of {total} observer seats are free, so a normal join works.
+            </p>
+          )}
         </div>
       )}
     </>

@@ -5,6 +5,7 @@
 
 import { db } from "../src/db.ts";
 import { hashPassword } from "../src/lib/password.ts";
+import { GST_RATE } from "../src/lib/billing.ts";
 import { istDateKey } from "../src/lib/format.ts";
 
 // Demo builds only: one easy password for every seeded account. The seed refuses to run in
@@ -14,6 +15,33 @@ const now = Date.now();
 const minutesAgo = (m: number) => new Date(now - m * 60000);
 const hoursAgo = (h: number) => minutesAgo(h * 60);
 const daysAgo = (d: number) => minutesAgo(d * 1440);
+
+/** Half-month payout cycles (1–15, 16–end, IST), the running one first: "PB-2026-10-A". */
+function payoutCycles(at: Date, count: number) {
+  const [y0, m0, d0] = istDateKey(at).split("-").map(Number) as [number, number, number];
+  let y = y0;
+  let m = m0 - 1;
+  let first = d0 <= 15;
+  const out: { id: string; label: string; from: Date; to: Date }[] = [];
+  for (let i = 0; i < count; i++) {
+    const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    const mm = String(m + 1).padStart(2, "0");
+    const from = new Date(`${y}-${mm}-${first ? "01" : "16"}T00:00:00+05:30`);
+    const to = new Date(`${y}-${mm}-${first ? "15" : String(last)}T23:59:59+05:30`);
+    const mon = from.toLocaleDateString("en-GB", { month: "short", timeZone: "Asia/Kolkata" });
+    const half = first ? "A" : "B";
+    out.push({ id: `PB-${y}-${mm}-${half}`, label: `Cycle ${y}-${mm}-${half} · ${first ? 1 : 16}–${first ? 15 : last} ${mon.slice(0, 3)}`, from, to });
+    if (first) {
+      m -= 1;
+      if (m < 0) {
+        m = 11;
+        y -= 1;
+      }
+    }
+    first = !first;
+  }
+  return out;
+}
 /** A fixed IST wall-clock time, e.g. ist("2026-08-11", "10:00"). */
 const ist = (date: string, time = "12:00") => new Date(`${date}T${time.length === 5 ? time + ":00" : time}+05:30`);
 /** Calendar date (stored as 00:00 UTC) `offset` days from today in IST. */
@@ -53,15 +81,30 @@ async function main() {
       city: "Pune",
       state: "Maharashtra",
       photoUrl: "/assets/avatars/user-sneha.jpg",
-      wallet: { create: { service: 900, promo: 340, promoExpiresAt: ist("2026-09-12", "23:59") } },
+      // The balance is exactly what the ledger below adds up to (Finance checks wallets against it).
+      wallet: { create: { service: 2389, promo: 40, promoExpiresAt: ist("2027-09-20", "23:59") } },
     },
+  });
+  // Recharges are real payments; promotional credit is spent before service balance.
+  const recharges = [
+    { ref: "PAY-76410", amount: 1000, bonus: 100, at: ist("2026-08-01", "11:00") },
+    { ref: "PAY-77120", amount: 2000, bonus: 250, at: ist("2026-08-10", "11:00") },
+    { ref: "PAY-80932", amount: 500, bonus: 40, at: ist("2026-09-20", "19:30") },
+  ];
+  await db.payment.createMany({
+    data: recharges.map((r) => {
+      const gst = Math.round(r.amount * GST_RATE);
+      return { userId: customer.id, amount: r.amount, gst, bonus: r.bonus, total: r.amount + gst, status: "PAID", provider: "mock", providerOrderId: r.ref, createdAt: r.at, paidAt: r.at };
+    }),
   });
   await db.transaction.createMany({
     data: [
-      { userId: customer.id, type: "Consultation", ref: "SES-88214", bucket: "Promo ₹160 + Service ₹800", amount: -960, createdAt: ist("2026-08-11") },
-      { userId: customer.id, type: "Recharge", ref: "PAY-77120", bucket: "Service", amount: 1000, createdAt: ist("2026-08-10", "11:00") },
-      { userId: customer.id, type: "Cashback", ref: "CMP-14", bucket: "Promotional · exp 14 Oct", amount: 100, createdAt: ist("2026-08-10", "11:01") },
-      { userId: customer.id, type: "Gift sent", ref: "GFT-2201", bucket: "Service", amount: -501, createdAt: ist("2026-08-04") },
+      ...recharges.flatMap((r, i) => [
+        { userId: customer.id, type: "Recharge", ref: r.ref, bucket: "Service", amount: r.amount, createdAt: r.at },
+        { userId: customer.id, type: "Cashback", ref: `CB-${r.ref.slice(4)}`, bucket: "Promotional", amount: r.bonus, createdAt: new Date(r.at.getTime() + 60000 + i) },
+      ]),
+      { userId: customer.id, type: "Gift sent", ref: "GFT-2201", bucket: "Promo ₹100 + Service ₹401", amount: -501, createdAt: ist("2026-08-04", "18:20") },
+      { userId: customer.id, type: "Consultation", ref: "SES-88214", bucket: "Promo ₹250 + Service ₹710", amount: -960, createdAt: ist("2026-08-11", "14:14") },
     ],
   });
 
@@ -88,10 +131,19 @@ async function main() {
           city: c.city,
           state: c.state,
           photoUrl: c.photo,
-          wallet: { create: { service: 500 } },
+          wallet: { create: { service: 500, promo: 40, promoExpiresAt: daysAgo(-330) } },
         },
       }),
     );
+    const paidAt = daysAgo(35);
+    const orderRef = `PAY-${c.phone.slice(-5)}`;
+    await db.payment.create({ data: { userId: queueCustomers.at(-1)!.id, amount: 500, gst: 90, bonus: 40, total: 590, status: "PAID", provider: "mock", providerOrderId: orderRef, createdAt: paidAt, paidAt } });
+    await db.transaction.createMany({
+      data: [
+        { userId: queueCustomers.at(-1)!.id, type: "Recharge", ref: orderRef, bucket: "Service", amount: 500, createdAt: paidAt },
+        { userId: queueCustomers.at(-1)!.id, type: "Cashback", ref: `CB-${orderRef.slice(4)}`, bucket: "Promotional", amount: 40, createdAt: new Date(paidAt.getTime() + 60000) },
+      ],
+    });
   }
 
   // Every listed astrologer has their own portal login, so each can come online and go live.
@@ -275,33 +327,6 @@ async function main() {
     });
   }
 
-  // Earnings statement: recent days and earlier in the period (none today — Raghav hasn't
-  // been online yet today).
-  const lines: [number, string, string, string, number, number][] = [
-    [1, "SES-88301", "voice", "Voice", 22, 0],
-    [1, "SES-88296", "chat", "Chat", 31, 111],
-    [1, "SES-88290", "emergency", "Emergency voice", 9, 0],
-    [1, "SES-88281", "voice", "Voice", 18, 501],
-    [1, "SES-88276", "emergency", "Emergency voice", 6, 0],
-    [1, "SES-88270", "video", "Video", 14, 0],
-    [1, "SES-88262", "chat", "Chat", 12, 0],
-    [1, "SES-88214", "voice", "Voice", 12, 0],
-    [1, "SES-88190", "chat", "Chat", 25, 501],
-    [2, "SES-88044", "emergency", "Emergency voice", 8, 0],
-    [3, "SES-87766", "welcome", "Welcome minutes", 5, 0],
-    [4, "ADJ-00412", "adjustment", "Dispute adjustment · TKT-3391", 0, 0],
-    [5, "SES-87510", "video", "Video", 31, 111],
-    [6, "SES-87402", "voice", "Voice", 40, 0],
-    [7, "SES-87344", "chat", "Chat", 28, 51],
-    [8, "SES-87201", "voice", "Voice", 35, 0],
-    [9, "SES-87166", "video", "Video", 22, 0],
-    [12, "SES-86900", "voice", "Voice", 30, 0],
-    [16, "SES-86512", "chat", "Chat", 26, 101],
-    [20, "SES-86140", "voice", "Voice", 44, 0],
-  ];
-  await db.earningsLine.createMany({
-    data: lines.map(([d, sessionRef, kind, mode, minutes, gifts]) => ({ astrologerId: "raghav", date: new Date(now - d * 86400000 - 3600000), sessionRef, kind, mode, minutes, gifts })),
-  });
 
   await db.trainingModule.createMany({
     data: [
@@ -331,25 +356,25 @@ async function main() {
 
   // ── Admin console ──
   const configKeys: [string, boolean, string, string, string, string, string, string][] = [
-    ["wallet.cashback.floor_pct", false, "Minimum share of the original price that must remain payable after any discount. Campaigns that breach it are rejected or clamped, per the floor mode.", "80", "global", "0–100", "₹4.2 L of campaign spend would be clamped this month at 80%; at 75% the figure rises to ₹6.8 L.", "finance"],
-    ["consult.emergency.max_multiplier", true, "Upper bound on the Instant Call multiplier an astrologer may set from their dashboard.", "4.0", "global", "1.0–6.0", "38 astrologers currently sit at the ceiling. Lowering to 3.0× would reprice 38 profiles at the next connect.", "consult"],
-    ["consult.free_seconds", false, "Seconds at the start of every consultation that are not metered.", "60", "global", "0–180", "Raising to 90 s adds an estimated ₹1.9 L monthly cost against September volume.", "consult"],
-    ["live.queue.max_depth", false, "Maximum number of viewers who may hold a place in a live consult queue.", "20", "global", "5–50", "Four rooms hit the cap yesterday. Raising to 30 would have admitted 47 more viewers.", "live"],
-    ["live.turn_offer.timeout_s", false, "Seconds a viewer has to accept their turn before the offer expires and the queue advances.", "45", "global", "15–120", "Median accept time is 19 s. 6% of offers currently expire.", "live"],
-    ["risk.weights.session_abandon", true, "Weight applied to abandoned sessions in the astrologer risk score.", "0.35", "global", "0.0–1.0", "Reclassifies 4 astrologers from Medium to High. Requires dual control.", "compliance"],
-    ["wallet.promo.validity_months", false, "How long promotional credit remains spendable before it expires.", "12", "global", "1–36", "No lots expire within the next 60 days at the current value.", "finance"],
-    ["payout.batch.min_approvers", true, "Number of distinct approvers required before a payout batch can be released. Approver and releaser must differ.", "2", "global", "1–4", "Dropping to 1 would remove the second signature on ₹18.4 L of pending batches. Finance co-approval still applies.", "finance"],
-    ["payout.hold_days.new_astrologer", false, "Days a newly onboarded astrologer's earnings are held before entering a payout batch.", "14", "global", "0–45", "47 astrologers are inside the hold window today. Cutting to 7 releases ₹2.1 L in the next batch.", "finance"],
-    ["support.sla.first_response_mins", false, "Minutes a ticket may wait for its first human response before it is flagged as an SLA breach.", "30", "segment", "5–240", "2 tickets breached yesterday at 30 min. At 20 min the figure would have been 9.", "support"],
-    ["support.refund.auto_approve_ceiling", true, "Refund value an agent may approve without a second reviewer.", "500", "global", "0–5000", "82% of September refunds sit below ₹500. Raising to ₹1,000 would auto-clear a further 6%.", "support"],
-    ["trust.review.removal_undo_mins", false, "Window in which a soft-hidden review can be restored before removal becomes permanent.", "30", "global", "5–120", "9 reviews are inside the undo window right now.", "trust"],
-    ["trust.rating.min_consults_to_publish", false, "Verified consultations an astrologer needs before a public rating is shown on the profile.", "25", "global", "5–200", "Lowering to 10 would publish ratings for 34 more profiles, 6 of them below 4.0.", "trust"],
+    ["wallet.cashback.floor_pct", false, "Minimum share of the original price that must remain payable after any discount. Campaigns that breach it are rejected or clamped, per the floor mode.", "80", "global", "0–100", "Lowering it lets campaigns discount more before they are rejected or clamped; raising it clamps more campaign offers.", "finance"],
+    ["consult.emergency.max_multiplier", true, "Upper bound on the Instant Call multiplier an astrologer may set from their dashboard.", "4.0", "global", "1.0–6.0", "Lowering it reprices every astrologer above the new ceiling at their next Instant Call.", "consult"],
+    ["consult.free_seconds", false, "Seconds at the start of every consultation that are not metered.", "60", "global", "0–180", "Raising it gives every customer more unmetered time per consultation, paid for by the platform.", "consult"],
+    ["live.queue.max_depth", false, "Maximum number of viewers who may hold a place in a live consult queue.", "20", "global", "5–50", "Raising it lets more viewers wait in a live room's queue; viewers beyond the cap can watch but not queue.", "live"],
+    ["live.turn_offer.timeout_s", false, "Seconds a viewer has to accept their turn before the offer expires and the queue advances.", "45", "global", "15–120", "Shortening it moves the queue faster but more viewers miss their turn.", "live"],
+    ["risk.weights.session_abandon", true, "Weight applied to abandoned sessions in the astrologer risk score.", "0.35", "global", "0.0–1.0", "Changes how strongly abandoned sessions raise an astrologer's risk score. Requires dual control.", "compliance"],
+    ["wallet.promo.validity_months", false, "How long promotional credit remains spendable before it expires.", "12", "global", "1–36", "Applies to promotional credit given after the change; existing credit keeps its expiry date.", "finance"],
+    ["payout.batch.min_approvers", true, "Number of distinct approvers required before a payout batch can be released. Approver and releaser must differ.", "2", "global", "1–4", "Dropping to 1 removes the second signature on payout batches. Approver and releaser must still differ.", "finance"],
+    ["payout.hold_days.new_astrologer", false, "Days a newly onboarded astrologer's earnings are held before entering a payout batch.", "14", "global", "0–45", "Cutting it pays newly onboarded astrologers sooner; their earnings join an earlier payout batch.", "finance"],
+    ["support.sla.first_response_mins", false, "Minutes a ticket may wait for its first human response before it is flagged as an SLA breach.", "30", "segment", "5–240", "Lowering it flags tickets as breached sooner on the Support queue.", "support"],
+    ["support.refund.auto_approve_ceiling", true, "Refund value an agent may approve without a second reviewer.", "500", "global", "0–5000", "Raising it lets more refunds clear without a second reviewer.", "support"],
+    ["trust.review.removal_undo_mins", false, "Window in which a soft-hidden review can be restored before removal becomes permanent.", "30", "global", "5–120", "Lengthening it gives moderators longer to restore a soft-hidden review before removal is permanent.", "trust"],
+    ["trust.rating.min_consults_to_publish", false, "Verified consultations an astrologer needs before a public rating is shown on the profile.", "25", "global", "5–200", "Lowering it shows ratings on profiles with fewer consultations, which are less reliable.", "trust"],
     ["live.room.max_concurrent_per_astrologer", false, "Live rooms one astrologer may host at the same time.", "1", "global", "1–3", "No astrologer currently requests more than one. Raising this needs a provider capacity review.", "live"],
-    ["marketing.gift.max_value", true, "Ceiling on a single gift in the catalogue. Anything above needs Admin approval before it goes ACTIVE.", "5100", "global", "100–10000", "3 catalogue items sit at the ceiling. Lowering to ₹3,000 would pull them back to draft.", "marketing"],
-    ["marketing.campaign.max_discount_pct", false, "Largest discount a campaign may advertise before the cashback floor clamps it.", "40", "segment", "0–70", "Two live campaigns are at 40%. The floor already clamps them to an effective 32%.", "marketing"],
-    ["hr.application.review_sla_days", false, "Days an application may sit in review before it is flagged past SLA on the queue.", "5", "global", "1–21", "3 applications are past SLA today. At 7 days none would be flagged.", "hr"],
-    ["hr.pricing.max_increase_pct", true, "Largest per-minute price increase an astrologer may request in a single price version.", "25", "global", "0–50", "11 pending requests exceed 25% and would need a manual override at the current value.", "hr"],
-    ["rbac.session.step_up_validity_mins", true, "How long a step-up MFA verification stays valid before the next privileged action re-prompts.", "15", "global", "1–60", "Raising to 30 cuts re-prompts by about 40% and widens the window on privileged actions.", "rbac"],
+    ["marketing.gift.max_value", true, "Ceiling on a single gift in the catalogue. Anything above needs Admin approval before it goes ACTIVE.", "5100", "global", "100–10000", "Lowering it sends catalogue gifts above the new ceiling back for Admin approval.", "marketing"],
+    ["marketing.campaign.max_discount_pct", false, "Largest discount a campaign may advertise before the cashback floor clamps it.", "40", "segment", "0–70", "Raising it allows bigger advertised discounts; the cashback floor still limits the effective price.", "marketing"],
+    ["hr.application.review_sla_days", false, "Days an application may sit in review before it is flagged past SLA on the queue.", "5", "global", "1–21", "Lowering it flags applications as past SLA sooner on the lifecycle queue.", "hr"],
+    ["hr.pricing.max_increase_pct", true, "Largest per-minute price increase an astrologer may request in a single price version.", "25", "global", "0–50", "Lowering it sends more astrologer price-increase requests for a manual override.", "hr"],
+    ["rbac.session.step_up_validity_mins", true, "How long a step-up MFA verification stays valid before the next privileged action re-prompts.", "15", "global", "1–60", "Raising it means fewer MFA re-prompts but a longer window in which a privileged action needs no new check.", "rbac"],
   ];
   for (const [rank, [key, flagged, description, value, scope, bounds, dryRun, domain]] of configKeys.entries()) {
     await db.configKey.create({ data: { key, flagged, description, value, scope, bounds, dryRun, domain, rank, version: key === "wallet.cashback.floor_pct" ? 14 : 1, updatedAt: ist("2026-08-02") } });
@@ -357,29 +382,50 @@ async function main() {
   await db.configChange.createMany({
     data: [
       { key: "wallet.cashback.floor_pct", fromValue: "—", toValue: "96", status: "APPROVED", version: 11, draftedByName: "System migration", approvedByName: "—", createdAt: ist("2026-01-01") },
-      { key: "wallet.cashback.floor_pct", fromValue: "96", toValue: "96", status: "APPROVED", version: 12, draftedByName: "K. Prasad", approvedByName: "S. Banerjee", createdAt: ist("2026-04-05") },
+      { key: "wallet.cashback.floor_pct", fromValue: "96", toValue: "96", status: "APPROVED", version: 12, draftedByName: "K. Prasad", approvedByName: "A. Verma", createdAt: ist("2026-04-05") },
       { key: "wallet.cashback.floor_pct", fromValue: "96", toValue: "88", status: "APPROVED", version: 13, draftedByName: "A. Verma", approvedByName: "K. Prasad", createdAt: ist("2026-06-14") },
       { key: "wallet.cashback.floor_pct", fromValue: "88", toValue: "80", status: "APPROVED", version: 14, draftedById: admins.super.id, draftedByName: "K. Prasad", approvedById: admins.finance.id, approvedByName: "A. Verma", createdAt: ist("2026-08-02") },
       { key: "consult.emergency.max_multiplier", fromValue: "4.0", toValue: "3.0", status: "SUBMITTED", draftedById: admins.super.id, draftedByName: "K. Prasad", effectiveAt: new Date(now + 3 * 86400000), createdAt: hoursAgo(4) },
     ],
   });
 
-  await db.payoutBatch.createMany({
-    data: [
-      { id: "PB-2026-09-B", cycle: "Cycle 2026-09-B · closes 30 Sep", astrologers: 218, gross: 1840220, tds: 92011, state: "APPROVED", approvedById: admins.super.id, approvedByName: "K. Prasad", approvedRole: "SUPER", approvedAt: hoursAgo(6), createdAt: daysAgo(1) },
-      { id: "PB-2026-09-A", cycle: "Cycle 2026-09-A", astrologers: 204, gross: 1612880, tds: 80644, state: "RELEASED", createdAt: daysAgo(15) },
-      { id: "PB-2026-08-B", cycle: "Cycle 2026-08-B", astrologers: 196, gross: 1544110, tds: 77206, state: "RELEASED", createdAt: daysAgo(30) },
-      { id: "PB-2026-09-C", cycle: "Cycle 2026-09-B · closes 30 Sep", astrologers: 12, gross: 104400, tds: 5220, state: "DRAFT", createdAt: hoursAgo(2) },
-    ],
-  });
 
+  // The session every seeded ticket is about: Sneha's 10-minute Instant Call with Acharya Meera Iyer
+  // (₹32 × 3 = ₹96/min). It matches her ledger line, so an approved refund really returns ₹960.
+  await db.consultation.create({
+    data: {
+      ref: "SES-88214",
+      customerId: customer.id,
+      customerAlias: "Sneha R",
+      astrologerId: "meera",
+      mode: "VOICE",
+      kind: "INSTANT",
+      source: "WEB",
+      rate: 96,
+      status: "ENDED",
+      heldAmount: 2849,
+      requestedAt: ist("2026-08-11", "14:01:40"),
+      offeredAt: ist("2026-08-11", "14:01:40"),
+      connectedAt: ist("2026-08-11", "14:02:11"),
+      endedAt: ist("2026-08-11", "14:13:11"),
+      endReason: "user",
+      billedSeconds: 600,
+      billedMinutes: 10,
+      total: 960,
+      promoUsed: 250,
+      serviceUsed: 710,
+    },
+  });
+  await db.earningsLine.create({
+    data: { astrologerId: "meera", date: ist("2026-08-11", "14:13:11"), sessionRef: "SES-88214", kind: "emergency", mode: "Emergency voice", minutes: 10 },
+  });
   await db.supportTicket.createMany({
     data: [
-      { id: "TKT-3391", subject: "Charged for a call that never connected", state: "EVIDENCE_REQUESTED", slaDueAt: hoursAgo(-2), customerAlias: "A-8821", sessionRef: "SES-88214", createdAt: hoursAgo(20) },
-      { id: "TKT-3388", subject: "Fixed Session ended early", state: "INVESTIGATING", slaDueAt: hoursAgo(-26), customerAlias: "A-8821", sessionRef: "SES-88214", createdAt: daysAgo(1) },
-      { id: "TKT-3384", subject: "Duplicate recharge on 12 Sep", state: "REFUND_PROPOSED", refundState: "PROPOSED", refundAmount: 960, proposedBy: "S. Banerjee", slaDueAt: hoursAgo(-74), customerAlias: "A-8821", sessionRef: "SES-88214", createdAt: daysAgo(2) },
-      { id: "TKT-3379", subject: "Promotional credit expired early", state: "INVESTIGATING", slaDueAt: hoursAgo(-73), customerAlias: "A-8821", sessionRef: "SES-88214", createdAt: daysAgo(3) },
-      { id: "TKT-3371", subject: "Astrologer shared contact details", state: "ESCALATED", slaDueAt: daysAgo(2), customerAlias: "A-8821", sessionRef: "SES-88214", createdAt: daysAgo(4) },
+      { id: "TKT-3391", subject: "Charged for a call that never connected", state: "EVIDENCE_REQUESTED", slaDueAt: hoursAgo(-2), customerAlias: "Sneha R", sessionRef: "SES-88214", createdAt: hoursAgo(20) },
+      { id: "TKT-3388", subject: "Fixed Session ended early", state: "INVESTIGATING", slaDueAt: hoursAgo(-26), customerAlias: "Sneha R", sessionRef: "SES-88214", createdAt: daysAgo(1) },
+      { id: "TKT-3384", subject: "Charged twice for the same session", state: "REFUND_PROPOSED", refundState: "PROPOSED", refundAmount: 960, proposedBy: "S. Banerjee", slaDueAt: hoursAgo(-74), customerAlias: "Sneha R", sessionRef: "SES-88214", createdAt: daysAgo(2) },
+      { id: "TKT-3379", subject: "Promotional credit expired early", state: "INVESTIGATING", slaDueAt: hoursAgo(-73), customerAlias: "Sneha R", sessionRef: "SES-88214", createdAt: daysAgo(3) },
+      { id: "TKT-3371", subject: "Astrologer shared contact details", state: "ESCALATED", slaDueAt: daysAgo(2), customerAlias: "Sneha R", sessionRef: "SES-88214", createdAt: daysAgo(4) },
     ],
   });
 
@@ -418,9 +464,8 @@ async function main() {
   await db.auditLog.createMany({
     data: [
       { at: ist("2026-09-15", "09:38:12"), actorId: admins.super.id, actorName: "K. Prasad", action: "config.draft.submit", object: "consult.emergency.max_multiplier", diff: "4.0 → 3.0", correlation: "8f21c4a" },
-      { at: ist("2026-09-15", "08:54:03"), actorId: admins.super.id, actorName: "K. Prasad", action: "payout.batch.approve", object: "PB-2026-09-B", diff: "DRAFT → APPROVED", correlation: "77120ab" },
-      { at: ist("2026-09-15", "08:31:57"), actorId: admins.support.id, actorName: "S. Banerjee", action: "review.remove", object: "REV-99120", diff: "VISIBLE → SOFT_HIDDEN", correlation: "c4412de" },
-      { at: ist("2026-09-15", "07:58:20"), actorId: admins.finance.id, actorName: "A. Verma", action: "rbac.capability.grant", object: "user:priya.nair", diff: "— → dispute.refund.propose", correlation: "5512fab" },
+      { at: ist("2026-09-15", "08:31:57"), actorId: admins.compliance.id, actorName: "M. Rathore", action: "review.remove", object: "REV-99120", diff: "VISIBLE → SOFT_HIDDEN", correlation: "c4412de" },
+      { at: ist("2026-09-15", "07:58:20"), actorId: admins.super.id, actorName: "K. Prasad", action: "staff.create", object: "staff:priya.nair@astrorize.com", diff: "— → Support · Active", correlation: "5512fab" },
       { at: ist("2026-09-14", "22:14:09"), actorName: "System", action: "price.version.create", object: "PV-00417", diff: "— → ₹90/min voice", correlation: "88214cc" },
       { at: ist("2026-09-14", "19:02:31"), actorId: admins.compliance.id, actorName: "M. Rathore", action: "astrologer.suspend", object: "AST-1188", diff: "ACTIVE → PARTIAL", correlation: "22140bb" },
     ],
@@ -429,25 +474,7 @@ async function main() {
   // Snapshots the console shows until live analytics and accounting feeds are connected.
   const settings: Record<string, unknown> = {
     "finance.floorMode": "reject",
-    "finance.kpis": { grossVolume: 21400000, grossDelta: "+11% vs Aug", duplicates: 4, trialBalance: 1240, trialDate: "14 Sep" },
-    "finance.trialBalance": { title: "Trial balance ≠ 0 for 14 Sep", body: "Daily journal is out by ₹1,240 across 3 entries. Finance must drill down before the next payout batch is released." },
     "payout.paused": { raghav: true },
-    "support.case.SES-88214": {
-      metering: [
-        { label: "Billed seconds", value: "722" },
-        { label: "Billed minutes", value: "12" },
-        { label: "Rate at connect", value: "₹80/min" },
-        { label: "Amount billed", value: "₹960" },
-      ],
-      evidence: [
-        { rank: "PLATFORM", label: "Server metering log · connect 14:02:11, end 14:14:13", when: "auto" },
-        { rank: "PLATFORM", label: "RTC session record · two reconnect attempts, no media", when: "auto" },
-        { rank: "PLATFORM", label: "Wallet ledger entry · hold ₹1,240, debit ₹960", when: "auto" },
-        { rank: "CUSTOMER", label: "Screenshot upload · call-log-1412.png", when: "12 Sep" },
-      ],
-      billed: 960,
-      buckets: { service: 800, promo: 160 },
-    },
     // Observer seats on the Live monitoring page (real leases are counted against it).
     "monitoring.observerCapacity": 25,
     "trust.density": { value: 68, target: 100 },
@@ -480,6 +507,38 @@ async function main() {
   for (const [key, value] of Object.entries(settings)) await db.setting.create({ data: { key, value: value as object } });
 
   await (await import("./seed-history.ts")).seedHistory(); // ~30 days of past activity for the admin overview
+
+  // Payout batches from what astrologers actually earned in each closed half-month cycle (TDS 5%):
+  // the last closed cycle drafted for Finance to approve, the one before approved by Finance and
+  // waiting for a Super Admin to release it (approver ≠ releaser), the oldest released. The cycle
+  // still running gets its batch when it closes.
+  const cycles = payoutCycles(new Date(), 4).slice(1);
+  for (const [i, c] of cycles.entries()) {
+    const sums = await db.consultation.groupBy({
+      by: ["astrologerId"],
+      where: { status: "ENDED", endedAt: { gte: c.from, lte: c.to } },
+      _sum: { total: true },
+    });
+    const gross = sums.reduce((n, r) => n + (r._sum.total ?? 0), 0);
+    if (!gross) continue;
+    const approvedAt = new Date(c.to.getTime() + 10.5 * 3600000); // the next morning
+    const base = { id: c.id, cycle: c.label, astrologers: sums.length, gross, tds: Math.round(gross * 0.05), createdAt: new Date(c.to.getTime() + 3600000) };
+    const approved = { approvedById: admins.finance.id, approvedByName: "A. Verma", approvedRole: "FINANCE" as const, approvedAt };
+    await db.payoutBatch.create({
+      data:
+        i === 0
+          ? { ...base, state: "DRAFT" }
+          : i === 1
+            ? { ...base, ...approved, state: "APPROVED" }
+            : { ...base, ...approved, state: "RELEASED", releasedById: admins.super.id, releasedByName: "K. Prasad", releasedAt: new Date(approvedAt.getTime() + 4 * 3600000) },
+    });
+    if (i > 0) {
+      await db.auditLog.create({ data: { at: approvedAt, actorId: admins.finance.id, actorName: "A. Verma", action: "payout.batch.approve", object: c.id, diff: "DRAFT → APPROVED", correlation: `pb${i}a` } });
+    }
+    if (i > 1) {
+      await db.auditLog.create({ data: { at: new Date(approvedAt.getTime() + 4 * 3600000), actorId: admins.super.id, actorName: "K. Prasad", action: "payout.batch.release", object: c.id, diff: "APPROVED → RELEASED", correlation: `pb${i}r` } });
+    }
+  }
   console.log("Seeded demo data. Demo password for every account:", DEMO_PASSWORD);
 }
 

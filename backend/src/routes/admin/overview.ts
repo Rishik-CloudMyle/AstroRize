@@ -2,8 +2,10 @@ import { Router } from "express";
 import { z } from "zod";
 import { db } from "../../db.ts";
 import { Prisma } from "../../generated/prisma/client.ts";
-import { ageLabel, istDateKey, istTime, rupee } from "../../lib/format.ts";
-import { adminOf, capabilitiesOf, pagesOf, requirePage } from "../../lib/rbac.ts";
+import { ageLabel, istDateKey, istDayMonth, istTime, rupee } from "../../lib/format.ts";
+import { walletTrialBalance } from "../../lib/ledger.ts";
+import { adminOf, capabilitiesOf, pagesOf, requirePage, type PageKey } from "../../lib/rbac.ts";
+import { refundProposerId } from "./support.ts";
 import { hostedLiveRoom } from "../../lib/presence.ts";
 import { configNumber, getSetting } from "../../lib/settings.ts";
 import { monitoringCounts } from "./monitoring.ts";
@@ -24,7 +26,8 @@ overviewRouter.get("/session", async (req, res) => {
   // Open-work counts for the nav badges, only for pages this role can open.
   const [hr, finance, support, compliance, trust] = await Promise.all([
     pages.includes("hr") ? db.applicant.count() : 0,
-    pages.includes("finance") ? db.payoutBatch.count({ where: { state: { not: "RELEASED" } } }) : 0,
+    // The same rows as the Finance part of "Work waiting on you", so badge and list agree.
+    pages.includes("finance") ? workFor(admin, new Date()).then((w) => w.filter((i) => i.page === "finance").length) : 0,
     pages.includes("support") ? db.supportTicket.count({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] } } }) : 0,
     pages.includes("compliance") ? db.liveRoom.count({ where: hostedLiveRoom() }) : 0,
     pages.includes("trust") ? db.review.count({ where: { status: "FLAGGED" } }) : 0,
@@ -153,78 +156,185 @@ async function analytics(now: Date) {
   };
 }
 
+type Admin = ReturnType<typeof adminOf>;
+type WorkItem = { ico: string; title: string; sub: string; age: string; tone: string; page: PageKey; param: string | null };
+
+/**
+ * What is waiting on this person: only work their department can do, and never a second-person
+ * step on something they did themselves (approve ≠ release, draft ≠ approve, propose ≠ approve).
+ * The Finance nav badge counts the Finance rows, so the two always agree.
+ */
+async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
+  const pages = pagesOf(admin.adminRole);
+  const caps = capabilitiesOf(admin.adminRole);
+  const can = (page: PageKey, cap?: string) => pages.includes(page) && (!cap || caps.includes(cap));
+  const me = admin.user.id;
+  const slaDays = await configNumber("hr.application.review_sla_days", 5);
+  const slaCutoff = new Date(now.getTime() - slaDays * 86400000);
+
+  const [drafts, approved, configs, proposed, walletRefunds, breached, overSla, flagged, campaignsToApprove, campaignDrafts] = await Promise.all([
+    can("finance", "payout.approve") ? db.payoutBatch.findMany({ where: { state: "DRAFT" }, orderBy: { createdAt: "asc" } }) : [],
+    can("finance", "payout.release")
+      ? db.payoutBatch.findMany({ where: { state: "APPROVED", OR: [{ approvedById: null }, { approvedById: { not: me } }] }, orderBy: { approvedAt: "asc" } })
+      : [],
+    can("config", "config.write")
+      ? db.configChange.findMany({ where: { status: "SUBMITTED", OR: [{ draftedById: null }, { draftedById: { not: me } }] }, orderBy: { createdAt: "asc" } })
+      : [],
+    caps.includes("dispute.refund.approve") && (pages.includes("finance") || pages.includes("support"))
+      ? db.supportTicket.findMany({ where: { refundState: "PROPOSED" }, orderBy: { createdAt: "asc" } })
+      : [],
+    can("finance", "wallet.refund.process") ? db.walletRefund.findMany({ where: { status: "PENDING" }, orderBy: { createdAt: "asc" } }) : [],
+    can("support")
+      ? db.supportTicket.findMany({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] }, slaDueAt: { lt: now } }, orderBy: { slaDueAt: "asc" } })
+      : [],
+    can("hr") ? db.applicant.findMany({ where: { submittedAt: { lt: slaCutoff } }, orderBy: { submittedAt: "asc" } }) : [],
+    can("trust") ? db.review.findMany({ where: { status: "FLAGGED" }, orderBy: { createdAt: "asc" }, select: { createdAt: true } }) : [],
+    can("marketing", "campaign.approve") ? db.campaign.findMany({ where: { state: { in: ["SUBMITTED", "UNDER_REVIEW"] } }, orderBy: { rank: "asc" } }) : [],
+    can("marketing", "campaign.submit") && !caps.includes("campaign.approve")
+      ? db.campaign.findMany({ where: { state: "DRAFT" }, orderBy: { rank: "asc" } })
+      : [],
+  ]);
+  // A refund this person proposed needs someone else (compared by person, as the approve route does).
+  const mine = await Promise.all(proposed.map((t) => refundProposerId(t.id)));
+  const toApprove = proposed.filter((t, i) => (mine[i] ? mine[i] !== me : t.proposedBy !== (admin.user.actorName ?? admin.user.name)));
+  const refundsDue = walletRefunds.reduce((s, r) => s + r.amount, 0);
+
+  return [
+    ...drafts.map((b) => ({
+      ico: "₹",
+      title: `Payout batch ${b.id} awaiting approval`,
+      sub: `${b.astrologers} astrologers · ${lakh(b.gross)} · step-up MFA`,
+      age: ageLabel(b.createdAt, now),
+      tone: "amber",
+      page: "finance" as const,
+      param: null,
+    })),
+    ...approved.map((b) => ({
+      ico: "₹",
+      title: `Payout batch ${b.id} awaiting release`,
+      sub: b.approvedByName ? `Approved by ${b.approvedByName} · ${lakh(b.gross)}` : lakh(b.gross),
+      age: b.approvedAt ? ageLabel(b.approvedAt, now) : "—",
+      tone: "amber",
+      page: "finance" as const,
+      param: null,
+    })),
+    ...toApprove.map((t) => ({
+      ico: "↺",
+      title: `Refund on ${t.id} awaiting your approval`,
+      sub: `${rupee(t.refundAmount)} · proposed by ${t.proposedBy ?? "Support"} · ${t.subject}`,
+      age: ageLabel(t.createdAt, now),
+      tone: "amber",
+      page: pages.includes("finance") ? ("finance" as const) : ("support" as const),
+      param: pages.includes("finance") ? null : `ticket=${t.id}`,
+    })),
+    ...(walletRefunds.length
+      ? [
+          {
+            ico: "₹",
+            title: `${walletRefunds.length} wallet refund${walletRefunds.length === 1 ? "" : "s"} to pay`,
+            sub: `${rupee(refundsDue)} to original payment methods · deleted accounts`,
+            age: ageLabel(walletRefunds[0]!.createdAt, now),
+            tone: "amber",
+            page: "finance" as const,
+            param: null,
+          },
+        ]
+      : []),
+    ...breached.map((t) => ({ ico: "!", title: `${t.id} has breached its SLA`, sub: t.subject, age: ageLabel(t.slaDueAt, now), tone: "rose", page: "support" as const, param: `ticket=${t.id}` })),
+    ...configs.map((c) => ({
+      ico: "⚙",
+      title: "Config draft awaiting a second approver",
+      sub: `${c.key} ${c.fromValue} → ${c.toValue} · drafted by ${c.draftedByName}`,
+      age: ageLabel(c.createdAt, now),
+      tone: "plain",
+      page: "config" as const,
+      param: `key=${encodeURIComponent(c.key)}`,
+    })),
+    ...(overSla.length
+      ? [
+          {
+            ico: "◍",
+            title: `${overSla.length} applications past the ${slaDays}-day review SLA`,
+            sub: overSla.map((a) => a.id).join(", "),
+            age: ageLabel(overSla[0]!.submittedAt, now),
+            tone: "rose-age",
+            page: "hr" as const,
+            param: null,
+          },
+        ]
+      : []),
+    ...(flagged.length
+      ? [
+          {
+            ico: "★",
+            title: `${flagged.length} review${flagged.length === 1 ? "" : "s"} flagged for moderation`,
+            sub: "Policy violation · reasoned removal required",
+            age: ageLabel(flagged[0]!.createdAt, now),
+            tone: "plain",
+            page: "trust" as const,
+            param: null,
+          },
+        ]
+      : []),
+    ...campaignsToApprove.map((c) => ({ ico: "◈", title: `Campaign ${c.id} awaiting approval`, sub: `${c.name} · ${c.cashback} cashback`, age: "—", tone: "plain", page: "marketing" as const, param: null })),
+    ...campaignDrafts.map((c) => ({ ico: "◈", title: `Campaign ${c.id} is still a draft`, sub: `${c.name} · submit it for Admin approval`, age: "—", tone: "plain", page: "marketing" as const, param: null })),
+  ];
+}
+
 overviewRouter.get("/overview", async (req, res) => {
-  requirePage(req, "overview");
+  const admin = requirePage(req, "overview");
+  const pages = pagesOf(admin.adminRole);
+  const has = (p: PageKey) => pages.includes(p);
   const now = new Date();
   const slaDays = await configNumber("hr.application.review_sla_days", 5);
   const slaCutoff = new Date(now.getTime() - slaDays * 86400000);
 
-  const [activeSessions, emergency, lives, openTickets, breached, applicants, overSla, awaiting, submittedChanges, flaggedReviews, audits, analyticsData, trial] =
+  const [activeSessions, emergency, lives, openTickets, breached, applicants, overSla, awaiting, audits, analyticsData, trial, worklist] =
     await Promise.all([
       db.consultation.count({ where: { status: "ACTIVE" } }),
       db.consultation.count({ where: { status: "ACTIVE", kind: "INSTANT" } }),
       monitoringCounts(),
-      db.supportTicket.count({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] } } }),
-      db.supportTicket.findMany({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] }, slaDueAt: { lt: now } } }),
-      db.applicant.count(),
-      db.applicant.findMany({ where: { submittedAt: { lt: slaCutoff } }, orderBy: { submittedAt: "asc" } }),
-      db.payoutBatch.findMany({ where: { state: "APPROVED" } }),
-      db.configChange.findMany({ where: { status: "SUBMITTED" }, orderBy: { createdAt: "asc" } }),
-      db.review.count({ where: { status: "FLAGGED" } }),
+      has("support") ? db.supportTicket.count({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] } } }) : 0,
+      has("support") ? db.supportTicket.count({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] }, slaDueAt: { lt: now } } }) : 0,
+      has("hr") ? db.applicant.count() : 0,
+      has("hr") ? db.applicant.count({ where: { submittedAt: { lt: slaCutoff } } }) : 0,
+      has("finance") ? db.payoutBatch.findMany({ where: { state: "APPROVED" } }) : [],
       db.auditLog.findMany({ orderBy: { at: "desc" }, take: 4 }),
       analytics(now),
-      getSetting<{ title: string; body: string } | null>("finance.trialBalance", null),
+      has("finance") ? walletTrialBalance() : null,
+      workFor(admin, now),
     ]);
   const pendingGross = awaiting.reduce((s, b) => s + b.gross, 0);
 
-  const worklist = [
-    ...awaiting.map((b) => ({
-      ico: "₹",
-      title: `Payout batch ${b.id} awaiting release`,
-      sub: b.approvedByName ? `Approved by ${b.approvedByName} — a different actor must release` : "Awaiting release",
-      age: b.approvedAt ? ageLabel(b.approvedAt, now) : "—",
-      tone: "amber",
-      page: "finance",
-      param: null as string | null,
-    })),
-    ...breached.map((t) => ({ ico: "!", title: `${t.id} has breached its SLA`, sub: t.subject, age: ageLabel(t.slaDueAt, now), tone: "rose", page: "support", param: `ticket=${t.id}` })),
-    ...submittedChanges.map((c) => ({
-      ico: "⚙",
-      title: "Config draft awaiting a second approver",
-      sub: `${c.key} ${c.fromValue} → ${c.toValue}`,
-      age: ageLabel(c.createdAt, now),
-      tone: "plain",
-      page: "config",
-      param: `key=${encodeURIComponent(c.key)}`,
-    })),
-    ...(overSla.length
-      ? [{ ico: "◍", title: `${overSla.length} applications past the ${slaDays}-day review SLA`, sub: overSla.map((a) => a.id).join(", "), age: ageLabel(overSla[0]!.submittedAt, now), tone: "rose-age", page: "hr", param: null }]
-      : []),
-    ...(flaggedReviews
-      ? [{ ico: "★", title: `${flaggedReviews} reviews flagged for moderation`, sub: "Policy violation · reasoned removal required", age: "1d", tone: "plain", page: "trust", param: null }]
-      : []),
-  ];
-
   res.json({
     overview: {
-      dateLine: `${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" })} · ${istTime(now)} IST · everything below is scoped to your capabilities`,
+      dateLine: `${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" })} · ${istTime(now)} IST · your department's work and figures`,
       kpis: {
         liveSessions: activeSessions,
         emergency,
         publicLives: lives.lives,
         flaggedLives: lives.review,
-        openTickets,
-        breachedTickets: breached.length,
-        applications: applicants,
-        applicationsOverSla: overSla.length,
-        payoutAwaiting: lakh(pendingGross),
+        // Department tiles are null when this department can't open the page behind them.
+        openTickets: has("support") ? openTickets : null,
+        breachedTickets: breached,
+        applications: has("hr") ? applicants : null,
+        applicationsOverSla: overSla,
+        payoutAwaiting: has("finance") ? lakh(pendingGross) : null,
         payoutBatchesAwaiting: awaiting.length,
       },
       generatedAt: now.toISOString(),
       analytics: analyticsData,
-      trialBalance: trial,
+      // Shown only when customer wallets really disagree with their ledger lines.
+      trialBalance:
+        trial && trial.walletsOut
+          ? {
+              title: `Wallet trial balance is out by ${rupee(trial.off)}`,
+              body: `${trial.walletsOut} of ${trial.checked} customer wallets don't match their ledger lines. Reconcile them before the next payout batch is released.`,
+            }
+          : null,
       worklist,
-      recentAudit: audits.map((a) => ({ time: istTime(a.at), action: a.action, who: a.actorName, object: a.object, breakGlass: a.breakGlass })),
+      // Today's entries by time, older ones by date, so nothing old reads as today.
+      recentAudit: audits.map((a) => ({ time: istDateKey(a.at) === istDateKey(now) ? istTime(a.at) : istDayMonth(a.at), action: a.action, who: a.actorName, object: a.object, breakGlass: a.breakGlass })),
     },
   });
 });

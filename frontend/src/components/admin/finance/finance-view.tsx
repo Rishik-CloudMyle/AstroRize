@@ -26,6 +26,9 @@ export default function FinanceView({ data }: { data: FinanceData }) {
   const actor = session.actor;
   const denoms = data.enabledDenominations;
   const floor = data.floorMode;
+  const canApprove = session.capabilities.includes("payout.approve");
+  const canRelease = session.capabilities.includes("payout.release");
+  const canConfigure = session.capabilities.includes("config.write");
 
   // From the prototype's batchAct: approve (step-up MFA), then release by a different actor.
   // The API enforces both the capability and approver ≠ releaser.
@@ -36,13 +39,18 @@ export default function FinanceView({ data }: { data: FinanceData }) {
       return;
     }
     if (b.state === "APPROVED") {
+      // ⚠ RazorpayX isn't connected yet: releasing records the decision, the transfer is made outside.
       void run(
-        () => api.post<{ reference: string }>(`/admin/payouts/${id}/release`),
-        (r) => `${id} released by ${actor}. RazorpayX reference ${r.reference} issued.`,
+        () => api.post(`/admin/payouts/${id}/release`),
+        `${id} released by ${actor}. RazorpayX isn't connected yet, so make the transfer and keep its reference.`,
       );
       return;
     }
-    say(`${id} · reference RZP${id.slice(-4)}8821 · TDS lines attached.`);
+    say(
+      b.releasedByName
+        ? `${id} · approved by ${b.approvedByName ?? "—"} · released by ${b.releasedByName}${b.releasedAt ? ` on ${b.releasedAt}` : ""}.`
+        : `${id} was released before releases were recorded here.`,
+    );
   };
 
   const toggleDenom = (v: number) => {
@@ -85,16 +93,18 @@ export default function FinanceView({ data }: { data: FinanceData }) {
                 const st = p.state;
                 // Same person, not same short name: a department can have several people.
                 const sameActor = st === "APPROVED" && p.approvedById === session.id;
+                // What this person can't do here, and why (the API refuses it too).
+                const blocked =
+                  st === "DRAFT" && !canApprove
+                    ? "Finance approves batches"
+                    : st === "APPROVED" && !canRelease
+                      ? "A Super Admin releases"
+                      : sameActor
+                        ? "Release — you approved this"
+                        : null;
                 const [bg, fg] =
                   st === "RELEASED" ? ["#ecfdf5", "#047857"] : st === "APPROVED" ? ["#eff6ff", "#1d4ed8"] : ["#f7f4ee", "#57534e"];
-                const action =
-                  st === "DRAFT"
-                    ? "Approve · MFA"
-                    : st === "APPROVED"
-                      ? sameActor
-                        ? "Release — you approved this"
-                        : "Release"
-                      : "View reference";
+                const action = st === "DRAFT" ? "Approve · MFA" : st === "APPROVED" ? "Release" : "Details";
                 return (
                   <tr key={p.id}>
                     <td className={`${TD} px-2.5 py-[11px] font-mono text-[11.5px] whitespace-nowrap text-[#57534e]`}>{p.id}</td>
@@ -110,13 +120,21 @@ export default function FinanceView({ data }: { data: FinanceData }) {
                       </span>
                     </td>
                     <td className={`${TD} px-2.5 py-[11px] text-right whitespace-nowrap`}>
-                      {sameActor ? (
+                      {blocked ? (
                         <span
                           className="inline-flex h-[30px] items-center rounded-[9px] border border-dashed border-stone-300 bg-stone-100 px-3 text-[11.5px] font-bold text-muted"
-                          title="Approver and releaser must be different people"
+                          title={sameActor ? "Approver and releaser must be different people" : undefined}
+                        >
+                          {blocked}
+                        </span>
+                      ) : st === "RELEASED" ? (
+                        <button
+                          type="button"
+                          onClick={() => batchAct(p)}
+                          className="h-[30px] rounded-[9px] border border-line bg-white px-3 text-[12px] font-bold text-ink"
                         >
                           {action}
-                        </span>
+                        </button>
                       ) : (
                         <button
                           type="button"
@@ -152,6 +170,7 @@ export default function FinanceView({ data }: { data: FinanceData }) {
                   key={v}
                   type="button"
                   aria-pressed={on}
+                  disabled={!canConfigure}
                   onClick={() => toggleDenom(v)}
                   className="h-[34px] rounded-full border px-[13px] text-[12.5px] font-bold tabular-nums"
                   style={{
@@ -180,6 +199,7 @@ export default function FinanceView({ data }: { data: FinanceData }) {
                   key={m.key}
                   type="button"
                   aria-pressed={on}
+                  disabled={!canConfigure}
                   onClick={() => pickFloor(m.key, m.label)}
                   className="flex-1 rounded-[14px] border-2 p-3.5 text-left"
                   style={{ borderColor: on ? "#f59e0b" : "#e7e0d6", background: on ? "#fffbeb" : "#fff" }}

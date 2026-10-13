@@ -40,7 +40,7 @@ npm run dev    # starts the API and the website together
 ```bash
 npm run db:seed          # the checks expect freshly seeded demo data
 npm run dev              # in one terminal
-npm test --prefix backend   # in another: ~70 end-to-end API checks
+npm test --prefix backend   # in another: ~260 end-to-end API checks
 ```
 
 ## Demo accounts (local only)
@@ -60,6 +60,8 @@ Password for every email account: `123456` (demo data only; the seed refuses to 
 | Finance | `finance@astrorize.com` |
 | Support | `support@astrorize.com` |
 | Compliance | `compliance@astrorize.com` |
+| Marketing | `marketing@astrorize.com` |
+| More staff (same departments) | `neha.gupta@` (Finance), `priya.nair@` / `arun.das@` (Support), `vivek.rao@` (Compliance), `isha.malhotra@` (Marketing) — all `@astrorize.com`; `fatima.shaikh@` is deactivated |
 
 In development there is no SMS provider yet, so the one-time code appears in the login window
 and in the API's terminal. Any new mobile number creates a fresh customer account with an empty wallet.
