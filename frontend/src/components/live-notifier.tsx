@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "@/lib/api/client";
+import { useOpenConsultation } from "@/lib/consultation-store";
 
 /** What is happening right now (GET /api/stats/now). Every figure is counted from real records. */
 export interface LiveNow {
@@ -63,6 +64,8 @@ interface Notice {
  */
 export default function LiveNotifier() {
   const pathname = usePathname();
+  // A customer in a consultation isn't interrupted: notices wait until it's over.
+  const inCall = useOpenConsultation()?.status === "active";
   const [notices, setNotices] = useState<Notice[]>([]);
   const known = useRef<Set<string> | null>(null);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -126,6 +129,8 @@ export default function LiveNotifier() {
     setLastPath(pathname);
     if (pathname === "/live" && notices.length) setNotices([]);
   }
+
+  if (inCall) return null;
 
   return (
     <div

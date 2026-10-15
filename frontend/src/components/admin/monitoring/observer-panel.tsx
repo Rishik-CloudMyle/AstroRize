@@ -238,50 +238,16 @@ export default function ObserverPanel({
 }
 
 function Stage({ room, now }: { room: Observing["room"]; now: number }) {
-  // Same stage video as the public room: a spinner until it can play, then it fades in.
-  const [video, setVideo] = useState<"loading" | "playing" | "error">("loading");
-  const videoRef = useRef<HTMLVideoElement>(null);
-  useEffect(() => {
-    const el = videoRef.current;
-    if (!el) return;
-    if (el.error) setVideo("error");
-    else if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) setVideo("playing");
-  }, []);
-
+  // ⚠ No live video for observers yet: the live audio/video provider (ZEGO) isn't connected and
+  // monitors get no play-only stream. Shows the host's photo and says so — never a sample clip.
   return (
     <div className="relative aspect-[4/5] overflow-hidden rounded-[16px] bg-ink sm:aspect-[16/10]">
-      <video
-        ref={videoRef}
-        src="/assets/videos/live-room.mp4"
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="auto"
-        aria-label={`${room.astrologer} live`}
-        onCanPlay={() => setVideo((v) => (v === "loading" ? "playing" : v))}
-        onPlaying={() => setVideo("playing")}
-        onError={() => setVideo("error")}
-        className={`absolute inset-0 size-full object-cover transition-opacity duration-500 ${video === "playing" ? "opacity-100" : "opacity-0"}`}
-      />
-      {video === "loading" && (
-        <div role="status" className="absolute inset-0 grid place-items-center">
-          <span className="flex flex-col items-center gap-3">
-            <span
-              aria-hidden="true"
-              className="size-10 animate-spin rounded-full border-[3px] border-white/20 border-t-amber-400"
-            />
-            <span className="text-[13px] font-semibold text-white/80">Loading live video…</span>
-          </span>
-        </div>
-      )}
-      {video === "error" && (
-        <div role="status" className="absolute inset-0 grid place-items-center px-6 text-center">
-          <span className="max-w-[34ch] text-[13.5px] leading-normal text-white/80">
-            The live video couldn&apos;t load. The chat, poll and queue below are still current.
-          </span>
-        </div>
-      )}
+      <Image src={room.photo} alt="" fill sizes="(max-width: 640px) 100vw, 720px" className="scale-110 object-cover opacity-40 blur-md" />
+      <div role="status" className="absolute inset-0 grid place-items-center px-6 text-center">
+        <span className="max-w-[36ch] text-[13.5px] leading-normal font-semibold text-white/85">
+          Live video isn&apos;t connected yet. The chat, poll and queue below are current.
+        </span>
+      </div>
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.5)_0%,rgba(28,25,23,.05)_40%,rgba(28,25,23,.7)_100%)]" />
 
       <div className="absolute inset-x-3 top-3 flex flex-wrap items-center gap-2">

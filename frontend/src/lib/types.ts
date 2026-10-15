@@ -116,6 +116,41 @@ export interface LiveRoom {
   announcements: { id: string; text: string; at: string }[];
   /** What viewers currently see: normal, a private consult, a compliance monitor, or high-load mode. */
   state: "normal" | "private" | "monitor" | "degrade";
+  /** The signed-in viewer's latest consult request in this live (null: none, or signed out). */
+  myRequest: LiveRequestStatus | null;
+  /** The signed-in viewer's own private consultation in this room, while it is connecting or in session. */
+  private: LivePrivateConsult | null;
+}
+
+export interface LiveRequestStatus {
+  id: string;
+  status: "waiting" | "accepted" | "declined" | "left";
+  consultationId: string | null;
+  /** queued · connecting · active · ended · cancelled · rejected */
+  consultation: string | null;
+  /** Why it ended: user · astrologer · unanswered · balance · live_ended · cap · exhausted */
+  reason: string | null;
+  /** What it cost (₹), once settled */
+  charged: number;
+}
+
+/** A private consultation taken from a live room, by the server clock. */
+export interface LivePrivateConsult {
+  id: string;
+  ref: string;
+  status: "connecting" | "active";
+  /** Locked when the request joined the queue (₹/min) */
+  rate: number;
+  held: number;
+  connectedAt: string | null;
+  elapsedSeconds: number;
+  /** Seconds not billed at the start */
+  freeSeconds: number;
+  /** Longest it can run (free time plus what the held balance pays for, at most 15 minutes) */
+  maxSeconds: number;
+  /** Seconds left to join the call (connecting only) */
+  secondsToAnswer: number | null;
+  answerWindow: number;
 }
 
 export interface Transaction {

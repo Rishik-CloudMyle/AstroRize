@@ -2,10 +2,11 @@ import { db } from "../db.ts";
 import { audit } from "./audit.ts";
 import { getSetting, putSetting } from "./settings.ts";
 
-// How long written conversations are kept: live-room chat (ChatMessage) and astrologer–customer
-// messages (Message). The Super Admin sets the period on the Recording page; once a day the
-// server sweep deletes anything older. Voice and video are not recorded at all (no calling or
-// streaming provider is connected), so there is nothing else to purge.
+// How long written conversations are kept: live-room chat (ChatMessage), astrologer–customer
+// messages (Message) and the chat inside consultations (ConsultMessage). The Super Admin sets the
+// period on the Recording page; once a day the server sweep deletes anything older. Voice and
+// video are never recorded (they go peer to peer through the media provider), so there is
+// nothing else to purge.
 
 export const RETENTION_SETTING = "retention.conversations";
 export const LAST_PURGE_SETTING = "retention.lastPurge";
@@ -27,7 +28,10 @@ export interface PurgeResult {
   at: string;
   cutoff: string;
   chatMessages: number;
+  /** Direct messages and consultation chat together. */
   messages: number;
+  /** Of `messages`, the ones written inside consultations. */
+  consultMessages?: number;
   threads: number;
 }
 
@@ -51,15 +55,29 @@ export const lastPurge = () => getSetting<PurgeResult | null>(LAST_PURGE_SETTING
 export async function purgeExpiredConversations(now = new Date()): Promise<PurgeResult> {
   const { days } = await retentionPolicy();
   const cutoff = new Date(now.getTime() - days * DAY_MS);
-  const [chat, messages, threads] = await db.$transaction([
+  const [chat, direct, consult, threads] = await db.$transaction([
     db.chatMessage.deleteMany({ where: { createdAt: { lt: cutoff } } }),
     db.message.deleteMany({ where: { createdAt: { lt: cutoff } } }),
+    db.consultMessage.deleteMany({ where: { createdAt: { lt: cutoff } } }),
     db.messageThread.deleteMany({ where: { updatedAt: { lt: cutoff }, messages: { none: {} } } }),
   ]);
-  const result: PurgeResult = { at: now.toISOString(), cutoff: cutoff.toISOString(), chatMessages: chat.count, messages: messages.count, threads: threads.count };
+  const messages = direct.count + consult.count;
+  const result: PurgeResult = {
+    at: now.toISOString(),
+    cutoff: cutoff.toISOString(),
+    chatMessages: chat.count,
+    messages,
+    consultMessages: consult.count,
+    threads: threads.count,
+  };
   await putSetting(LAST_PURGE_SETTING, result);
-  if (chat.count || messages.count || threads.count) {
-    await audit(null, "retention.purge", "conversations", `older than ${days} days · ${chat.count} live chat, ${messages.count} messages, ${threads.count} empty conversations deleted`);
+  if (chat.count || messages || threads.count) {
+    await audit(
+      null,
+      "retention.purge",
+      "conversations",
+      `older than ${days} days · ${chat.count} live chat, ${direct.count} messages, ${consult.count} consultation chat, ${threads.count} empty conversations deleted`,
+    );
   }
   return result;
 }

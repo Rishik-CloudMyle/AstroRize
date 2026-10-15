@@ -10,33 +10,10 @@ import Modal from "../modal";
 import { useAccount, useErrorToast, useToast } from "../portal-provider";
 import { PageHeader, Panel } from "../ui";
 import { Avatar, PersonProfileDialog } from "./live-queue-people";
+import { SessionWindow } from "@/components/consult/session/session-window";
 
 /** How often the page asks the API for new requests, the queue and the live session. */
 const POLL_MS = 4000;
-
-const SESSION_CONTROLS = [
-  {
-    label: "🎤 Mute",
-    bg: "rgba(255,255,255,.08)",
-    fg: "#e7e0d6",
-    border: "rgba(255,255,255,.15)",
-    msg: "Microphone muted. The customer is told you have muted.",
-  },
-  {
-    label: "📹 Camera",
-    bg: "rgba(255,255,255,.08)",
-    fg: "#e7e0d6",
-    border: "rgba(255,255,255,.15)",
-    msg: "Camera off. Voice continues uninterrupted.",
-  },
-  {
-    label: "⏺ Recording on",
-    bg: "rgba(234,88,12,.2)",
-    fg: "#fdba74",
-    border: "rgba(234,88,12,.4)",
-    msg: "Recording is always on for voice sessions — it cannot be switched off mid-session.",
-  },
-];
 
 const DROP_STEPS = [
   "Metering stops at the moment of the drop",
@@ -96,6 +73,11 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
   // The request (or session) whose full profile is open in the popup.
   const [detailId, setDetailId] = useState<string | null>(null);
   const queueSize = useRef(initial.queue.length);
+  // The session window: opens by itself when a session starts (and on arrival during one).
+  const [windowFor, setWindowFor] = useState<string | null>(initial.session?.id ?? null);
+  const sessionRef = useRef<string | null>(initial.session?.id ?? null);
+  // Set while this astrologer is ending the session, so it isn't reported as ended by the customer.
+  const endingRef = useRef(false);
   // Stable, so the dialogs keep focus while the clock ticks underneath them.
   const closeEnd = useCallback(() => setConfirmEnd(false), []);
   const closeDetail = useCallback(() => setDetailId(null), []);
@@ -105,6 +87,15 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
       const res = await api.get<{ consultations: Consultations }>("/portal/consultations");
       setSnap({ data: res.consultations, at: Date.now() });
       setNow(Date.now());
+      const next = res.consultations.session?.id ?? null;
+      if (next !== sessionRef.current) {
+        if (next) setWindowFor(next);
+        else if (!endingRef.current) {
+          setWindowFor(null);
+          toast("The session has ended — the customer ended it, or their balance ran out.");
+        }
+        sessionRef.current = next;
+      }
       // Keep the sidebar's request count in step with the queue.
       if (res.consultations.queue.length !== queueSize.current) {
         queueSize.current = res.consultations.queue.length;
@@ -113,7 +104,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
     } catch {
       // A missed poll is retried on the next tick.
     }
-  }, [router]);
+  }, [router, toast]);
 
   // Poll the API, and tick the countdown / session clock once a second.
   useEffect(() => {
@@ -175,7 +166,15 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
     });
   const endSession = (id: string) =>
     act(async () => {
-      const { settlement } = await api.post<{ settlement: Settlement }>(`/portal/consultations/${id}/end`);
+      endingRef.current = true;
+      let settlement: Settlement;
+      try {
+        ({ settlement } = await api.post<{ settlement: Settlement }>(`/portal/consultations/${id}/end`));
+      } finally {
+        endingRef.current = false;
+      }
+      sessionRef.current = null;
+      setWindowFor(null);
       setConfirmEnd(false);
       toast(
         settlement.complimentary && settlement.billedMins === 0
@@ -408,17 +407,13 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                 <span className="text-[20px] font-bold text-amber-300 tabular-nums">{mmss(sessionSecs)}</span>
               </div>
               <div className="mt-3.5 flex flex-wrap gap-2">
-                {SESSION_CONTROLS.map((c) => (
-                  <button
-                    key={c.label}
-                    type="button"
-                    onClick={() => toast(c.msg)}
-                    className="h-[42px] rounded-xl border px-[15px] text-[13.5px] font-bold"
-                    style={{ background: c.bg, color: c.fg, borderColor: c.border }}
-                  >
-                    {c.label}
-                  </button>
-                ))}
+                <button
+                  type="button"
+                  onClick={() => setWindowFor(session.id)}
+                  className="h-[42px] rounded-xl bg-amber-400 px-[15px] text-[13.5px] font-bold text-ink"
+                >
+                  Open session window
+                </button>
                 <button
                   type="button"
                   onClick={() => setConfirmEnd(true)}
@@ -461,33 +456,77 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
         </Panel>
       </div>
 
-      {confirmEnd && session && (
+      {/* The session's own window (chat, voice or video), over the whole portal. */}
+      {session &&
+        windowFor === session.id &&
+        createPortal(
+          <SessionWindow
+            base={`/portal/consultations/${session.id}`}
+            kind={session.window}
+            active
+            peer={{
+              name: nameOf(session.profile, session.alias),
+              photo: session.profile?.photoUrl ?? null,
+              initials: session.profile?.initials ?? "?",
+            }}
+            title={session.mode}
+            badges={
+              <>
+                {session.instant && (
+                  <span className="inline-flex h-7 items-center rounded-full bg-urgent/30 px-3 text-[12px] font-bold text-orange-200">⚡ Instant Call</span>
+                )}
+                {session.free && (
+                  <span className="inline-flex h-7 items-center rounded-full bg-emerald-400/15 px-3 text-[12px] font-bold text-emerald-300">
+                    {sessionSecs < session.freeSeconds ? `🎁 Free call · ${mmss(session.freeSeconds - sessionSecs)} free left` : "🎁 Free time over — now billed"}
+                  </span>
+                )}
+              </>
+            }
+            clock={mmss(sessionSecs)}
+            alerts={
+              session.lowBalance ? (
+                <div role="status" className="rounded-xl border border-amber-300/40 bg-amber-300/10 px-3.5 py-2.5 text-[13px] text-amber-100">
+                  The customer&apos;s balance is low — the session may end soon. You see the indicator only, never the figure.
+                </div>
+              ) : null
+            }
+            ending={busy}
+            onEnd={() => setConfirmEnd(true)}
+            onMinimise={() => setWindowFor(null)}
+          />,
+          document.body,
+        )}
+
+      {confirmEnd &&
+        session &&
+        createPortal(
         <Modal onClose={closeEnd} labelledBy="end-title">
-          <h2 id="end-title" className="m-0 text-[18px] font-bold">
-            End session with {nameOf(session.profile, session.alias)}?
-          </h2>
-          <p className="mt-2 text-[13.5px] leading-[1.55] text-stone-600">
-            Billing is settled once you confirm: the customer is charged for the connected time only.
-          </p>
-          <div className="mt-5 flex gap-2.5">
-            <button
-              type="button"
-              onClick={() => setConfirmEnd(false)}
-              className="h-11 flex-1 rounded-xl border border-line bg-white text-sm font-bold"
-            >
-              Keep going
-            </button>
-            <button
-              type="button"
-              onClick={() => endSession(session.id)}
-              disabled={busy}
-              className="h-11 flex-1 rounded-xl bg-urgent text-sm font-bold text-white disabled:opacity-60"
-            >
-              End session
-            </button>
-          </div>
-        </Modal>
-      )}
+            <h2 id="end-title" className="m-0 text-[18px] font-bold">
+              End session with {nameOf(session.profile, session.alias)}?
+            </h2>
+            <p className="mt-2 text-[13.5px] leading-[1.55] text-stone-600">
+              Billing is settled once you confirm: the customer is charged for the connected time only.
+            </p>
+            <div className="mt-5 flex gap-2.5">
+              <button
+                type="button"
+                onClick={() => setConfirmEnd(false)}
+                className="h-11 flex-1 rounded-xl border border-line bg-white text-sm font-bold"
+              >
+                Keep going
+              </button>
+              <button
+                type="button"
+                onClick={() => endSession(session.id)}
+                disabled={busy}
+                className="h-11 flex-1 rounded-xl bg-urgent text-sm font-bold text-white disabled:opacity-60"
+              >
+                End session
+              </button>
+            </div>
+          </Modal>,
+          document.body,
+        )}
 
       {/* Rendered on <body> so no panel effect can trap the fixed overlay; centred on every screen size. */}
       {detailId &&

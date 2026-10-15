@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Astrologer, ConsultMode, LiveRoom } from "@/lib/types";
 import {
@@ -13,7 +14,7 @@ import {
 import { REACTIVATED_EVENT, useSession } from "@/lib/session-store";
 import LoginModal, { type LoginOptions } from "./modals/login-modal";
 import InstantCallModal from "./modals/instant-call-modal";
-import ConsultModeModal from "./modals/consult-mode-modal";
+import LiveQueueModal from "./modals/live-queue-modal";
 import ConsultJourney from "./consult/consult-journey";
 import { staffConsultNote } from "./consult/consult-gate";
 
@@ -29,8 +30,8 @@ interface AppUI {
   toast: (message: string) => void;
   openLogin: (options?: LoginOptions) => void;
   openInstantCall: (astrologer: Astrologer) => void;
-  /** Live room: choose private or public, then join that room's consult queue. */
-  openConsultModes: (request: QueueRequest) => void;
+  /** Live room: confirm the rate, then join that room's consult queue (always a private consultation). */
+  openLiveQueue: (request: QueueRequest) => void;
   startConsult: (request: ConsultRequest) => void;
   /** Back to the open consultation (from the header pill or a frozen consult button). */
   resumeConsult: () => void;
@@ -38,6 +39,8 @@ interface AppUI {
 
 export interface QueueRequest {
   roomId: string;
+  /** The room's host: their name and the rate shown (and locked) when joining. */
+  astrologer: Astrologer;
   /** Called with the room's fresh state once the customer is in the queue. */
   onJoined?: (room: LiveRoom) => void;
 }
@@ -54,10 +57,11 @@ export function useAppUI(): AppUI {
 type Overlay =
   | { kind: "login"; options: LoginOptions }
   | { kind: "instant"; astrologer: Astrologer }
-  | { kind: "modes"; request: QueueRequest }
+  | { kind: "queue"; request: QueueRequest }
   | null;
 
 export default function AppProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const session = useSession();
   const { checked, open } = useConsultationState();
   const [overlay, setOverlay] = useState<Overlay>(null);
@@ -98,7 +102,8 @@ export default function AppProvider({ children }: { children: React.ReactNode })
   const [autoResumed, setAutoResumed] = useState(false);
   if (checked && !autoResumed) {
     setAutoResumed(true);
-    if (open && !wasMinimised(open.id)) setConsult((current) => current ?? { astrologer: open.astrologer, resume: open });
+    // A private consultation from a live room runs on that room's page, not in the consult window.
+    if (open && open.origin !== "live" && !wasMinimised(open.id)) setConsult((current) => current ?? { astrologer: open.astrologer, resume: open });
   }
 
   const ui = useMemo<AppUI>(() => {
@@ -106,7 +111,8 @@ export default function AppProvider({ children }: { children: React.ReactNode })
       const current = openRef.current;
       setOverlay(null);
       rememberMinimised(null);
-      if (current) setConsult({ astrologer: current.astrologer, resume: current });
+      if (current?.origin === "live" && current.liveRoomId) router.push(`/live?room=${encodeURIComponent(current.liveRoomId)}`);
+      else if (current) setConsult({ astrologer: current.astrologer, resume: current });
     };
     /**
      * True (and the person is told why) when they can't start a consultation: signed in as an
@@ -129,8 +135,8 @@ export default function AppProvider({ children }: { children: React.ReactNode })
       openInstantCall: (astrologer) => {
         if (!blocked()) setOverlay({ kind: "instant", astrologer });
       },
-      openConsultModes: (request) => {
-        if (!blocked()) setOverlay({ kind: "modes", request });
+      openLiveQueue: (request) => {
+        if (!blocked()) setOverlay({ kind: "queue", request });
       },
       startConsult: (request) => {
         if (blocked()) return;
@@ -139,7 +145,7 @@ export default function AppProvider({ children }: { children: React.ReactNode })
       },
       resumeConsult,
     };
-  }, [toast]);
+  }, [toast, router]);
 
   /** Instant Call placed: go straight to the waiting screen, which turns into the session when accepted. */
   const onInstantPlaced = useCallback((view: ConsultationView) => {
@@ -156,7 +162,7 @@ export default function AppProvider({ children }: { children: React.ReactNode })
       {overlay?.kind === "instant" && (
         <InstantCallModal astrologer={overlay.astrologer} onClose={closeOverlay} onPlaced={onInstantPlaced} />
       )}
-      {overlay?.kind === "modes" && <ConsultModeModal request={overlay.request} onClose={closeOverlay} />}
+      {overlay?.kind === "queue" && <LiveQueueModal request={overlay.request} onClose={closeOverlay} />}
       {consult && (
         <ConsultJourney
           key={consult.resume?.id ?? `${consult.astrologer.id}-${consult.mode ?? ""}`}

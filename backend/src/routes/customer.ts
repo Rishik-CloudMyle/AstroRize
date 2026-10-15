@@ -17,6 +17,7 @@ import { istDate, istDateKey, makeRef, rupee } from "../lib/format.ts";
 import { IMAGE_TYPES, MAX_PHOTO_BYTES, deleteMedia, saveImage, sniffImage } from "../lib/media.ts";
 import { GENDERS, ageOn, dateKey, initialsOf, ownProfileView } from "../lib/profile.ts";
 import { rateLimit } from "../lib/safety.ts";
+import { consultMessageBody, consultationFor, listMessages, mediaFor, sendMessage } from "../lib/consult-room.ts";
 import {
   checkSendRate,
   directText,
@@ -237,6 +238,9 @@ async function consultationView(c: Consultation & { astrologer: Astrologer }) {
     ref: c.ref,
     status: c.status.toLowerCase(),
     kind: c.kind === "INSTANT" ? "instant" : "standard",
+    /** "live": a private consultation taken from a live room (it runs on that room's page). */
+    origin: c.origin === "LIVE" ? "live" : "direct",
+    liveRoomId: c.liveRoomId,
     mode: c.mode.toLowerCase(),
     rate: c.rate,
     held: c.heldAmount,
@@ -424,6 +428,30 @@ customerRouter.post("/consultations/:id/rating", async (req, res) => {
   }
   await db.$transaction(ops);
   res.json({ ok: true });
+});
+
+// ── Inside a consultation: its chat, and its voice/video room ──
+
+/** The consultation's chat so far (polled with ?after=<ISO time>). Readable after it ends. */
+customerRouter.get("/consultations/:id/messages", async (req, res) => {
+  const c = await consultationFor(String(req.params.id), "CUSTOMER", auth(req).user.id);
+  res.json(await listMessages(c, "CUSTOMER", req.query.after));
+});
+
+/** Sends a message while the session is in progress. Contact details are never delivered. */
+customerRouter.post("/consultations/:id/messages", async (req, res) => {
+  const me = auth(req).user;
+  const { text } = consultMessageBody.parse(req.body);
+  const c = await consultationFor(String(req.params.id), "CUSTOMER", me.id);
+  res.status(201).json(await sendMessage(c, "CUSTOMER", me.id, text));
+});
+
+/** Credentials for the session's voice/video room, or why there are none (chat, ended, not set up). */
+customerRouter.get("/consultations/:id/media", async (req, res) => {
+  const me = auth(req).user;
+  const c = await consultationFor(String(req.params.id), "CUSTOMER", me.id);
+  // The astrologer sees the customer's alias, so ZEGO never holds the customer's name either.
+  res.json({ media: mediaFor(c, "CUSTOMER", me, c.customerAlias) });
 });
 
 /**

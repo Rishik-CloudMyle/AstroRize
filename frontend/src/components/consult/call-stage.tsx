@@ -2,18 +2,16 @@
 
 import Image from "next/image";
 import type { Astrologer, Settlement } from "@/lib/types";
-import { clock, duration, rupee, skillLine } from "@/lib/format";
+import { clock, duration, rupee } from "@/lib/format";
 
-// The in-call screen and the settlement after it. Calm and premium: the astrologer's portrait
-// breathes inside a soft halo, a ring around it fills as the session's time is used, and the
-// numbers that matter (time, rate, cost) sit underneath. Motion stops under reduced-motion.
+// The customer's meter inside the session window (time, cost, free time, the reminders that
+// come with them) and the settlement after it. The numbers follow the API's own billing rules:
+// the free window is never billed, paid minutes round up, and one charge is taken at the end.
 
 /** Longest single consultation (seconds), same as the API's cap. */
 const MAX_SESSION_SECONDS = 15 * 60;
 /** Paid balance left (seconds) at which the low-balance reminder appears. */
 const LOW_BALANCE_SECONDS = 120;
-
-const RING = 2 * Math.PI * 70;
 
 /** "Two minutes", counting a part-minute as a minute. */
 function minutesWord(secs: number): string {
@@ -21,24 +19,7 @@ function minutesWord(secs: number): string {
   return m === 1 ? "One minute" : m === 2 ? "Two minutes" : `${m} minutes`;
 }
 
-export function CallStage({
-  astrologer,
-  modeTitle,
-  instant,
-  complimentary,
-  rate,
-  held,
-  elapsed,
-  freeSeconds,
-  maxSeconds,
-  reminderSeconds,
-  ending,
-  onEnd,
-  onAddMoney,
-}: {
-  astrologer: Astrologer;
-  modeTitle: string;
-  instant: boolean;
+export interface MeterInput {
   /** A welcome free call */
   complimentary: boolean;
   /** Rate fixed for this session (₹/min) */
@@ -49,172 +30,90 @@ export function CallStage({
   freeSeconds: number;
   maxSeconds: number;
   reminderSeconds: number;
-  ending: boolean;
-  onEnd: () => void;
-  onAddMoney: () => void;
-}) {
-  const inFree = elapsed < freeSeconds;
-  const freeLeft = Math.max(0, freeSeconds - elapsed);
-  const left = Math.max(0, maxSeconds - elapsed);
-  const billed = Math.ceil(Math.max(0, elapsed - freeSeconds) / 60);
-  const cost = Math.min(billed * rate, held);
+}
+
+/** Where the session stands, from the customer's side. */
+export function meterOf(m: MeterInput) {
+  const inFree = m.elapsed < m.freeSeconds;
+  const freeLeft = Math.max(0, m.freeSeconds - m.elapsed);
+  const left = Math.max(0, m.maxSeconds - m.elapsed);
+  const billed = Math.ceil(Math.max(0, m.elapsed - m.freeSeconds) / 60);
+  const cost = Math.min(billed * m.rate, m.held);
   // Limited by the balance (not only the 15-minute cap): the call ends when it runs out.
-  const balanceLimited = maxSeconds < MAX_SESSION_SECONDS;
+  const balanceLimited = m.maxSeconds < MAX_SESSION_SECONDS;
   // A free call that can't continue after its free time (nothing held to pay for more).
-  const endsWithFree = complimentary && maxSeconds <= freeSeconds;
-  const freeReminder = complimentary && inFree && freeLeft <= reminderSeconds;
+  const endsWithFree = m.complimentary && m.maxSeconds <= m.freeSeconds;
+  const freeReminder = m.complimentary && inFree && freeLeft <= m.reminderSeconds;
   const lowBalance = !inFree && balanceLimited && left <= LOW_BALANCE_SECONDS;
-  const progress = Math.min(1, elapsed / Math.max(1, maxSeconds));
-  const tone = lowBalance || (freeReminder && endsWithFree) ? "#fb7185" : inFree ? "#34d399" : "#fbbf24";
+  return { inFree, freeLeft, left, billed, cost, balanceLimited, endsWithFree, freeReminder, lowBalance };
+}
 
+const chip = "inline-flex h-7 items-center gap-1 rounded-full px-3 text-[12px] font-bold tabular-nums";
+
+/** The badges and numbers along the top of the window. */
+export function MeterChips({ m, instant }: { m: MeterInput; instant: boolean }) {
+  const s = meterOf(m);
   return (
-    <div>
-      <div className="relative overflow-hidden rounded-[28px] bg-[radial-gradient(120%_90%_at_50%_0%,#3b2a5e_0%,#1f1630_45%,#120d1c_100%)] px-5 pb-6 pt-5 text-center text-line shadow-[0_24px_60px_rgba(18,13,28,.35)] sm:px-8">
-        {/* Soft stars of light behind everything */}
-        <span aria-hidden="true" className="pointer-events-none absolute -left-16 -top-16 size-56 rounded-full bg-amber-400/10 blur-3xl" />
-        <span aria-hidden="true" className="pointer-events-none absolute -bottom-20 -right-10 size-64 rounded-full bg-fuchsia-400/10 blur-3xl" />
-
-        <div className="relative flex flex-wrap items-center justify-center gap-2">
-          <span className="inline-flex h-7 items-center gap-2 rounded-full bg-white/10 px-3 text-[12px] font-bold text-green-300">
-            <span className="az-live-dot size-2 rounded-full bg-green-400" aria-hidden="true" />
-            {modeTitle} · connected
-          </span>
-          <span className="inline-flex h-7 items-center rounded-full bg-white/10 px-3 text-[12px] font-bold tabular-nums text-amber-200">
-            {rupee(rate)}/min
-          </span>
-          {instant && (
-            <span className="inline-flex h-7 items-center rounded-full bg-blue-500/20 px-3 text-[12px] font-bold text-blue-200">⚡ Instant Call</span>
-          )}
-          {complimentary && (
-            <span className="inline-flex h-7 items-center rounded-full bg-emerald-400/15 px-3 text-[12px] font-bold text-emerald-300">🎁 Free call</span>
-          )}
-        </div>
-
-        <div className="relative mx-auto mt-6 grid size-[176px] place-items-center">
-          {/* Halo: a slow, soft breathing glow */}
-          <span
-            aria-hidden="true"
-            className="absolute inset-3 rounded-full motion-safe:animate-[azHalo_4.5s_ease-in-out_infinite]"
-            style={{ background: `radial-gradient(circle, ${tone}55 0%, ${tone}00 70%)` }}
-          />
-          <span aria-hidden="true" className="az-pulse-ring absolute inset-[22px] rounded-full border border-white/25 [animation-duration:3.2s]" />
-          {/* Time used, as a ring that fills */}
-          <svg viewBox="0 0 160 160" className="absolute inset-0 size-full -rotate-90" aria-hidden="true">
-            <circle cx="80" cy="80" r="70" fill="none" stroke="rgba(255,255,255,.09)" strokeWidth="4" />
-            <circle
-              cx="80"
-              cy="80"
-              r="70"
-              fill="none"
-              stroke={tone}
-              strokeWidth="4"
-              strokeLinecap="round"
-              strokeDasharray={RING}
-              strokeDashoffset={RING * (1 - progress)}
-              className="transition-[stroke-dashoffset,stroke] duration-1000 ease-linear"
-            />
-          </svg>
-          <span className="relative block size-[120px] overflow-hidden rounded-full border-[3px] border-gold shadow-[0_0_0_6px_rgba(255,255,255,.06)]">
-            <Image src={astrologer.photo} alt="" fill sizes="240px" className="object-cover" />
-          </span>
-        </div>
-
-        <b className="relative mt-4 block font-name text-[20px] text-paper">{astrologer.name}</b>
-        <span className="relative block text-[12.5px] text-stone-400">{skillLine(astrologer)}</span>
-
-        <div className="relative mt-5 text-[56px] font-bold leading-none tabular-nums tracking-[-.02em] text-paper" aria-live="off">
-          {clock(elapsed)}
-        </div>
-        <div className="relative mt-1.5 text-[12.5px] text-stone-400">elapsed · one charge after the call, never during it</div>
-
-        {inFree && (
-          <div
-            className={`relative mt-4 inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13.5px] font-bold tabular-nums ${
-              complimentary ? "bg-emerald-400/15 text-emerald-200" : "bg-green-400/15 text-green-300"
-            }`}
-            aria-live="off"
-          >
-            {complimentary ? <>🎁 {clock(freeLeft)} free</> : <>First minute free · {freeLeft}s left</>}
-          </div>
-        )}
-
-        <div className="relative mt-6 grid grid-cols-3 gap-2 border-t border-white/10 pt-4">
-          <Stat label="Cost so far" value={rupee(cost)} />
-          <Stat label="Billed" value={`${billed} min`} />
-          <Stat label={balanceLimited ? "Time left" : "Session limit"} value={clock(left)} warn={lowBalance} />
-        </div>
-      </div>
-
-      {freeReminder && (
-        <div
-          role="status"
-          className={`mt-3.5 flex flex-wrap items-start gap-3 rounded-2xl border-2 px-4 py-3.5 ${endsWithFree ? "border-amber-400 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}
-        >
-          <span className="text-lg" aria-hidden="true">
-            {endsWithFree ? "⏳" : "🎁"}
-          </span>
-          <div className="min-w-0 flex-1">
-            <b className={`block text-[14px] ${endsWithFree ? "text-amber-900" : "text-emerald-800"}`}>
-              {minutesWord(freeLeft)} of your free call left
-            </b>
-            <span className={`mt-0.5 block text-[13px] leading-normal ${endsWithFree ? "text-amber-900/85" : "text-emerald-900/85"}`}>
-              {endsWithFree
-                ? `Add money to continue at ${rupee(rate)}/min — the call stays connected while you pay.`
-                : `After that the call continues at ${rupee(rate)}/min from your balance. End it any time.`}
-            </span>
-          </div>
-          {endsWithFree && (
-            <button type="button" onClick={onAddMoney} className="h-10 whitespace-nowrap rounded-xl bg-amber-500 px-4 text-[13.5px] font-bold text-ink">
-              Add money
-            </button>
-          )}
-        </div>
+    <>
+      <span className={`${chip} bg-white/10 text-amber-200`}>{rupee(m.rate)}/min</span>
+      {instant && <span className={`${chip} bg-blue-500/20 text-blue-200`}>⚡ Instant Call</span>}
+      {s.inFree ? (
+        <span className={`${chip} ${m.complimentary ? "bg-emerald-400/15 text-emerald-200" : "bg-green-400/15 text-green-300"}`} aria-live="off">
+          {m.complimentary ? <>🎁 {clock(s.freeLeft)} free</> : <>First minute free · {s.freeLeft}s</>}
+        </span>
+      ) : (
+        <span className={`${chip} bg-white/10 text-paper`}>
+          Cost so far {rupee(s.cost)} · {s.billed} min
+        </span>
       )}
-
-      {lowBalance && (
-        <div role="status" className="mt-3.5 flex flex-wrap items-start gap-3 rounded-2xl border-2 border-rose-700 bg-rose-50 px-4 py-3.5">
-          <span className="text-base" aria-hidden="true">
-            ⚠
-          </span>
-          <div className="min-w-0 flex-1">
-            <b className="block text-sm text-rose-700">{minutesWord(left)} of balance left</b>
-            <span className="mt-0.5 block text-[13px] leading-normal text-rose-900">
-              Add money now and the session continues without disconnecting.
-            </span>
-          </div>
-          <button type="button" onClick={onAddMoney} className="h-10 whitespace-nowrap rounded-xl bg-rose-700 px-4 text-[13.5px] font-bold text-white">
-            Add money
-          </button>
-        </div>
-      )}
-
-      <button
-        type="button"
-        onClick={onEnd}
-        disabled={ending}
-        className="mt-[18px] flex min-h-[56px] w-full items-center justify-center gap-2.5 rounded-2xl bg-rose-700 text-base font-bold text-white shadow-[0_10px_24px_rgba(190,18,60,.25)] hover:bg-rose-800 disabled:opacity-70"
-      >
-        <svg viewBox="0 0 24 24" className="size-5 rotate-[135deg]" fill="currentColor" aria-hidden="true">
-          <path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z" />
-        </svg>
-        {ending ? "Ending…" : "End consultation"}
-      </button>
-      <p className="mt-3 text-center text-[12.5px] leading-[1.55] text-stone-500">
-        {complimentary
-          ? "Free time is never charged. Paid minutes after it round up, and are taken in one charge when the call ends."
-          : "One charge is taken after the session ends. Partial minutes round up."}
-      </p>
-    </div>
+      <span className={`${chip} ${s.lowBalance ? "bg-rose-500/25 text-rose-200" : "bg-white/10 text-stone-300"}`}>
+        {s.balanceLimited ? "Time left" : "Limit"} {clock(s.left)}
+      </span>
+    </>
   );
 }
 
-function Stat({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
-  return (
-    <div>
-      <div className="text-[11px] font-bold uppercase tracking-[.06em] text-stone-500">{label}</div>
-      <b className={`mt-0.5 block text-lg tabular-nums sm:text-xl ${warn ? "text-rose-300" : "text-amber-200"}`}>{value}</b>
-    </div>
-  );
+/** The free-call reminder and the low-balance warning, with "Add money" (the call stays connected). */
+export function MeterAlerts({ m, onAddMoney }: { m: MeterInput; onAddMoney: () => void }) {
+  const s = meterOf(m);
+  if (s.freeReminder) {
+    return (
+      <div role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-emerald-300/40 bg-emerald-400/10 px-3.5 py-2.5">
+        <div className="min-w-0 flex-1 text-[13px] leading-normal text-emerald-100">
+          <b className="block">{minutesWord(s.freeLeft)} of your free call left</b>
+          {s.endsWithFree
+            ? `Add money to continue at ${rupee(m.rate)}/min — the call stays connected while you pay.`
+            : `After that the call continues at ${rupee(m.rate)}/min from your balance. End it any time.`}
+        </div>
+        {s.endsWithFree && (
+          <button type="button" onClick={onAddMoney} className="h-9 whitespace-nowrap rounded-lg bg-amber-400 px-3.5 text-[13px] font-bold text-ink">
+            Add money
+          </button>
+        )}
+      </div>
+    );
+  }
+  if (s.lowBalance) {
+    return (
+      <div role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-rose-300/50 bg-rose-500/15 px-3.5 py-2.5">
+        <div className="min-w-0 flex-1 text-[13px] leading-normal text-rose-100">
+          <b className="block">{minutesWord(s.left)} of balance left</b>
+          Add money now and the session continues without disconnecting.
+        </div>
+        <button type="button" onClick={onAddMoney} className="h-9 whitespace-nowrap rounded-lg bg-rose-500 px-3.5 text-[13px] font-bold text-white">
+          Add money
+        </button>
+      </div>
+    );
+  }
+  return null;
+}
+
+/** What ending right now costs, in one line (shown where the devices couldn't be used). */
+export function endNoteOf(m: MeterInput): string {
+  const s = meterOf(m);
+  if (s.inFree) return "You can end now without being charged — you're still in the free time.";
+  return `Ending now charges only the ${s.billed} min already used (${rupee(s.cost)}).`;
 }
 
 /** The single charge, shown once the session has ended. */

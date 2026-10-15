@@ -211,7 +211,14 @@ export async function endConsultation(c: Consultation, endedBy: "user" | "astrol
     if (s.billedMinutes > 0) {
       // Earnings are for paid minutes only; a welcome call's free time earns nothing.
       const kind = fresh.kind === "INSTANT" ? "emergency" : fresh.mode.toLowerCase();
-      const mode = fresh.kind === "INSTANT" ? "Emergency voice" : fresh.billingMode === COMPLIMENTARY ? `${modeName} · after free call` : modeName;
+      const mode =
+        fresh.kind === "INSTANT"
+          ? "Emergency voice"
+          : fresh.billingMode === COMPLIMENTARY
+            ? `${modeName} · after free call`
+            : fresh.origin === "LIVE"
+              ? `Live private · ${modeName.toLowerCase()}`
+              : modeName;
       await tx.earningsLine.create({ data: { astrologerId: fresh.astrologerId, date: now, sessionRef: fresh.ref, kind, mode, minutes: s.billedMinutes } });
     } else if (fresh.billingMode === COMPLIMENTARY) {
       // Shown on the astrologer's statement as a ₹0 welcome line.

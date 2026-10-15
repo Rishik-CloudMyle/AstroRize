@@ -17,6 +17,9 @@ export interface ConsultationView {
   ref: string;
   status: ConsultationStatus;
   kind: "instant" | "standard";
+  /** "live": a private consultation taken from a live room (it runs on that room's page). */
+  origin?: "direct" | "live";
+  liveRoomId?: string | null;
   mode: ConsultMode;
   /** Per-minute rate fixed when it was requested (₹) */
   rate: number;
@@ -137,6 +140,7 @@ export function useOpenConsultation(): ConsultationView | null {
 
 /** "Waiting for Pt. Raghav Joshi" / "Consultation with Pt. Raghav Joshi" — the short label for frozen buttons and the header. */
 export function lockLabel(c: ConsultationView): string {
+  if (c.origin === "live") return `Private consultation with ${c.astrologer.name} in their live`;
   return c.status === "requested" ? `Waiting for ${c.astrologer.name} to accept` : `Consultation with ${c.astrologer.name} in progress`;
 }
 

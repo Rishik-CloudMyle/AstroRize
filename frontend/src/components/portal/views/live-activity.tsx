@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api/client";
 import { rupee } from "@/lib/portal/format";
+import type { LiveHostPrivate } from "@/lib/portal/types";
 import type { LiveChatLine, LiveGift } from "@/lib/types";
 import { useGiftShow } from "../../live/gift-burst";
 import { FeedAvatar } from "../../live/live-feed";
@@ -16,6 +17,10 @@ export interface LiveFeed {
   giftsTotal: number;
   giftsCount: number;
   title: string;
+  /** The private consultation in progress (followed closely, with the feed), or null. */
+  private: LiveHostPrivate | null;
+  /** People waiting in the consult queue. */
+  waiting: number;
 }
 
 /** How often the console re-reads the room's feed while live. */

@@ -3,10 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Astrologer, LiveGift, LiveRoom } from "@/lib/types";
+import type { Astrologer, LiveGift, LiveRoom, Settlement } from "@/lib/types";
 import { ApiError, api } from "@/lib/api/client";
 import { discountLabel, rupee } from "@/lib/format";
-import { useOpenConsultation } from "@/lib/consultation-store";
+import { consultationActions, useOpenConsultation } from "@/lib/consultation-store";
 import { useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 import { recheckAvailability, useFreshAstrologer } from "../astrologer/use-fresh-astrologer";
@@ -15,6 +15,8 @@ import { FROZEN_HINT } from "../consult/consult-lock";
 import { GiftStack, useGiftShow } from "./gift-burst";
 import GiftPanel from "./gift-panel";
 import { FeedAvatar, LiveFeedOverlay, liveForLabel, plannedLabel, useMinuteClock } from "./live-feed";
+import { PrivateCallOverlay, PrivateCallPanel } from "./live-private-call";
+import LiveStage from "./live-stage";
 
 const REACTIONS = ["❤️", "🙏", "🔥", "✨", "👏"];
 const REACTION_LIMIT = 5; // per 10 seconds
@@ -36,7 +38,7 @@ interface Floating {
  * it refreshes every few seconds, which also keeps the viewer counted as watching.
  */
 export default function LiveRoomView({ room: initialRoom, host: initialHost }: { room: LiveRoom; host: Astrologer }) {
-  const { startConsult, openConsultModes, openLogin, toast } = useAppUI();
+  const { startConsult, openLiveQueue, openLogin, toast } = useAppUI();
   const session = useSession();
   // One consultation at a time: frozen while the customer has another one open.
   const frozen = !!useOpenConsultation();
@@ -45,17 +47,6 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
   const host = useFreshAstrologer(initialHost);
   const gate = useConsultGate(host);
   const staff = gate.kind === "staff";
-  // The stage video: a spinner until it can play, then it fades in; a calm message if it fails.
-  const [video, setVideo] = useState<"loading" | "playing" | "error">("loading");
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const attachVideo = useCallback((el: HTMLVideoElement | null) => {
-    videoRef.current = el;
-    if (!el) return;
-    // It may have loaded (or failed) before React attached its event handlers.
-    if (el.error) setVideo("error");
-    else if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) setVideo("playing");
-  }, []);
-
   const [room, setRoom] = useState(initialRoom);
   const [ended, setEnded] = useState(false);
   const [message, setMessage] = useState("");
@@ -79,17 +70,12 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
   }, [room.gifts, offerGifts]);
 
   const roomEnded = useCallback(() => {
-    // Stop the video and drop its stream straight away; the stage then shows the ended state.
-    const v = videoRef.current;
-    if (v) {
-      v.pause();
-      v.removeAttribute("src");
-      v.load();
-    }
+    // The stage (and its live video connection) goes away; the ended state shows instead.
     setEnded(true);
     setGiftsOpen(false);
-    // The host may be free for a one-to-one now.
+    // The host may be free for a one-to-one now; a private consultation ended with the live.
     recheckAvailability();
+    void consultationActions.refresh();
   }, []);
   /** Any request to the room answering "not found" means the live has ended. */
   const endedBy = useCallback(
@@ -231,8 +217,72 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
       openLogin({ notice: "Log in to join the consult queue." });
       return;
     }
-    openConsultModes({ roomId: room.id, onJoined: setRoom });
+    openLiveQueue({ roomId: room.id, astrologer: host, onJoined: setRoom });
   }
+
+  const [leaving, setLeaving] = useState(false);
+  async function leaveQueue() {
+    if (leaving) return;
+    setLeaving(true);
+    try {
+      const { room: fresh } = await api.post<{ room: LiveRoom }>(`/live-rooms/${encodeURIComponent(room.id)}/queue/leave`);
+      setRoom(fresh);
+      toast("You've left the queue. You haven't been charged.");
+    } catch (e) {
+      if (!endedBy(e)) toast(errorText(e));
+    } finally {
+      setLeaving(false);
+    }
+  }
+
+  // ---------- The customer's own private consultation ----------
+  // What happened to their request is told once, when it changes: declined, not joined in time,
+  // balance too low, or ended by the astrologer (with what it cost).
+  const [summary, setSummary] = useState<{ title: string; body: string } | null>(null);
+  const lastRequest = useRef(room.myRequest);
+  const req = room.myRequest;
+  useEffect(() => {
+    const before = lastRequest.current;
+    lastRequest.current = req;
+    if (!req || !before || before.id !== req.id) return;
+    if (before.consultation === req.consultation && before.status === req.status) return;
+    // An offer arrived or the call started: the site-wide "consultation in progress" state follows.
+    if (req.consultation === "connecting" || req.consultation === "active") void consultationActions.refresh();
+    if (req.status === "declined") toast(`${host.name} couldn't take your request this time. You haven't been charged.`);
+    else if (req.consultation === "cancelled" && req.reason === "balance")
+      toast("Your balance no longer covers five minutes, so you were taken out of the queue. You haven't been charged.");
+    else if (req.consultation === "cancelled" && req.reason === "unanswered")
+      toast("You didn't join in time, so the astrologer moved on. You haven't been charged.");
+    else if (req.consultation === "ended" && (before.consultation === "active" || before.consultation === "connecting")) {
+      void consultationActions.refresh();
+      setSummary({
+        title: req.reason === "astrologer" ? `${host.name} ended the private consultation` : "Private consultation ended",
+        body: req.charged > 0 ? `${rupee(req.charged)} was charged to your wallet.` : "Nothing was charged.",
+      });
+    }
+  }, [req, host.name, toast]);
+
+  /** The customer ended (or declined) the call themselves: say what it cost, then refresh the room. */
+  const privateEnded = useCallback(
+    (s: Settlement | null) => {
+      lastRequest.current = null; // told here, not again by the next refresh
+      if (s) {
+        setSummary({
+          title: "Private consultation ended",
+          body: `${Math.floor(s.elapsed / 60)} min ${s.elapsed % 60} s · ${s.total > 0 ? `${rupee(s.total)} charged` : "nothing charged"}.`,
+        });
+      } else toast("Private consultation cancelled. You haven't been charged.");
+      api
+        .get<{ room: LiveRoom }>(`/live-rooms/${encodeURIComponent(initialRoom.id)}?watching=1`)
+        .then(({ room: fresh }) => {
+          lastRequest.current = fresh.myRequest;
+          setRoom(fresh);
+        })
+        .catch(endedBy);
+    },
+    [initialRoom.id, endedBy, toast],
+  );
+  const mine = room.private;
 
   return (
     <div className="mt-6 grid grid-cols-[minmax(0,1fr)] items-start gap-[22px] lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -283,40 +333,8 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
             </div>
           ) : (
             <>
-              {/* Looping studio video until real live streaming (RTC) is connected. Muted, because
-                  browsers only autoplay silent video. No poster: a spinner shows until it can play. */}
-              <video
-                ref={attachVideo}
-                src="/assets/videos/live-room.mp4"
-                autoPlay
-                muted
-                loop
-                playsInline
-                preload="auto"
-                aria-label={`${host.name} live`}
-                onCanPlay={() => setVideo((v) => (v === "loading" ? "playing" : v))}
-                onPlaying={() => setVideo("playing")}
-                onError={() => setVideo("error")}
-                className={`absolute inset-0 size-full object-cover transition-opacity duration-500 ${video === "playing" ? "opacity-100" : "opacity-0"}`}
-              />
-              {video === "loading" && (
-                <div role="status" className="absolute inset-0 grid place-items-center">
-                  <span className="flex flex-col items-center gap-3">
-                    <span
-                      aria-hidden="true"
-                      className="size-10 animate-spin rounded-full border-[3px] border-white/20 border-t-amber-400"
-                    />
-                    <span className="text-[13px] font-semibold text-white/80">Loading live video…</span>
-                  </span>
-                </div>
-              )}
-              {video === "error" && (
-                <div role="status" className="absolute inset-0 grid place-items-center px-6 text-center">
-                  <span className="max-w-[34ch] text-[13.5px] leading-normal text-white/80">
-                    The live video couldn&apos;t load. Check your connection — the chat, poll and queue still work.
-                  </span>
-                </div>
-              )}
+              {/* The host's real live stream, or the poster with an honest note when live video isn't set up. */}
+              <LiveStage roomId={room.id} poster={room.thumb} hostName={host.name} silenced={room.state === "private" && !mine} quiet={room.state === "private" && mine?.status !== "active"} />
               <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.42)_0%,rgba(28,25,23,.08)_38%,rgba(28,25,23,.72)_100%)]" />
 
               <div className="absolute inset-x-3.5 top-3.5 flex flex-wrap items-center gap-2">
@@ -334,15 +352,17 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
                 </span>
               </div>
 
-              {room.state === "private" && (
+              {room.state === "private" && !mine && (
                 <div className="absolute left-1/2 top-1/2 w-[86%] max-w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-[18px] border border-amber-300/35 bg-[rgba(28,25,23,.78)] px-5 py-5 text-center sm:px-[26px]">
                   <div className="text-[15px] font-bold text-amber-300">Private consultation in progress</div>
                   <p className="mt-1.5 text-[12.5px] leading-normal text-paper/80">
-                    The astrologer&apos;s video continues. Customer audio and video are never shown. Gift animations stay
-                    visible, without audio.
+                    {host.name}&apos;s video continues, without sound, while they talk privately with one customer. You&apos;ll
+                    hear them again when it ends. The customer is never shown or heard.
                   </p>
                 </div>
               )}
+
+              <PrivateCallOverlay room={room} host={host} onRoom={setRoom} onEnded={privateEnded} />
 
               {/* Floating reactions */}
               <div aria-hidden="true" className="pointer-events-none absolute bottom-24 right-0 h-40 w-40">
@@ -396,11 +416,11 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
                     // Hosting this room: the way to consult them now is the room's queue.
                     <button
                       type="button"
-                      disabled={room.queue.inQueue}
+                      disabled={room.queue.inQueue || !!mine}
                       onClick={joinQueue}
-                      className={`ml-auto h-11 rounded-full px-[22px] text-[14.5px] font-bold ${room.queue.inQueue ? "cursor-default bg-stone-300/90 text-stone-600" : "az-cta shadow-[0_6px_16px_rgba(255,140,26,.32)]"}`}
+                      className={`ml-auto h-11 rounded-full px-[22px] text-[14.5px] font-bold ${room.queue.inQueue || mine ? "cursor-default bg-stone-300/90 text-stone-600" : "az-cta shadow-[0_6px_16px_rgba(255,140,26,.32)]"}`}
                     >
-                      {room.queue.inQueue ? "✓ You're in the queue" : "Join the consult queue"}
+                      {mine ? "🔒 In your private consult" : room.queue.inQueue ? "✓ You're in the queue" : "Join the consult queue"}
                     </button>
                   ) : (
                     <button
@@ -426,6 +446,20 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
             </>
           )}
         </div>
+
+        {!ended && mine && <PrivateCallPanel c={mine} host={host} />}
+        {summary && (
+          <div role="status" className="mt-3.5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3.5">
+            <span className="text-[15px] leading-[1.3]">🔒</span>
+            <div className="min-w-0 flex-1">
+              <b className="block text-[13.5px] text-ink">{summary.title}</b>
+              <span className="mt-[3px] block text-[12.5px] leading-normal text-stone-600">{summary.body}</span>
+            </div>
+            <button type="button" onClick={() => setSummary(null)} aria-label="Dismiss" className="text-[15px] leading-none text-stone-500">
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* ---------- This live's details (the astrologer can change them while live) ---------- */}
         <div className="mt-3.5 rounded-2xl border border-line bg-paper px-4 py-3.5">
@@ -599,21 +633,29 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
           <div className="mt-1.5 inline-flex h-6 items-center gap-1.5 rounded-full bg-blue-50 px-2.5 text-xs font-bold text-blue-700">
             ⏱ {room.queue.eta}
           </div>
-          <button
-            type="button"
-            onClick={joinQueue}
-            disabled={room.queue.inQueue || ended || frozen || staff}
-            title={staff ? blockedHint(gate) : frozen && !room.queue.inQueue ? FROZEN_HINT : undefined}
-            className={`mt-3 h-[42px] w-full rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink disabled:cursor-default ${(frozen || staff) && !room.queue.inQueue ? "opacity-45" : ""}`}
-          >
-            {room.queue.inQueue
-              ? "✓ You're in the queue"
-              : staff
-                ? "For customer accounts"
-                : frozen
-                  ? "🔒 Consultation in progress"
-                  : "Join the consult queue"}
-          </button>
+          <p className="mt-2 text-[11.5px] leading-[1.45] text-stone-500">
+            Consultations from a live are private: the room keeps seeing the video, only you hear the astrologer.
+          </p>
+          {room.queue.inQueue ? (
+            <button
+              type="button"
+              onClick={() => void leaveQueue()}
+              disabled={leaving || ended}
+              className="mt-3 h-[42px] w-full rounded-xl border border-line bg-white text-[13.5px] font-bold text-stone-600"
+            >
+              {leaving ? "Leaving…" : "Leave the queue"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={joinQueue}
+              disabled={ended || frozen || staff}
+              title={staff ? blockedHint(gate) : frozen ? FROZEN_HINT : undefined}
+              className={`mt-3 h-[42px] w-full rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink disabled:cursor-default ${frozen || staff ? "opacity-45" : ""}`}
+            >
+              {mine ? "🔒 In your private consultation" : staff ? "For customer accounts" : frozen ? "🔒 Consultation in progress" : "Join the consult queue"}
+            </button>
+          )}
         </div>
       </aside>
     </div>

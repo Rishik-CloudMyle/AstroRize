@@ -33,9 +33,11 @@ import {
   visibleTo,
 } from "../lib/messaging.ts";
 import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "../lib/safety.ts";
+import { consultMessageBody, consultationFor, listMessages, mediaFor, sendMessage, windowOf } from "../lib/consult-room.ts";
 import { canWork, effectivePresence, endLiveRoom, goOffline, goOnline, markSeen, syncPresence, viewerCount } from "../lib/presence.ts";
 import { MAX_VIDEO_BYTES, MAX_VIDEO_SECONDS, VIDEO_TYPES, deleteMedia, saveVideo, sniffVideo, videoDurationSeconds } from "../lib/media.ts";
 import { checkDetailsText, detailsDiff, detailsSchema, liveCategories, sessionFeed } from "../lib/live.ts";
+import { acceptRequest, closeRoomConsultations, declineRequest, expireUnanswered, hostPrivateView, liveMedia, liveRate } from "../lib/live-consult.ts";
 import { configNumber, getSetting } from "../lib/settings.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
 import type { Astrologer, EarningsLine } from "../generated/prisma/client.ts";
@@ -496,6 +498,8 @@ portalRouter.get("/consultations", async (req, res) => {
       id: active.id,
       alias: active.customerAlias,
       mode: modeLabel(active),
+      /** The session window to open: chat, voice, or video (Instant Call is a video call). */
+      window: windowOf(active),
       instant: active.kind === "INSTANT",
       /** A welcome free call: the first freeSeconds earn nothing; paid minutes after it earn as usual. */
       free,
@@ -596,16 +600,39 @@ portalRouter.post("/consultations/:id/end", async (req, res) => {
   res.json({ settlement: settlementView(ended) });
 });
 
+// Inside a session: its chat and its voice/video room (same rules as the customer's side).
+
+portalRouter.get("/consultations/:id/messages", async (req, res) => {
+  const a = await me(req);
+  const c = await consultationFor(String(req.params.id), "ASTROLOGER", a.id);
+  res.json(await listMessages(c, "ASTROLOGER", req.query.after));
+});
+
+portalRouter.post("/consultations/:id/messages", async (req, res) => {
+  const a = await me(req);
+  const { text } = consultMessageBody.parse(req.body);
+  const c = await consultationFor(String(req.params.id), "ASTROLOGER", a.id);
+  res.status(201).json(await sendMessage(c, "ASTROLOGER", (req.auth as AuthContext).user.id, text));
+});
+
+portalRouter.get("/consultations/:id/media", async (req, res) => {
+  const a = await me(req);
+  const c = await consultationFor(String(req.params.id), "ASTROLOGER", a.id);
+  res.json({ media: mediaFor(c, "ASTROLOGER", (req.auth as AuthContext).user, a.name) });
+});
+
 // ── Live room console ──
 
 portalRouter.get("/live", async (req, res) => {
   const a = await me(req);
   const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
   if (!room) return res.json({ room: null });
-  const [entries, announcements, categories] = await Promise.all([
+  if (room.isLive) await expireUnanswered(room.id);
+  const [entries, announcements, categories, inPrivate] = await Promise.all([
     db.liveQueueEntry.findMany({ where: { roomId: room.id, status: "WAITING" }, orderBy: { createdAt: "asc" }, include: { user: true } }),
     db.liveAnnouncement.findMany({ where: { roomId: room.id }, orderBy: { createdAt: "desc" }, take: MAX_ANNOUNCEMENTS_SHOWN }),
     liveCategories(),
+    room.isLive ? hostPrivateView(room.id) : null,
   ]);
   const now = new Date();
   const secs = Math.max(0, Math.floor((Date.now() - room.startedAt.getTime()) / 1000));
@@ -626,17 +653,21 @@ portalRouter.get("/live", async (req, res) => {
       elapsed: `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`,
       viewers: room.isLive ? viewerCount(room.id) : 0,
       image: room.thumb,
-      requests: entries.slice(0, 3).map((e, i) => ({ id: e.id, alias: e.alias, kind: e.mode === "PUBLIC" ? "stage" : "private", actionable: i < 2 })),
+      // Consults from a live are always private. First come, first served: only the front request
+      // can be accepted, and only while no private consultation is in progress.
+      requests: entries.slice(0, 3).map((e, i) => ({ id: e.id, alias: e.alias, kind: "private", actionable: i < 2, canAccept: i === 0 && !inPrivate })),
       waiting: entries.length,
       pollQuestion: room.pollQuestion,
       pollOptions: room.pollOptions,
-      rate: a.price,
+      rate: liveRate(a.price),
+      /** The private consultation in progress (connecting or in session), or null. */
+      private: inPrivate,
       announcements: announcements.map(announcementView),
       // Who is waiting, with the profile summary only this astrologer may see.
       queue: entries.map((e) => ({
         id: e.id,
         alias: e.alias,
-        mode: e.mode === "PUBLIC" ? "public" : "private",
+        mode: "private",
         waiting: waitedFor(e.createdAt, now),
         profile: e.user ? queueSummary(e.user) : null,
       })),
@@ -681,6 +712,8 @@ portalRouter.post("/live/start", async (req, res) => {
     await tx.astrologer.updateMany({ where: { id: a.id, presence: { not: "OFF" } }, data: { presence: "LIVE", lastSeenAt: now } });
     return true;
   });
+  // Requests left over from an earlier session were closed above; their consultations too (₹0).
+  if (started) await closeRoomConsultations(room.id);
   if (started) await audit(req.auth ?? null, "live.start", room.id, `OFF → LIVE · ${details.title}${details.title !== topic ? ` (${topic})` : ""}`);
   res.status(started ? 201 : 200).json({ ok: true, alreadyLive: !started });
 });
@@ -712,9 +745,12 @@ portalRouter.get("/live/feed", async (req, res) => {
   const a = await me(req);
   const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
   if (!room?.isLive) return res.json({ feed: null });
-  const [feed, totals] = await Promise.all([
+  await expireUnanswered(room.id);
+  const [feed, totals, inPrivate, waiting] = await Promise.all([
     sessionFeed(room),
     db.giftSend.aggregate({ where: { roomId: room.id, createdAt: { gte: room.startedAt } }, _sum: { price: true }, _count: true }),
+    hostPrivateView(room.id),
+    db.liveQueueEntry.count({ where: { roomId: room.id, status: "WAITING" } }),
   ]);
   res.json({
     feed: {
@@ -723,6 +759,9 @@ portalRouter.get("/live/feed", async (req, res) => {
       giftsTotal: totals._sum.price ?? 0,
       giftsCount: totals._count,
       title: room.title || room.topic,
+      /** The private consultation in progress, polled with the feed so the console follows it closely. */
+      private: inPrivate,
+      waiting,
     },
   });
 });
@@ -798,11 +837,36 @@ portalRouter.delete("/live/announcements/:id", async (req, res) => {
 portalRouter.post("/live/requests/:id/:decision", async (req, res) => {
   const a = await me(req);
   const decision = z.enum(["accept", "decline"]).parse(req.params.decision);
-  const entry = await db.liveQueueEntry.findUnique({ where: { id: String(req.params.id) }, include: { room: true } });
-  if (!entry || entry.room.astrologerId !== a.id) throw notFound("Request not found.");
-  if (entry.status !== "WAITING") throw conflict("This request is no longer waiting.");
-  await db.liveQueueEntry.update({ where: { id: entry.id }, data: { status: decision === "accept" ? "ACCEPTED" : "DECLINED" } });
-  res.json({ ok: true, rate: a.price });
+  const id = String(req.params.id);
+  if (decision === "decline") {
+    const result = await declineRequest(id, a.id);
+    if (result === "notfound") throw notFound("Request not found.");
+    if (result === "gone") throw conflict("This request is no longer waiting.");
+    return res.json({ ok: true });
+  }
+  if (!canWork(a)) throw forbidden("Your account can't take new sessions right now.");
+  await expireUnanswered();
+  // Accepting starts a private consultation: the customer is asked to join, their balance is held.
+  const result = await acceptRequest(id, a.id);
+  if (result.kind === "notfound") throw notFound("Request not found.");
+  if (result.kind === "gone") throw conflict("This request is no longer waiting — the customer may have left the queue.");
+  if (result.kind === "not_first") throw conflict("Requests are taken in order — accept the person at the front of the queue first.");
+  if (result.kind === "busy") throw conflict("Only one private consultation at a time. End the current one first.");
+  if (result.kind === "customer_busy") throw conflict("This customer is in another consultation right now. They stay in the queue — try again shortly.");
+  if (result.kind !== "ok") throw conflict("This customer's balance no longer covers five minutes, so they were taken out of the queue. They haven't been charged.");
+  res.json({ ok: true, rate: result.consultation.rate, consultationId: result.consultation.id });
+});
+
+/**
+ * Credentials to broadcast the live (camera and microphone) as its one stream. While a private
+ * consultation is in progress the console mutes this stream's audio; its own audio goes to the
+ * private room (GET /portal/consultations/:id/media).
+ */
+portalRouter.get("/live/media", async (req, res) => {
+  const a = await me(req);
+  const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
+  if (!room?.isLive) throw conflict("You're not live right now.");
+  res.json({ media: liveMedia(room, (req.auth as AuthContext).user, "host", a.name) });
 });
 
 portalRouter.post("/live/poll", async (req, res) => {

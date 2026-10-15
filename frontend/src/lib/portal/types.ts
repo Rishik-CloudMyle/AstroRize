@@ -265,6 +265,8 @@ export interface ActiveSession {
   id: string;
   alias: string;
   mode: string;
+  /** The session window to open: chat, voice, or video (Instant Call is a video call) */
+  window: "chat" | "voice" | "video";
   instant: boolean;
   /** A customer's welcome free call: its first freeSeconds earn nothing */
   free: boolean;
@@ -313,8 +315,30 @@ export interface Settlement {
 export interface LiveRequest {
   id: string;
   alias: string;
-  kind: "private" | "stage";
+  /** Consults from a live are always private. */
+  kind: "private";
+  /** Can be declined (the first two). */
   actionable: boolean;
+  /** Can be accepted: the front of the queue, while no private consultation is in progress. */
+  canAccept: boolean;
+}
+
+/** The private consultation in progress in the astrologer's live (server clock). */
+export interface LiveHostPrivate {
+  id: string;
+  ref: string;
+  /** connecting: accepted, waiting for the customer to join · active: in session */
+  status: "connecting" | "active";
+  rate: number;
+  held: number;
+  connectedAt: string | null;
+  elapsedSeconds: number;
+  freeSeconds: number;
+  maxSeconds: number;
+  secondsToAnswer: number | null;
+  answerWindow: number;
+  alias: string;
+  profile: LiveQueueSummary | null;
 }
 
 export interface LiveRoom {
@@ -340,6 +364,8 @@ export interface LiveRoom {
   pollOptions: string[];
   /** Consults from the room are charged at the standard rate (₹/min) */
   rate: number;
+  /** The private consultation in progress, or null. */
+  private: LiveHostPrivate | null;
   /** Newest first. */
   announcements: LiveAnnouncement[];
   /** Everyone waiting, oldest first. */

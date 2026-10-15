@@ -11,7 +11,8 @@ import { consultationActions, rememberMinimised, type ConsultationView } from "@
 import { sessionActions, totalBalance, usableWelcome, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 import { recheckAvailability, useFreshAstrologer } from "../astrologer/use-fresh-astrologer";
-import { CallStage, SettlementView } from "./call-stage";
+import { MeterAlerts, MeterChips, SettlementView, endNoteOf, meterOf, type MeterInput } from "./call-stage";
+import { SessionWindow, windowKindOf } from "./session/session-window";
 import { staffConsultNote } from "./consult-gate";
 import ConsultSheet, { CHOICE_TITLE, quotedRateFor, type ConsultChoice, type RateChange } from "./consult-sheet";
 import InCallRecharge from "./in-call-recharge";
@@ -479,7 +480,8 @@ export default function ConsultJourney({
   const secsToAccept =
     waitView?.secondsToAccept != null && live ? Math.max(0, waitView.secondsToAccept - Math.floor((now - live.at) / 1000)) : null;
 
-  const modeTitle = instant ? "Voice call" : mode ? CHOICE_TITLE[mode] : "Chat";
+  const sessionMode = live?.view.mode ?? resume?.mode ?? mode ?? "chat";
+  const modeTitle = instant ? CHOICE_TITLE.instant : CHOICE_TITLE[sessionMode];
 
   /** Paid during the call: re-read the session so its new length shows straight away. */
   async function rechargedInCall(amount: number) {
@@ -554,6 +556,47 @@ export default function ConsultJourney({
         onStart={() => void beginConnect()}
         onClose={onClose}
       />
+    );
+  }
+
+  if (step === "session" && consultationId) {
+    // The session's own window: chat, voice or video, with the meter along the top.
+    const m: MeterInput = {
+      complimentary: meter.complimentary,
+      rate,
+      held,
+      elapsed,
+      freeSeconds: meter.freeSeconds,
+      maxSeconds: meter.maxSeconds,
+      reminderSeconds: meter.reminderSeconds,
+    };
+    const flags = meterOf(m);
+    return (
+      <>
+        <SessionWindow
+          base={`/consultations/${consultationId}`}
+          kind={windowKindOf(sessionMode, instant)}
+          active
+          peer={{ name: astrologer.name, photo: astrologer.photo, initials: astrologer.name.slice(0, 1) }}
+          title={modeTitle}
+          badges={
+            meter.complimentary ? (
+              <span className="inline-flex h-7 items-center rounded-full bg-emerald-400/15 px-3 text-[12px] font-bold text-emerald-300">🎁 Free call</span>
+            ) : null
+          }
+          clock={clock(elapsed)}
+          chips={<MeterChips m={m} instant={instant} />}
+          alerts={flags.freeReminder || flags.lowBalance ? <MeterAlerts m={m} onAddMoney={() => setRecharging(true)} /> : null}
+          ending={ending}
+          onEnd={() => void finish()}
+          onMinimise={() => {
+            rememberMinimised(consultationId);
+            onClose();
+          }}
+          endNote={endNoteOf(m)}
+        />
+        {recharging && <InCallRecharge rate={rate} onPaid={(amount) => void rechargedInCall(amount)} onClose={() => setRecharging(false)} />}
+      </>
     );
   }
 
@@ -772,24 +815,6 @@ export default function ConsultJourney({
               {ending ? "Cancelling…" : "Cancel request"}
             </button>
           </div>
-        )}
-
-        {step === "session" && (
-          <CallStage
-            astrologer={astrologer}
-            modeTitle={modeTitle}
-            instant={instant}
-            complimentary={meter.complimentary}
-            rate={rate}
-            held={held}
-            elapsed={elapsed}
-            freeSeconds={meter.freeSeconds}
-            maxSeconds={meter.maxSeconds}
-            reminderSeconds={meter.reminderSeconds}
-            ending={ending}
-            onEnd={() => void finish()}
-            onAddMoney={() => setRecharging(true)}
-          />
         )}
 
         {step === "settle" && settlement && (

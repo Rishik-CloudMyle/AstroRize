@@ -83,12 +83,14 @@ export function hostedLiveRoom() {
 export async function syncPresence(astrologerId: string): Promise<Presence | null> {
   const [a, active, room] = await Promise.all([
     db.astrologer.findUnique({ where: { id: astrologerId }, select: { presence: true } }),
-    db.consultation.findFirst({ where: { astrologerId, status: "ACTIVE" }, select: { id: true } }),
+    db.consultation.findFirst({ where: { astrologerId, status: "ACTIVE" }, select: { id: true, origin: true } }),
     db.liveRoom.findUnique({ where: { astrologerId }, select: { isLive: true } }),
   ]);
   if (!a) return null;
   if (a.presence === "OFF") return "OFF";
-  const next: Presence = active ? "BUSY" : room?.isLive ? "LIVE" : "ON";
+  // A private consultation taken inside their live keeps them LIVE: the live carries on for everyone.
+  const inSession = !!active && !(active.origin === "LIVE" && room?.isLive);
+  const next: Presence = inSession ? "BUSY" : room?.isLive ? "LIVE" : "ON";
   if (next !== a.presence) {
     // Guarded so a simultaneous "go offline" is never undone.
     await db.astrologer.updateMany({ where: { id: astrologerId, presence: { not: "OFF" } }, data: { presence: next } });
@@ -109,8 +111,8 @@ export async function goOnline(astrologerId: string): Promise<Presence> {
 }
 
 /**
- * Ends the astrologer's live room, if it is live: the room closes and everyone still waiting
- * in its consult queue leaves it. Announcements belonged to that session and are cleared.
+ * Ends the astrologer's live room, if it is live: the room closes, everyone still waiting
+ * in its consult queue leaves it, and a private consultation in progress is settled and ended. Announcements belonged to that session and are cleared.
  * Returns true when a live room was actually ended.
  */
 export async function endLiveRoom(astrologerId: string): Promise<boolean> {
@@ -123,7 +125,12 @@ export async function endLiveRoom(astrologerId: string): Promise<boolean> {
     await tx.liveAnnouncement.deleteMany({ where: { roomId: room.id } });
     return true;
   });
-  if (ended) forgetViewers(room.id);
+  if (ended) {
+    forgetViewers(room.id);
+    // Requests still waiting are closed (₹0) and a private consultation in progress ends with the live.
+    const { closeRoomConsultations } = await import("./live-consult.ts");
+    await closeRoomConsultations(room.id);
+  }
   return ended;
 }
 

@@ -374,18 +374,20 @@ model LiveAnnouncement {
 }
 
 model LiveQueueEntry {
-  id        String   @id @default(cuid())
-  roomId    String
-  room      LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id])
-  alias     String
+  id             String   @id @default(cuid())
+  roomId         String
+  room           LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id])
+  alias          String
   /// PRIVATE | PUBLIC
-  mode      String
-  consent   Boolean  @default(false)
+  mode           String
+  consent        Boolean  @default(false)
   /// WAITING | ACCEPTED | DECLINED | LEFT
-  status    String   @default("WAITING")
-  createdAt DateTime @default(now())
+  status         String   @default("WAITING")
+  /// The private consultation this request became once the astrologer accepted it.
+  consultationId String?
+  createdAt      DateTime @default(now())
 
   @@index([roomId, status])
 }
@@ -446,43 +448,48 @@ model Denomination {
 // ─────────────────────────── Consultations ───────────────────────────
 
 model Consultation {
-  id                   String     @id @default(cuid())
+  id                   String           @id @default(cuid())
   /// e.g. "SES-88214"
-  ref                  String     @unique
+  ref                  String           @unique
   /// PAID | COMPLIMENTARY_THEN_PAID (the welcome call: free for complimentarySeconds, then the
   /// same session continues at `rate` if the wallet allows, else it ends).
-  billingMode          String     @default("PAID")
+  billingMode          String           @default("PAID")
   /// Free seconds snapshotted when the session was requested (welcome calls only).
-  complimentarySeconds Int        @default(0)
+  complimentarySeconds Int              @default(0)
+  /// DIRECT (from a profile/directory) | LIVE (a private consultation taken from a live room)
+  origin               String           @default("DIRECT")
+  /// The live room a LIVE consultation came from.
+  liveRoomId           String?
+  messages             ConsultMessage[]
   customerId           String?
-  customer             User?      @relation(fields: [customerId], references: [id])
+  customer             User?            @relation(fields: [customerId], references: [id])
   /// What the astrologer sees instead of the customer's name, e.g. "A-8821".
   customerAlias        String
   astrologerId         String
-  astrologer           Astrologer @relation(fields: [astrologerId], references: [id])
+  astrologer           Astrologer       @relation(fields: [astrologerId], references: [id])
   /// CHAT | VOICE | VIDEO
   mode                 String
   /// STANDARD | INSTANT | FIXED | WELCOME
-  kind                 String     @default("STANDARD")
+  kind                 String           @default("STANDARD")
   /// WEB | LIVE | APP
-  source               String     @default("WEB")
+  source               String           @default("WEB")
   /// Per-minute rate snapshotted when the consultation was requested (₹).
   rate                 Int
   /// REQUESTED | CONNECTING | ACTIVE | ENDED | REJECTED | TIMED_OUT | CANCELLED
-  status               String     @default("REQUESTED")
-  heldAmount           Int        @default(0)
-  requestedAt          DateTime   @default(now())
+  status               String           @default("REQUESTED")
+  heldAmount           Int              @default(0)
+  requestedAt          DateTime         @default(now())
   /// When the request reached the front of the queue; the astrologer has 3 minutes from then to accept.
   offeredAt            DateTime?
   connectedAt          DateTime?
   endedAt              DateTime?
   /// user | cap | exhausted | astrologer
   endReason            String?
-  billedSeconds        Int        @default(0)
-  billedMinutes        Int        @default(0)
-  total                Int        @default(0)
-  promoUsed            Int        @default(0)
-  serviceUsed          Int        @default(0)
+  billedSeconds        Int              @default(0)
+  billedMinutes        Int              @default(0)
+  total                Int              @default(0)
+  promoUsed            Int              @default(0)
+  serviceUsed          Int              @default(0)
   stars                Int?
   reviewText           String?
 
@@ -805,4 +812,20 @@ model GiftSend {
 
   @@index([roomId, createdAt])
   @@index([astrologerId, createdAt])
+}
+
+/// Messages inside a consultation (Chat consultations, and the text box of voice/video calls).
+/// Contact details are blocked like everywhere else; kept for the chat retention period.
+model ConsultMessage {
+  id             String       @id @default(cuid())
+  consultationId String
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  /// CUSTOMER | ASTROLOGER | SYSTEM
+  sender         String
+  text           String
+  /// The message contained contact details and was not delivered.
+  blocked        Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@index([consultationId, createdAt])
 }

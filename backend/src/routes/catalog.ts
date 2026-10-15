@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { db } from "../db.ts";
-import { badRequest, conflict, notFound } from "../lib/errors.ts";
+import { HttpError, badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
 import { instantRate } from "../lib/billing.ts";
-import { istDate, istTime, percentages } from "../lib/format.ts";
+import { istDate, istTime, percentages, rupee } from "../lib/format.ts";
 import { effectivePresence, hostedLiveRoom, touchViewer, viewerCount } from "../lib/presence.ts";
 import { announceJoin, chatLineView, giftBalance, sendGift, sessionFeed } from "../lib/live.ts";
+import { connectPrivate, customerPrivateView, expireUnanswered, joinQueue, leaveQueue, liveMedia, myRequest, privateInRoom } from "../lib/live-consult.ts";
 import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "../lib/safety.ts";
 import { freeCallOpen } from "../lib/welcome.ts";
 import { requireRole, requireUser } from "../middleware/auth.ts";
@@ -84,12 +85,15 @@ function viewerKey(req: Request, res: Response): string {
 }
 
 async function roomView(room: LiveRoom, voterKey: string | null, userId: string | null) {
-  const [feed, waiting, myVote, announcements] = await Promise.all([
+  const [feed, waiting, myVote, announcements, inPrivate, mine, myPrivate] = await Promise.all([
     // This session's chat and gifts only (earlier sessions' stay on record but aren't shown).
     sessionFeed(room),
     db.liveQueueEntry.findMany({ where: { roomId: room.id, status: "WAITING" }, orderBy: { createdAt: "asc" }, select: { id: true, userId: true } }),
     voterKey ? db.pollVote.findUnique({ where: { roomId_voterKey: { roomId: room.id, voterKey } } }) : null,
     db.liveAnnouncement.findMany({ where: { roomId: room.id }, orderBy: { createdAt: "desc" }, take: 5 }),
+    privateInRoom(room.id),
+    userId ? myRequest(room, userId) : null,
+    userId ? customerPrivateView(room.id, userId) : null,
   ]);
   const pollPct = percentages(room.pollOptions.map((_, i) => room.pollCounts[i] ?? 0));
   const myIndex = userId ? waiting.findIndex((w) => w.userId === userId) : -1;
@@ -106,7 +110,8 @@ async function roomView(room: LiveRoom, voterKey: string | null, userId: string 
     startedAt: room.startedAt.toISOString(),
     viewers: viewerCount(room.id),
     thumb: room.thumb,
-    state: room.state,
+    // A private consultation in progress: everyone sees the "private consultation" banner.
+    state: inPrivate ? "private" : room.state === "private" ? "normal" : room.state,
     queue: {
       position: myIndex >= 0 ? myIndex + 1 : waiting.length + 1,
       inQueue: myIndex >= 0,
@@ -125,6 +130,10 @@ async function roomView(room: LiveRoom, voterKey: string | null, userId: string 
     gifts: feed.gifts,
     /** Newest first. Posted by the astrologer from the portal. */
     announcements: announcements.map((a) => ({ id: a.id, text: a.text, at: istTime(a.createdAt) })),
+    /** The signed-in viewer's latest consult request in this live, and how it went. */
+    myRequest: mine,
+    /** The signed-in viewer's own private consultation in this room (only ever theirs). */
+    private: myPrivate,
   };
 }
 
@@ -158,6 +167,8 @@ function countsAsViewer(req: Request, room: LiveRoom): boolean {
  */
 catalogRouter.get("/live-rooms/:id", async (req, res) => {
   const room = await liveRoomOr404(String(req.params.id));
+  // A private call nobody joined in time is withdrawn (₹0) and the room is public again.
+  await expireUnanswered(room.id);
   const key = viewerKey(req, res);
   if (req.query.watching === "1" && countsAsViewer(req, room)) touchViewer(room.id, key);
   res.json({ room: await roomView(room, key, req.auth?.user.id ?? null) });
@@ -243,23 +254,87 @@ catalogRouter.post("/live-rooms/:id/reactions", async (req, res) => {
   res.status(202).json({ ok: true });
 });
 
+/**
+ * Join the room's consult queue. Consultations from a live are always private (the astrologer's
+ * video stays on for everyone; their audio goes only to the customer being consulted). The page
+ * sends the rate it showed (`quotedRate`); that rate is locked for this request.
+ */
 catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
   const auth = requireRole(req, "customer");
-  // Private unless the customer explicitly chooses Public (which also needs consent).
-  const { mode, consent } = z
-    .object({ mode: z.enum(["PRIVATE", "PUBLIC"]).default("PRIVATE"), consent: z.boolean().default(false) })
-    .parse(req.body);
-  if (mode === "PUBLIC" && !consent) throw badRequest("Public consultations need your on-camera consent.");
+  // `mode` / `consent` from older pages are ignored: there is no public (on-stage) option.
+  const { quotedRate } = z.object({ quotedRate: z.number().int().nonnegative().optional() }).parse(req.body ?? {});
   const room = await liveRoomOr404(String(req.params.id));
-
-  const existing = await db.liveQueueEntry.findFirst({ where: { roomId: room.id, userId: auth.user.id, status: "WAITING" } });
-  if (!existing) {
-    const waiting = await db.liveQueueEntry.count({ where: { roomId: room.id, status: "WAITING" } });
-    if (waiting >= room.queueCapacity) throw conflict("The queue is full right now. Try again in a few minutes.");
-    const alias = `${String.fromCharCode(65 + (waiting % 26))}-${Math.floor(1000 + Math.random() * 8999)}`;
-    await db.liveQueueEntry.create({ data: { roomId: room.id, userId: auth.user.id, alias, mode, consent } });
+  const result = await joinQueue(room, auth.user.id, quotedRate);
+  if (result.kind === "rate_changed") {
+    return res.status(409).json({
+      error: {
+        code: "rate_changed",
+        message: `The rate changed from ${rupee(quotedRate ?? 0)} to ${rupee(result.rate)}/min. Join the queue at ${rupee(result.rate)}/min?`,
+        quotedRate,
+        rate: result.rate,
+      },
+    });
+  }
+  if (result.kind === "open") {
+    return res.status(409).json({
+      error: {
+        code: "consultation_in_progress",
+        message: "You already have a consultation in progress. End or cancel it before joining a queue.",
+        consultationId: result.open.id,
+        ref: result.open.ref,
+      },
+    });
+  }
+  if (result.kind === "full") throw conflict("The queue is full right now. Try again in a few minutes.");
+  if (result.kind === "short") {
+    throw new HttpError(
+      400,
+      `Your balance is ${rupee(result.spendable)}. You need ${rupee(result.needed)} for five minutes at ${rupee(result.rate)}/min.`,
+      "insufficient_balance",
+    );
   }
   res.json({ room: await roomView(room, viewerKey(req, res), auth.user.id) });
+});
+
+/** Leave the queue before being accepted. Nothing is charged. */
+catalogRouter.post("/live-rooms/:id/queue/leave", async (req, res) => {
+  const auth = requireRole(req, "customer");
+  const room = await liveRoomOr404(String(req.params.id));
+  await leaveQueue(room.id, auth.user.id);
+  res.json({ room: await roomView(room, viewerKey(req, res), auth.user.id) });
+});
+
+/**
+ * The customer joins the private call the astrologer accepted: metering starts now. The call's
+ * chat, end and voice credentials are the consultation's own (/api/consultations/:id/…).
+ */
+catalogRouter.post("/live-rooms/:id/private/connect", async (req, res) => {
+  const auth = requireRole(req, "customer");
+  const room = await liveRoomOr404(String(req.params.id));
+  await expireUnanswered(room.id);
+  const mine = await customerPrivateView(room.id, auth.user.id);
+  if (!mine) throw conflict("This private consultation is no longer waiting for you — you have not been charged.");
+  if (mine.status === "connecting" && !(await connectPrivate(mine.id, auth.user.id))) {
+    throw conflict("This private consultation is no longer waiting for you — you have not been charged.");
+  }
+  res.json({ room: await roomView(room, viewerKey(req, res), auth.user.id) });
+});
+
+/**
+ * Credentials to watch the live's video (play only). For signed-in viewers who joined this live;
+ * never the host (their console publishes) and never staff. A private consultation's audio is in
+ * a separate room only its two parties can enter.
+ */
+catalogRouter.get("/live-rooms/:id/media", async (req, res) => {
+  const auth = requireUser(req);
+  const room = await liveRoomOr404(String(req.params.id));
+  if (!countsAsViewer(req, room)) throw forbidden("This live's video is for viewers who joined it.");
+  const joined = await db.chatMessage.findFirst({
+    where: { roomId: room.id, userId: auth.user.id, kind: "join", createdAt: { gte: room.startedAt } },
+    select: { id: true },
+  });
+  if (!joined) throw forbidden("Join the live first.");
+  res.json({ media: liveMedia(room, auth.user, "viewer", "Viewer") });
 });
 
 // ── Featured reviews (home page) ──

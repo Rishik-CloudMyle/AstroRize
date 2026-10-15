@@ -26,4 +26,11 @@ export const config = {
   frontendOrigin: process.env.FRONTEND_ORIGIN ?? "http://localhost:3000",
   /** Session cookie lifetime. */
   sessionDays: 30,
+  /**
+   * ZEGO (real-time voice, video and live streaming, per the client's Live spec Amendment No.1).
+   * Both come from the ZEGO console (project → AppID / ServerSecret). Until they are set, calls and
+   * lives run without audio/video and the website says so.
+   */
+  zegoAppId: Number(process.env.ZEGO_APP_ID ?? 0),
+  zegoServerSecret: process.env.ZEGO_SERVER_SECRET ?? "",
 };

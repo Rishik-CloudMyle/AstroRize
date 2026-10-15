@@ -2,19 +2,21 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api/client";
 import { rupee } from "@/lib/portal/format";
 import type { LiveRequest, LiveRoom, Presence } from "@/lib/portal/types";
 import Modal from "../modal";
-import { useErrorToast, usePortalState, usePresence, useToast } from "../portal-provider";
+import { useErrorToast, usePresence, useToast } from "../portal-provider";
 import { PageHeader, Panel } from "../ui";
 import { GiftStack } from "../../live/gift-burst";
 import { LiveFeedOverlay, plannedLabel } from "../../live/live-feed";
 import { LiveGiftsPanel, useLiveFeed } from "./live-activity";
 import LiveAnnouncements from "./live-announcements";
 import LiveDetailsForm, { type LiveDetails } from "./live-details-form";
+import LivePrivateHost from "./live-private-host";
 import LiveQueuePeople from "./live-queue-people";
+import { useLiveBroadcast } from "./use-live-broadcast";
 
 const MOD_ACTIONS = ["Mute 5m", "Mute 15m", "Mute 60m", "Block from room", "Delete message"];
 
@@ -49,15 +51,29 @@ function LiveConsole({ data }: { data: LiveRoom }) {
   const router = useRouter();
   const toast = useToast();
   const showError = useErrorToast();
-  const [micOn, setMicOn] = usePortalState("liveMic", true);
-  const [camOn, setCamOn] = usePortalState("liveCam", true);
-  const [privateOn, setPrivateOn] = usePortalState("livePrivate", false);
   const [busy, setBusy] = useState(false);
   const [presence, setPresence] = usePresence();
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [editing, setEditing] = useState(false);
   const live = data.isLive;
   const { feed, gifts: giftsShown } = useLiveFeed(live);
+  // The private consultation in progress, followed with the feed (every few seconds).
+  const priv = live ? (feed ? feed.private : data.private) : null;
+  const broadcast = useLiveBroadcast({ live, privateOn: !!priv });
+  const selfView = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const v = selfView.current;
+    if (v && v.srcObject !== broadcast.local) v.srcObject = broadcast.local;
+  }, [broadcast.local, live]);
+
+  // A private consultation started, connected or ended: re-read the queue straight away.
+  const privKey = priv ? `${priv.id}:${priv.status}` : "";
+  const lastPrivKey = useRef(privKey);
+  useEffect(() => {
+    if (lastPrivKey.current === privKey) return;
+    lastPrivKey.current = privKey;
+    router.refresh();
+  }, [privKey, router]);
   // This live's details, or the last ones used (to pre-fill "Go live").
   const details: LiveDetails = {
     title: data.title,
@@ -122,11 +138,11 @@ function LiveConsole({ data }: { data: LiveRoom }) {
 
   const decide = (q: LiveRequest, decision: "accept" | "decline") =>
     run(async () => {
-      await api.post(`/portal/live/requests/${q.id}/${decision}`);
+      const res = await api.post<{ rate?: number }>(`/portal/live/requests/${q.id}/${decision}`);
       toast(
         decision === "accept"
-          ? `Consult accepted at your standard rate of ${rate}. Only one active consult at a time.`
-          : "Consult request rejected. The viewer returns to watching, charged ₹0.",
+          ? `Accepted at ${rupee(res.rate ?? data.rate)}/min. ${q.alias} is being asked to join — while you talk, only they hear you; the room keeps your video.`
+          : "Request declined. The viewer returns to watching, charged ₹0.",
       );
     });
 
@@ -136,42 +152,45 @@ function LiveConsole({ data }: { data: LiveRoom }) {
       toast("Poll launched to the room. Single vote, no changes; results visible to you from launch.");
     });
 
-  const hostControls = [
-    {
-      label: micOn ? "🎤 Mic on" : "🔇 Mic muted",
-      bg: micOn ? "rgba(0,0,0,.45)" : "#ea580c",
-      fg: "#fffdf8",
-      pressed: micOn,
-      click: () => {
-        setMicOn(!micOn);
-        toast(!micOn ? "Microphone live to the room." : "Microphone muted — viewers see a muted indicator.");
-      },
-    },
-    {
-      label: camOn ? "📹 Camera on" : "🚫 Camera off",
-      bg: camOn ? "rgba(0,0,0,.45)" : "#ea580c",
-      fg: "#fffdf8",
-      pressed: camOn,
-      click: () => {
-        setCamOn(!camOn);
-        toast(!camOn ? "Camera live." : "Camera off — the room falls back to your avatar and audio.");
-      },
-    },
-    {
-      label: privateOn ? "🔒 Private on" : "🔓 Private off",
-      bg: privateOn ? "#fcd34d" : "rgba(0,0,0,.45)",
-      fg: privateOn ? "#1c1917" : "#fffdf8",
-      pressed: privateOn,
-      click: () => {
-        setPrivateOn(!privateOn);
-        toast(
-          !privateOn
-            ? "Private consultation active — viewers see the banner, never the customer."
-            : "Private consultation ended. The room returns to public.",
-        );
-      },
-    },
-  ];
+  // Camera and microphone of the broadcast (what you send to the room, not the private call).
+  const hostControls = broadcast.local
+    ? [
+        {
+          label: broadcast.micOn ? "🎤 Mic on" : "🔇 Mic muted",
+          bg: broadcast.micOn ? "rgba(0,0,0,.45)" : "#ea580c",
+          fg: "#fffdf8",
+          pressed: broadcast.micOn,
+          click: broadcast.toggleMic,
+        },
+        {
+          label: broadcast.camOn ? "📹 Camera on" : "🚫 Camera off",
+          bg: broadcast.camOn ? "rgba(0,0,0,.45)" : "#ea580c",
+          fg: "#fffdf8",
+          pressed: broadcast.camOn,
+          click: broadcast.toggleCam,
+        },
+      ]
+    : [];
+
+  /** One line on what the room is getting from you right now. */
+  const onAir =
+    broadcast.permission === "denied"
+      ? "Camera and microphone are blocked. Allow them in your browser's site settings."
+      : broadcast.permission !== "granted" && broadcast.permission !== "idle" && broadcast.permission !== "asking"
+        ? "Your camera or microphone couldn't be used. Check they aren't in use by another app."
+        : broadcast.notConfigured
+          ? "Live video isn't connected yet, so nothing is broadcast — viewers see your photo with a note. Chat, gifts and the queue work."
+          : broadcast.answerFailed
+            ? "Couldn't reach the live video service. Chat, gifts and the queue still work."
+            : broadcast.link === "connected"
+              ? priv
+                ? "On air without sound — you're in a private consultation."
+                : "On air — viewers see and hear you."
+              : broadcast.link === "failed"
+                ? broadcast.linkProblem || "The live video couldn't connect."
+                : broadcast.local
+                  ? "Connecting your live video…"
+                  : "Turn on your camera and microphone to broadcast.";
 
   return (
     <div>
@@ -206,7 +225,16 @@ function LiveConsole({ data }: { data: LiveRoom }) {
           )}
           {live && (
           <div className="relative aspect-[4/5] overflow-hidden rounded-[20px] bg-ink sm:aspect-video">
-            <Image src={data.image} alt="" fill sizes="(min-width: 900px) 60vw, 100vw" className="object-cover" priority />
+            {/* Your self-view (what the room sees when live video is connected), or your room's photo. */}
+            <Image src={data.image} alt="" fill sizes="(min-width: 900px) 60vw, 100vw" className={`object-cover ${broadcast.local ? "opacity-0" : ""}`} priority />
+            <video
+              ref={selfView}
+              autoPlay
+              muted
+              playsInline
+              aria-label="Your camera"
+              className={`absolute inset-0 size-full -scale-x-100 object-cover ${broadcast.local && broadcast.camOn ? "opacity-100" : "opacity-0"}`}
+            />
             <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.45)_0%,rgba(28,25,23,.08)_40%,rgba(28,25,23,.7)_100%)]" />
             <div className="absolute top-3.5 right-3.5 left-3.5 flex flex-wrap items-center gap-2">
               <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-urgent px-[11px] text-[11px] font-extrabold text-white">
@@ -218,12 +246,28 @@ function LiveConsole({ data }: { data: LiveRoom }) {
               <span className="inline-block h-[26px] max-w-full min-w-0 truncate rounded-full bg-[rgba(0,0,0,.45)] px-[11px] text-[11px] leading-[26px] font-bold text-white">
                 {data.title || data.topic}
               </span>
-              {privateOn && (
+              {priv && (
                 <span className="inline-flex h-[26px] items-center rounded-full bg-amber-300 px-[11px] text-[11px] font-extrabold text-ink">
-                  🔒 Private consult active
+                  🔒 {priv.status === "active" ? "Private consult active" : "Private consult starting"}
                 </span>
               )}
             </div>
+            {!broadcast.local && broadcast.permission !== "granted" && (
+              <div className="absolute inset-x-4 top-1/2 z-[1] mx-auto max-w-[380px] -translate-y-1/2 rounded-2xl bg-[rgba(28,25,23,.85)] px-4 py-3.5 text-center text-paper">
+                <b className="block text-[14px]">Your camera and microphone are off</b>
+                <p className="mt-1 text-[12.5px] leading-normal text-paper/75">{onAir}</p>
+                {(broadcast.permission === "idle" || broadcast.permission === "asking") && (
+                  <button
+                    type="button"
+                    onClick={() => void broadcast.allow()}
+                    disabled={broadcast.permission === "asking"}
+                    className="mt-3 h-10 rounded-xl bg-amber-400 px-4 text-[13.5px] font-bold text-ink"
+                  >
+                    {broadcast.permission === "asking" ? "Waiting for your browser…" : "Turn on camera & microphone"}
+                  </button>
+                )}
+              </div>
+            )}
             <div className="absolute right-3.5 bottom-3.5 left-3.5 flex flex-col gap-2.5">
             {/* Gifts and what viewers are saying, as they see it: messages float up and fade */}
             <GiftStack gifts={giftsShown} />
@@ -252,6 +296,18 @@ function LiveConsole({ data }: { data: LiveRoom }) {
             </div>
             </div>
           </div>
+          )}
+
+          {live && broadcast.local && (
+            <p role="status" className="mt-2.5 text-[12.5px] leading-normal text-stone-600">
+              {onAir}
+            </p>
+          )}
+
+          {priv && (
+            <div className="mt-4">
+              <LivePrivateHost key={priv.id} p={priv} onEnded={(m) => (toast(m), router.refresh())} />
+            </div>
           )}
 
           {live && (
@@ -313,7 +369,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                   <div className="min-w-0 flex-1">
                     <b className="block text-[13px] tabular-nums">{q.alias}</b>
                     <span className="text-[11.5px] text-stone-500">
-                      {q.kind === "private" ? `Private consultation · ${rate}` : "Public — on stage · consent given"}
+                      Private consultation · {rate}
                     </span>
                   </div>
                   {q.actionable && (
@@ -326,20 +382,27 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                       >
                         Reject
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => decide(q, "accept")}
-                        disabled={busy}
-                        className="h-[30px] rounded-[9px] bg-amber-500 px-[11px] text-xs font-bold text-ink"
-                      >
-                        Accept
-                      </button>
+                      {i === 0 && (
+                        <button
+                          type="button"
+                          onClick={() => decide(q, "accept")}
+                          disabled={busy || !!priv}
+                          title={priv ? "Finish the private consultation in progress first." : undefined}
+                          className="h-[30px] rounded-[9px] bg-amber-500 px-[11px] text-xs font-bold text-ink disabled:opacity-50"
+                        >
+                          Accept
+                        </button>
+                      )}
                     </>
                   )}
                 </div>
               ))}
             </div>
-            <p className="mt-2.5 text-[11.5px] text-stone-500">One active consult at a time.</p>
+            <p className="mt-2.5 text-[11.5px] text-stone-500">
+              {priv
+                ? "One private consultation at a time — the next person can be accepted when this one ends."
+                : "First come, first served. Accepting starts a private consultation: only that customer hears you, the room keeps your video."}
+            </p>
           </Panel>
           )}
 
@@ -437,8 +500,10 @@ function LiveConsole({ data }: { data: LiveRoom }) {
           </h2>
           <p className="mt-2 text-[13.5px] leading-normal text-stone-600">
             The room closes for everyone watching
-            {data.waiting > 0 ? `, and ${data.waiting === 1 ? "the 1 person" : `the ${data.waiting} people`} waiting in your consult queue leave it` : ""}. A
-            consultation already in progress continues to its own end.
+            {data.waiting > 0 ? `, and ${data.waiting === 1 ? "the 1 person" : `the ${data.waiting} people`} waiting in your consult queue leave it` : ""}.
+            {priv
+              ? ` Your private consultation with ${priv.profile?.name ?? priv.alias} ends too — they pay only for the time connected.`
+              : ""}
           </p>
           <div className="mt-5 flex flex-wrap justify-end gap-2.5">
             <button type="button" onClick={() => setConfirmEnd(false)} className="h-11 rounded-xl border border-line bg-white px-5 text-[14px] font-bold text-ink">
