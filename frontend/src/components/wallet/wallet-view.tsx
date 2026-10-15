@@ -8,6 +8,7 @@ import { rupee, signedRupee } from "@/lib/format";
 import { DATA_RIGHTS } from "@/lib/mock/wallet";
 import { sessionActions, totalBalance, useHydrated, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
+import { WelcomeBanner } from "../consult/free-call";
 import AccountSection, { ClosedNotice, type Closed } from "./account-section";
 import ProfileSection from "./profile-section";
 
@@ -266,6 +267,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
           >
             + Add money
           </button>
+          <WelcomeBanner className="mt-4" />
         </div>
 
       <div className="order-last flex min-w-0 flex-col gap-[18px] lg:order-none lg:col-start-1 lg:row-start-2">
@@ -277,7 +279,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
             <table className="w-full min-w-[560px] border-collapse text-[13.5px]">
               <thead>
                 <tr>
-                  {["Date", "Type", "Reference", "Bucket", "Amount"].map((h) => (
+                  {["Date", "Type", "Transaction ID", "Bucket", "Amount"].map((h) => (
                     <th
                       key={h}
                       className={`border-b-2 border-line bg-cream px-2.5 py-[9px] text-[11px] uppercase tracking-[.08em] text-stone-500 ${h === "Amount" ? "text-right" : "text-left"}`}
@@ -338,18 +340,6 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
                 </button>
               </div>
             ))}
-            <div className="flex flex-col gap-1.5 rounded-2xl border border-line-warm bg-card p-[15px]">
-              <b className="text-sm font-bold text-ink">Grievance Officer</b>
-              <span className="flex-1 text-[12.5px] leading-[1.45] text-stone-500">
-                Escalate anything unresolved. Acknowledged in 24 hours, resolved within 15 days.
-              </span>
-              <Link
-                href="/terms#grievance"
-                className="inline-flex h-[34px] items-center self-start rounded-[10px] border border-line bg-white px-[13px] text-[12.5px] font-bold text-amber-700 hover:no-underline"
-              >
-                Contact officer
-              </Link>
-            </div>
           </div>
           <AccountSection onClosed={onClosed} />
         </div>

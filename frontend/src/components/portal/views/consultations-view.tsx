@@ -61,6 +61,18 @@ function factsOf(profile: ConsultCustomer | null): string {
   return [profile.age !== null ? `Age ${profile.age}` : "Age not shared", profile.gender, profile.city].filter(Boolean).join(" · ");
 }
 
+/** A customer's welcome free call: distinct from paid requests. */
+function FreeBadge({ className = "" }: { className?: string }) {
+  return (
+    <span
+      title="The customer's welcome free call: the free minutes earn nothing; any paid minutes after them earn as usual."
+      className={`inline-flex h-[22px] items-center rounded-full bg-emerald-700 px-2 text-[10.5px] font-extrabold tracking-[.04em] text-white ${className}`}
+    >
+      🎁 FREE CALL
+    </span>
+  );
+}
+
 function ModeBadge({ mode, instant }: { mode: string; instant: boolean }) {
   return instant ? (
     <span className="inline-flex h-[22px] items-center rounded-full bg-urgent px-2 text-[10.5px] font-extrabold tracking-[.04em] text-white">
@@ -166,7 +178,9 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
       const { settlement } = await api.post<{ settlement: Settlement }>(`/portal/consultations/${id}/end`);
       setConfirmEnd(false);
       toast(
-        `Session ended · ${settlement.billedMins} min at ${rupee(settlement.rate)}/min — ${rupee(settlement.total)} billed to the customer.`,
+        settlement.complimentary && settlement.billedMins === 0
+          ? "Free call ended — nothing was billed (welcome campaign). It shows on your statement as ₹0."
+          : `Session ended · ${settlement.billedMins} min at ${rupee(settlement.rate)}/min — ${rupee(settlement.total)} billed to the customer.`,
       );
     });
 
@@ -204,12 +218,25 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
         subtitle="Customers waiting to consult you, and your session in progress. Phone numbers are never revealed — all calls are masked."
       />
 
+      {data.freeCalls.enabled && (
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <FreeBadge />
+          <b className="text-[13.5px] text-emerald-900 tabular-nums">
+            {data.freeCalls.remaining} of {data.freeCalls.limit} free calls left today
+          </b>
+          <span className="text-[12px] text-emerald-900/75">
+            New customers can use their welcome free call with you. The free minutes earn nothing; paid minutes after them earn as usual.
+          </span>
+        </div>
+      )}
+
       {inc ? (
         <div className="relative mt-5 rounded-[20px] border-2 border-urgent bg-orange-50 p-4 min-[420px]:p-5">
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-urgent px-[11px] text-[11px] font-extrabold tracking-[.06em] text-white">
               {inc.instant ? "⚡ INSTANT CALL" : "● NEW REQUEST"}
             </span>
+            {inc.free && <FreeBadge />}
             <span
               className="ml-auto inline-flex items-center gap-[7px] text-sm font-extrabold text-orange-700 tabular-nums"
               aria-live="polite"
@@ -317,6 +344,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                       <span className="flex flex-wrap items-center gap-1.5">
                         <b className="truncate text-[14px] text-ink">{name}</b>
                         <ModeBadge mode={q.mode} instant={q.instant} />
+                        {q.free && <FreeBadge />}
                       </span>
                       <span className="mt-0.5 block text-[12px] text-stone-500">
                         {factsOf(q.profile)} · waiting {q.waiting}
@@ -363,6 +391,10 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                   <b className="block truncate text-[15px] text-paper">In session · {nameOf(session.profile, session.alias)}</b>
                   <span className="block text-[12px] text-stone-400">
                     {session.mode}
+                    {session.free &&
+                      (sessionSecs < session.freeSeconds
+                        ? ` · 🎁 free call · ${mmss(session.freeSeconds - sessionSecs)} free left`
+                        : " · 🎁 free time over — now billed")}
                     {session.profile && (
                       <>
                         {" · "}
@@ -470,6 +502,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                 profile: person.profile,
                 badges: [
                   { label: person.instant ? "⚡ Instant Call" : person.mode, tone: person.instant ? "urgent" : "amber" },
+                  ...(person.free ? [{ label: "🎁 Free call", tone: "plain" as const }] : []),
                   { label: `${rupee(person.rate)}/min`, tone: "plain" },
                   { label: person.status === "active" ? "In session" : `Waiting ${person.waiting}`, tone: "plain" },
                 ],

@@ -6,7 +6,9 @@ import { badRequest, conflict, notFound } from "../lib/errors.ts";
 import { instantRate } from "../lib/billing.ts";
 import { istDate, istTime, percentages } from "../lib/format.ts";
 import { effectivePresence, hostedLiveRoom, touchViewer, viewerCount } from "../lib/presence.ts";
-import { rateLimit } from "../lib/safety.ts";
+import { announceJoin, chatLineView, giftBalance, sendGift, sessionFeed } from "../lib/live.ts";
+import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "../lib/safety.ts";
+import { freeCallOpen } from "../lib/welcome.ts";
 import { requireRole, requireUser } from "../middleware/auth.ts";
 import type { Astrologer, LiveRoom, Review } from "../generated/prisma/client.ts";
 
@@ -17,7 +19,7 @@ export const catalogRouter = Router();
 type AstrologerWithReviews = Astrologer & { reviews?: Review[] };
 
 /** The shape the website uses for an astrologer (same as frontend/src/lib/types.ts). */
-export function astrologerView(a: AstrologerWithReviews) {
+export function astrologerView(a: AstrologerWithReviews, freeCall = false) {
   return {
     id: a.id,
     slug: a.slug,
@@ -35,9 +37,15 @@ export function astrologerView(a: AstrologerWithReviews) {
     price: a.price,
     was: a.was,
     instant: instantRate(a.price, a.instantMultiplier),
+    /** Instant Call rate = price × this. */
+    instantMultiplier: a.instantMultiplier,
+    /** A welcome free call can be taken with them right now (taking part, available, quota left). */
+    freeCall,
     eta: a.eta,
     about: a.about,
     photo: a.photo,
+    /** The astrologer's own intro video, or null. */
+    introVideoUrl: a.introVideoUrl ?? null,
     ratingDistribution: a.ratingDistribution,
     reviews: (a.reviews ?? []).map((r) => ({ name: r.customerName, stars: r.stars, when: istDate(r.createdAt), text: r.text })),
   };
@@ -51,13 +59,15 @@ catalogRouter.get("/astrologers", async (_req, res) => {
     orderBy: { rank: "asc" },
     include: { reviews: visibleReviews },
   });
-  res.json({ astrologers: list.map(astrologerView), total: list.length });
+  const free = await freeCallOpen(list);
+  res.json({ astrologers: list.map((a) => astrologerView(a, free.has(a.id))), total: list.length });
 });
 
 catalogRouter.get("/astrologers/:slug", async (req, res) => {
   const a = await db.astrologer.findUnique({ where: { slug: req.params.slug }, include: { reviews: visibleReviews } });
   if (!a || a.lifecycle !== "active") throw notFound("No astrologer at this address.");
-  res.json({ astrologer: astrologerView(a) });
+  const free = await freeCallOpen([a]);
+  res.json({ astrologer: astrologerView(a, free.has(a.id)) });
 });
 
 // ── Live rooms ──
@@ -74,9 +84,9 @@ function viewerKey(req: Request, res: Response): string {
 }
 
 async function roomView(room: LiveRoom, voterKey: string | null, userId: string | null) {
-  const [chat, waiting, myVote, announcements] = await Promise.all([
-    // This session's chat only (earlier sessions' messages stay on record but aren't shown).
-    db.chatMessage.findMany({ where: { roomId: room.id, createdAt: { gte: room.startedAt } }, orderBy: { createdAt: "desc" }, take: 50 }),
+  const [feed, waiting, myVote, announcements] = await Promise.all([
+    // This session's chat and gifts only (earlier sessions' stay on record but aren't shown).
+    sessionFeed(room),
     db.liveQueueEntry.findMany({ where: { roomId: room.id, status: "WAITING" }, orderBy: { createdAt: "asc" }, select: { id: true, userId: true } }),
     voterKey ? db.pollVote.findUnique({ where: { roomId_voterKey: { roomId: room.id, voterKey } } }) : null,
     db.liveAnnouncement.findMany({ where: { roomId: room.id }, orderBy: { createdAt: "desc" }, take: 5 }),
@@ -86,7 +96,14 @@ async function roomView(room: LiveRoom, voterKey: string | null, userId: string 
   return {
     id: room.id,
     astrologerId: room.astrologerId,
+    // Session details set when going live (editable while live). Rooms from before these
+    // existed have no title; the topic stands in.
+    title: room.title || room.topic,
     topic: room.topic,
+    category: room.category,
+    language: room.language,
+    durationMins: room.durationMins,
+    startedAt: room.startedAt.toISOString(),
     viewers: viewerCount(room.id),
     thumb: room.thumb,
     state: room.state,
@@ -102,7 +119,10 @@ async function roomView(room: LiveRoom, voterKey: string | null, userId: string 
       options: room.pollOptions.map((label, i) => ({ label, pct: pollPct[i] ?? 0 })),
       myVote: myVote?.optionIndex ?? null,
     },
-    chat: chat.reverse().map((c) => ({ who: c.author, text: c.text })),
+    /** Oldest first: messages, "<name> joined" and "<name> sent <gift>" lines. */
+    chat: feed.chat,
+    /** Newest first, with ids so each viewer's page animates each gift once. */
+    gifts: feed.gifts,
     /** Newest first. Posted by the astrologer from the portal. */
     announcements: announcements.map((a) => ({ id: a.id, text: a.text, at: istTime(a.createdAt) })),
   };
@@ -122,24 +142,78 @@ async function liveRoomOr404(id: string) {
   return room;
 }
 
-/** The open room page polls this every few seconds; each poll counts the viewer as watching. */
+/**
+ * Who counts as watching: signed-in customers and astrologers who joined the room. Staff
+ * (e.g. a compliance observer) and the host themselves are never counted or announced.
+ */
+function countsAsViewer(req: Request, room: LiveRoom): boolean {
+  const auth = req.auth;
+  if (!auth || auth.role === "admin") return false;
+  return auth.role !== "astrologer" || auth.astrologerId !== room.astrologerId;
+}
+
+/**
+ * The room. The preview (before joining) reads it without being counted; once joined, the
+ * room page polls it every few seconds with ?watching=1, and each poll counts as still watching.
+ */
 catalogRouter.get("/live-rooms/:id", async (req, res) => {
   const room = await liveRoomOr404(String(req.params.id));
-  // A logged-out visitor's first requests can race before their viewer cookie is stored, which
-  // would count one person twice; so only count requests that already carry an identity.
-  const counted = Boolean(req.auth || req.cookies?.astrorize_vid);
   const key = viewerKey(req, res);
-  if (counted) touchViewer(room.id, key);
+  if (req.query.watching === "1" && countsAsViewer(req, room)) touchViewer(room.id, key);
   res.json({ room: await roomView(room, key, req.auth?.user.id ?? null) });
+});
+
+/** "Join live" from the preview: counts the viewer and, the first time this session, posts "<name> joined". */
+catalogRouter.post("/live-rooms/:id/join", async (req, res) => {
+  const auth = requireUser(req);
+  const room = await liveRoomOr404(String(req.params.id));
+  if (countsAsViewer(req, room)) {
+    touchViewer(room.id, viewerKey(req, res));
+    await announceJoin(room, auth.user);
+  }
+  res.json({ room: await roomView(room, viewerKey(req, res), auth.user.id) });
 });
 
 catalogRouter.post("/live-rooms/:id/chat", async (req, res) => {
   const auth = requireUser(req);
-  const { text } = z.object({ text: z.string().trim().min(1).max(200) }).parse(req.body);
+  const { text } = z
+    .object({ text: z.string({ error: "Write a message first." }).trim().min(1, "Write a message first.").max(200, "Messages can be up to 200 characters.") })
+    .parse(req.body);
   rateLimit(`chat:${auth.user.id}`, 5, 10_000, "You're sending messages too quickly. Wait a few seconds.");
+  if (containsContactDetails(text)) throw badRequest(CONTACT_BLOCKED_NOTICE);
   const room = await liveRoomOr404(String(req.params.id));
-  const msg = await db.chatMessage.create({ data: { roomId: room.id, author: auth.user.name, text, userId: auth.user.id } });
-  res.status(201).json({ message: { who: msg.author, text: msg.text } });
+  const msg = await db.chatMessage.create({
+    data: { roomId: room.id, author: auth.user.name, text, userId: auth.user.id, kind: "message", photo: auth.user.photoUrl },
+  });
+  res.status(201).json({ message: chatLineView(msg) });
+});
+
+// ── Gifts ──
+
+/** The gift catalogue for the room's gift panel, and what the signed-in customer can spend on gifts. */
+catalogRouter.get("/live-rooms/:id/gifts", async (req, res) => {
+  await liveRoomOr404(String(req.params.id));
+  const gifts = await db.gift.findMany({ where: { state: "ACTIVE", price: { gt: 0 } }, orderBy: [{ rank: "asc" }, { price: "asc" }] });
+  const balance = req.auth?.role === "customer" ? await giftBalance(req.auth.user.id) : null;
+  res.json({ gifts: gifts.map((g) => ({ id: g.id, icon: g.icon, name: g.name, price: g.price })), balance });
+});
+
+/**
+ * Sends a gift to a live room, paid from the customer's service balance. The page sends a
+ * request id (body `requestId` or an Idempotency-Key header); repeating it never charges twice.
+ */
+catalogRouter.post("/live-rooms/:id/gifts", async (req, res) => {
+  const auth = requireRole(req, "customer");
+  const requestIdField = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/, "Invalid request id.");
+  const { giftId, requestId } = z
+    .object({ giftId: z.string({ error: "Choose a gift." }).min(1, "Choose a gift.").max(64), requestId: requestIdField.optional() })
+    .parse(req.body);
+  const header = req.get("idempotency-key");
+  const key = requestId ?? (header ? requestIdField.parse(header) : randomUUID());
+  rateLimit(`gift:${auth.user.id}`, 10, 60_000, "You're sending gifts too quickly. Wait a minute and try again.");
+  const room = await liveRoomOr404(String(req.params.id));
+  const result = await sendGift(room.id, auth.user, giftId, key);
+  res.status(result.replayed ? 200 : 201).json({ ...result, balance: await giftBalance(auth.user.id) });
 });
 
 catalogRouter.post("/live-rooms/:id/poll-vote", async (req, res) => {
@@ -186,4 +260,52 @@ catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
     await db.liveQueueEntry.create({ data: { roomId: room.id, userId: auth.user.id, alias, mode, consent } });
   }
   res.json({ room: await roomView(room, viewerKey(req, res), auth.user.id) });
+});
+
+// ── Featured reviews (home page) ──
+
+/**
+ * Recent published customer reviews for the home page: visible, 4★ or more, with text, written
+ * after a real consultation, about an astrologer customers can see. Newest first, one per
+ * customer and astrologer. An empty list means the home page shows no reviews section at all.
+ */
+catalogRouter.get("/reviews/featured", async (_req, res) => {
+  const rows = await db.review.findMany({
+    where: {
+      status: "VISIBLE",
+      stars: { gte: 4 },
+      text: { not: "" },
+      consultationId: { not: null },
+      astrologer: { lifecycle: "active", suspension: { not: "full" } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 40,
+    include: { astrologer: { select: { name: true, slug: true } } },
+  });
+  const consultations = await db.consultation.findMany({
+    where: { id: { in: rows.map((r) => r.consultationId!) } },
+    select: { id: true, mode: true },
+  });
+  const modeOf = new Map(consultations.map((c) => [c.id, c.mode]));
+  const seen = new Set<string>();
+  const reviews = [];
+  for (const r of rows) {
+    const text = r.text.trim();
+    const key = `${r.customerName}|${r.astrologerId}`;
+    if (text.length < 12 || seen.has(key) || !r.astrologer) continue;
+    seen.add(key);
+    const mode = modeOf.get(r.consultationId!);
+    reviews.push({
+      id: r.id,
+      stars: r.stars,
+      text,
+      customerName: r.customerName,
+      astrologerName: r.astrologer.name,
+      astrologerSlug: r.astrologer.slug,
+      mode: mode ? mode.toLowerCase() : null,
+      date: istDate(r.createdAt),
+    });
+    if (reviews.length === 7) break;
+  }
+  res.json({ reviews });
 });

@@ -78,6 +78,36 @@ model User {
   walletRefunds  WalletRefund[]
   directMembers  DirectMember[]
   directMessages DirectMessage[]
+  welcomeBenefit WelcomeBenefit?
+  giftsSent      GiftSend[]
+}
+
+/// The one-time welcome benefit (spec AR-WEL): one complimentary consultation per person,
+/// granted on first sign-up with a verified mobile number. It never expires; it is used up only
+/// when a complimentary consultation CONNECTS (a request that is declined, missed or cancelled
+/// leaves it GRANTED). Keyed by a hash of the verified number, so deleting the account and signing
+/// up again with the same number never grants a second one.
+model WelcomeBenefit {
+  id             String    @id @default(cuid())
+  /// sha256 of the verified mobile number (stays after account deletion; no personal data).
+  identityKey    String    @unique
+  /// The customer holding it (null once that account is deleted).
+  userId         String?   @unique
+  user           User?     @relation(fields: [userId], references: [id])
+  /// GRANTED | RESERVED | CONSUMED | REVOKED
+  status         String    @default("GRANTED")
+  grantedAt      DateTime  @default(now())
+  /// The consultation it is reserved for or was used on.
+  consultationId String?
+  reservedAt     DateTime?
+  consumedAt     DateTime?
+  revokedAt      DateTime?
+  revokeReason   String?
+  /// Times it came back after a call dropped early through no fault of the customer (bounded).
+  faultRestores  Int       @default(0)
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status])
 }
 
 /// Money owed back to a customer from their wallet (e.g. on account deletion). Paid to the
@@ -187,44 +217,52 @@ enum Presence {
 
 model Astrologer {
   /// Short stable id, e.g. "raghav".
-  id                 String      @id
-  slug               String      @unique
-  userId             String?     @unique
-  user               User?       @relation(fields: [userId], references: [id])
-  name               String
+  id                  String      @id
+  slug                String      @unique
+  userId              String?     @unique
+  user                User?       @relation(fields: [userId], references: [id])
+  name                String
   /// Male | Female (directory filter)
-  gender             String?
+  gender              String?
   /// Last time the astrologer's portal was open (heartbeat). Online astrologers who go quiet
   /// are switched offline automatically, so customers never see a stale "online".
-  lastSeenAt         DateTime?
-  initials           String
-  greeting           String
-  recognition        Recognition
-  presence           Presence    @default(OFF)
-  skills             String[]
-  languages          String[]
-  years              Int
-  rating             Float?
-  consults           Int         @default(0)
+  lastSeenAt          DateTime?
+  initials            String
+  greeting            String
+  recognition         Recognition
+  presence            Presence    @default(OFF)
+  skills              String[]
+  languages           String[]
+  years               Int
+  rating              Float?
+  consults            Int         @default(0)
   /// Standard per-minute rate for chat and voice (₹). Video adds the video premium.
-  price              Int
+  price               Int
   /// Original rate shown struck through when discounted (₹), or null.
-  was                Int?
+  was                 Int?
   /// Instant Call rate = price × this multiplier.
-  instantMultiplier  Float       @default(3)
-  eta                String?
+  instantMultiplier   Float       @default(3)
+  eta                 String?
   /// Published "about" text on the public profile.
-  about              String
-  photo              String
+  about               String
+  photo               String
   /// Count of 5★, 4★, 3★, 2★, 1★ ratings.
-  ratingDistribution Int[]
+  ratingDistribution  Int[]
   /// draft | review | interview | docs | negotiation | pricing | training | active | rejected
-  lifecycle          String      @default("active")
+  lifecycle           String      @default("active")
   /// none | partial | full
-  suspension         String      @default("none")
+  suspension          String      @default("none")
   /// Popularity ranking used for the default directory order.
-  rank               Int         @default(0)
-  createdAt          DateTime    @default(now())
+  rank                Int         @default(0)
+  createdAt           DateTime    @default(now())
+  /// Public URL of the intro video shown on the profile (e.g. /api/media/<file>), if any.
+  introVideoUrl       String?
+  /// Takes part in the welcome campaign: customers can use their one free call with them.
+  /// Set by staff (Astrologer lifecycle); astrologers can't switch it on themselves by default.
+  freeCallsEnabled    Boolean     @default(false)
+  /// Most complimentary calls this astrologer takes in a day (IST); null = the platform default.
+  freeCallsDailyLimit Int?
+  giftsReceived       GiftSend[]
 
   reviews            Review[]
   liveRoom           LiveRoom?
@@ -269,6 +307,14 @@ model LiveRoom {
   astrologerId  String             @unique
   astrologer    Astrologer         @relation(fields: [astrologerId], references: [id])
   topic         String
+  /// Session details set when going live and editable while live (spec AR-LIVE §4).
+  title         String             @default("")
+  /// e.g. Marriage, Career (from the live categories setting).
+  category      String?
+  language      String?
+  /// What the astrologer expects, in minutes (5–480).
+  durationMins  Int?
+  gifts         GiftSend[]
   viewers       Int                @default(0)
   thumb         String
   /// normal | private | monitor | degrade
@@ -295,6 +341,10 @@ model ChatMessage {
   author    String
   text      String
   userId    String?
+  /// message | join | gift (join and gift lines are written by the server)
+  kind      String   @default("message")
+  /// Viewer's photo at the time (null = initials).
+  photo     String?
   createdAt DateTime @default(now())
 
   @@index([roomId, createdAt])
@@ -396,40 +446,45 @@ model Denomination {
 // ─────────────────────────── Consultations ───────────────────────────
 
 model Consultation {
-  id            String     @id @default(cuid())
+  id                   String     @id @default(cuid())
   /// e.g. "SES-88214"
-  ref           String     @unique
-  customerId    String?
-  customer      User?      @relation(fields: [customerId], references: [id])
+  ref                  String     @unique
+  /// PAID | COMPLIMENTARY_THEN_PAID (the welcome call: free for complimentarySeconds, then the
+  /// same session continues at `rate` if the wallet allows, else it ends).
+  billingMode          String     @default("PAID")
+  /// Free seconds snapshotted when the session was requested (welcome calls only).
+  complimentarySeconds Int        @default(0)
+  customerId           String?
+  customer             User?      @relation(fields: [customerId], references: [id])
   /// What the astrologer sees instead of the customer's name, e.g. "A-8821".
-  customerAlias String
-  astrologerId  String
-  astrologer    Astrologer @relation(fields: [astrologerId], references: [id])
+  customerAlias        String
+  astrologerId         String
+  astrologer           Astrologer @relation(fields: [astrologerId], references: [id])
   /// CHAT | VOICE | VIDEO
-  mode          String
+  mode                 String
   /// STANDARD | INSTANT | FIXED | WELCOME
-  kind          String     @default("STANDARD")
+  kind                 String     @default("STANDARD")
   /// WEB | LIVE | APP
-  source        String     @default("WEB")
+  source               String     @default("WEB")
   /// Per-minute rate snapshotted when the consultation was requested (₹).
-  rate          Int
+  rate                 Int
   /// REQUESTED | CONNECTING | ACTIVE | ENDED | REJECTED | TIMED_OUT | CANCELLED
-  status        String     @default("REQUESTED")
-  heldAmount    Int        @default(0)
-  requestedAt   DateTime   @default(now())
+  status               String     @default("REQUESTED")
+  heldAmount           Int        @default(0)
+  requestedAt          DateTime   @default(now())
   /// When the request reached the front of the queue; the astrologer has 3 minutes from then to accept.
-  offeredAt     DateTime?
-  connectedAt   DateTime?
-  endedAt       DateTime?
+  offeredAt            DateTime?
+  connectedAt          DateTime?
+  endedAt              DateTime?
   /// user | cap | exhausted | astrologer
-  endReason     String?
-  billedSeconds Int        @default(0)
-  billedMinutes Int        @default(0)
-  total         Int        @default(0)
-  promoUsed     Int        @default(0)
-  serviceUsed   Int        @default(0)
-  stars         Int?
-  reviewText    String?
+  endReason            String?
+  billedSeconds        Int        @default(0)
+  billedMinutes        Int        @default(0)
+  total                Int        @default(0)
+  promoUsed            Int        @default(0)
+  serviceUsed          Int        @default(0)
+  stars                Int?
+  reviewText           String?
 
   @@index([astrologerId, status])
   @@index([customerId, requestedAt])
@@ -727,4 +782,27 @@ model AuditLog {
 model Setting {
   key   String @id
   value Json
+}
+
+/// A gift a viewer sent during a live session (paid from their wallet's service balance;
+/// the astrologer's share shows in their earnings).
+model GiftSend {
+  id           String     @id @default(cuid())
+  roomId       String
+  room         LiveRoom   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  astrologerId String
+  astrologer   Astrologer @relation(fields: [astrologerId], references: [id])
+  userId       String?
+  user         User?      @relation(fields: [userId], references: [id])
+  giftId       String
+  name         String
+  icon         String
+  /// Price paid, in rupees.
+  price        Int
+  /// The wallet transaction reference.
+  ref          String     @unique
+  createdAt    DateTime   @default(now())
+
+  @@index([roomId, createdAt])
+  @@index([astrologerId, createdAt])
 }

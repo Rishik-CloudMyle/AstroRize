@@ -8,6 +8,7 @@ import { instantRate, rateFor } from "../../lib/billing.ts";
 import { ageLabel, istDate, istStamp, rupee } from "../../lib/format.ts";
 import { requireCapability, requirePage } from "../../lib/rbac.ts";
 import { configNumber } from "../../lib/settings.ts";
+import { dailyLimitOf, freeCallsToday, welcomePolicy } from "../../lib/welcome.ts";
 import type { Applicant, Prisma } from "../../generated/prisma/client.ts";
 
 export const operationsRouter = Router();
@@ -127,6 +128,9 @@ operationsRouter.get("/lifecycle/astrologers", async (req, res) => {
   });
 });
 
+/** Highest daily free-call limit HR may set for one astrologer. */
+const FREE_CALLS_MAX_DAILY = 50;
+
 /** One astrologer's full record for the lifecycle popup. */
 operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
   requirePage(req, "hr");
@@ -142,11 +146,13 @@ operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
     },
   });
   if (!a) throw notFound("Astrologer not found.");
-  const [month, last, reviews, notices] = await Promise.all([
+  const [month, last, reviews, notices, policy, freeToday] = await Promise.all([
     db.consultation.aggregate({ where: { astrologerId: a.id, status: "ENDED", connectedAt: { gte: since } }, _count: { _all: true }, _sum: { total: true, billedMinutes: true } }),
     db.consultation.findFirst({ where: { astrologerId: a.id, status: "ENDED" }, orderBy: { endedAt: "desc" }, select: { endedAt: true } }),
     db.review.count({ where: { astrologerId: a.id, status: "VISIBLE" } }),
     db.complianceNotice.count({ where: { astrologerId: a.id, status: { not: "DECIDED" } } }),
+    welcomePolicy(),
+    freeCallsToday(a.id),
   ]);
   res.json({
     astrologer: {
@@ -184,8 +190,56 @@ operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
       training: a.training.length ? { done: a.training.filter((t) => t.done).length, total: a.training.length } : null,
       application: a.application ? { step: a.application.currentStep + 1, savedAt: istDate(a.application.savedAt) } : null,
       openNotices: notices,
+      // Welcome campaign: whether customers can use their free call with this astrologer.
+      freeCalls: {
+        enabled: a.freeCallsEnabled,
+        /** Their own daily limit, or null to use the campaign default. */
+        dailyLimit: a.freeCallsDailyLimit,
+        defaultLimit: policy.dailyLimitDefault,
+        effectiveLimit: dailyLimitOf(a, policy),
+        today: freeToday,
+        campaignOn: policy.enabled,
+        maxLimit: FREE_CALLS_MAX_DAILY,
+      },
     },
   });
+});
+
+/**
+ * Welcome campaign settings for one astrologer (HR): take part in free calls or not, and their
+ * own daily limit (null = the campaign default). Each change is audited.
+ */
+operationsRouter.patch("/lifecycle/astrologers/:id/free-calls", async (req, res) => {
+  const admin = requirePage(req, "hr");
+  const input = z
+    .object({
+      enabled: z.boolean().optional(),
+      dailyLimit: z
+        .number("Enter the daily limit as a whole number.")
+        .int("Enter the daily limit as a whole number.")
+        .min(0, "The daily limit can't be negative.")
+        .max(FREE_CALLS_MAX_DAILY, `The daily limit can be at most ${FREE_CALLS_MAX_DAILY}.`)
+        .nullable()
+        .optional(),
+    })
+    .parse(req.body);
+  const a = await db.astrologer.findUnique({ where: { id: String(req.params.id) } });
+  if (!a) throw notFound("Astrologer not found.");
+  const data: Prisma.AstrologerUpdateInput = {};
+  if (input.enabled !== undefined && input.enabled !== a.freeCallsEnabled) data.freeCallsEnabled = input.enabled;
+  if (input.dailyLimit !== undefined && input.dailyLimit !== a.freeCallsDailyLimit) data.freeCallsDailyLimit = input.dailyLimit;
+  if (Object.keys(data).length) {
+    await db.astrologer.update({ where: { id: a.id }, data });
+    const limitLabel = (n: number | null) => (n === null ? "campaign default" : String(n));
+    if (data.freeCallsEnabled !== undefined) {
+      await audit(admin, "astrologer.free_calls.update", a.id, `${a.freeCallsEnabled ? "on" : "off"} → ${input.enabled ? "on" : "off"}`);
+    }
+    if (data.freeCallsDailyLimit !== undefined) {
+      await audit(admin, "astrologer.free_calls.limit", a.id, `${limitLabel(a.freeCallsDailyLimit)} → ${limitLabel(input.dailyLimit ?? null)} per day`);
+    }
+  }
+  const fresh = await db.astrologer.findUniqueOrThrow({ where: { id: a.id }, select: { freeCallsEnabled: true, freeCallsDailyLimit: true } });
+  res.json({ freeCalls: { enabled: fresh.freeCallsEnabled, dailyLimit: fresh.freeCallsDailyLimit } });
 });
 
 /** One application with its negotiation and the audit trail of every action taken on it. */

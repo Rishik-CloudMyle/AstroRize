@@ -176,6 +176,9 @@ export async function deleteAccount(userId: string) {
       where: { customerId: userId, state: "BOOKED", date: { gte: new Date(istDateKey(new Date()) + "T00:00:00Z") } },
       data: { state: "OPEN", customerId: null, detail: null },
     });
+    // The welcome free call stays with the (hashed) number, unlinked: signing up again with it
+    // never grants a new one, and an unused one is linked to the new account instead.
+    await tx.welcomeBenefit.updateMany({ where: { userId }, data: { userId: null } });
     await leaveQueues(tx, userId);
     await revokeSessions(tx, userId);
     await tx.dataRequest.create({ data: { userId, kind: "delete", status: "DONE" } });

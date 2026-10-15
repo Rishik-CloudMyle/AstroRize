@@ -7,6 +7,7 @@ import { api } from "@/lib/api/client";
 import type { Astrologer } from "@/lib/types";
 import { languageLine, ratingLabel, rupee, skillLine } from "@/lib/format";
 import { AvailabilityBadge, DiscountBadge, Portrait, RecognitionBadge, VerifiedTick, WasPrice } from "../astrologer/parts";
+import { FreeCallBadge, WelcomeBanner } from "../consult/free-call";
 import FilterPanel from "./filter-panel";
 import {
   CATEGORIES,
@@ -75,6 +76,7 @@ export default function DirectoryView({ astrologers: initial }: { astrologers: A
 
   return (
     <div className="mt-[26px] min-w-0">
+      <WelcomeBanner className="mb-4" showLink={!state.filters.availability.includes("Free call")} />
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex h-11 min-w-[220px] flex-1 items-center gap-2 rounded-full border border-line bg-white px-4 focus-within:border-amber-500">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" className="size-4 shrink-0 text-muted" aria-hidden="true">
@@ -250,6 +252,7 @@ function DirectoryCard({ astrologer: a }: { astrologer: Astrologer }) {
             <span className="font-semibold text-mauve">{a.consults.toLocaleString("en-IN")} consults</span>
           </span>
           <AvailabilityBadge astrologer={a} />
+          <FreeCallBadge astrologer={a} />
           {a.eta && (
             <span className="inline-flex h-[22px] items-center gap-[5px] rounded-full bg-blue-50 px-[9px] text-[11px] font-bold text-blue-700">
               ⏱ waits {a.eta}
@@ -270,9 +273,10 @@ function DirectoryCard({ astrologer: a }: { astrologer: Astrologer }) {
         </div>
         <Link
           href={`/astrologer/${a.slug}`}
+          aria-label={`Consult now with ${a.name} (opens their profile)`}
           className="az-cta inline-flex h-[38px] shrink-0 items-center rounded-full px-[18px] text-[13.5px] font-bold hover:text-cta-ink hover:no-underline sm:mt-2.5"
         >
-          View profile
+          Consult now
         </Link>
       </div>
     </div>

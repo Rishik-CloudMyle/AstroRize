@@ -299,7 +299,9 @@ check("going live twice changes nothing", r.status === 200 && r.body.alreadyLive
 r = await anon("GET", "/live-rooms");
 check("the room is listed while live", r.body.rooms?.length === 1 && r.body.rooms[0].id === "raghav" && r.body.rooms[0].topic === "Smoke test live", r.body);
 r = await anon("GET", "/live-rooms/raghav");
-check("watching counts as a real viewer", r.status === 200 && r.body.room?.viewers === 1, r.body.room?.viewers);
+check("the preview isn't counted as watching", r.status === 200 && r.body.room?.viewers === 0, r.body.room?.viewers);
+r = await cust("POST", "/live-rooms/raghav/join");
+check("joining counts as a real viewer", r.status === 200 && r.body.room?.viewers === 1, r.body.room?.viewers);
 
 // Live monitoring sees the real room; the observer is watch-only and invisible to viewers
 r = await comp("GET", "/admin/monitoring");
@@ -371,9 +373,10 @@ check("no live rooms after ending", r.body.rooms?.length === 0, r.body);
 const left = await db.liveQueueEntry.findFirst({ where: { id: joined?.id } });
 check("people waiting leave the queue", left?.status === "LEFT", left?.status);
 
-// A closed portal: no heartbeat for a few minutes, so switched offline automatically
+// A closed portal: no heartbeat for longer than the stale window (Config presence.offline_after_mins,
+// at most 60), so switched offline automatically
 await astro("POST", "/portal/live/start", { topic: "Sweep test" });
-await db.astrologer.update({ where: { id: "raghav" }, data: { lastSeenAt: new Date(Date.now() - 4 * 60_000) } });
+await db.astrologer.update({ where: { id: "raghav" }, data: { lastSeenAt: new Date(Date.now() - 61 * 60_000) } });
 r = await anon("GET", "/astrologers/pt-raghav-joshi");
 check("quiet portal reads offline at once", r.body.astrologer?.availability === "off", r.body.astrologer?.availability);
 r = await anon("GET", "/live-rooms");
@@ -539,6 +542,241 @@ await applicationFlow(API, check);
   r = await astro("POST", `/portal/availability/${slotId}/reopen`);
   check("portal: reopening is refused when another slot overlaps", r.status === 409, r);
   await astro("POST", `/portal/availability/${blocker}/cancel`);
+}
+
+// Price lock and the welcome free call (spec AR-WEL): one 5-minute free call per mobile number, ever
+{
+  const freshPhone = () => String(7000000000 + Math.floor(Math.random() * 999999999));
+  const signUp = async (phone: string) => {
+    const c = client();
+    const code = (await c("POST", "/auth/otp/request", { phone })).body.devCode;
+    const res = await c("POST", "/auth/otp/verify", { phone, code });
+    return { c, res };
+  };
+  const welcomeOf = async (c: ReturnType<typeof client>) => (await c("GET", "/wallet")).body.wallet?.welcome ?? null;
+  const benefitOf = async (phone: string) => {
+    const u = await db.user.findUniqueOrThrow({ where: { phone } });
+    return db.welcomeBenefit.findUnique({ where: { userId: u.id } });
+  };
+  const hr = await login("admin@astrorize.com");
+  const raghav = await login("raghav.joshi@email.com");
+  r = await raghav("PATCH", "/portal/presence", { online: true });
+  check("welcome: raghav online again", r.status === 200 && r.body.presence === "on", r);
+  r = await anon("GET", "/astrologers/pt-raghav-joshi");
+  check("welcome: raghav takes free calls (badge data) with his real multiplier", r.body.astrologer?.freeCall === true && r.body.astrologer?.instantMultiplier === 3, r.body.astrologer);
+
+  // A new customer by mobile OTP gets one free call
+  const p1 = freshPhone();
+  const { c: w1 } = await signUp(p1);
+  let wel = await welcomeOf(w1);
+  check("welcome: granted on OTP sign-up (5 min, chat + voice)", wel?.status === "granted" && wel.available === true && wel.freeSeconds === 300 && wel.modes.join() === "chat,voice", wel);
+
+  // Price lock: the rate the customer saw must still be the rate
+  r = await w1("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT", quotedRate: 1, welcome: true });
+  check("price lock: changed rate refused (409 rate_changed + new rate)", r.status === 409 && r.body.error?.code === "rate_changed" && r.body.error?.rate === 28, r);
+  r = await w1("POST", "/instant-calls", { astrologerId: "raghav", quotedRate: 1 });
+  check("price lock: instant call too (409 rate_changed)", r.status === 409 && r.body.error?.code === "rate_changed" && r.body.error?.rate === 84, r);
+  r = await w1("POST", "/consultations", { astrologerId: "raghav", mode: "VIDEO", quotedRate: 40, welcome: true });
+  check("welcome: video free call denied", r.status === 400 && r.body.error?.code === "WEL_MODALITY_DENIED", r);
+  r = await w1("POST", "/instant-calls", { astrologerId: "raghav", quotedRate: 84, welcome: true });
+  check("welcome: instant free call denied", r.status === 400 && r.body.error?.code === "WEL_MODALITY_DENIED", r);
+  r = await w1("POST", "/consultations", { astrologerId: "meera", mode: "CHAT", welcome: true });
+  check("welcome: no free call with an offline astrologer (409)", r.status === 409, r);
+
+  // Cancelled before it connects: the free call is still theirs
+  r = await w1("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT", quotedRate: 28, welcome: true });
+  const cancelId = r.body.consultation?.id;
+  check("welcome: free call requested with an empty wallet", r.status === 201 && r.body.consultation?.complimentary === true && r.body.consultation?.held === 0, r);
+  check("welcome: reserved while requested", (await welcomeOf(w1))?.status === "reserved");
+  r = await w1("POST", `/consultations/${cancelId}/end`);
+  check("welcome: cancelling gives it back", r.body.status === "cancelled" && (await welcomeOf(w1))?.status === "granted", r.body);
+
+  // Declined by the astrologer: given back (a waiting free request, set up directly)
+  const u1 = await db.user.findUniqueOrThrow({ where: { phone: p1 } });
+  const declined = await db.consultation.create({
+    data: { ref: `SES-W${Date.now()}`, customerId: u1.id, customerAlias: "W-0001", astrologerId: "raghav", mode: "CHAT", rate: 28, status: "REQUESTED", billingMode: "COMPLIMENTARY_THEN_PAID", complimentarySeconds: 300, offeredAt: new Date() },
+  });
+  await db.welcomeBenefit.update({ where: { userId: u1.id }, data: { status: "RESERVED", consultationId: declined.id, reservedAt: new Date() } });
+  r = await raghav("POST", `/portal/consultations/${declined.id}/reject`);
+  check("welcome: a declined free request gives it back", r.status === 200 && (await benefitOf(p1))?.status === "GRANTED", r);
+
+  // Connects → used up; with an empty wallet it ends exactly when the free time does, at ₹0
+  r = await w1("POST", "/consultations", { astrologerId: "raghav", mode: "VOICE", quotedRate: 28, welcome: true });
+  const freeId = r.body.consultation?.id;
+  r = await w1("POST", `/consultations/${freeId}/connect`);
+  check("welcome: connected free call: 300 free seconds, capped at 300", r.status === 200 && r.body.freeSeconds === 300 && r.body.maxSeconds === 300, r);
+  check("welcome: connecting uses it up", (await welcomeOf(w1))?.status === "consumed");
+  r = await raghav("GET", "/portal/consultations");
+  check("welcome: portal marks the session as a free call", r.body.consultations?.session?.free === true && r.body.consultations?.freeCalls?.today >= 1, r.body.consultations);
+  r = await anon("GET", "/astrologers/pt-raghav-joshi");
+  check("welcome: busy astrologer shows no free call", r.body.astrologer?.availability === "busy" && r.body.astrologer?.freeCall === false, r.body.astrologer);
+
+  // Daily quota: counts connected free calls only
+  r = await hr("PATCH", "/admin/lifecycle/astrologers/raghav/free-calls", { dailyLimit: 51 });
+  check("welcome: daily limit above 50 refused", r.status === 400, r);
+  r = await hr("PATCH", "/admin/lifecycle/astrologers/raghav/free-calls", { dailyLimit: 1 });
+  check("welcome: HR sets raghav's daily limit (audited)", r.status === 200 && r.body.freeCalls?.dailyLimit === 1 && !!(await db.auditLog.findFirst({ where: { action: "astrologer.free_calls.limit", object: "raghav" } })), r);
+
+  await db.consultation.update({ where: { id: freeId }, data: { connectedAt: new Date(Date.now() - 400_000) } });
+  r = await w1("POST", `/consultations/${freeId}/end`);
+  const s1 = r.body.settlement;
+  check("welcome: empty-wallet free call ends at the free time, ₹0", s1?.elapsed === 300 && s1?.billedMins === 0 && s1?.total === 0 && s1?.reason === "exhausted" && s1?.complimentary === true, s1);
+  r = await w1("GET", "/wallet");
+  check("welcome: no debit on the ledger for the free call", !(r.body.wallet?.transactions ?? []).some((t: any) => t.type === "Consultation"), r.body.wallet?.transactions);
+  const ref1 = (await db.consultation.findUniqueOrThrow({ where: { id: freeId } })).ref;
+  r = await raghav("GET", "/portal/earnings");
+  const line1 = (r.body.earnings?.statement ?? []).find((l: any) => l.session === ref1);
+  check("welcome: astrologer earns ₹0 for the free part (welcome line)", line1?.kind === "welcome" && line1.amount === 0 && line1.minutes === 0, line1);
+  r = await w1("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT", quotedRate: 28, welcome: true });
+  check("welcome: only once per customer", r.status === 409 && r.body.error?.code === "WEL_NOT_AVAILABLE", r);
+
+  const p2 = freshPhone();
+  const { c: w2 } = await signUp(p2);
+  r = await w2("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT", quotedRate: 28, welcome: true });
+  check("welcome: astrologer's daily quota reached", r.status === 409 && r.body.error?.code === "WEL_DAILY_LIMIT", r);
+  r = await anon("GET", "/astrologers/pt-raghav-joshi");
+  check("welcome: no free-call badge once the quota is used", r.body.astrologer?.freeCall === false, r.body.astrologer);
+  r = await hr("PATCH", "/admin/lifecycle/astrologers/raghav/free-calls", { dailyLimit: null });
+  check("welcome: limit back to the campaign default", r.status === 200 && r.body.freeCalls?.dailyLimit === null, r);
+
+  // With money in the wallet the same session carries on, paid, after the free time
+  const order = (await w2("POST", "/wallet/recharge", { amount: 500 })).body;
+  await w2("POST", `/wallet/recharge/${order.orderId}/confirm`);
+  r = await w2("POST", "/consultations", { astrologerId: "raghav", mode: "VOICE", quotedRate: 28, welcome: true });
+  const paidOnId = r.body.consultation?.id;
+  check("welcome: free call holds the balance for after the free time", r.status === 201 && r.body.consultation?.held === 500 + order.bonus, r);
+  r = await w2("POST", `/consultations/${paidOnId}/connect`);
+  check("welcome: free call can continue paid (cap past 300 s)", r.body.maxSeconds > 300, r.body);
+  // A price change mid-call never affects it.
+  await db.astrologer.update({ where: { id: "raghav" }, data: { price: 40 } });
+  await db.consultation.update({ where: { id: paidOnId }, data: { connectedAt: new Date(Date.now() - 450_000) } });
+  r = await w2("POST", `/consultations/${paidOnId}/end`);
+  const s2 = r.body.settlement;
+  check("welcome: 5 free min + 150 s paid = 3 min at the snapshot ₹28 = ₹84", s2?.billedMins === 3 && s2?.rate === 28 && s2?.total === 84 && s2?.promo === order.bonus, s2);
+  await db.astrologer.update({ where: { id: "raghav" }, data: { price: 28 } });
+  const ref2 = (await db.consultation.findUniqueOrThrow({ where: { id: paidOnId } })).ref;
+  r = await raghav("GET", "/portal/earnings");
+  const line2 = (r.body.earnings?.statement ?? []).find((l: any) => l.session === ref2);
+  check("welcome: astrologer earns the paid minutes only, at the snapshot rate", line2?.minutes === 3 && line2.amount === 84, line2);
+
+  // Recharging during a free call makes the same session longer without ending it
+  const p3 = freshPhone();
+  const { c: w3 } = await signUp(p3);
+  r = await w3("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT", quotedRate: 28, welcome: true });
+  const topUpId = r.body.consultation?.id;
+  await w3("POST", `/consultations/${topUpId}/connect`);
+  const order3 = (await w3("POST", "/wallet/recharge", { amount: 500 })).body;
+  await w3("POST", `/wallet/recharge/${order3.orderId}/confirm`);
+  r = await w3("GET", `/consultations/${topUpId}`);
+  check("welcome: mid-call recharge is held for the call (cap grows, still active)", r.body.consultation?.status === "active" && r.body.consultation?.maxSeconds > 300 && r.body.consultation?.held === 500 + order3.bonus, r.body.consultation);
+
+  // Ended by the astrologer in its first seconds: the free call comes back (bounded, audited)
+  r = await raghav("POST", `/portal/consultations/${topUpId}/end`);
+  const b3 = await benefitOf(p3);
+  check("welcome: early drop by the astrologer restores it", r.status === 200 && b3?.status === "GRANTED" && b3.faultRestores === 1, b3);
+  check("welcome: restore is audited", !!(await db.auditLog.findFirst({ where: { action: "welcome.fault_restore" } })));
+
+  // Deleting the account keeps the (hashed) record; the number never gets a second one
+  const code = (await w1("POST", "/me/account/delete/code")).body.devCode;
+  r = await w1("POST", "/me/account/delete", { code });
+  check("welcome: account deleted", r.status === 200, r);
+  const kept = await db.welcomeBenefit.findFirst({ where: { consultationId: freeId } });
+  check("welcome: benefit row kept, unlinked", kept?.userId === null && kept.status === "CONSUMED", kept);
+  const { c: again } = await signUp(p1);
+  check("welcome: re-signing up with the same number grants nothing", (await welcomeOf(again)) === null);
+
+  r = await raghav("PATCH", "/portal/presence", { online: false });
+}
+
+// Live sessions: preview and join, details set and edited while live, gifts (HTTP only)
+{
+  const lal = await login("lalita.bose@email.com");
+  await lal("POST", "/portal/live/end"); // start from a fresh session
+  await lal("PATCH", "/portal/presence", { online: true });
+  r = await lal("GET", "/portal/live");
+  const cats: string[] = r.body.room?.categories ?? [];
+  check("live: portal offers the live categories and the astrologer's languages", cats.length > 0 && r.body.room?.languages?.includes("Bengali"), r.body.room);
+  const good = { title: "Prashna hour — ask one question", topic: "Prashna hour", category: cats[0], language: "Bengali", durationMins: 45 };
+  const bad: [string, object][] = [
+    ["a short title", { ...good, title: "Hi" }],
+    ["an unknown category", { ...good, category: "Not a category" }],
+    ["a language not on the profile", { ...good, language: "Tamil" }],
+    ["under 5 minutes", { ...good, durationMins: 4 }],
+    ["over 480 minutes", { ...good, durationMins: 481 }],
+    ["contact details in the title", { ...good, title: "Call 9876543210 now" }],
+  ];
+  for (const [name, body] of bad) {
+    r = await lal("POST", "/portal/live/start", body);
+    check(`live: going live refuses ${name} (400)`, r.status === 400, r);
+  }
+  r = await lal("POST", "/portal/live/start", good);
+  check("live: lalita goes live with details", r.status === 201, r);
+  r = await lal("PATCH", "/portal/live", { durationMins: 600 });
+  check("live: edit refuses a duration over 480 (400)", r.status === 400, r);
+  r = await lal("PATCH", "/portal/live", { topic: "Write to me at x@y.com" });
+  check("live: edit refuses contact details (400)", r.status === 400, r);
+  r = await lal("PATCH", "/portal/live", { title: "Prashna hour — open questions", durationMins: 60 });
+  check("live: details edited while live", r.status === 200 && r.body.changed === true, r);
+  r = await anon("GET", "/live-rooms/lalita");
+  const room = r.body.room;
+  check(
+    "live: viewers see the edited details; the preview isn't counted",
+    room?.title === "Prashna hour — open questions" && room?.topic === "Prashna hour" && room?.durationMins === 60 && room?.category === cats[0] && room?.language === "Bengali" && room?.viewers === 0,
+    room,
+  );
+  r = await anon("POST", "/live-rooms/lalita/join");
+  check("live: joining needs sign-in (401)", r.status === 401, r);
+
+  const phone = String(6000000000 + Math.floor(Math.random() * 999999999));
+  const viewer = client();
+  const otpCode = (await viewer("POST", "/auth/otp/request", { phone })).body.devCode;
+  await viewer("POST", "/auth/otp/verify", { phone, code: otpCode });
+  r = await viewer("POST", "/live-rooms/lalita/join");
+  check("live: joining counts the viewer and posts a join line", r.status === 200 && r.body.room?.viewers === 1 && r.body.room?.chat?.some((c: any) => c.kind === "join"), r.body.room);
+  r = await viewer("POST", "/live-rooms/lalita/join");
+  check("live: joining again posts no second join line", (r.body.room?.chat ?? []).filter((c: any) => c.kind === "join").length === 1, r.body.room?.chat);
+  r = await viewer("POST", "/live-rooms/lalita/chat", { text: "write to me at someone@example.com" });
+  check("live: chat refuses contact details (400)", r.status === 400, r);
+
+  r = await viewer("GET", "/live-rooms/lalita/gifts");
+  const gift = [...(r.body.gifts ?? [])].sort((x: any, y: any) => x.price - y.price)[0];
+  check("live: gift catalogue lists active gifts only, with the viewer's balance", !!gift && r.body.balance === 0 && !(r.body.gifts ?? []).some((g: any) => g.name === "Honor Crown"), r.body);
+  r = await viewer("POST", "/live-rooms/lalita/gifts", { giftId: gift?.id, requestId: "smoke-gift-0001" });
+  check("live: a gift without enough service balance is refused (409)", r.status === 409 && r.body.error?.code === "insufficient_balance" && /more in service balance/.test(r.body.error?.message), r);
+  const order = (await viewer("POST", "/wallet/recharge", { amount: 200 })).body;
+  await viewer("POST", `/wallet/recharge/${order.orderId}/confirm`);
+  const before = (await viewer("GET", "/wallet")).body.wallet;
+  const [g1, g2] = await Promise.all([
+    viewer("POST", "/live-rooms/lalita/gifts", { giftId: gift?.id, requestId: "smoke-gift-0002" }),
+    viewer("POST", "/live-rooms/lalita/gifts", { giftId: gift?.id, requestId: "smoke-gift-0002" }),
+  ]);
+  r = await viewer("POST", "/live-rooms/lalita/gifts", { giftId: gift?.id, requestId: "smoke-gift-0002" });
+  const after = (await viewer("GET", "/wallet")).body.wallet;
+  const giftLines = (after?.transactions ?? []).filter((t: any) => t.type === "Gift sent");
+  check(
+    "live: a repeated gift request is charged once (service balance only)",
+    [g1.status, g2.status].sort().join() === "200,201" && r.status === 200 && r.body.replayed === true && g1.body.gift?.id === g2.body.gift?.id &&
+      after?.service === before?.service - gift?.price && after?.promo === before?.promo && giftLines.length === 1 && giftLines[0].amount === -gift?.price && giftLines[0].bucket === "Service",
+    { g1, g2, before, after },
+  );
+  check("live: the wallet still equals its ledger", after?.service + after?.promo === (after?.transactions ?? []).reduce((s: number, t: any) => s + t.amount, 0), after);
+  r = await lal("POST", "/live-rooms/lalita/gifts", { giftId: gift?.id });
+  check("live: only customers send gifts (403)", r.status === 403, r);
+  r = await anon("GET", "/live-rooms/lalita");
+  check("live: the room shows the gift to everyone", r.body.room?.gifts?.[0]?.id === g1.body.gift?.id && r.body.room?.chat?.some((c: any) => c.kind === "gift"), r.body.room);
+  r = await lal("GET", "/portal/live/feed");
+  check("live: the astrologer's console shows the gift", r.body.feed?.giftsTotal === gift?.price && r.body.feed?.gifts?.[0]?.id === g1.body.gift?.id, r.body.feed);
+  r = await lal("GET", "/portal/earnings");
+  const giftRow = (r.body.earnings?.statement ?? []).find((l: any) => l.kind === "gift");
+  check("live: the gift is in the astrologer's earnings", giftRow?.gifts === gift?.price && giftRow?.amount === 0 && giftRow?.minutes === 0 && r.body.earnings?.gifts >= gift?.price, giftRow);
+
+  r = await lal("POST", "/portal/live/end");
+  check("live: lalita ends live", r.status === 200 && r.body.ended === true, r);
+  r = await viewer("POST", "/live-rooms/lalita/gifts", { giftId: gift?.id, requestId: "smoke-gift-0003" });
+  check("live: gifts need a live room (404)", r.status === 404, r);
+  r = await lal("PATCH", "/portal/live", { title: "After the live" });
+  check("live: details can't be edited when not live (409)", r.status === 409, r);
+  await lal("PATCH", "/portal/presence", { online: false });
 }
 
 // Logout revokes session

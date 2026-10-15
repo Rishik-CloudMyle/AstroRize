@@ -3,11 +3,12 @@
 import { useState } from "react";
 import type { Astrologer } from "@/lib/types";
 import { ApiError, api } from "@/lib/api/client";
-import { instantMultiplier, rupee } from "@/lib/format";
+import { rupee } from "@/lib/format";
 import { consultationActions, type ConsultationView } from "@/lib/consultation-store";
 import { useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 import { recheckAvailability } from "../astrologer/use-fresh-astrologer";
+import { multiplierLabel } from "../consult/consult-sheet";
 import Modal from "../ui/modal";
 
 /**
@@ -29,7 +30,10 @@ export default function InstantCallModal({
   const session = useSession();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const rate = `${rupee(astrologer.instant)}/min`;
+  // The rate the customer agreed to: the one shown, or the new one after a price change.
+  const [quoted, setQuoted] = useState(astrologer.instant);
+  const [changedFrom, setChangedFrom] = useState<number | null>(null);
+  const rate = `${rupee(quoted)}/min`;
 
   async function confirm() {
     if (busy) return;
@@ -40,7 +44,7 @@ export default function InstantCallModal({
     setBusy(true);
     setError("");
     try {
-      const res = await api.post<{ consultation: ConsultationView }>("/instant-calls", { astrologerId: astrologer.id });
+      const res = await api.post<{ consultation: ConsultationView }>("/instant-calls", { astrologerId: astrologer.id, quotedRate: quoted });
       onPlaced(res.consultation);
     } catch (e) {
       if (e instanceof ApiError && e.code === "consultation_in_progress") {
@@ -48,6 +52,14 @@ export default function InstantCallModal({
         await consultationActions.refresh();
         toast(e.message);
         resumeConsult();
+        return;
+      }
+      if (e instanceof ApiError && e.code === "rate_changed" && typeof e.details.rate === "number") {
+        // The price changed since this was shown: nothing was placed; confirm the new rate first.
+        setChangedFrom(quoted);
+        setQuoted(e.details.rate);
+        recheckAvailability();
+        setBusy(false);
         return;
       }
       // The astrologer just went offline, live or into another consultation: the page behind re-checks.
@@ -67,14 +79,15 @@ export default function InstantCallModal({
       </h2>
       <div className="mt-4 rounded-2xl border border-line bg-white p-[18px]">
         <div className="flex flex-wrap items-baseline gap-2.5">
-          <span className="text-[34px] font-bold tabular-nums text-ink">{rupee(astrologer.instant)}</span>
+          <span className="text-[34px] font-bold tabular-nums text-ink">{rupee(quoted)}</span>
           <span className="text-sm font-semibold text-stone-600">/min</span>
           <span className="ml-auto inline-flex h-[26px] items-center rounded-full bg-orange-100 px-[11px] text-xs font-extrabold text-orange-700">
-            {instantMultiplier(astrologer)} standard
+            {multiplierLabel(astrologer)}
           </span>
         </div>
         <div className="mt-2 text-[13px] text-stone-600">
-          Standard rate {rupee(astrologer.price)}/min. {astrologer.name} is asked straight away and has 3 minutes to
+          {changedFrom === null && <>Standard rate {rupee(astrologer.price)}/min. </>}
+          {astrologer.name} is asked straight away and has 3 minutes to
           accept — you go into the call as soon as they do.
         </div>
       </div>
@@ -82,6 +95,11 @@ export default function InstantCallModal({
         If the astrologer declines or doesn&apos;t answer in time you are not charged and nothing is reserved. Billing
         starts only once the call connects; the first 60 seconds are free.
       </div>
+      {changedFrom !== null && (
+        <p role="alert" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-[13px] font-semibold text-amber-900">
+          The rate changed from {rupee(changedFrom)} to {rupee(quoted)}/min — continue at {rupee(quoted)}? Nothing has been placed yet.
+        </p>
+      )}
       {error && (
         <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">
           {error}

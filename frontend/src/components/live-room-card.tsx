@@ -3,7 +3,10 @@ import Link from "next/link";
 import type { Astrologer, LiveRoom } from "@/lib/types";
 import { rupee } from "@/lib/format";
 
-/** Live room thumbnail with the host, topic, viewer count and the host astrologer's own rate. */
+/**
+ * Live room thumbnail with the host, title, viewer count and the host astrologer's own rate.
+ * It opens the room's preview (/live?room=…), where the visitor chooses to join.
+ */
 export default function LiveRoomCard({ room, host }: { room: LiveRoom; host: Astrologer }) {
   return (
     <Link href={`/live?room=${room.id}`} className="az-lift block min-w-0 text-left hover:no-underline">
@@ -22,7 +25,7 @@ export default function LiveRoomCard({ room, host }: { room: LiveRoom; host: Ast
           </span>
           <span className="min-w-0">
             <b className="block truncate text-[13px] font-bold text-paper">{host.name}</b>
-            <span className="block text-[11px] text-paper/70">{room.topic}</span>
+            <span className="block truncate text-[11px] text-paper/70">{room.title}</span>
           </span>
         </span>
       </span>

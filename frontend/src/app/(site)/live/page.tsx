@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Breadcrumbs from "@/components/breadcrumbs";
-import LiveRoomView from "@/components/live/live-room-view";
+import LiveRoomGate from "@/components/live/live-room-gate";
 import { getAstrologers, getLiveRooms } from "../data";
 
 export const metadata: Metadata = {
@@ -28,8 +28,8 @@ export default async function LivePage(props: PageProps<"/live">) {
       </p>
 
       {room && host ? (
-        // key: reset chat, votes and reactions when switching rooms
-        <LiveRoomView key={room.id} room={room} host={host} />
+        // Opens on a preview; joining shows the room. key: start again when switching rooms.
+        <LiveRoomGate key={room.id} room={room} host={host} />
       ) : (
         <div className="mx-auto mt-8 max-w-[520px] rounded-3xl border border-line bg-paper px-6 py-10 text-center">
           <h2 className="font-display text-[28px] font-semibold text-ink">No one is live right now</h2>

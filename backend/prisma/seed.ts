@@ -5,8 +5,10 @@
 
 import { db } from "../src/db.ts";
 import { hashPassword } from "../src/lib/password.ts";
+import { grantWelcome } from "../src/lib/welcome.ts";
 import { GST_RATE } from "../src/lib/billing.ts";
 import { istDateKey } from "../src/lib/format.ts";
+import { CONFIG_KEYS, DENOMINATIONS, GIFTS, REFERENCE_SETTINGS } from "./reference-data.ts";
 
 // Demo builds only: one easy password for every seeded account. The seed refuses to run in
 // production, and real accounts must meet the sign-up password rules.
@@ -146,6 +148,12 @@ async function main() {
     });
   }
 
+  // Welcome benefit: each customer with a verified mobile number holds one free call.
+  for (const u of [customer, ...queueCustomers]) {
+    const phone = (await db.user.findUniqueOrThrow({ where: { id: u.id }, select: { phone: true } })).phone;
+    if (phone) await grantWelcome(u.id, phone);
+  }
+
   // Every listed astrologer has their own portal login, so each can come online and go live.
   const astrologerLogin = (name: string, initials: string, email: string, phone: string) =>
     db.user.create({ data: { role: "ASTROLOGER", name, initials, email, phone, passwordHash } });
@@ -193,7 +201,7 @@ async function main() {
     },
     {
       id: "arjun", slug: "pandit-arjun-deshmukh", userId: arjunUser.id, name: "Pandit Arjun Deshmukh", initials: "AD", greeting: "Arjun", gender: "Male",
-      recognition: "PROVEN", presence: "OFF", skills: ["KP", "Timing"], languages: ["Marathi", "Hindi", "English"], years: 9, rating: 4.7, consults: 412,
+      recognition: "PROVEN", presence: "OFF", skills: ["KP", "Prashna"], languages: ["Marathi", "Hindi", "English"], years: 9, rating: 4.7, consults: 412,
       price: 22, was: 28, eta: null, photo: "/assets/avatars/astro-arjun.jpg", ratingDistribution: [300, 80, 22, 7, 3],
       about: "KP timings for money decisions. Speaks plainly. Offers Fixed Sessions of 15, 30, 45 or 60 minutes.",
     },
@@ -216,8 +224,12 @@ async function main() {
       about: "Twenty-two years, mostly Prashna. Answers the question you actually asked, in the time you actually have.",
     },
   ] as const;
+  // Free calls (welcome campaign): these three take part.
+  const freeCalls = new Set(["raghav", "meera", "sneha"]);
   for (const [rank, a] of astrologers.entries()) {
-    await db.astrologer.create({ data: { ...a, skills: [...a.skills], languages: [...a.languages], ratingDistribution: [...a.ratingDistribution], instantMultiplier: 3, rank } });
+    await db.astrologer.create({
+      data: { ...a, skills: [...a.skills], languages: [...a.languages], ratingDistribution: [...a.ratingDistribution], instantMultiplier: 3, rank, freeCallsEnabled: freeCalls.has(a.id) },
+    });
   }
   // Astrologers who aren't live on the site yet (or any more), for the admin lifecycle list.
   // None of these appear publicly: only active, not fully suspended astrologers do.
@@ -275,18 +287,7 @@ async function main() {
   }
 
   // ── Recharge amounts ──
-  await db.denomination.createMany({
-    data: [
-      { amount: 100, bonus: 0, enabled: false },
-      { amount: 200, bonus: 10 },
-      { amount: 500, bonus: 40 },
-      { amount: 1000, bonus: 100 },
-      { amount: 2000, bonus: 250 },
-      { amount: 3000, bonus: 0, enabled: false },
-      { amount: 5000, bonus: 700 },
-      { amount: 10000, bonus: 0 },
-    ],
-  });
+  await db.denomination.createMany({ data: DENOMINATIONS });
 
   // ── Astrologer portal: Raghav ──
   // Today's schedule plus the rest of this week (relative to today, so the portal always has data).
@@ -355,28 +356,7 @@ async function main() {
   await db.applicationDraft.create({ data: { astrologerId: "raghav", currentStep: 10, values: {}, savedAt: minutesAgo(3) } });
 
   // ── Admin console ──
-  const configKeys: [string, boolean, string, string, string, string, string, string][] = [
-    ["wallet.cashback.floor_pct", false, "Minimum share of the original price that must remain payable after any discount. Campaigns that breach it are rejected or clamped, per the floor mode.", "80", "global", "0–100", "Lowering it lets campaigns discount more before they are rejected or clamped; raising it clamps more campaign offers.", "finance"],
-    ["consult.emergency.max_multiplier", true, "Upper bound on the Instant Call multiplier an astrologer may set from their dashboard.", "4.0", "global", "1.0–6.0", "Lowering it reprices every astrologer above the new ceiling at their next Instant Call.", "consult"],
-    ["consult.free_seconds", false, "Seconds at the start of every consultation that are not metered.", "60", "global", "0–180", "Raising it gives every customer more unmetered time per consultation, paid for by the platform.", "consult"],
-    ["live.queue.max_depth", false, "Maximum number of viewers who may hold a place in a live consult queue.", "20", "global", "5–50", "Raising it lets more viewers wait in a live room's queue; viewers beyond the cap can watch but not queue.", "live"],
-    ["live.turn_offer.timeout_s", false, "Seconds a viewer has to accept their turn before the offer expires and the queue advances.", "45", "global", "15–120", "Shortening it moves the queue faster but more viewers miss their turn.", "live"],
-    ["risk.weights.session_abandon", true, "Weight applied to abandoned sessions in the astrologer risk score.", "0.35", "global", "0.0–1.0", "Changes how strongly abandoned sessions raise an astrologer's risk score. Requires dual control.", "compliance"],
-    ["wallet.promo.validity_months", false, "How long promotional credit remains spendable before it expires.", "12", "global", "1–36", "Applies to promotional credit given after the change; existing credit keeps its expiry date.", "finance"],
-    ["payout.batch.min_approvers", true, "Number of distinct approvers required before a payout batch can be released. Approver and releaser must differ.", "2", "global", "1–4", "Dropping to 1 removes the second signature on payout batches. Approver and releaser must still differ.", "finance"],
-    ["payout.hold_days.new_astrologer", false, "Days a newly onboarded astrologer's earnings are held before entering a payout batch.", "14", "global", "0–45", "Cutting it pays newly onboarded astrologers sooner; their earnings join an earlier payout batch.", "finance"],
-    ["support.sla.first_response_mins", false, "Minutes a ticket may wait for its first human response before it is flagged as an SLA breach.", "30", "segment", "5–240", "Lowering it flags tickets as breached sooner on the Support queue.", "support"],
-    ["support.refund.auto_approve_ceiling", true, "Refund value an agent may approve without a second reviewer.", "500", "global", "0–5000", "Raising it lets more refunds clear without a second reviewer.", "support"],
-    ["trust.review.removal_undo_mins", false, "Window in which a soft-hidden review can be restored before removal becomes permanent.", "30", "global", "5–120", "Lengthening it gives moderators longer to restore a soft-hidden review before removal is permanent.", "trust"],
-    ["trust.rating.min_consults_to_publish", false, "Verified consultations an astrologer needs before a public rating is shown on the profile.", "25", "global", "5–200", "Lowering it shows ratings on profiles with fewer consultations, which are less reliable.", "trust"],
-    ["live.room.max_concurrent_per_astrologer", false, "Live rooms one astrologer may host at the same time.", "1", "global", "1–3", "No astrologer currently requests more than one. Raising this needs a provider capacity review.", "live"],
-    ["marketing.gift.max_value", true, "Ceiling on a single gift in the catalogue. Anything above needs Admin approval before it goes ACTIVE.", "5100", "global", "100–10000", "Lowering it sends catalogue gifts above the new ceiling back for Admin approval.", "marketing"],
-    ["marketing.campaign.max_discount_pct", false, "Largest discount a campaign may advertise before the cashback floor clamps it.", "40", "segment", "0–70", "Raising it allows bigger advertised discounts; the cashback floor still limits the effective price.", "marketing"],
-    ["hr.application.review_sla_days", false, "Days an application may sit in review before it is flagged past SLA on the queue.", "5", "global", "1–21", "Lowering it flags applications as past SLA sooner on the lifecycle queue.", "hr"],
-    ["hr.pricing.max_increase_pct", true, "Largest per-minute price increase an astrologer may request in a single price version.", "25", "global", "0–50", "Lowering it sends more astrologer price-increase requests for a manual override.", "hr"],
-    ["rbac.session.step_up_validity_mins", true, "How long a step-up MFA verification stays valid before the next privileged action re-prompts.", "15", "global", "1–60", "Raising it means fewer MFA re-prompts but a longer window in which a privileged action needs no new check.", "rbac"],
-  ];
-  for (const [rank, [key, flagged, description, value, scope, bounds, dryRun, domain]] of configKeys.entries()) {
+  for (const [rank, [key, flagged, description, value, scope, bounds, dryRun, domain]] of CONFIG_KEYS.entries()) {
     await db.configKey.create({ data: { key, flagged, description, value, scope, bounds, dryRun, domain, rank, version: key === "wallet.cashback.floor_pct" ? 14 : 1, updatedAt: ist("2026-08-02") } });
   }
   await db.configChange.createMany({
@@ -453,14 +433,7 @@ async function main() {
       { id: "CMP-12", name: "Independence week", denoms: "₹500 – ₹5,000", cashback: "10%", state: "EXPIRED", rank: 3 },
     ],
   });
-  await db.gift.createMany({
-    data: [
-      { icon: "🪔", name: "Lotus", price: 51, state: "ACTIVE", rank: 0 },
-      { icon: "🔔", name: "Divine Bell", price: 501, state: "ACTIVE", rank: 1 },
-      { icon: "👑", name: "Honor Crown", price: 1001, state: "PENDING ADMIN", rank: 2 },
-      { icon: "✦", name: "Eternal Gratitude", price: 5100, state: "ACTIVE", rank: 3 },
-    ],
-  });
+  await db.gift.createMany({ data: GIFTS.map((g, rank) => ({ ...g, rank })) });
   await db.auditLog.createMany({
     data: [
       { at: ist("2026-09-15", "09:38:12"), actorId: admins.super.id, actorName: "K. Prasad", action: "config.draft.submit", object: "consult.emergency.max_multiplier", diff: "4.0 → 3.0", correlation: "8f21c4a" },
@@ -471,39 +444,8 @@ async function main() {
     ],
   });
 
-  // Snapshots the console shows until live analytics and accounting feeds are connected.
-  const settings: Record<string, unknown> = {
-    "finance.floorMode": "reject",
-    "payout.paused": { raghav: true },
-    // Observer seats on the Live monitoring page (real leases are counted against it).
-    "monitoring.observerCapacity": 25,
-    "trust.density": { value: 68, target: 100 },
-    "trust.sampleFloor": { floor: "30 consults", below: "41 astrologers" },
-    "rbac.conflict": { user: "Priya Nair", requested: "astrologer.restore", existing: "astrologer.suspend", alternative: "astrologer.restore.review" },
-    "metrics.overview": {
-      dau: [37877, 38146, 38660, 39430, 39595, 44657, 45392, 40652, 41136, 41838, 42013, 42639, 48233, 48407, 43330, 43883, 44420, 44607, 44966, 50705, 51458, 46387, 46563, 47248, 47489, 47830, 54529, 55367, 50029, 50208],
-      stickiness: [9.2, 9.2, 9.3, 9.6, 9.5, 10.8, 10.8, 9.7, 9.8, 9.9, 9.9, 10.0, 11.3, 11.2, 10.1, 10.1, 10.3, 10.3, 10.3, 11.5, 11.8, 10.5, 10.6, 10.6, 10.7, 10.7, 12.2, 12.3, 11.1, 11.1],
-      channels: [
-        ["24", 2268, 1332, 459], ["25", 2339, 1234, 475], ["26", 2263, 1320, 454], ["27", 2139, 1229, 414], ["28", 2365, 1240, 394], ["29", 2324, 1283, 514], ["01", 2305, 1319, 500],
-        ["02", 2221, 1195, 422], ["03", 2358, 1386, 440], ["04", 2505, 1361, 442], ["05", 2390, 1415, 420], ["06", 2504, 1253, 496], ["07", 2358, 1407, 549], ["08", 2502, 1475, 445],
-      ],
-      live: [
-        { label: "Live sessions", value: 184, sub: "across 23 public rooms", color: "#1c1917" },
-        { label: "Calls in progress", value: 96, sub: "voice 71 · video 25", color: "#2a78d6" },
-        { label: "Chats in progress", value: 71, sub: "median wait 42 s", color: "#eb6834" },
-        { label: "Waiting in queue", value: 38, sub: "longest hold 3 m 10 s", color: "#b45309" },
-        { label: "Available now", value: 142, sub: "of 557 registered", color: "#047857" },
-        { label: "Astrologers busy", value: 167, sub: "30% of the roster", color: "#be123c" },
-      ],
-      availability: [
-        { label: "Available", count: 142, color: "#047857" },
-        { label: "Busy", count: 167, color: "#be123c" },
-        { label: "On a break", count: 48, color: "#b45309" },
-        { label: "Offline", count: 200, color: "#a8a29e" },
-      ],
-      registered: 557,
-    },
-  };
+  // The reference settings, plus a demo payout pause (Raghav) for the Finance and earnings pages.
+  const settings: Record<string, unknown> = { ...REFERENCE_SETTINGS, "payout.paused": { raghav: true } };
   for (const [key, value] of Object.entries(settings)) await db.setting.create({ data: { key, value: value as object } });
 
   await (await import("./seed-history.ts")).seedHistory(); // ~30 days of past activity for the admin overview

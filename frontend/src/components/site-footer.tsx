@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { COMPANY, FOOTER_COLUMNS, GRIEVANCE_OFFICER } from "@/lib/mock/site";
+import { COMPANY, FOOTER_COLUMNS } from "@/lib/mock/site";
 
 export default function SiteFooter() {
   return (
@@ -14,17 +14,6 @@ export default function SiteFooter() {
           <p className="mt-3 max-w-[38ch] text-[13px] leading-relaxed text-muted">
             {COMPANY.legalName}. {COMPANY.tagline}
           </p>
-          <div className="mt-3.5 rounded-xl border border-stone-700 px-3.5 py-3">
-            <div className="text-[10px] font-extrabold uppercase tracking-[.12em] text-amber-300">Grievance Officer</div>
-            <div className="mt-1 text-[12.5px] leading-normal text-[#d6cbb8]">
-              {GRIEVANCE_OFFICER.name} ·{" "}
-              <a href={`mailto:${GRIEVANCE_OFFICER.email}`} className="text-amber-300 hover:text-amber-200">
-                {GRIEVANCE_OFFICER.email}
-              </a>
-              <br />
-              {GRIEVANCE_OFFICER.timeline}
-            </div>
-          </div>
         </div>
 
         {FOOTER_COLUMNS.map((col) => (

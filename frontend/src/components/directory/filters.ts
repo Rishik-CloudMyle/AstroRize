@@ -7,7 +7,7 @@ import { AVAILABILITY, RECOGNITION } from "@/lib/format";
 
 export type FacetKey = "expertise" | "language" | "mode" | "availability" | "recognition" | "gender";
 
-/** Option lists in the app's order. Skills and languages also pick up anything extra found in the data. */
+/** Option lists in the app's order. Skills are this fixed list only; languages also pick up anything extra found in the data. */
 const FACET_OPTIONS: Record<FacetKey, readonly string[]> = {
   expertise: [
     "Vedic", "Numerology", "Tarot", "Palmistry", "Face Reading", "KP", "Nadi",
@@ -18,7 +18,7 @@ const FACET_OPTIONS: Record<FacetKey, readonly string[]> = {
     "Marathi", "Odia", "Punjabi", "Tamil", "Telugu", "Urdu",
   ],
   mode: ["Chat", "Voice", "Video", "Instant Call"],
-  availability: ["Available", "In consultation", "Live", "Instant Call"],
+  availability: ["Available", "In consultation", "Live", "Instant Call", "Free call"],
   recognition: ["Premium", "Trusted", "Proven Expert", "Rising", "New"],
   gender: ["Male", "Female"],
 };
@@ -75,10 +75,14 @@ export function emptyFilters(): Filters {
   return { expertise: [], language: [], mode: [], availability: [], recognition: [], gender: [] };
 }
 
-/** Options for a facet: the app's list, then any extra values present in the data (so nothing is unfilterable). */
+/**
+ * Options for a facet: the app's list. Languages then add any extra language present in the data
+ * (so no one is unfilterable by the language they speak); skills stay the fixed list, so a stray
+ * profile skill never becomes a filter.
+ */
 export function facetOptions(key: FacetKey, astrologers: Astrologer[]): string[] {
   const base = [...FACET_OPTIONS[key]];
-  const fromData = key === "expertise" ? astrologers.flatMap((a) => a.skills) : key === "language" ? astrologers.flatMap((a) => a.languages) : [];
+  const fromData = key === "language" ? astrologers.flatMap((a) => a.languages) : [];
   for (const value of fromData) if (!base.includes(value)) base.push(value);
   return base;
 }
@@ -130,6 +134,8 @@ function matches(a: Astrologer, facet: FacetKey, option: string): boolean {
       // Every astrologer offers chat, voice and video; Instant Call needs them available.
       return option === "Instant Call" ? a.availability === "on" : true;
     case "availability":
+      // "Free call": taking welcome free calls and available for one right now.
+      if (option === "Free call") return a.freeCall;
       return option === "Instant Call" ? a.availability === "on" : AVAILABILITY[a.availability].label.startsWith(option);
     case "recognition":
       return RECOGNITION[a.recognition].label === option;

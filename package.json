@@ -7,6 +7,7 @@
     "db": "npm run db:dev --prefix backend",
     "db:migrate": "npm run db:migrate --prefix backend",
     "db:seed": "npm run db:seed --prefix backend",
+    "db:bootstrap": "npm run db:bootstrap --prefix backend",
     "db:reset": "npm run db:reset --prefix backend",
     "dev": "concurrently -k -n api,web -c yellow,cyan \"npm run dev --prefix backend\" \"node scripts/wait-for-api.mjs && npm run dev --prefix frontend\"",
     "build": "npm run build --prefix frontend",

@@ -1,8 +1,8 @@
-import { Router, type Request } from "express";
+import express, { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { db } from "../db.ts";
 import { audit } from "../lib/audit.ts";
-import { VIDEO_PREMIUM, instantRate } from "../lib/billing.ts";
+import { MAX_SESSION_SECONDS, VIDEO_PREMIUM, instantRate } from "../lib/billing.ts";
 import { META, draftValues, metaValues, missingFor, nextApplicantId, submittedOn, wizardValues } from "../lib/application.ts";
 import {
   INCOMING_WINDOW_SECS,
@@ -10,8 +10,10 @@ import {
   endConsultation,
   expireStaleRequests,
   lockKey,
+  sessionCapSeconds,
   settlementView,
 } from "../lib/consultations.ts";
+import { COMPLIMENTARY, dailyLimitOf, freeCallsToday, releaseWelcome, welcomePolicy } from "../lib/welcome.ts";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
 import { ageLabel, istDate, istDateKey, istDayMonth, istTime, makeRef, weekdayLabel } from "../lib/format.ts";
 import { consultSummary, messageSummary, queueProfile, queueSummary } from "../lib/profile.ts";
@@ -32,6 +34,8 @@ import {
 } from "../lib/messaging.ts";
 import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "../lib/safety.ts";
 import { canWork, effectivePresence, endLiveRoom, goOffline, goOnline, markSeen, syncPresence, viewerCount } from "../lib/presence.ts";
+import { MAX_VIDEO_BYTES, MAX_VIDEO_SECONDS, VIDEO_TYPES, deleteMedia, saveVideo, sniffVideo, videoDurationSeconds } from "../lib/media.ts";
+import { checkDetailsText, detailsDiff, detailsSchema, liveCategories, sessionFeed } from "../lib/live.ts";
 import { configNumber, getSetting } from "../lib/settings.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
 import type { Astrologer, EarningsLine } from "../generated/prisma/client.ts";
@@ -105,11 +109,34 @@ portalRouter.get("/account", async (req, res) => {
   });
 });
 
-/** Amount an earnings line is worth to the astrologer (₹), from their own rates. */
-function lineAmount(a: Astrologer, l: Pick<EarningsLine, "kind" | "minutes">): number {
+/**
+ * Amount an earnings line is worth to the astrologer (₹). A session's minutes are worth the rate
+ * fixed when it was requested (`rates`, by session ref), so a later price change never rewrites
+ * past earnings; lines without a session fall back to the astrologer's current rates.
+ * Welcome (free call) lines and adjustments are ₹0.
+ */
+function lineAmount(a: Astrologer, l: Pick<EarningsLine, "kind" | "minutes" | "sessionRef">, rates: Map<string, number>): number {
+  // Gift lines carry their value in `gifts`, not minutes.
+  if (l.kind === "adjustment" || l.kind === "welcome" || l.kind === "gift") return 0;
   const rate =
-    l.kind === "video" ? a.price + VIDEO_PREMIUM : l.kind === "emergency" ? instantRate(a.price, a.instantMultiplier) : a.price;
-  return l.kind === "adjustment" ? 0 : l.minutes * rate;
+    rates.get(l.sessionRef) ??
+    (l.kind === "video" ? a.price + VIDEO_PREMIUM : l.kind === "emergency" ? instantRate(a.price, a.instantMultiplier) : a.price);
+  return l.minutes * rate;
+}
+
+/** The per-minute rate each line's session was billed at, by session ref. */
+async function sessionRates(astrologerId: string, lines: Pick<EarningsLine, "sessionRef">[]): Promise<Map<string, number>> {
+  const refs = [...new Set(lines.map((l) => l.sessionRef))];
+  if (!refs.length) return new Map();
+  const sessions = await db.consultation.findMany({ where: { astrologerId, ref: { in: refs } }, select: { ref: true, rate: true } });
+  return new Map(sessions.map((c) => [c.ref, c.rate]));
+}
+
+/** Today's free calls (welcome campaign) for the portal: taking part, the limit and what is left. */
+async function freeCallsView(a: Astrologer) {
+  const [policy, today] = await Promise.all([welcomePolicy(), freeCallsToday(a.id)]);
+  const limit = dailyLimitOf(a, policy);
+  return { enabled: policy.enabled && a.freeCallsEnabled, limit, today, remaining: Math.max(0, limit - today) };
 }
 
 portalRouter.get("/dashboard", async (req, res) => {
@@ -127,11 +154,12 @@ portalRouter.get("/dashboard", async (req, res) => {
   ]);
 
   // Earnings per day for the last 10 days (bar heights are a % of the best day).
+  const rates = await sessionRates(a.id, lines);
   const byDay = new Map<string, number>();
   for (let i = 9; i >= 0; i--) byDay.set(istDateKey(new Date(now.getTime() - i * 86400000)), 0);
   for (const l of lines) {
     const k = istDateKey(l.date);
-    if (byDay.has(k)) byDay.set(k, (byDay.get(k) ?? 0) + lineAmount(a, l) + l.gifts);
+    if (byDay.has(k)) byDay.set(k, (byDay.get(k) ?? 0) + lineAmount(a, l, rates) + l.gifts);
   }
   const days = [...byDay.values()];
   const best = Math.max(1, ...days);
@@ -158,7 +186,7 @@ portalRouter.get("/dashboard", async (req, res) => {
       dateLine: `${now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" })} · all times IST`,
       todayEarnings: today,
       earningsDelta: yesterday > 0 ? `${today >= yesterday ? "+" : "−"}${Math.round(Math.abs(today - yesterday) / yesterday * 100)}% vs yesterday` : "first earnings this week",
-      sessions: todayLines.filter((l) => l.kind !== "adjustment").length,
+      sessions: todayLines.filter((l) => l.kind !== "adjustment" && l.kind !== "gift").length,
       emergencySessions: todayLines.filter((l) => l.kind === "emergency").length,
       gifts: todayLines.reduce((s, l) => s + l.gifts, 0),
       schedule,
@@ -172,6 +200,8 @@ portalRouter.get("/dashboard", async (req, res) => {
       })),
       reviews: reviews.map((r) => ({ stars: r.stars, when: istDayMonth(r.createdAt), text: r.text })),
       multiplierOptions: MULTIPLIER_OPTIONS.filter((m) => m <= maxMultiplier),
+      /** Welcome campaign: free calls taken today and how many are left. */
+      freeCalls: await freeCallsView(a),
     },
   });
 });
@@ -199,9 +229,13 @@ portalRouter.patch("/presence", async (req, res) => {
  * Sent every ~45 s while any portal page is open. Keeps an online astrologer online; after
  * a few minutes without it they are switched offline (lib/presence.ts). It never brings an
  * offline astrologer back online — that is always the astrologer's own choice.
+ * The portal sends the astrologer id it was opened for: if this browser has since signed in as
+ * another astrologer, the beat is refused (403) instead of keeping the wrong person online.
  */
 portalRouter.post("/heartbeat", async (req, res) => {
   const a = await me(req);
+  const expected = (req.body as { astrologerId?: unknown } | undefined)?.astrologerId;
+  if (typeof expected === "string" && expected !== a.id) throw forbidden("This browser is now signed in as a different astrologer.");
   const stored = await markSeen(a.id);
   const presence = canWork(a) ? stored : "OFF";
   res.json({ online: presence !== "OFF", presence: presence.toLowerCase() });
@@ -443,25 +477,33 @@ portalRouter.get("/consultations", async (req, res) => {
   const a = await me(req);
   await expireStaleRequests(a.id);
   const now = new Date();
-  const [requests, active, queueMax] = await Promise.all([
+  const [requests, active, queueMax, standardFree, freeCalls] = await Promise.all([
     db.consultation.findMany({ where: { astrologerId: a.id, status: "REQUESTED" }, orderBy: { requestedAt: "asc" }, include: { customer: true } }),
     db.consultation.findFirst({ where: { astrologerId: a.id, status: "ACTIVE" }, orderBy: { connectedAt: "desc" }, include: { customer: true } }),
     configNumber("live.queue.max_depth", 20),
+    configNumber("consult.free_seconds", 60),
+    freeCallsView(a),
   ]);
   const first = requests[0];
   let session = null;
   if (active?.connectedAt) {
     const secs = Math.floor((now.getTime() - active.connectedAt.getTime()) / 1000);
     const wallet = active.customerId ? await db.wallet.findUnique({ where: { userId: active.customerId } }) : null;
-    const remaining = active.heldAmount > 0 ? Math.floor(active.heldAmount / active.rate) - Math.ceil(secs / 60) : 99;
+    // Seconds the session can still run (free time plus what the customer's held balance pays for).
+    const cap = sessionCapSeconds(active, standardFree);
+    const free = active.billingMode === COMPLIMENTARY;
     session = {
       id: active.id,
       alias: active.customerAlias,
       mode: modeLabel(active),
       instant: active.kind === "INSTANT",
+      /** A welcome free call: the first freeSeconds earn nothing; paid minutes after it earn as usual. */
+      free,
+      freeSeconds: free ? active.complimentarySeconds : 0,
       elapsed: `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`,
       elapsedSeconds: secs,
-      lowBalance: remaining <= 2,
+      // Two minutes or less of what the balance pays for (not the 15-minute cap).
+      lowBalance: cap < MAX_SESSION_SECONDS && cap - secs <= 120,
       hasWallet: !!wallet,
       profile: active.customer ? consultSummary(active.customer) : null,
     };
@@ -474,6 +516,7 @@ portalRouter.get("/consultations", async (req, res) => {
             alias: first.customerAlias,
             mode: modeLabel(first),
             instant: first.kind === "INSTANT",
+            free: first.billingMode === COMPLIMENTARY,
             windowSecs: INCOMING_WINDOW_SECS,
             remainingSecs: Math.max(0, INCOMING_WINDOW_SECS - Math.floor((now.getTime() - (first.offeredAt ?? now).getTime()) / 1000)),
             rate: first.rate,
@@ -486,12 +529,14 @@ portalRouter.get("/consultations", async (req, res) => {
         alias: r.customerAlias,
         mode: modeLabel(r),
         instant: r.kind === "INSTANT",
+        free: r.billingMode === COMPLIMENTARY,
         rate: r.rate,
         waiting: waitedFor(r.requestedAt, now),
         profile: r.customer ? consultSummary(r.customer) : null,
       })),
       queueMax,
       session,
+      freeCalls,
     },
   });
 });
@@ -512,6 +557,7 @@ portalRouter.get("/consultations/:id/profile", async (req, res) => {
       alias: c.customerAlias,
       mode: modeLabel(c),
       instant: c.kind === "INSTANT",
+      free: c.billingMode === COMPLIMENTARY,
       rate: c.rate,
       status: c.status === "ACTIVE" ? "active" : "waiting",
       waiting: waitedFor(c.requestedAt, new Date()),
@@ -537,6 +583,8 @@ portalRouter.post("/consultations/:id/reject", async (req, res) => {
   if (!c || c.astrologerId !== a.id) throw notFound("Request not found.");
   const { count } = await db.consultation.updateMany({ where: { id: c.id, status: "REQUESTED" }, data: { status: "REJECTED", endedAt: new Date() } });
   if (!count) throw conflict("This request is no longer waiting.");
+  // Declined: a free call held for it is the customer's again.
+  if (c.billingMode === COMPLIMENTARY) await releaseWelcome(db, c.id);
   res.json({ ok: true });
 });
 
@@ -554,9 +602,10 @@ portalRouter.get("/live", async (req, res) => {
   const a = await me(req);
   const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
   if (!room) return res.json({ room: null });
-  const [entries, announcements] = await Promise.all([
+  const [entries, announcements, categories] = await Promise.all([
     db.liveQueueEntry.findMany({ where: { roomId: room.id, status: "WAITING" }, orderBy: { createdAt: "asc" }, include: { user: true } }),
     db.liveAnnouncement.findMany({ where: { roomId: room.id }, orderBy: { createdAt: "desc" }, take: MAX_ANNOUNCEMENTS_SHOWN }),
+    liveCategories(),
   ]);
   const now = new Date();
   const secs = Math.max(0, Math.floor((Date.now() - room.startedAt.getTime()) / 1000));
@@ -564,7 +613,16 @@ portalRouter.get("/live", async (req, res) => {
     room: {
       id: room.id,
       isLive: room.isLive,
+      // This live's details (when not live: the last ones used, to pre-fill "Go live").
+      title: room.title,
       topic: room.topic,
+      category: room.category,
+      language: room.language,
+      durationMins: room.durationMins,
+      startedAt: room.startedAt.toISOString(),
+      // What the details may be set to.
+      categories,
+      languages: a.languages,
       elapsed: `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`,
       viewers: room.isLive ? viewerCount(room.id) : 0,
       image: room.thumb,
@@ -593,17 +651,14 @@ portalRouter.get("/live", async (req, res) => {
  */
 portalRouter.post("/live/start", async (req, res) => {
   const a = await me(req);
-  const { topic } = z
-    .object({
-      topic: z
-        .string({ error: "Give your live a topic." })
-        .trim()
-        .min(3, "Give your live a topic, e.g. “Saturn transit Q&A”.")
-        .max(80, "Keep the topic under 80 characters."),
-    })
+  // The portal always sends every detail. The title defaults to the topic, and the other
+  // details may be left out by older API clients; whatever is sent is checked.
+  const { topic, ...rest } = detailsSchema(await liveCategories(), a.languages)
+    .partial({ title: true, category: true, language: true, durationMins: true })
     .parse(req.body);
+  const details = { topic, title: rest.title ?? topic, category: rest.category ?? null, language: rest.language ?? null, durationMins: rest.durationMins ?? null };
   if (!canWork(a)) throw forbidden(a.suspension !== "none" ? "Blocked — account suspended." : "Blocked — your account isn't active yet.");
-  if (containsContactDetails(topic)) throw badRequest(CONTACT_BLOCKED_NOTICE);
+  checkDetailsText(details);
   const presence = effectivePresence(a);
   if (presence === "OFF") throw conflict("Go online first — you can go live only while you're online.");
   if (presence === "BUSY") throw conflict("Finish your current consultation before going live.");
@@ -618,7 +673,7 @@ portalRouter.post("/live/start", async (req, res) => {
   const started = await db.$transaction(async (tx) => {
     const { count } = await tx.liveRoom.updateMany({
       where: { id: room.id, isLive: false },
-      data: { isLive: true, startedAt: now, topic, viewers: 0, state: "normal", pollCounts: room.pollOptions.map(() => 0) },
+      data: { isLive: true, startedAt: now, ...details, viewers: 0, state: "normal", pollCounts: room.pollOptions.map(() => 0) },
     });
     if (!count) return false;
     await tx.pollVote.deleteMany({ where: { roomId: room.id } });
@@ -626,8 +681,50 @@ portalRouter.post("/live/start", async (req, res) => {
     await tx.astrologer.updateMany({ where: { id: a.id, presence: { not: "OFF" } }, data: { presence: "LIVE", lastSeenAt: now } });
     return true;
   });
-  if (started) await audit(req.auth ?? null, "live.start", room.id, `OFF → LIVE · ${topic}`);
+  if (started) await audit(req.auth ?? null, "live.start", room.id, `OFF → LIVE · ${details.title}${details.title !== topic ? ` (${topic})` : ""}`);
   res.status(started ? 201 : 200).json({ ok: true, alreadyLive: !started });
+});
+
+/** Edit this live's details without ending it. Viewers see the change on their next refresh. */
+portalRouter.patch("/live", async (req, res) => {
+  const a = await me(req);
+  const patch = detailsSchema(await liveCategories(), a.languages).partial().parse(req.body);
+  if (!Object.keys(patch).length) throw badRequest("Nothing to change.");
+  checkDetailsText(patch);
+  const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
+  if (!room) throw notFound("You don't have a live room yet.");
+  const before = { title: room.title || room.topic, topic: room.topic, category: room.category ?? undefined, language: room.language ?? undefined, durationMins: room.durationMins ?? undefined };
+  const diff = detailsDiff(before, patch);
+  if (!diff) return res.json({ ok: true, changed: false });
+  // Only the live session in progress can be edited; going live sets the details afresh.
+  const { count } = await db.liveRoom.updateMany({ where: { id: room.id, isLive: true }, data: patch });
+  if (!count) throw conflict("You're not live right now. Set the details when you go live.");
+  await audit(req.auth ?? null, "live.update", room.id, diff);
+  res.json({ ok: true, changed: true });
+});
+
+/**
+ * What is happening in the room right now, for the console's video overlay: the feed (messages,
+ * joins, gifts), recent gifts to animate, gift totals this session and the viewer count.
+ * The console polls this every few seconds while live.
+ */
+portalRouter.get("/live/feed", async (req, res) => {
+  const a = await me(req);
+  const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
+  if (!room?.isLive) return res.json({ feed: null });
+  const [feed, totals] = await Promise.all([
+    sessionFeed(room),
+    db.giftSend.aggregate({ where: { roomId: room.id, createdAt: { gte: room.startedAt } }, _sum: { price: true }, _count: true }),
+  ]);
+  res.json({
+    feed: {
+      ...feed,
+      viewers: viewerCount(room.id),
+      giftsTotal: totals._sum.price ?? 0,
+      giftsCount: totals._count,
+      title: room.title || room.topic,
+    },
+  });
 });
 
 /** End live: the room closes for viewers, people still waiting leave the queue, and the astrologer is back to Available. */
@@ -855,12 +952,13 @@ portalRouter.get("/earnings", async (req, res) => {
   ]);
   // Next payout: the end of the current half-month.
   const next = list[0]!.to;
+  const rates = await sessionRates(a.id, lines);
   res.json({
     earnings: {
       periodLabel: `${p.label} · your share only`,
       periods: list.map((x) => x.label),
       periodIndex: index,
-      gross: lines.reduce((s, l) => s + lineAmount(a, l), 0),
+      gross: lines.reduce((s, l) => s + lineAmount(a, l, rates), 0),
       gifts: lines.reduce((s, l) => s + l.gifts, 0),
       tdsRate: 0.05,
       nextPayout: istDayMonth(next),
@@ -872,7 +970,7 @@ portalRouter.get("/earnings", async (req, res) => {
         mode: l.mode,
         minutes: l.minutes,
         gifts: l.gifts,
-        amount: lineAmount(a, l),
+        amount: lineAmount(a, l, rates),
       })),
     },
   });
@@ -887,13 +985,58 @@ portalRouter.get("/profile", async (req, res) => {
     profile: {
       pendingChanges: pending.length,
       skillPool: SKILL_POOL,
-      videoRenewalDays: 14,
+      // The intro video on the public profile (published at once, no review), and its limits.
+      introVideoUrl: a.introVideoUrl,
+      video: { maxMb: MAX_VIDEO_BYTES / (1024 * 1024), maxSeconds: MAX_VIDEO_SECONDS },
       // Only astrologers listed on the site have a public profile (same rule as the directory).
       publicProfileUrl: a.lifecycle === "active" && a.suspension !== "full" ? `/astrologer/${a.slug}` : null,
       published: { bio: a.about, skills: a.skills },
       draft: pending[0] ? { bio: pending[0].bio, skills: pending[0].skills } : null,
     },
   });
+});
+
+/** Reads the raw video body; a file over the limit gets a clear message instead of a generic one. */
+const readVideo = express.raw({ type: Object.keys(VIDEO_TYPES), limit: MAX_VIDEO_BYTES });
+function videoBody(req: Request, res: Response, next: NextFunction) {
+  readVideo(req, res, (err?: unknown) => {
+    if ((err as { status?: number } | undefined)?.status === 413) return next(badRequest(`Intro videos can be up to ${MAX_VIDEO_BYTES / (1024 * 1024)} MB.`));
+    next(err);
+  });
+}
+
+/** Upload or replace the intro video (MP4 or WebM, up to 2 minutes). It shows on the public profile at once. */
+portalRouter.post("/profile/video", videoBody, async (req, res) => {
+  const a = await me(req);
+  rateLimit(`video:${a.id}`, 10, 10 * 60 * 1000, "Too many video uploads. Try again in a few minutes.");
+  const body: unknown = req.body;
+  if (!Buffer.isBuffer(body) || body.length === 0) throw badRequest("Choose an MP4 or WebM video.");
+  // Trust the file's own bytes, not the name or Content-Type the browser sent.
+  const type = sniffVideo(body);
+  if (!type) throw badRequest("That file isn't an MP4 or WebM video.");
+  const seconds = videoDurationSeconds(body, type);
+  if (seconds !== null && seconds > MAX_VIDEO_SECONDS + 0.5) {
+    throw badRequest(`Your video is ${Math.round(seconds)} seconds long. Intro videos can be up to ${MAX_VIDEO_SECONDS / 60} minutes.`);
+  }
+  const introVideoUrl = await saveVideo(body, type);
+  try {
+    await db.astrologer.update({ where: { id: a.id }, data: { introVideoUrl } });
+  } catch (e) {
+    await deleteMedia(introVideoUrl);
+    throw e;
+  }
+  await deleteMedia(a.introVideoUrl);
+  await audit(req.auth ?? null, "astrologer.intro_video.update", a.id, `${a.introVideoUrl ? "replaced" : "added"} · ${type} · ${(body.length / (1024 * 1024)).toFixed(1)} MB${seconds !== null ? ` · ${Math.round(seconds)} s` : ""}`);
+  res.status(201).json({ introVideoUrl });
+});
+
+portalRouter.delete("/profile/video", async (req, res) => {
+  const a = await me(req);
+  if (!a.introVideoUrl) return res.json({ introVideoUrl: null });
+  await db.astrologer.update({ where: { id: a.id }, data: { introVideoUrl: null } });
+  await deleteMedia(a.introVideoUrl);
+  await audit(req.auth ?? null, "astrologer.intro_video.remove", a.id, "removed");
+  res.json({ introVideoUrl: null });
 });
 
 portalRouter.post("/profile/submission", async (req, res) => {

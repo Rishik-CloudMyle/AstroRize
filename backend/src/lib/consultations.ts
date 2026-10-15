@@ -3,6 +3,8 @@ import { MAX_SESSION_SECONDS, affordableSeconds, settle } from "./billing.ts";
 import { rupee } from "./format.ts";
 import { syncPresence } from "./presence.ts";
 import { configNumber } from "./settings.ts";
+import { audit } from "./audit.ts";
+import { COMPLIMENTARY, consumeWelcome, reconcileWelcome, releaseWelcome, restoreAfterFault, welcomePolicy } from "./welcome.ts";
 import type { Consultation, Prisma } from "../generated/prisma/client.ts";
 
 /** A request at the front of an astrologer's queue has this long to be accepted. */
@@ -43,7 +45,9 @@ export async function expireStaleRequests(astrologerId: string) {
     }
     const expiresAt = head.offeredAt.getTime() + INCOMING_WINDOW_SECS * 1000;
     if (expiresAt > now) return;
-    await db.consultation.updateMany({ where: { id: head.id, status: "REQUESTED" }, data: { status: "TIMED_OUT", endedAt: new Date(expiresAt) } });
+    const { count } = await db.consultation.updateMany({ where: { id: head.id, status: "REQUESTED" }, data: { status: "TIMED_OUT", endedAt: new Date(expiresAt) } });
+    // Not answered in time: a free call held for it is the customer's again.
+    if (count && head.billingMode === COMPLIMENTARY) await releaseWelcome(db, head.id);
     const next = await db.consultation.findFirst({ where: { astrologerId, status: "REQUESTED" }, orderBy: { requestedAt: "asc" } });
     if (!next) return;
     if (!next.offeredAt) {
@@ -57,13 +61,29 @@ export function acceptBy(c: Pick<Consultation, "status" | "offeredAt">): Date | 
   return c.status === "REQUESTED" && c.offeredAt ? new Date(c.offeredAt.getTime() + INCOMING_WINDOW_SECS * 1000) : null;
 }
 
-/** Longest the session can run: the 15-minute cap or what the held balance pays for. */
-export function sessionCapSeconds(c: Pick<Consultation, "heldAmount" | "rate">, freeSeconds: number) {
-  const affordable = c.heldAmount > 0 ? affordableSeconds(c.heldAmount, c.rate, freeSeconds) : MAX_SESSION_SECONDS;
-  return Math.min(MAX_SESSION_SECONDS, affordable);
+type Metered = Pick<Consultation, "heldAmount" | "rate" | "billingMode" | "complimentarySeconds">;
+
+/**
+ * Seconds at the start of a session that are never billed: a welcome call's complimentary time
+ * (snapshotted when it was requested) — instead of, not on top of, the standard free window.
+ */
+export function freeWindow(c: Pick<Consultation, "billingMode" | "complimentarySeconds">, standardFree: number) {
+  return c.billingMode === COMPLIMENTARY ? c.complimentarySeconds : standardFree;
 }
 
-export function settlementView(c: Pick<Consultation, "billedSeconds" | "billedMinutes" | "rate" | "total" | "promoUsed" | "serviceUsed" | "endReason">) {
+/**
+ * Longest the session can run: the 15-minute cap, or the free window plus what the held balance
+ * pays for at the session's own rate. Nothing held means nothing can be billed after the free
+ * window, so the session ends there (a free call with an empty wallet ends with its free time).
+ */
+export function sessionCapSeconds(c: Metered, standardFree: number) {
+  if (c.rate <= 0) return MAX_SESSION_SECONDS;
+  return Math.min(MAX_SESSION_SECONDS, affordableSeconds(c.heldAmount, c.rate, freeWindow(c, standardFree)));
+}
+
+export function settlementView(
+  c: Pick<Consultation, "billedSeconds" | "billedMinutes" | "rate" | "total" | "promoUsed" | "serviceUsed" | "endReason" | "billingMode" | "complimentarySeconds">,
+) {
   return {
     elapsed: c.billedSeconds,
     billedMins: c.billedMinutes,
@@ -72,6 +92,9 @@ export function settlementView(c: Pick<Consultation, "billedSeconds" | "billedMi
     promo: c.promoUsed,
     service: c.serviceUsed,
     reason: c.endReason ?? "user",
+    /** A welcome call: its first complimentarySeconds were free. */
+    complimentary: c.billingMode === COMPLIMENTARY,
+    complimentarySeconds: c.billingMode === COMPLIMENTARY ? c.complimentarySeconds : 0,
   };
 }
 
@@ -95,14 +118,36 @@ export async function acceptConsultation(id: string, astrologerId: string) {
       held = wallet ? Math.max(0, wallet.service + wallet.promo - wallet.held) : 0;
       if (held > 0) await tx.wallet.update({ where: { userId: c.customerId }, data: { held: { increment: held } } });
     }
+    const connectedAt = new Date();
     const updated = await tx.consultation.update({
       where: { id: c.id },
-      data: { status: "ACTIVE", connectedAt: new Date(), heldAmount: held },
+      data: { status: "ACTIVE", connectedAt, heldAmount: held },
     });
+    if (c.billingMode === COMPLIMENTARY) await consumeWelcome(tx, c.id, connectedAt);
     return { ok: true as const, consultation: updated };
   });
   if (result.ok) await syncPresence(astrologerId); // in a session → BUSY
   return result;
+}
+
+/**
+ * Money added while a consultation is open (e.g. "Add money" during a free call) is held for
+ * it straight away, so the same session simply runs longer — at its own rate — without
+ * disconnecting. A session that has already reached its end isn't revived.
+ */
+export async function extendHold(customerId: string) {
+  const standardFree = await configNumber("consult.free_seconds", 60);
+  return db.$transaction(async (tx) => {
+    await lockKey(tx, `consult:${customerId}`);
+    const c = await tx.consultation.findFirst({ where: { customerId, status: { in: ["CONNECTING", "ACTIVE"] } } });
+    if (!c) return null;
+    if (c.status === "ACTIVE" && c.connectedAt && Date.now() - c.connectedAt.getTime() >= sessionCapSeconds(c, standardFree) * 1000) return null;
+    const wallet = await tx.wallet.findUnique({ where: { userId: customerId } });
+    const extra = wallet ? wallet.service + wallet.promo - wallet.held : 0;
+    if (extra <= 0) return null;
+    await tx.wallet.update({ where: { userId: customerId }, data: { held: { increment: extra } } });
+    return tx.consultation.update({ where: { id: c.id }, data: { heldAmount: { increment: extra } } });
+  });
 }
 
 /**
@@ -112,11 +157,11 @@ export async function acceptConsultation(id: string, astrologerId: string) {
  * sides end it at the same moment: only one of them settles.
  */
 export async function endConsultation(c: Consultation, endedBy: "user" | "astrologer") {
-  const freeSeconds = await configNumber("consult.free_seconds", 60);
-  await db.$transaction(async (tx) => {
+  const [standardFree, policy] = await Promise.all([configNumber("consult.free_seconds", 60), welcomePolicy()]);
+  const restored = await db.$transaction(async (tx) => {
     if (c.customerId) await lockKey(tx, `consult:${c.customerId}`);
     const fresh = await tx.consultation.findUnique({ where: { id: c.id } });
-    if (!fresh || !OPEN_STATUSES.includes(fresh.status)) return;
+    if (!fresh || !OPEN_STATUSES.includes(fresh.status)) return false;
     const now = new Date();
     const wallet = fresh.customerId ? await tx.wallet.findUnique({ where: { userId: fresh.customerId } }) : null;
     const releaseHold = Math.min(wallet?.held ?? 0, fresh.heldAmount);
@@ -125,20 +170,18 @@ export async function endConsultation(c: Consultation, endedBy: "user" | "astrol
       // Never connected: release the hold, charge nothing.
       await tx.consultation.update({ where: { id: fresh.id }, data: { status: "CANCELLED", endedAt: now, endReason: endedBy } });
       if (wallet && releaseHold > 0) await tx.wallet.update({ where: { userId: wallet.userId }, data: { held: { decrement: releaseHold } } });
-      return;
+      // A free call that never connected doesn't use up the free call.
+      if (fresh.billingMode === COMPLIMENTARY) await releaseWelcome(tx, fresh.id);
+      return false;
     }
 
-    const affordable = fresh.heldAmount > 0 ? affordableSeconds(fresh.heldAmount, fresh.rate, freeSeconds) : MAX_SESSION_SECONDS;
-    const connectedSeconds = Math.min(Math.floor((now.getTime() - fresh.connectedAt.getTime()) / 1000), sessionCapSeconds(fresh, freeSeconds));
-    const reason =
-      fresh.heldAmount > 0 && connectedSeconds >= affordable ? "exhausted" : connectedSeconds >= MAX_SESSION_SECONDS ? "cap" : endedBy;
-    const s = settle({
-      connectedSeconds,
-      rate: fresh.rate,
-      freeSeconds,
-      held: fresh.heldAmount > 0 ? fresh.heldAmount : Number.MAX_SAFE_INTEGER,
-      promo: wallet?.promo ?? 0,
-    });
+    // Everything here uses the rate and free window fixed when the session was requested:
+    // a price change while it runs never affects it.
+    const freeSeconds = freeWindow(fresh, standardFree);
+    const cap = sessionCapSeconds(fresh, standardFree);
+    const connectedSeconds = Math.min(Math.floor((now.getTime() - fresh.connectedAt.getTime()) / 1000), cap);
+    const reason = connectedSeconds >= MAX_SESSION_SECONDS ? "cap" : connectedSeconds >= cap ? "exhausted" : endedBy;
+    const s = settle({ connectedSeconds, rate: fresh.rate, freeSeconds, held: fresh.heldAmount, promo: wallet?.promo ?? 0 });
 
     await tx.consultation.update({
       where: { id: fresh.id },
@@ -164,12 +207,27 @@ export async function endConsultation(c: Consultation, endedBy: "user" | "astrol
         await tx.transaction.create({ data: { userId: wallet.userId, type: "Consultation", ref: fresh.ref, bucket, amount: -s.total } });
       }
     }
+    const modeName = fresh.mode[0] + fresh.mode.slice(1).toLowerCase();
     if (s.billedMinutes > 0) {
+      // Earnings are for paid minutes only; a welcome call's free time earns nothing.
       const kind = fresh.kind === "INSTANT" ? "emergency" : fresh.mode.toLowerCase();
-      const mode = fresh.kind === "INSTANT" ? "Emergency voice" : fresh.mode[0] + fresh.mode.slice(1).toLowerCase();
+      const mode = fresh.kind === "INSTANT" ? "Emergency voice" : fresh.billingMode === COMPLIMENTARY ? `${modeName} · after free call` : modeName;
       await tx.earningsLine.create({ data: { astrologerId: fresh.astrologerId, date: now, sessionRef: fresh.ref, kind, mode, minutes: s.billedMinutes } });
+    } else if (fresh.billingMode === COMPLIMENTARY) {
+      // Shown on the astrologer's statement as a ₹0 welcome line.
+      await tx.earningsLine.create({
+        data: { astrologerId: fresh.astrologerId, date: now, sessionRef: fresh.ref, kind: "welcome", mode: `Welcome · ${modeName}`, minutes: 0 },
+      });
     }
+    // Dropped in its first seconds and not by the customer: the free call is given back (bounded).
+    if (fresh.billingMode === COMPLIMENTARY && endedBy !== "user" && connectedSeconds < policy.minMeaningfulSeconds) {
+      return restoreAfterFault(tx, fresh.id, policy);
+    }
+    return false;
   });
+  if (restored) {
+    await audit(null, "welcome.fault_restore", c.ref, `CONSUMED → GRANTED · free call ended early by the ${endedBy}`);
+  }
   // Session over → back to ON (or LIVE), if they are still online.
   await syncPresence(c.astrologerId);
   return db.consultation.findUniqueOrThrow({ where: { id: c.id } });
@@ -184,6 +242,8 @@ export async function sweepAbandonedConsultations() {
   const now = Date.now();
   const GRACE_MS = 60_000;
   const freeSeconds = await configNumber("consult.free_seconds", 60);
+  // Free calls held for requests that have since closed (e.g. the astrologer went offline).
+  await reconcileWelcome();
   const active = await db.consultation.findMany({ where: { status: "ACTIVE", connectedAt: { lt: new Date(now - GRACE_MS) } } });
   for (const c of active) {
     const capMs = sessionCapSeconds(c, freeSeconds) * 1000;

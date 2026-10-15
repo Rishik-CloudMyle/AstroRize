@@ -32,7 +32,13 @@ export interface ConsultationView {
   connectedAt: string | null;
   /** Connected seconds by the server clock */
   elapsedSeconds: number;
+  /** Seconds not billed at the start: the standard free minute, or a free call's complimentary time */
   freeSeconds: number;
+  /** A welcome free call (complimentary, then the same session continues at `rate`) */
+  complimentary: boolean;
+  /** When to remind the customer, before the free time ends, to add money to continue (free calls) */
+  reminderSeconds: number;
+  /** Longest the session can run: free time plus what the held balance pays for, at most 15 minutes */
   maxSeconds: number;
   endReason: string | null;
   settlement: Settlement | null;

@@ -32,10 +32,16 @@ export interface Astrologer {
   was: number | null;
   /** Instant Call per-minute rate */
   instant: number;
+  /** Instant Call rate = price × this multiplier */
+  instantMultiplier: number;
+  /** A welcome free call can be taken with them right now (taking part, available, today's quota not used up) */
+  freeCall: boolean;
   /** Wait estimate as a range, e.g. "~6–12 min" */
   eta: string | null;
   about: string;
   photo: string;
+  /** The astrologer's intro video (shown on their profile), or null */
+  introVideoUrl: string | null;
   /** Count of 5★, 4★, 3★, 2★, 1★ ratings */
   ratingDistribution: [number, number, number, number, number];
   reviews: Review[];
@@ -52,17 +58,60 @@ export interface Tool {
   description: string;
 }
 
+/** One line of a live room's feed: a chat message, "<name> joined" or "<name> sent 🪔 Lotus". */
+export interface LiveChatLine {
+  id: string;
+  kind: "message" | "join" | "gift";
+  who: string;
+  text: string;
+  /** The viewer's photo at the time, or null (initials are shown) */
+  photo: string | null;
+  initials: string;
+}
+
+/** A gift sent during the live session. */
+export interface LiveGift {
+  id: string;
+  who: string;
+  photo: string | null;
+  initials: string;
+  icon: string;
+  name: string;
+  price: number;
+  /** ISO time it was sent */
+  at: string;
+}
+
+/** A gift from the catalogue, as the room's gift panel offers it. */
+export interface GiftOption {
+  id: string;
+  icon: string;
+  name: string;
+  price: number;
+}
+
 export interface LiveRoom {
   id: string;
   astrologerId: string;
+  /** The session's title (the topic when no title was set) */
+  title: string;
   topic: string;
+  category: string | null;
+  language: string | null;
+  /** How long the astrologer expects to be live, in minutes, or null */
+  durationMins: number | null;
+  /** ISO time this live session started */
+  startedAt: string;
   viewers: number;
   thumb: string;
   /** position is this viewer's place in the queue, or the place they would get if they joined. */
   queue: { position: number; inQueue: boolean; waiting: number; capacity: number; eta: string };
   /** myVote is the option this viewer voted for, or null. */
   poll: { question: string; options: { label: string; pct: number }[]; myVote: number | null };
-  chat: { who: string; text: string }[];
+  /** This session's feed, oldest first. */
+  chat: LiveChatLine[];
+  /** Recent gifts this session, newest first. */
+  gifts: LiveGift[];
   /** Announcements from the astrologer, newest first. */
   announcements: { id: string; text: string; at: string }[];
   /** What viewers currently see: normal, a private consult, a compliance monitor, or high-load mode. */
@@ -78,11 +127,26 @@ export interface Transaction {
   amount: number;
 }
 
+/** The customer's one welcome free call (GET /wallet → welcome). */
+export interface WelcomeBenefit {
+  status: "granted" | "reserved" | "consumed" | "revoked";
+  /** True while it can be used to start a free call. */
+  available: boolean;
+  /** Length of the free call, in seconds */
+  freeSeconds: number;
+  /** How long before the free time ends the customer is reminded to add money */
+  reminderSeconds: number;
+  /** Modes it can be used for */
+  modes: ConsultMode[];
+}
+
 export interface WalletState {
   service: number;
   promo: number;
   promoExpires: string;
   transactions: Transaction[];
+  /** null when this account never had a welcome free call */
+  welcome: WelcomeBenefit | null;
 }
 
 /** The single debit after a consultation ends (POST /consultations/:id/end). */
@@ -95,4 +159,22 @@ export interface Settlement {
   promo: number;
   service: number;
   reason: "user" | "astrologer" | "cap" | "exhausted";
+  /** A welcome free call: its first complimentarySeconds were free */
+  complimentary: boolean;
+  complimentarySeconds: number;
+}
+
+/** A published customer review shown on the home page (GET /reviews/featured). */
+export interface FeaturedReview {
+  id: string;
+  stars: number;
+  text: string;
+  /** Short form stored with the review, e.g. "A. Mehta" */
+  customerName: string;
+  astrologerName: string;
+  astrologerSlug: string;
+  /** chat | voice | video, or null when unknown */
+  mode: string | null;
+  /** "11 Aug 2026" (IST) */
+  date: string;
 }

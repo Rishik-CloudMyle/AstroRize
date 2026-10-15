@@ -8,6 +8,7 @@ import { discountLabel, ratingLabel, rupee, skillLine } from "@/lib/portal/forma
 import type { ProfileData } from "@/lib/portal/types";
 import { useAccount, useErrorToast, usePortalState, useToast } from "../portal-provider";
 import { PageHeader, Panel } from "../ui";
+import IntroVideoEditor from "./intro-video-editor";
 
 export default function ProfileView({ data }: { data: ProfileData }) {
   const { astrologer: me } = useAccount();
@@ -128,22 +129,7 @@ export default function ProfileView({ data }: { data: ProfileData }) {
             </button>
           </div>
 
-          <div className="relative mt-[18px] rounded-[14px] border border-line bg-cream px-[15px] py-[13px]">
-            <b className="text-[13.5px]">Intro video renewal due in {data.videoRenewalDays} days</b>
-            <p className="mt-1 mb-2.5 text-[12.5px] leading-[1.5] text-stone-500">
-              You can keep working in the meantime. Your new video is checked and reviewed before it goes live, and it must
-              be 60–90 seconds long.
-            </p>
-            <button
-              type="button"
-              onClick={() =>
-                toast("Upload started. Your video is checked and reviewed before it goes live — it must be 60–90 seconds long.")
-              }
-              className="h-9 rounded-[10px] border border-line bg-white px-3.5 text-[12.5px] font-bold"
-            >
-              Re-upload intro video
-            </button>
-          </div>
+          <IntroVideoEditor url={data.introVideoUrl} poster={me.photo} name={me.name} maxMb={data.video.maxMb} maxSeconds={data.video.maxSeconds} />
 
           <div className="mt-[18px] flex gap-2.5">
             <button type="button" onClick={discard} className="h-[46px] flex-1 rounded-xl border border-line bg-white text-sm font-bold">

@@ -219,11 +219,6 @@
 }
 
 /* Home sky: each orbit layer turns once per its own --period. */
-@keyframes azOrbit {
-  to {
-    transform: rotate(360deg);
-  }
-}
 @keyframes azTwinkle {
   0%,
   100% {
@@ -233,44 +228,14 @@
     opacity: 1;
   }
 }
-@keyframes azSunLight {
-  0%,
-  100% {
-    box-shadow:
-      0 0 30px 8px rgba(251, 191, 36, 0.55),
-      0 0 80px 24px rgba(245, 158, 11, 0.25);
-  }
-  50% {
-    box-shadow:
-      0 0 44px 14px rgba(251, 191, 36, 0.7),
-      0 0 110px 36px rgba(245, 158, 11, 0.32);
-  }
-}
 
 /* ---- Reusable effect classes from the prototype ---- */
 @layer components {
   .az-rise {
     animation: azRise 0.68s cubic-bezier(0.2, 0.75, 0.25, 1) both;
   }
-  /* Home sky: one turn per --period, anticlockwise (planets) or clockwise (Rahu, Ketu). */
-  .az-sky-ccw {
-    animation: azOrbit var(--period, 20s) linear infinite reverse;
-  }
-  .az-sky-cw {
-    animation: azOrbit var(--period, 20s) linear infinite;
-  }
-  .az-sky[data-paused="true"] .az-sky-ccw,
-  .az-sky[data-paused="true"] .az-sky-cw {
-    animation-play-state: paused;
-  }
   .az-twinkle {
     animation: azTwinkle 3s ease-in-out infinite;
-  }
-  .az-sun-light {
-    animation: azSunLight 5s ease-in-out infinite;
-    box-shadow:
-      0 0 30px 8px rgba(251, 191, 36, 0.55),
-      0 0 80px 24px rgba(245, 158, 11, 0.25);
   }
   .az-d1 {
     animation-delay: 0.06s;
@@ -477,18 +442,144 @@
     opacity: 1;
     transform: none;
   }
-  /* The client wants the home sky to keep revolving; it has its own Pause button (WCAG 2.2.2). */
-  .az-sky .az-sky-ccw {
-    animation: azOrbit var(--period, 20s) linear infinite reverse !important;
+}
+
+/*
+ * Live room. Chat bubbles float up from the bottom left and fade as they rise, each on its own
+ * (live-feed.tsx sets --az-rise and the duration). Gifts arrive as a small pill sliding in from
+ * the left, the gift popping with a soft glow and a few sparkles (gift-burst.tsx).
+ * Only transform and opacity animate. With reduced motion both simply fade in and out.
+ */
+@keyframes azBubbleRise {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.92);
   }
-  .az-sky .az-sky-cw {
-    animation: azOrbit var(--period, 20s) linear infinite !important;
+  8% {
+    opacity: 1;
+    transform: translate3d(0, calc(var(--az-rise, 160px) * -0.08), 0) scale(1);
   }
-  .az-sky .az-sun-light {
-    animation: azSunLight 5s ease-in-out infinite !important;
+  55% {
+    opacity: 1;
   }
-  .az-sky[data-paused="true"] .az-sky-ccw,
-  .az-sky[data-paused="true"] .az-sky-cw {
-    animation-play-state: paused !important;
+  100% {
+    opacity: 0;
+    transform: translate3d(0, calc(var(--az-rise, 160px) * -1), 0) scale(1);
+  }
+}
+@keyframes azBubbleFade {
+  0% {
+    opacity: 0;
+  }
+  8%,
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes azPillIn {
+  from {
+    opacity: 0;
+    transform: translate3d(-110%, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+@keyframes azPillOut {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(-48px, 0, 0);
+  }
+}
+@keyframes azFadeIn {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes azFadeOut {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes azGiftPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.3) rotate(-12deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.22) rotate(4deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+@keyframes azGiftGlow {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.12);
+  }
+}
+@keyframes azSparkle {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.4);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--az-sx), var(--az-sy), 0) scale(1);
+  }
+}
+.az-bubble {
+  transform-origin: 0 100%;
+  will-change: transform, opacity;
+  animation: azBubbleRise var(--az-life, 3.8s) linear both;
+}
+.az-pill-in {
+  will-change: transform, opacity;
+  animation: azPillIn 0.42s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+.az-pill-out {
+  animation: azPillOut 0.45s ease-in both;
+}
+.az-gift-pop {
+  animation: azGiftPop 0.55s cubic-bezier(0.3, 1.4, 0.5, 1) 0.2s both;
+}
+.az-gift-glow {
+  animation: azGiftGlow 1.4s ease-in-out 0.2s infinite;
+}
+.az-sparkle {
+  animation: azSparkle 0.9s ease-out 0.35s both;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* More specific than the blanket "no animation" rule above: a plain fade, still timed. */
+  .az-bubble {
+    animation: azBubbleFade var(--az-life, 3.8s) linear both !important;
+  }
+  .az-pill-in {
+    animation: azFadeIn 0.2s ease-out both !important;
+  }
+  .az-pill-out {
+    animation: azFadeOut 0.3s ease-in both !important;
+  }
+  .az-sparkle {
+    display: none;
   }
 }

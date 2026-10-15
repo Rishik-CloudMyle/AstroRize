@@ -9,7 +9,11 @@ import type { LiveRequest, LiveRoom, Presence } from "@/lib/portal/types";
 import Modal from "../modal";
 import { useErrorToast, usePortalState, usePresence, useToast } from "../portal-provider";
 import { PageHeader, Panel } from "../ui";
+import { GiftStack } from "../../live/gift-burst";
+import { LiveFeedOverlay, plannedLabel } from "../../live/live-feed";
+import { LiveGiftsPanel, useLiveFeed } from "./live-activity";
 import LiveAnnouncements from "./live-announcements";
+import LiveDetailsForm, { type LiveDetails } from "./live-details-form";
 import LiveQueuePeople from "./live-queue-people";
 
 const MOD_ACTIONS = ["Mute 5m", "Mute 15m", "Mute 60m", "Block from room", "Delete message"];
@@ -21,7 +25,6 @@ function modMessage(label: string): string {
 }
 
 const MAX_POLL_OPTIONS = 6;
-const MAX_TOPIC = 80;
 /** How often the console re-reads the queue and announcements while open. */
 const REFRESH_MS = 15_000;
 
@@ -51,10 +54,18 @@ function LiveConsole({ data }: { data: LiveRoom }) {
   const [privateOn, setPrivateOn] = usePortalState("livePrivate", false);
   const [busy, setBusy] = useState(false);
   const [presence, setPresence] = usePresence();
-  const [topic, setTopic] = useState(data.topic);
-  const [topicError, setTopicError] = useState<string | null>(null);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [editing, setEditing] = useState(false);
   const live = data.isLive;
+  const { feed, gifts: giftsShown } = useLiveFeed(live);
+  // This live's details, or the last ones used (to pre-fill "Go live").
+  const details: LiveDetails = {
+    title: data.title,
+    topic: data.topic,
+    category: data.category && data.categories.includes(data.category) ? data.category : "",
+    language: data.language && data.languages.includes(data.language) ? data.language : (data.languages.length === 1 ? data.languages[0] : ""),
+    durationMins: data.durationMins ?? 0,
+  };
   const [question, setQuestion] = useState(data.pollQuestion);
   const [options, setOptions] = useState(data.pollOptions.length ? data.pollOptions : ["", ""]);
   const rate = `${rupee(data.rate)}/min`;
@@ -84,23 +95,22 @@ function LiveConsole({ data }: { data: LiveRoom }) {
     run(async () => {
       const res = await api.patch<{ presence: Presence }>("/portal/presence", { online: true });
       setPresence(res.presence);
-      toast("You're online. Add a topic and go live when you're ready.");
+      toast("You're online. Add your live's details and go live when you're ready.");
     });
 
-  const goLive = (e: React.FormEvent) => {
-    e.preventDefault();
-    const t = topic.trim();
-    if (t.length < 3) {
-      setTopicError("Give your live a topic, e.g. “Saturn transit Q&A”.");
-      return;
-    }
-    setTopicError(null);
+  const goLive = (d: LiveDetails) =>
     void run(async () => {
-      await api.post("/portal/live/start", { topic: t });
+      await api.post("/portal/live/start", d);
       setPresence("live");
       toast("You're live. Customers on Astrorize are being told right now.");
     });
-  };
+
+  const saveDetails = (d: LiveDetails) =>
+    void run(async () => {
+      const res = await api.patch<{ changed: boolean }>("/portal/live", d);
+      setEditing(false);
+      toast(res.changed ? "Live details updated. Viewers see them within a few seconds." : "Nothing changed.");
+    });
 
   const endLive = () =>
     run(async () => {
@@ -175,46 +185,27 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                 <span className="inline-flex h-[26px] items-center rounded-full bg-stone-200 px-[11px] text-[11px] font-extrabold text-stone-600">○ NOT LIVE</span>
                 <span className="text-[12.5px] text-stone-500">Customers see your room only while you&apos;re live.</span>
               </div>
-              <form onSubmit={goLive} noValidate className="mt-4">
-                <label htmlFor="live-topic" className="block text-[13px] font-bold text-ink">
-                  Topic for this live
-                </label>
-                <input
-                  id="live-topic"
-                  value={topic}
-                  onChange={(e) => {
-                    setTopic(e.target.value);
-                    if (topicError) setTopicError(null);
-                  }}
-                  maxLength={MAX_TOPIC}
-                  required
-                  aria-invalid={!!topicError}
-                  aria-describedby="live-topic-help"
-                  placeholder="e.g. Saturn transit Q&A"
-                  className="mt-1.5 h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 text-[14px] text-ink outline-none focus:border-amber-400"
-                />
-                <p id="live-topic-help" className={`mt-1.5 text-[12px] ${topicError ? "font-semibold text-rose-700" : "text-stone-500"}`}>
-                  {topicError ?? `Customers see it in the “just went live” notice. Up to ${MAX_TOPIC} characters.`}
-                </p>
+              <h2 className="m-0 mt-4 mb-3 text-base font-bold">About this live</h2>
+              <LiveDetailsForm idPrefix="go-live" initial={details} categories={data.categories} languages={data.languages} busy={busy} onSubmit={goLive}>
                 {presence === "off" ? (
-                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <>
                     <button type="button" onClick={goOnline} disabled={busy} className="h-11 rounded-xl bg-amber-500 px-5 text-[14px] font-bold text-ink">
                       Go online
                     </button>
                     <span className="text-[12.5px] text-stone-500">You&apos;re offline. Go online first, then go live.</span>
-                  </div>
+                  </>
                 ) : presence === "busy" ? (
-                  <p className="mt-3 text-[12.5px] font-semibold text-stone-600">You&apos;re in a consultation. Finish it, then go live.</p>
+                  <p className="text-[12.5px] font-semibold text-stone-600">You&apos;re in a consultation. Finish it, then go live.</p>
                 ) : (
-                  <button type="submit" disabled={busy} className="mt-3 h-11 rounded-xl bg-urgent px-6 text-[14px] font-bold text-white">
+                  <button type="submit" disabled={busy} className="h-11 rounded-xl bg-urgent px-6 text-[14px] font-bold text-white">
                     ● Go live
                   </button>
                 )}
-              </form>
+              </LiveDetailsForm>
             </Panel>
           )}
           {live && (
-          <div className="relative aspect-[4/3] overflow-hidden rounded-[20px] bg-ink sm:aspect-video">
+          <div className="relative aspect-[4/5] overflow-hidden rounded-[20px] bg-ink sm:aspect-video">
             <Image src={data.image} alt="" fill sizes="(min-width: 900px) 60vw, 100vw" className="object-cover" priority />
             <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.45)_0%,rgba(28,25,23,.08)_40%,rgba(28,25,23,.7)_100%)]" />
             <div className="absolute top-3.5 right-3.5 left-3.5 flex flex-wrap items-center gap-2">
@@ -222,10 +213,10 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                 ● LIVE {data.elapsed}
               </span>
               <span className="inline-flex h-[26px] items-center rounded-full bg-[rgba(0,0,0,.45)] px-[11px] text-[11px] font-bold text-white">
-                👁 {data.viewers} watching
+                👁 {feed?.viewers ?? data.viewers} watching
               </span>
               <span className="inline-block h-[26px] max-w-full min-w-0 truncate rounded-full bg-[rgba(0,0,0,.45)] px-[11px] text-[11px] leading-[26px] font-bold text-white">
-                {data.topic}
+                {data.title || data.topic}
               </span>
               {privateOn && (
                 <span className="inline-flex h-[26px] items-center rounded-full bg-amber-300 px-[11px] text-[11px] font-extrabold text-ink">
@@ -233,7 +224,11 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                 </span>
               )}
             </div>
-            <div className="absolute right-3.5 bottom-3.5 left-3.5 flex flex-wrap items-center gap-2">
+            <div className="absolute right-3.5 bottom-3.5 left-3.5 flex flex-col gap-2.5">
+            {/* Gifts and what viewers are saying, as they see it: messages float up and fade */}
+            <GiftStack gifts={giftsShown} />
+            {feed && <LiveFeedOverlay lines={feed.chat} announce className="-mt-1 h-[120px]" />}
+            <div className="flex flex-wrap items-center gap-2">
               {hostControls.map((h) => (
                 <button
                   key={h.label}
@@ -255,7 +250,28 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                 End live
               </button>
             </div>
+            </div>
           </div>
+          )}
+
+          {live && (
+            <Panel className="mt-4 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <h2 className="m-0 text-base font-bold [overflow-wrap:anywhere]">{data.title || data.topic}</h2>
+                  {data.title && data.topic !== data.title && <p className="mt-0.5 text-[13px] text-stone-600 [overflow-wrap:anywhere]">{data.topic}</p>}
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11.5px] font-semibold text-stone-600">
+                    {data.category && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-800">{data.category}</span>}
+                    {data.language && <span className="rounded-full bg-cream px-2.5 py-1">{data.language}</span>}
+                    {plannedLabel(data.durationMins) && <span className="rounded-full bg-cream px-2.5 py-1">About {plannedLabel(data.durationMins)} planned</span>}
+                  </div>
+                </div>
+                <button type="button" onClick={() => setEditing(true)} className="h-9 rounded-[10px] border border-line bg-white px-3.5 text-[12.5px] font-bold">
+                  Edit details
+                </button>
+              </div>
+              <p className="mt-3 text-[11.5px] text-stone-500">You can change these while live — viewers see the update within a few seconds.</p>
+            </Panel>
           )}
 
           <Panel className="relative mt-4 p-5">
@@ -327,6 +343,8 @@ function LiveConsole({ data }: { data: LiveRoom }) {
           </Panel>
           )}
 
+          {live && <LiveGiftsPanel feed={feed} />}
+
           <LiveAnnouncements announcements={data.announcements} />
 
           {live && (
@@ -394,6 +412,23 @@ function LiveConsole({ data }: { data: LiveRoom }) {
           </Panel>
         </div>
       </div>
+
+      {editing && live && (
+        <Modal onClose={() => setEditing(false)} labelledBy="edit-live-heading" maxWidth={560}>
+          <h2 id="edit-live-heading" className="m-0 mb-1 font-display text-[26px] font-semibold text-ink">
+            Edit live details
+          </h2>
+          <p className="mb-4 text-[13px] text-stone-600">Your live keeps going. Viewers see the new details within a few seconds.</p>
+          <LiveDetailsForm idPrefix="edit-live" initial={details} categories={data.categories} languages={data.languages} busy={busy} onSubmit={saveDetails}>
+            <button type="button" onClick={() => setEditing(false)} className="ml-auto h-11 rounded-xl border border-line bg-white px-5 text-[14px] font-bold text-ink">
+              Cancel
+            </button>
+            <button type="submit" disabled={busy} className="h-11 rounded-xl bg-amber-500 px-5 text-[14px] font-bold text-ink">
+              Save changes
+            </button>
+          </LiveDetailsForm>
+        </Modal>
+      )}
 
       {confirmEnd && (
         <Modal onClose={() => setConfirmEnd(false)} labelledBy="end-live-title">

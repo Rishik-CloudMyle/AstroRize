@@ -17,6 +17,7 @@ import {
   passwordSchema,
 } from "../lib/signup.ts";
 import { sendOtpSms } from "../lib/sms.ts";
+import { grantWelcome, welcomePolicy } from "../lib/welcome.ts";
 import { requireRole } from "../middleware/auth.ts";
 import type { User } from "../generated/prisma/client.ts";
 
@@ -117,13 +118,19 @@ authRouter.post("/otp/verify", async (req, res) => {
   const { phone, code } = z.object({ phone: phoneSchema, code: codeSchema }).parse(req.body);
   await consumeOtp(phone, code);
 
-  // First sign-in creates the customer account and an empty wallet.
+  // First sign-in creates the customer account and an empty wallet. The number has just been
+  // verified, so the account also gets the welcome free call — once per number, ever (lib/welcome.ts).
   let user = await db.user.findUnique({ where: { phone } });
   const created = !user;
   if (!user) {
     const name = "Astrorize customer";
-    user = await db.user.create({
-      data: { phone, name, initials: initialsOf(name), role: "CUSTOMER", wallet: { create: {} } },
+    const { enabled } = await welcomePolicy();
+    user = await db.$transaction(async (tx) => {
+      const u = await tx.user.create({
+        data: { phone, name, initials: initialsOf(name), role: "CUSTOMER", wallet: { create: {} } },
+      });
+      if (enabled) await grantWelcome(u.id, phone, tx);
+      return u;
     });
   }
   if (user.deletedAt) throw unauthorized("This account was deleted.");

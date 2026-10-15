@@ -21,7 +21,7 @@ export const NAV_LINKS = [
   { href: "/live", label: "Live", live: true },
   { href: "/free-tools", label: "Free tools" },
   { href: "/wallet", label: "Wallet" },
-  { href: "/terms", label: "Legal" },
+  { href: "/terms", label: "T&C" },
 ];
 
 export const FOOTER_COLUMNS = [
@@ -43,7 +43,7 @@ export const FOOTER_COLUMNS = [
     ],
   },
   {
-    title: "Legal",
+    title: "T&C",
     links: [
       { label: "Terms & Conditions", href: "/terms" },
       { label: "Privacy Policy", href: "/terms" },

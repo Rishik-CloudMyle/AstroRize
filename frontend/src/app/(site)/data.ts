@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { apiGet, apiGetOr404 } from "@/lib/api/server";
-import type { Astrologer, LiveRoom } from "@/lib/types";
+import type { Astrologer, FeaturedReview, LiveRoom } from "@/lib/types";
 
 // Data the public website reads from the Node API. Each call forwards the
 // visitor's cookies, so pages using these render at request time (never at build).
@@ -19,4 +19,17 @@ export const getAstrologer = cache(async (slug: string) => {
 export const getLiveRooms = cache(async () => {
   const { rooms } = await apiGet<{ rooms: LiveRoom[] }>("/live-rooms");
   return rooms;
+});
+
+/**
+ * Recent published customer reviews for the home page. Empty when there are none yet, or when
+ * the API can't answer: the reviews sections are simply left out rather than breaking the page.
+ */
+export const getFeaturedReviews = cache(async (): Promise<FeaturedReview[]> => {
+  try {
+    const { reviews } = await apiGet<{ reviews: FeaturedReview[] }>("/reviews/featured");
+    return reviews;
+  } catch {
+    return [];
+  }
 });

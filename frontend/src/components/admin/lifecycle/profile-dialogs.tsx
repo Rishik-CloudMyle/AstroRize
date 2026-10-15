@@ -265,6 +265,8 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
             )}
           </Section>
 
+          <FreeCallsSection id={a.id} name={a.name} freeCalls={a.freeCalls} onSaved={() => void load()} />
+
           <Section title="Work">
             <div className="grid grid-cols-2 gap-2.5">
               <Fact label="Live room">
@@ -282,6 +284,121 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
         </>
       )}
     </AdminDialog>
+  );
+}
+
+/**
+ * Welcome campaign for one astrologer (HR): take part in free calls or not, and their own daily
+ * limit (blank = the campaign default). Each change is saved straight away and audited.
+ */
+function FreeCallsSection({
+  id,
+  name,
+  freeCalls: f,
+  onSaved,
+}: {
+  id: string;
+  name: string;
+  freeCalls: AstrologerDetail["freeCalls"];
+  onSaved: () => void;
+}) {
+  const { run, busy } = useAction();
+  const [limit, setLimit] = useState(f.dailyLimit === null ? "" : String(f.dailyLimit));
+  const [error, setError] = useState<string | null>(null);
+  const savedLimit = f.dailyLimit === null ? "" : String(f.dailyLimit);
+  const path = `/admin/lifecycle/astrologers/${encodeURIComponent(id)}/free-calls`;
+
+  const toggle = async () => {
+    const res = await run(
+      () => api.patch(path, { enabled: !f.enabled }),
+      !f.enabled ? `${name} now takes free calls.` : `${name} no longer takes free calls.`,
+      false,
+    );
+    if (res) onSaved();
+  };
+
+  const saveLimit = async () => {
+    const trimmed = limit.trim();
+    const value = trimmed === "" ? null : Number(trimmed);
+    if (value !== null && (!Number.isInteger(value) || value < 0 || value > f.maxLimit)) {
+      setError(`Enter a whole number from 0 to ${f.maxLimit}, or leave it blank for the default (${f.defaultLimit}).`);
+      return;
+    }
+    setError(null);
+    const res = await run(
+      () => api.patch(path, { dailyLimit: value }),
+      value === null ? `Daily limit set to the campaign default (${f.defaultLimit}).` : `Daily limit set to ${value} free calls.`,
+      false,
+    );
+    if (res) onSaved();
+  };
+
+  return (
+    <Section title="Free calls (welcome campaign)">
+      <div className="rounded-[14px] border border-line bg-white p-3.5">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={f.enabled}
+            aria-label="Takes free calls"
+            onClick={() => void toggle()}
+            disabled={busy}
+            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${f.enabled ? "bg-emerald-600" : "bg-stone-300"}`}
+          >
+            <span
+              className={`absolute top-0.5 size-6 rounded-full bg-white shadow transition-[left] ${f.enabled ? "left-[22px]" : "left-0.5"}`}
+            />
+          </button>
+          <div className="min-w-0 flex-1">
+            <b className="block text-[13.5px] text-ink">{f.enabled ? "Takes free calls" : "Doesn't take free calls"}</b>
+            <span className="block text-[12px] text-[#78716c]">
+              New customers can use their one free call (Chat or Voice) with astrologers who take part. The free minutes earn
+              the astrologer nothing.
+            </span>
+          </div>
+        </div>
+        {!f.campaignOn && (
+          <p className="mt-2.5 mb-0 rounded-[10px] bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+            The welcome campaign is switched off in Config, so no free calls start anywhere right now.
+          </p>
+        )}
+        <div className="mt-3 flex flex-wrap items-end gap-2.5">
+          <label className="min-w-0">
+            <span className={EYEBROW}>Daily limit</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={f.maxLimit}
+              value={limit}
+              placeholder={`Default ${f.defaultLimit}`}
+              onChange={(e) => {
+                setLimit(e.target.value);
+                setError(null);
+              }}
+              className="mt-1 block h-10 w-[150px] rounded-[10px] border border-line bg-white px-3 text-[13.5px] tabular-nums"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => void saveLimit()}
+            disabled={busy || limit.trim() === savedLimit}
+            className="h-10 rounded-[10px] border-0 bg-ink px-4 text-[13px] font-bold text-white disabled:opacity-50"
+          >
+            Save limit
+          </button>
+          <span className="pb-2.5 text-[12px] text-[#78716c]">
+            {f.today} of {f.effectiveLimit} used today (IST) · up to {f.maxLimit}
+          </span>
+        </div>
+        {error && (
+          <p role="alert" className="mt-2 mb-0 text-[12.5px] font-semibold text-rose-700">
+            {error}
+          </p>
+        )}
+      </div>
+    </Section>
   );
 }
 

@@ -10,7 +10,8 @@ import { PageHeader, Panel, Th, tdClass } from "../ui";
 function grossFor(row: StatementRow): { label: string; color: string } {
   switch (row.kind) {
     case "welcome":
-      return { label: row.amount > 0 ? rupee(row.amount) : "Complimentary", color: "#78716c" };
+      // A customer's welcome free call: the free minutes earn nothing.
+      return { label: row.amount > 0 ? rupee(row.amount) : "₹0 · free call", color: "#78716c" };
     case "adjustment":
       return { label: row.amount ? rupee(row.amount) : "—", color: "#be123c" };
     case "emergency":

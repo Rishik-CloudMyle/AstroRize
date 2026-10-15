@@ -1,8 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
-import type { Astrologer, LiveRoom } from "@/lib/types";
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Astrologer, LiveGift, LiveRoom } from "@/lib/types";
 import { ApiError, api } from "@/lib/api/client";
 import { discountLabel, rupee } from "@/lib/format";
 import { useOpenConsultation } from "@/lib/consultation-store";
@@ -11,6 +12,9 @@ import { useAppUI } from "../app-provider";
 import { recheckAvailability, useFreshAstrologer } from "../astrologer/use-fresh-astrologer";
 import { ConsultBlockedNote, blockedHint, useConsultGate } from "../consult/consult-gate";
 import { FROZEN_HINT } from "../consult/consult-lock";
+import { GiftStack, useGiftShow } from "./gift-burst";
+import GiftPanel from "./gift-panel";
+import { FeedAvatar, LiveFeedOverlay, liveForLabel, plannedLabel, useMinuteClock } from "./live-feed";
 
 const REACTIONS = ["❤️", "🙏", "🔥", "✨", "👏"];
 const REACTION_LIMIT = 5; // per 10 seconds
@@ -27,6 +31,10 @@ interface Floating {
   left: number;
 }
 
+/**
+ * The live room, once the viewer has joined from the preview (live-room-gate.tsx). While open
+ * it refreshes every few seconds, which also keeps the viewer counted as watching.
+ */
 export default function LiveRoomView({ room: initialRoom, host: initialHost }: { room: LiveRoom; host: Astrologer }) {
   const { startConsult, openConsultModes, openLogin, toast } = useAppUI();
   const session = useSession();
@@ -39,11 +47,11 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
   const staff = gate.kind === "staff";
   // The stage video: a spinner until it can play, then it fades in; a calm message if it fails.
   const [video, setVideo] = useState<"loading" | "playing" | "error">("loading");
-  const videoRef = useRef<HTMLVideoElement>(null);
-  // The video may have loaded (or failed) before React attached its event handlers.
-  useEffect(() => {
-    const el = videoRef.current;
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const attachVideo = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el;
     if (!el) return;
+    // It may have loaded (or failed) before React attached its event handlers.
     if (el.error) setVideo("error");
     else if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) setVideo("playing");
   }, []);
@@ -55,40 +63,109 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
   const [voting, setVoting] = useState(false);
   const [sent, setSent] = useState(0);
   const [floating, setFloating] = useState<Floating[]>([]);
+  const [giftsOpen, setGiftsOpen] = useState(false);
+  const gifts = useGiftShow();
+  const minute = useMinuteClock();
   const sentTimes = useRef<number[]>([]);
   const nextId = useRef(0);
   const chatBox = useRef<HTMLDivElement>(null);
   const { chat } = room;
   const voted = room.poll.myVote;
+  const isCustomer = session.loggedIn && session.role === "customer";
+  // Gifts already sent when the viewer joined aren't replayed; new ones play once each.
+  const offerGifts = gifts.offer;
+  useEffect(() => {
+    offerGifts(room.gifts);
+  }, [room.gifts, offerGifts]);
 
-  // Keep the poll results, chat and queue current while the room is open.
+  const roomEnded = useCallback(() => {
+    // Stop the video and drop its stream straight away; the stage then shows the ended state.
+    const v = videoRef.current;
+    if (v) {
+      v.pause();
+      v.removeAttribute("src");
+      v.load();
+    }
+    setEnded(true);
+    setGiftsOpen(false);
+    // The host may be free for a one-to-one now.
+    recheckAvailability();
+  }, []);
+  /** Any request to the room answering "not found" means the live has ended. */
+  const endedBy = useCallback(
+    (e: unknown) => {
+      if (e instanceof ApiError && e.status === 404) {
+        roomEnded();
+        return true;
+      }
+      return false;
+    },
+    [roomEnded],
+  );
+
+  const closeGifts = useCallback(() => setGiftsOpen(false), []);
+  const playGift = gifts.play;
+  const giftSent = useCallback(
+    (gift: LiveGift) => {
+      setGiftsOpen(false);
+      playGift(gift);
+      // Show "<name> sent …" in the feed now rather than at the next refresh.
+      api
+        .get<{ room: LiveRoom }>(`/live-rooms/${encodeURIComponent(initialRoom.id)}?watching=1`)
+        .then(({ room: fresh }) => setRoom(fresh))
+        .catch(endedBy);
+    },
+    [playGift, initialRoom.id, endedBy],
+  );
+
+  function openGifts() {
+    if (ended) return;
+    if (!session.loggedIn) {
+      openLogin({ notice: "Log in to send a gift." });
+      return;
+    }
+    if (!isCustomer) {
+      toast("Gifts are sent from customer accounts.");
+      return;
+    }
+    setGiftsOpen((o) => !o);
+  }
+
+  // Keep the poll results, chat and queue current while the room is open, and notice at the
+  // next refresh when the live ends (the room is gone, or it is a new live of the same room).
   // The signed-in state is a dependency so the queue position is re-read after logging in.
+  const startedAt = initialRoom.startedAt;
   useEffect(() => {
     if (ended) return;
     let cancelled = false;
     const refresh = async () => {
       if (document.hidden) return;
       try {
-        const { room: fresh } = await api.get<{ room: LiveRoom }>(`/live-rooms/${encodeURIComponent(initialRoom.id)}`);
-        if (!cancelled) setRoom(fresh);
+        // ?watching=1: each refresh counts this viewer as still watching.
+        const { room: fresh } = await api.get<{ room: LiveRoom }>(`/live-rooms/${encodeURIComponent(initialRoom.id)}?watching=1`);
+        if (cancelled) return;
+        if (fresh.startedAt !== startedAt) roomEnded();
+        else setRoom(fresh);
       } catch (e) {
-        if (!cancelled && e instanceof ApiError && e.status === 404) {
-          setEnded(true);
-          // The host may be free for a one-to-one now.
-          recheckAvailability();
-        }
+        if (!cancelled) endedBy(e);
       }
     };
     void refresh();
     const id = setInterval(refresh, REFRESH_MS);
+    // Back on this tab: check straight away rather than at the next tick.
+    const onVisible = () => {
+      if (!document.hidden) void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [initialRoom.id, ended, session.loggedIn]);
+  }, [initialRoom.id, startedAt, ended, session.loggedIn, roomEnded, endedBy]);
 
   // Follow new chat messages, unless the viewer has scrolled up to read.
-  const lastChat = chat.length ? chat[chat.length - 1].text + chat.length : "";
+  const lastChat = chat.length ? chat[chat.length - 1].id : "";
   useEffect(() => {
     const box = chatBox.current;
     if (box && box.scrollHeight - box.scrollTop - box.clientHeight < 80) box.scrollTop = box.scrollHeight;
@@ -103,13 +180,14 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
       });
       setRoom(fresh);
     } catch (e) {
-      toast(errorText(e));
+      if (!endedBy(e)) toast(errorText(e));
     } finally {
       setVoting(false);
     }
   }
 
   function sendReaction(emoji: string, now: number) {
+    if (ended) return;
     sentTimes.current = sentTimes.current.filter((t) => now - t < REACTION_WINDOW_MS);
     if (sentTimes.current.length >= REACTION_LIMIT) {
       toast("Slow down a little — reactions are limited to 5 every 10 seconds.");
@@ -117,7 +195,9 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
     }
     sentTimes.current.push(now);
     setSent((n) => n + 1);
-    api.post(`/live-rooms/${encodeURIComponent(room.id)}/reactions`, { emoji }).catch((e) => toast(errorText(e)));
+    api.post(`/live-rooms/${encodeURIComponent(room.id)}/reactions`, { emoji }).catch((e) => {
+      if (!endedBy(e)) toast(errorText(e));
+    });
     const id = nextId.current++;
     setFloating((f) => [...f, { id, emoji, left: 8 + Math.random() * 20 }]);
     setTimeout(() => setFloating((f) => f.filter((x) => x.id !== id)), 1900);
@@ -126,21 +206,21 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
   async function sendChat(e: React.FormEvent) {
     e.preventDefault();
     const text = message.trim();
-    if (!text || sending) return;
+    if (!text || sending || ended) return;
     if (!session.loggedIn) {
       openLogin({ notice: "Log in to chat in the room." });
       return;
     }
     setSending(true);
     try {
-      const { message: posted } = await api.post<{ message: { who: string; text: string } }>(
+      const { message: posted } = await api.post<{ message: LiveRoom["chat"][number] }>(
         `/live-rooms/${encodeURIComponent(room.id)}/chat`,
         { text },
       );
-      setRoom((r) => ({ ...r, chat: [...r.chat, posted] }));
+      setRoom((r) => (r.chat.some((c) => c.id === posted.id) ? r : { ...r, chat: [...r.chat, posted] }));
       setMessage("");
     } catch (err) {
-      toast(errorText(err));
+      if (!endedBy(err)) toast(errorText(err));
     } finally {
       setSending(false);
     }
@@ -159,137 +239,205 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
       <div className="min-w-0">
         {/* ---------- Video ---------- */}
         <div className="relative aspect-[4/5] overflow-hidden rounded-[22px] bg-ink sm:aspect-[16/10]">
-          {/* Looping studio video until real live streaming (RTC) is connected. Muted, because
-              browsers only autoplay silent video. No poster: a spinner shows until it can play. */}
-          <video
-            ref={videoRef}
-            src="/assets/videos/live-room.mp4"
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="auto"
-            aria-label={`${host.name} live`}
-            onCanPlay={() => setVideo((v) => (v === "loading" ? "playing" : v))}
-            onPlaying={() => setVideo("playing")}
-            onError={() => setVideo("error")}
-            className={`absolute inset-0 size-full object-cover transition-opacity duration-500 ${video === "playing" ? "opacity-100" : "opacity-0"}`}
-          />
-          {video === "loading" && (
-            <div role="status" className="absolute inset-0 grid place-items-center">
-              <span className="flex flex-col items-center gap-3">
-                <span
-                  aria-hidden="true"
-                  className="size-10 animate-spin rounded-full border-[3px] border-white/20 border-t-amber-400"
-                />
-                <span className="text-[13px] font-semibold text-white/80">Loading live video…</span>
-              </span>
-            </div>
-          )}
-          {video === "error" && (
-            <div role="status" className="absolute inset-0 grid place-items-center px-6 text-center">
-              <span className="max-w-[34ch] text-[13.5px] leading-normal text-white/80">
-                The live video couldn&apos;t load. Check your connection — the chat, poll and queue still work.
-              </span>
-            </div>
-          )}
-          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.42)_0%,rgba(28,25,23,.08)_38%,rgba(28,25,23,.72)_100%)]" />
-
-          <div className="absolute inset-x-3.5 top-3.5 flex flex-wrap items-center gap-2">
-            <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-urgent px-[11px] text-[11px] font-extrabold text-white">
-              ● LIVE
-            </span>
-            <span className="inline-flex h-[26px] items-center rounded-full bg-black/45 px-[11px] text-[11px] font-bold text-white">
-              👁 {room.viewers.toLocaleString("en-IN")} watching
-            </span>
-            <span className="ml-auto inline-flex items-center gap-[7px] rounded-full bg-black/45 py-1 pl-[5px] pr-3">
-              <span className="relative size-[26px] overflow-hidden rounded-full border-2 border-gold">
-                <Image src={host.photo} alt="" fill sizes="52px" className="object-cover" />
-              </span>
-              <b className="text-[12.5px] text-paper">{host.name}</b>
-            </span>
-          </div>
-
-          {room.state === "private" && (
-            <div className="absolute left-1/2 top-1/2 w-[86%] max-w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-[18px] border border-amber-300/35 bg-[rgba(28,25,23,.78)] px-5 py-5 text-center sm:px-[26px]">
-              <div className="text-[15px] font-bold text-amber-300">Private consultation in progress</div>
-              <p className="mt-1.5 text-[12.5px] leading-normal text-paper/80">
-                The astrologer&apos;s video continues. Customer audio and video are never shown. Gift animations stay
-                visible, without audio.
-              </p>
-            </div>
-          )}
-
-          {/* Floating reactions */}
-          <div aria-hidden="true" className="pointer-events-none absolute bottom-24 right-0 h-40 w-40">
-            {floating.map((f) => (
-              <span key={f.id} className="az-float absolute bottom-0 text-[28px]" style={{ left: `${f.left}%` }}>
-                {f.emoji}
-              </span>
-            ))}
-          </div>
-
-          <div className="absolute inset-x-3.5 bottom-3.5 flex flex-col gap-2.5">
-            {ended && (
-              <div className="flex items-center gap-2.5 rounded-xl bg-stone-800/90 px-[13px] py-2.5 text-[12.5px] font-semibold text-white">
-                <span>■</span>
-                <span className="flex-1">This live room has ended. You can still consult {host.name} one-to-one.</span>
+          {ended ? (
+            // The live is over: the video is gone (not just covered), with where to go next.
+            <div role="status" className="absolute inset-0 grid place-items-center px-5 text-center">
+              <Image src={room.thumb} alt="" fill sizes="(min-width: 1024px) 800px, 100vw" className="object-cover opacity-25 grayscale" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(28,25,23,.35),rgba(28,25,23,.85))]" />
+              <div className="relative flex max-w-[380px] flex-col items-center">
+                <span className="relative size-[64px] overflow-hidden rounded-full border-[3px] border-gold/70 grayscale-[.4]">
+                  <Image src={host.photo} alt="" fill sizes="128px" className="object-cover" />
+                </span>
+                <span className="mt-3 inline-flex h-[24px] items-center rounded-full bg-stone-700 px-[10px] text-[10.5px] font-extrabold tracking-[.04em] text-white">
+                  ■ LIVE ENDED
+                </span>
+                <h2 className="mt-2.5 font-display text-[26px] font-semibold leading-tight text-paper sm:text-[30px]">This live has ended</h2>
+                <p className="mt-1.5 text-[13.5px] leading-normal text-paper/80">
+                  Thanks for watching {host.name}. You can consult them one-to-one, or watch another live.
+                </p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  {gate.kind === "ok" ? (
+                    <button
+                      type="button"
+                      onClick={() => startConsult({ astrologer: host })}
+                      className="az-cta h-11 rounded-full px-5 text-[14px] font-bold shadow-[0_6px_16px_rgba(255,140,26,.32)]"
+                    >
+                      Consult one-to-one
+                    </button>
+                  ) : (
+                    <Link
+                      href={`/astrologer/${host.slug}`}
+                      className="az-cta inline-flex h-11 items-center rounded-full px-5 text-[14px] font-bold hover:text-cta-ink hover:no-underline"
+                    >
+                      View profile
+                    </Link>
+                  )}
+                  <Link
+                    href="/live"
+                    className="inline-flex h-11 items-center rounded-full border border-white/25 bg-white/10 px-5 text-[14px] font-bold text-paper hover:bg-white/20 hover:text-paper hover:no-underline"
+                  >
+                    Other lives
+                  </Link>
+                </div>
               </div>
-            )}
-            {room.state === "monitor" && (
-              <div className="flex items-center gap-2.5 rounded-xl bg-blue-700/90 px-[13px] py-2.5 text-[12.5px] font-semibold text-white">
-                <span>🛡</span>
-                <span className="flex-1">A compliance monitor has joined this live session.</span>
-              </div>
-            )}
-            {room.state === "degrade" && (
-              <div className="flex items-center gap-2.5 rounded-xl bg-amber-700/90 px-[13px] py-2.5 text-[12.5px] font-semibold text-white">
-                <span>⚠</span>
-                <span className="flex-1">
-                  High load — chat is in slow mode (1 message per 30 s) and reactions are being sampled.
+            </div>
+          ) : (
+            <>
+              {/* Looping studio video until real live streaming (RTC) is connected. Muted, because
+                  browsers only autoplay silent video. No poster: a spinner shows until it can play. */}
+              <video
+                ref={attachVideo}
+                src="/assets/videos/live-room.mp4"
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="auto"
+                aria-label={`${host.name} live`}
+                onCanPlay={() => setVideo((v) => (v === "loading" ? "playing" : v))}
+                onPlaying={() => setVideo("playing")}
+                onError={() => setVideo("error")}
+                className={`absolute inset-0 size-full object-cover transition-opacity duration-500 ${video === "playing" ? "opacity-100" : "opacity-0"}`}
+              />
+              {video === "loading" && (
+                <div role="status" className="absolute inset-0 grid place-items-center">
+                  <span className="flex flex-col items-center gap-3">
+                    <span
+                      aria-hidden="true"
+                      className="size-10 animate-spin rounded-full border-[3px] border-white/20 border-t-amber-400"
+                    />
+                    <span className="text-[13px] font-semibold text-white/80">Loading live video…</span>
+                  </span>
+                </div>
+              )}
+              {video === "error" && (
+                <div role="status" className="absolute inset-0 grid place-items-center px-6 text-center">
+                  <span className="max-w-[34ch] text-[13.5px] leading-normal text-white/80">
+                    The live video couldn&apos;t load. Check your connection — the chat, poll and queue still work.
+                  </span>
+                </div>
+              )}
+              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.42)_0%,rgba(28,25,23,.08)_38%,rgba(28,25,23,.72)_100%)]" />
+
+              <div className="absolute inset-x-3.5 top-3.5 flex flex-wrap items-center gap-2">
+                <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-urgent px-[11px] text-[11px] font-extrabold text-white">
+                  ● LIVE
+                </span>
+                <span className="inline-flex h-[26px] items-center rounded-full bg-black/45 px-[11px] text-[11px] font-bold text-white">
+                  👁 {room.viewers.toLocaleString("en-IN")} watching
+                </span>
+                <span className="ml-auto inline-flex items-center gap-[7px] rounded-full bg-black/45 py-1 pl-[5px] pr-3">
+                  <span className="relative size-[26px] overflow-hidden rounded-full border-2 border-gold">
+                    <Image src={host.photo} alt="" fill sizes="52px" className="object-cover" />
+                  </span>
+                  <b className="text-[12.5px] text-paper">{host.name}</b>
                 </span>
               </div>
-            )}
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="inline-flex items-baseline gap-[7px] rounded-full bg-black/45 px-3.5 py-[7px]">
-                {host.was && host.was > host.price && (
-                  <span className="text-xs text-white/65 line-through">{rupee(host.was)}</span>
-                )}
-                <b className="text-[15px] text-paper">{rupee(host.price)}/min</b>
-                {discountLabel(host.price, host.was) && (
-                  <span className="text-[11px] font-bold text-amber-300">{discountLabel(host.price, host.was)}</span>
-                )}
-              </span>
-              {gate.kind === "live" && !ended ? (
-                // Hosting this room: the way to consult them now is the room's queue.
-                <button
-                  type="button"
-                  disabled={room.queue.inQueue}
-                  onClick={joinQueue}
-                  className={`ml-auto h-11 rounded-full px-[22px] text-[14.5px] font-bold ${room.queue.inQueue ? "cursor-default bg-stone-300/90 text-stone-600" : "az-cta shadow-[0_6px_16px_rgba(255,140,26,.32)]"}`}
-                >
-                  {room.queue.inQueue ? "✓ You're in the queue" : "Join the consult queue"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={gate.kind !== "ok"}
-                  title={gate.kind === "frozen" ? FROZEN_HINT : blockedHint(gate)}
-                  onClick={() => startConsult({ astrologer: host })}
-                  className={`ml-auto h-11 rounded-full px-[22px] text-[14.5px] font-bold ${gate.kind !== "ok" ? "cursor-not-allowed bg-stone-300/90 text-stone-600" : "az-cta shadow-[0_6px_16px_rgba(255,140,26,.32)]"}`}
-                >
-                  {gate.kind === "frozen"
-                    ? "🔒 Consultation in progress"
-                    : gate.kind === "busy"
-                      ? "In a consultation"
-                      : gate.kind === "off"
-                        ? "Offline right now"
-                        : gate.kind === "live"
-                          ? "Live now"
-                          : "Consult now"}
-                </button>
+
+              {room.state === "private" && (
+                <div className="absolute left-1/2 top-1/2 w-[86%] max-w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-[18px] border border-amber-300/35 bg-[rgba(28,25,23,.78)] px-5 py-5 text-center sm:px-[26px]">
+                  <div className="text-[15px] font-bold text-amber-300">Private consultation in progress</div>
+                  <p className="mt-1.5 text-[12.5px] leading-normal text-paper/80">
+                    The astrologer&apos;s video continues. Customer audio and video are never shown. Gift animations stay
+                    visible, without audio.
+                  </p>
+                </div>
               )}
-            </div>
+
+              {/* Floating reactions */}
+              <div aria-hidden="true" className="pointer-events-none absolute bottom-24 right-0 h-40 w-40">
+                {floating.map((f) => (
+                  <span key={f.id} className="az-float absolute bottom-0 text-[28px]" style={{ left: `${f.left}%` }}>
+                    {f.emoji}
+                  </span>
+                ))}
+              </div>
+
+              <div className="absolute inset-x-3.5 bottom-3.5 flex flex-col gap-2.5">
+                {/* Gifts slide in above the feed; the feed's bubbles float up and fade on their own
+                    (decorative here: the Room chat list beside it is the readable one). */}
+                <GiftStack gifts={gifts.shown} />
+                <LiveFeedOverlay lines={chat} className="-mt-1 h-[120px] sm:h-[190px]" />
+                {room.state === "monitor" && (
+                  <div className="flex items-center gap-2.5 rounded-xl bg-blue-700/90 px-[13px] py-2.5 text-[12.5px] font-semibold text-white">
+                    <span>🛡</span>
+                    <span className="flex-1">A compliance monitor has joined this live session.</span>
+                  </div>
+                )}
+                {room.state === "degrade" && (
+                  <div className="flex items-center gap-2.5 rounded-xl bg-amber-700/90 px-[13px] py-2.5 text-[12.5px] font-semibold text-white">
+                    <span>⚠</span>
+                    <span className="flex-1">
+                      High load — chat is in slow mode (1 message per 30 s) and reactions are being sampled.
+                    </span>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <span className="inline-flex items-baseline gap-[7px] rounded-full bg-black/45 px-3.5 py-[7px]">
+                    {host.was && host.was > host.price && (
+                      <span className="text-xs text-white/65 line-through">{rupee(host.was)}</span>
+                    )}
+                    <b className="text-[15px] text-paper">{rupee(host.price)}/min</b>
+                    {discountLabel(host.price, host.was) && (
+                      <span className="text-[11px] font-bold text-amber-300">{discountLabel(host.price, host.was)}</span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={openGifts}
+                    aria-label="Send a gift"
+                    aria-expanded={giftsOpen}
+                    title="Send a gift"
+                    className={`grid size-11 shrink-0 place-items-center rounded-full border border-white/15 text-[20px] leading-none ${giftsOpen ? "bg-amber-500" : "bg-black/45 hover:bg-black/60"}`}
+                  >
+                    <span aria-hidden="true">🎁</span>
+                  </button>
+                  {gate.kind === "live" ? (
+                    // Hosting this room: the way to consult them now is the room's queue.
+                    <button
+                      type="button"
+                      disabled={room.queue.inQueue}
+                      onClick={joinQueue}
+                      className={`ml-auto h-11 rounded-full px-[22px] text-[14.5px] font-bold ${room.queue.inQueue ? "cursor-default bg-stone-300/90 text-stone-600" : "az-cta shadow-[0_6px_16px_rgba(255,140,26,.32)]"}`}
+                    >
+                      {room.queue.inQueue ? "✓ You're in the queue" : "Join the consult queue"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={gate.kind !== "ok"}
+                      title={gate.kind === "frozen" ? FROZEN_HINT : blockedHint(gate)}
+                      onClick={() => startConsult({ astrologer: host })}
+                      className={`ml-auto h-11 rounded-full px-[22px] text-[14.5px] font-bold ${gate.kind !== "ok" ? "cursor-not-allowed bg-stone-300/90 text-stone-600" : "az-cta shadow-[0_6px_16px_rgba(255,140,26,.32)]"}`}
+                    >
+                      {gate.kind === "frozen"
+                        ? "🔒 Consultation in progress"
+                        : gate.kind === "busy"
+                          ? "In a consultation"
+                          : gate.kind === "off"
+                            ? "Offline right now"
+                            : "Consult now"}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {giftsOpen && <GiftPanel roomId={room.id} onClose={closeGifts} onSent={giftSent} onEnded={roomEnded} />}
+            </>
+          )}
+        </div>
+
+        {/* ---------- This live's details (the astrologer can change them while live) ---------- */}
+        <div className="mt-3.5 rounded-2xl border border-line bg-paper px-4 py-3.5">
+          <h2 className="text-[16px] font-bold leading-snug text-ink [overflow-wrap:anywhere]">{room.title}</h2>
+          {room.topic !== room.title && <p className="mt-0.5 text-[13px] text-stone-600 [overflow-wrap:anywhere]">{room.topic}</p>}
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11.5px] font-semibold text-stone-600">
+            {room.category && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-800">{room.category}</span>}
+            {room.language && <span className="rounded-full bg-cream px-2.5 py-1">{room.language}</span>}
+            {plannedLabel(room.durationMins) && <span className="rounded-full bg-cream px-2.5 py-1">About {plannedLabel(room.durationMins)} planned</span>}
+            {!ended && liveForLabel(room.startedAt, minute) && (
+              <span className="rounded-full bg-orange-50 px-2.5 py-1 text-orange-700">{liveForLabel(room.startedAt, minute)}</span>
+            )}
           </div>
         </div>
 
@@ -323,7 +471,7 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
                   type="button"
                   onClick={() => void vote(i)}
                   aria-pressed={mine}
-                  disabled={(voted !== null && !mine) || voting}
+                  disabled={(voted !== null && !mine) || voting || ended}
                   className={`relative flex h-11 w-full items-center justify-between gap-2.5 overflow-hidden rounded-xl border bg-white px-3.5 text-left disabled:cursor-default ${
                     mine ? "border-amber-500" : "border-line"
                   }`}
@@ -376,10 +524,18 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
         {/* ---------- Chat ---------- */}
         <div className="flex min-h-[340px] flex-col rounded-[20px] border border-line bg-paper p-4">
           <b className="block text-[13.5px]">Room chat</b>
-          <div ref={chatBox} className="mt-3 flex max-h-[320px] flex-1 flex-col gap-[9px] overflow-y-auto" aria-live="polite">
-            {chat.map((c, i) => (
-              <div key={i} className="text-[13px] leading-[1.45]">
-                <b className="font-bold text-amber-800">{c.who}</b> <span className="text-stone-600">{c.text}</span>
+          <div ref={chatBox} className="mt-3 flex max-h-[320px] flex-1 flex-col gap-[9px] overflow-y-auto" role="log" aria-live="polite" aria-label="Room chat">
+            {chat.length === 0 && <p className="text-[12.5px] text-stone-500">No messages yet. Say hello to the room.</p>}
+            {chat.map((c) => (
+              <div
+                key={c.id}
+                className={`flex items-start gap-2 text-[13px] leading-[1.45] ${c.kind === "join" ? "text-[12px] text-stone-500" : ""}`}
+              >
+                <FeedAvatar photo={c.photo} initials={c.initials} size={c.kind === "join" ? 20 : 24} />
+                <p className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                  <b className={`font-bold ${c.kind === "join" ? "text-stone-600" : "text-amber-800"}`}>{c.who}</b>{" "}
+                  <span className={c.kind === "gift" ? "font-semibold text-amber-700" : c.kind === "join" ? "" : "text-stone-600"}>{c.text}</span>
+                </p>
               </div>
             ))}
           </div>
@@ -387,12 +543,13 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
             <input
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Say something…"
+              disabled={ended}
+              placeholder={ended ? "This live has ended" : "Say something…"}
               aria-label="Chat message"
               maxLength={200}
               className="h-10 min-w-0 flex-1 rounded-xl border border-line bg-white px-3 text-[13.5px] text-ink outline-none focus:border-amber-500"
             />
-            <button type="submit" disabled={sending} className="h-10 rounded-xl bg-amber-500 px-3.5 text-[13px] font-bold text-ink">
+            <button type="submit" disabled={sending || ended} className="h-10 rounded-xl bg-amber-500 px-3.5 text-[13px] font-bold text-ink disabled:opacity-50">
               Send
             </button>
           </form>
@@ -407,8 +564,9 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
                 key={emoji}
                 type="button"
                 onClick={(e) => sendReaction(emoji, e.timeStamp)}
+                disabled={ended}
                 aria-label={`Send ${emoji}`}
-                className="grid size-12 place-items-center rounded-[14px] border border-line-warm bg-card text-[22px] leading-none hover:-translate-y-0.5"
+                className="disabled:opacity-45 disabled:hover:translate-y-0 grid size-12 place-items-center rounded-[14px] border border-line-warm bg-card text-[22px] leading-none hover:-translate-y-0.5"
               >
                 {emoji}
               </button>

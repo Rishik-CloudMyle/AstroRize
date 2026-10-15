@@ -288,6 +288,20 @@ export interface AstrologerDetail {
   training: { done: number; total: number } | null;
   application: { step: number; savedAt: string } | null;
   openNotices: number;
+  /** Welcome campaign: whether customers can use their free call with this astrologer. */
+  freeCalls: {
+    enabled: boolean;
+    /** Their own daily limit, or null for the campaign default */
+    dailyLimit: number | null;
+    defaultLimit: number;
+    effectiveLimit: number;
+    /** Free calls connected today (IST) */
+    today: number;
+    /** The campaign itself is switched on (Config "welcome.enabled") */
+    campaignOn: boolean;
+    /** Highest daily limit that may be set */
+    maxLimit: number;
+  };
 }
 
 /** One application with its negotiation and audit trail (GET /admin/applicants/:id). */
@@ -524,8 +538,10 @@ export interface TrustData {
   queue: ModerationItem[];
   reasonCodes: string[];
   undoWindow: string;
+  /** Recommendation engine density gate: completed consultations so far vs the target (Config). */
   density: { value: number; target: number };
-  sampleFloor: { floor: string; below: string };
+  /** Sample floor (Config trust.rating.min_consults_to_publish) and how many public astrologers are below it. */
+  sampleFloor: { floor: number; below: number; total: number };
 }
 
 // ── RBAC ──
@@ -548,14 +564,6 @@ export interface RbacData {
   updatedBy: string | null;
   updatedAt: string | null;
   canEdit: boolean;
-  /** Open (or just resolved) separation-of-duties case; null when there is none. */
-  conflict: {
-    user: string;
-    requested: string;
-    existing: string;
-    alternative: string;
-    resolved?: "revoke" | "grant-alternative";
-  } | null;
 }
 
 // ── Audit ──

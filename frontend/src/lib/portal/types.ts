@@ -124,6 +124,17 @@ export interface Dashboard {
   training: TrainingItem[];
   reviews: Review[];
   multiplierOptions: number[];
+  /** Welcome campaign: free calls taken today and how many are left */
+  freeCalls: FreeCalls;
+}
+
+/** Welcome-campaign free calls for today (IST). */
+export interface FreeCalls {
+  /** Taking part (set by Astrorize HR) and the campaign is on */
+  enabled: boolean;
+  limit: number;
+  today: number;
+  remaining: number;
 }
 
 // ── Application wizard ──
@@ -229,6 +240,8 @@ export interface IncomingRequest {
   mode: string;
   /** Instant Call / Emergency request (charged at the multiplier rate) */
   instant: boolean;
+  /** A customer's welcome free call: the free time earns nothing, paid minutes after it earn as usual */
+  free: boolean;
   windowSecs: number;
   remainingSecs: number;
   /** Per-minute rate snapshotted when the customer asked (₹) */
@@ -241,6 +254,7 @@ export interface QueueEntry {
   alias: string;
   mode: string;
   instant: boolean;
+  free: boolean;
   rate: number;
   /** "12 min", or "under a minute" */
   waiting: string;
@@ -252,6 +266,9 @@ export interface ActiveSession {
   alias: string;
   mode: string;
   instant: boolean;
+  /** A customer's welcome free call: its first freeSeconds earn nothing */
+  free: boolean;
+  freeSeconds: number;
   elapsed: string;
   elapsedSeconds: number;
   lowBalance: boolean;
@@ -263,6 +280,7 @@ export interface Consultations {
   queue: QueueEntry[];
   queueMax: number;
   session: ActiveSession | null;
+  freeCalls: FreeCalls;
 }
 
 /** GET /portal/consultations/:id/profile — everything the customer shared. */
@@ -271,6 +289,7 @@ export interface ConsultPersonDetail {
   alias: string;
   mode: string;
   instant: boolean;
+  free: boolean;
   rate: number;
   status: "waiting" | "active";
   waiting: string;
@@ -286,6 +305,8 @@ export interface Settlement {
   promo: number;
   service: number;
   reason: string;
+  complimentary: boolean;
+  complimentarySeconds: number;
 }
 
 // ── Live ──
@@ -299,8 +320,17 @@ export interface LiveRequest {
 export interface LiveRoom {
   id: string;
   isLive: boolean;
-  /** This live's topic (when not live: the last one used, to pre-fill "Go live"). */
+  /** This live's details (when not live: the last ones used, to pre-fill "Go live"). Title is "" if never set. */
+  title: string;
   topic: string;
+  category: string | null;
+  language: string | null;
+  durationMins: number | null;
+  /** ISO start of the current (or last) live session */
+  startedAt: string;
+  /** What category and language may be set to */
+  categories: string[];
+  languages: string[];
   elapsed: string;
   viewers: number;
   image: string;
@@ -460,7 +490,9 @@ export interface Earnings {
 export interface ProfileData {
   pendingChanges: number;
   skillPool: string[];
-  videoRenewalDays: number;
+  /** The intro video on the public profile, or null */
+  introVideoUrl: string | null;
+  video: { maxMb: number; maxSeconds: number };
   /** null until the astrologer is approved and listed on the site. */
   publicProfileUrl: string | null;
   published: { bio: string; skills: string[] };

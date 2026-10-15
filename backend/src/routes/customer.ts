@@ -35,11 +35,14 @@ import {
   acceptBy,
   endConsultation,
   expireStaleRequests,
+  extendHold,
+  freeWindow,
   lockKey,
   openConsultationOf,
   sessionCapSeconds,
   settlementView,
 } from "../lib/consultations.ts";
+import { COMPLIMENTARY, WELCOME_MODES, consumeWelcome, freeCallRefusal, reserveWelcome, welcomePolicy, welcomeView } from "../lib/welcome.ts";
 import { effectivePresence, syncPresence } from "../lib/presence.ts";
 import { astrologerView } from "./catalog.ts";
 import { configNumber } from "../lib/settings.ts";
@@ -71,11 +74,14 @@ async function walletOf(userId: string) {
 // ── Wallet ──
 
 async function walletView(userId: string) {
-  const [wallet, transactions] = await Promise.all([
+  const [wallet, transactions, welcome] = await Promise.all([
     walletOf(userId),
     db.transaction.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 50 }),
+    welcomeView(userId),
   ]);
   return {
+    /** The welcome free call (null when this account never had one). */
+    welcome,
     service: wallet.service,
     promo: wallet.promo,
     held: wallet.held,
@@ -146,6 +152,8 @@ customerRouter.post("/wallet/recharge/:orderId/confirm", async (req, res) => {
       // Another request confirmed it first — the wallet was credited once.
     }
   }
+  // Recharged during a consultation: the new money is held for it, so it carries on without disconnecting.
+  await extendHold(userId);
   res.json({ credited: payment.amount, bonus: payment.bonus, wallet: await walletView(userId) });
 });
 
@@ -187,6 +195,25 @@ async function availableAstrologer(astrologerId: string) {
   return astrologer;
 }
 
+/**
+ * 409 when the rate the customer was shown is no longer the astrologer's rate: they confirm the
+ * new one before anything starts. A consultation always runs at the rate it was started at.
+ */
+function rateChanged(res: Response, quoted: number, rate: number) {
+  res.status(409).json({
+    error: {
+      code: "rate_changed",
+      message: `The rate changed from ${rupee(quoted)} to ${rupee(rate)}/min. Continue at ${rupee(rate)}/min?`,
+      quotedRate: quoted,
+      rate,
+    },
+  });
+}
+
+/** The free call can only be used for Chat and Voice; Video and Instant Call stay paid. */
+const modalityDenied = () =>
+  new HttpError(400, "Your free call can be used for Chat or Voice. Video and Instant Call are paid.", "WEL_MODALITY_DENIED");
+
 const astrologerBusy = async (astrologerId: string) =>
   !!(await db.consultation.findFirst({ where: { astrologerId, status: "ACTIVE" }, select: { id: true } }));
 
@@ -199,7 +226,7 @@ async function ownConsultation(userId: string, id: string) {
 /** What the website needs to show (or resume) a consultation: waiting, connecting, in session or finished. */
 async function consultationView(c: Consultation & { astrologer: Astrologer }) {
   const now = new Date();
-  const freeSeconds = await configNumber("consult.free_seconds", 60);
+  const [standardFree, policy] = await Promise.all([configNumber("consult.free_seconds", 60), welcomePolicy()]);
   const ahead =
     c.status === "REQUESTED"
       ? await db.consultation.count({ where: { astrologerId: c.astrologerId, status: "REQUESTED", requestedAt: { lt: c.requestedAt } } })
@@ -221,8 +248,13 @@ async function consultationView(c: Consultation & { astrologer: Astrologer }) {
     secondsToAccept: by ? Math.max(0, Math.ceil((by.getTime() - now.getTime()) / 1000)) : null,
     connectedAt: c.connectedAt?.toISOString() ?? null,
     elapsedSeconds: c.status === "ACTIVE" && c.connectedAt ? Math.max(0, Math.floor((now.getTime() - c.connectedAt.getTime()) / 1000)) : 0,
-    freeSeconds,
-    maxSeconds: sessionCapSeconds(c, freeSeconds),
+    /** Seconds not billed at the start: the standard free minute, or a free call's complimentary time. */
+    freeSeconds: freeWindow(c, standardFree),
+    /** A welcome free call (complimentary, then the same session continues at `rate`). */
+    complimentary: c.billingMode === COMPLIMENTARY,
+    /** When to remind the customer, before the free time ends, to add money to continue. */
+    reminderSeconds: c.billingMode === COMPLIMENTARY ? policy.reminderSeconds : 0,
+    maxSeconds: sessionCapSeconds(c, standardFree),
     endReason: c.endReason,
     settlement: c.status === "ENDED" ? settlementView(c) : null,
   };
@@ -251,38 +283,76 @@ customerRouter.get("/consultations/:id", async (req, res) => {
   res.json({ consultation: await viewOf(c.id) });
 });
 
+const quotedRateSchema = z.number().int().nonnegative().optional();
+
 customerRouter.post("/consultations", async (req, res) => {
   const me = auth(req);
-  const { astrologerId, mode } = z.object({ astrologerId: z.string(), mode: modeSchema }).parse(req.body);
+  const { astrologerId, mode, quotedRate, welcome } = z
+    .object({ astrologerId: z.string(), mode: modeSchema, quotedRate: quotedRateSchema, welcome: z.boolean().optional() })
+    .parse(req.body);
+  if (welcome && !(WELCOME_MODES as readonly string[]).includes(mode)) throw modalityDenied();
   const astrologer = await availableAstrologer(astrologerId);
+  // The rate is fixed now and the whole session is billed at it.
   const rate = rateFor(astrologer.price, mode as Mode);
+  if (quotedRate !== undefined && quotedRate !== rate) return rateChanged(res, quotedRate, rate);
   const needed = rate * ELIGIBILITY_MINUTES;
+  const policy = welcome ? await welcomePolicy() : null;
   await walletOf(me.user.id);
   const ref = await newRef();
 
   const result = await db.$transaction(async (tx) => {
     await lockKey(tx, `consult:${me.user.id}`);
+    // One free call request at a time per astrologer, so their daily quota can't be overshot.
+    if (policy) await lockKey(tx, `welcome:${astrologerId}`);
     const open = await openConsultationOf(tx, me.user.id);
     if (open) return { kind: "open" as const, open };
     if (await tx.consultation.findFirst({ where: { astrologerId, status: "ACTIVE" }, select: { id: true } })) return { kind: "busy" as const };
     const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: me.user.id } });
-    const spendable = wallet.service + wallet.promo - wallet.held;
-    if (spendable < needed) return { kind: "short" as const, spendable };
+    const spendable = Math.max(0, wallet.service + wallet.promo - wallet.held);
+    if (policy) {
+      // The customer's own free call first: "you've used it" is the answer that matters to them.
+      const benefit = await tx.welcomeBenefit.findUnique({ where: { userId: me.user.id }, select: { status: true } });
+      if (benefit?.status !== "GRANTED") {
+        return { kind: "refused" as const, code: "WEL_NOT_AVAILABLE", message: "You don't have a free call to use. You can still consult at the normal rate." };
+      }
+      const refusal = await freeCallRefusal(astrologer, policy, tx);
+      if (refusal) return { kind: "refused" as const, ...refusal };
+    } else if (spendable < needed) {
+      return { kind: "short" as const, spendable };
+    }
     // Hold the available balance for the length of the session; one debit is taken at the end.
+    // A free call needs no balance: what is held only lets it continue once the free time is over.
     const consultation = await tx.consultation.create({
-      data: { ref, customerId: me.user.id, customerAlias: newAlias(), astrologerId, mode, rate, status: "CONNECTING", heldAmount: spendable },
+      data: {
+        ref,
+        customerId: me.user.id,
+        customerAlias: newAlias(),
+        astrologerId,
+        mode,
+        rate,
+        status: "CONNECTING",
+        heldAmount: spendable,
+        ...(policy ? { billingMode: COMPLIMENTARY, complimentarySeconds: policy.complimentarySeconds } : {}),
+      },
     });
-    await tx.wallet.update({ where: { userId: me.user.id }, data: { held: { increment: spendable } } });
+    if (policy && !(await reserveWelcome(tx, me.user.id, consultation.id))) {
+      // Undo everything above: the free call isn't there to use.
+      throw new HttpError(409, "You don't have a free call to use. You can still consult at the normal rate.", "WEL_NOT_AVAILABLE");
+    }
+    if (spendable > 0) await tx.wallet.update({ where: { userId: me.user.id }, data: { held: { increment: spendable } } });
     return { kind: "ok" as const, consultation };
   });
 
   if (result.kind === "open") return inProgress(res, result.open);
   if (result.kind === "busy") throw conflict(`${astrologer.name} is in another consultation right now. Try again in a few minutes — you have not been charged.`);
+  if (result.kind === "refused") throw new HttpError(409, result.message, result.code);
   if (result.kind === "short") {
     throw badRequest(`Your balance is ${rupee(result.spendable)}. You need ${rupee(needed)} for five minutes at ${rupee(rate)}/min.`);
   }
   const c = result.consultation;
-  res.status(201).json({ consultation: { id: c.id, ref, rate, held: c.heldAmount, status: c.status } });
+  res.status(201).json({
+    consultation: { id: c.id, ref, rate, held: c.heldAmount, status: c.status, complimentary: c.billingMode === COMPLIMENTARY },
+  });
 });
 
 /** The astrologer picked up. (Until the calling provider is integrated, connection is immediate.) */
@@ -290,15 +360,21 @@ customerRouter.post("/consultations/:id/connect", async (req, res) => {
   const c = await ownConsultation(auth(req).user.id, String(req.params.id));
   if (c.status !== "CONNECTING") throw conflict("This consultation can no longer connect.");
   if (await astrologerBusy(c.astrologerId)) throw conflict("The astrologer is in another consultation right now.");
-  const { count } = await db.consultation.updateMany({ where: { id: c.id, status: "CONNECTING" }, data: { status: "ACTIVE", connectedAt: new Date() } });
+  const connectedAt = new Date();
+  const count = await db.$transaction(async (tx) => {
+    const { count } = await tx.consultation.updateMany({ where: { id: c.id, status: "CONNECTING" }, data: { status: "ACTIVE", connectedAt } });
+    // A free call is used up once it connects.
+    if (count && c.billingMode === COMPLIMENTARY) await consumeWelcome(tx, c.id, connectedAt);
+    return count;
+  });
   if (!count) throw conflict("This consultation can no longer connect.");
   await syncPresence(c.astrologerId); // the astrologer is now in a session → BUSY
   const updated = await db.consultation.findUniqueOrThrow({ where: { id: c.id } });
-  const freeSeconds = await configNumber("consult.free_seconds", 60);
+  const standardFree = await configNumber("consult.free_seconds", 60);
   res.json({
     consultation: { id: updated.id, status: updated.status, connectedAt: updated.connectedAt },
-    freeSeconds,
-    maxSeconds: sessionCapSeconds(c, freeSeconds),
+    freeSeconds: freeWindow(updated, standardFree),
+    maxSeconds: sessionCapSeconds(updated, standardFree),
   });
 });
 
@@ -356,9 +432,13 @@ customerRouter.post("/consultations/:id/rating", async (req, res) => {
  */
 customerRouter.post("/instant-calls", async (req, res) => {
   const me = auth(req);
-  const { astrologerId } = z.object({ astrologerId: z.string() }).parse(req.body);
+  const { astrologerId, quotedRate, welcome } = z
+    .object({ astrologerId: z.string(), quotedRate: quotedRateSchema, welcome: z.boolean().optional() })
+    .parse(req.body);
+  if (welcome) throw modalityDenied();
   const astrologer = await availableAstrologer(astrologerId);
   const rate = instantRate(astrologer.price, astrologer.instantMultiplier);
+  if (quotedRate !== undefined && quotedRate !== rate) return rateChanged(res, quotedRate, rate);
   const needed = rate * ELIGIBILITY_MINUTES;
   await walletOf(me.user.id);
   const ref = await newRef();

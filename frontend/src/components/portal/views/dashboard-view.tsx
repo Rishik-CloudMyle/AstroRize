@@ -77,7 +77,10 @@ export default function DashboardView({ data }: { data: Dashboard }) {
     {
       label: "Sessions",
       value: String(data.sessions),
-      delta: data.emergencySessions > 0 ? `${data.emergencySessions} emergency` : "no emergency calls",
+      delta:
+        (data.emergencySessions > 0 ? `${data.emergencySessions} emergency` : "no emergency calls") +
+        // Welcome campaign: free calls left today (the free minutes earn nothing).
+        (data.freeCalls?.enabled ? ` · ${data.freeCalls.remaining} of ${data.freeCalls.limit} free calls left` : ""),
       deltaFg: data.emergencySessions > 0 ? "#c2410c" : "#78716c",
     },
     { label: "Gifts", value: rupee(data.gifts), delta: "gifts received today", deltaFg: "#78716c" },

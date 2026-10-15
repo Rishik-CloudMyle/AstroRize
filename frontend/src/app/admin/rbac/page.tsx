@@ -1,6 +1,5 @@
 import AccessDenied from "@/components/admin/access-denied";
 import RbacMatrix from "@/components/admin/rbac/rbac-matrix";
-import SodConflict from "@/components/admin/rbac/sod-conflict";
 import { PageTitle } from "@/components/admin/ui";
 import { allowed } from "@/lib/admin/guard";
 import { getRbac } from "@/lib/admin/api";
@@ -20,8 +19,6 @@ export default async function RbacPage() {
 
       {/* A new saved version (someone saved or reset) starts the grid afresh. */}
       <RbacMatrix key={data.version} data={data} />
-
-      {data.conflict && <SodConflict conflict={data.conflict} canAct={data.canEdit} />}
     </div>
   );
 }

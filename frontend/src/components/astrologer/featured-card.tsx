@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Astrologer } from "@/lib/types";
 import { languageLine, ratingLabel, rupee, skillLine } from "@/lib/format";
+import ModeOptions from "./mode-options";
 import { AvailabilityBadge, DiscountBadge, Portrait, RecognitionBadge, VerifiedTick, WasPrice, priceNote } from "./parts";
 
 /** Glassy astrologer card from the home page "Featured astrologers" row. */
@@ -29,17 +30,7 @@ export default function FeaturedCard({ astrologer: a }: { astrologer: Astrologer
           </div>
         </div>
       </div>
-      <div className="mt-2.5 grid grid-cols-3 gap-1">
-        {modeTiles(a).map((m) => (
-          <div key={m.label} className="flex flex-col items-center gap-px">
-            <span className="text-base leading-none text-[#3f4f9a]">{m.icon}</span>
-            <b className="text-[10px] font-bold text-[#3f4f9a]">{m.label}</b>
-            <span className="text-[10px] font-[650]" style={{ color: m.stateFg }}>
-              {m.state}
-            </span>
-          </div>
-        ))}
-      </div>
+      <ModeOptions astrologer={a} />
       <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-[#f3e9d8] pt-2.5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-1.5">
@@ -53,37 +44,23 @@ export default function FeaturedCard({ astrologer: a }: { astrologer: Astrologer
         {a.availability === "on" ? (
           <Link
             href={`/astrologer/${a.slug}`}
+            aria-label={`Consult now with ${a.name} (opens their profile)`}
             className="az-cta az-sheen inline-flex h-[34px] shrink-0 items-center gap-1 rounded-full px-3.5 text-[12.5px] font-bold hover:-translate-y-0.5 hover:text-cta-ink hover:no-underline hover:shadow-[0_10px_20px_rgba(255,140,26,.38)]"
           >
-            Consult ›
+            Consult now ›
           </Link>
         ) : (
-          // Not available to consult right now: the profile is still open to everyone.
+          // Not available to consult right now: the profile is still open to everyone (booking a
+          // fixed session, messaging, or being told when they're back).
           <Link
             href={`/astrologer/${a.slug}`}
+            aria-label={`Consult now with ${a.name} (opens their profile)`}
             className="inline-flex h-[34px] shrink-0 items-center gap-1 rounded-full border border-[#f0d9a8] bg-white px-3.5 text-[12.5px] font-bold text-ink hover:text-ink hover:no-underline"
           >
-            View profile ›
+            Consult now ›
           </Link>
         )}
       </div>
     </div>
   );
-}
-
-/** Chat / Voice / Instant status tiles: what the customer can do with this astrologer right now. */
-function modeTiles(a: Astrologer) {
-  const [state, fg] =
-    a.availability === "on"
-      ? ["Online", "#16a34a"]
-      : a.availability === "busy"
-        ? ["Busy", "#c81e4a"]
-        : a.availability === "live"
-          ? ["Live", "#c2410c"]
-          : ["Offline", "#9a93a5"];
-  return [
-    { icon: "💬", label: "Chat", state, stateFg: fg },
-    { icon: "📞", label: "Voice", state, stateFg: fg },
-    { icon: "⚡", label: "Instant", state: a.availability === "on" ? "Ready" : state, stateFg: a.availability === "on" ? "#2563eb" : fg },
-  ];
 }

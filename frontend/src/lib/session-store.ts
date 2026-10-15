@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { api } from "./api/client";
 import type { AdminRole, Role } from "./auth";
-import type { WalletState } from "./types";
+import type { WalletState, WelcomeBenefit } from "./types";
 
 // A tiny client-side store for the signed-in person and their wallet.
 // The Node API is the source of truth: it sets the httpOnly session cookie on
@@ -66,9 +66,10 @@ interface ApiWallet {
   held: number;
   promoExpires: string | null;
   transactions: WalletState["transactions"];
+  welcome?: WelcomeBenefit | null;
 }
 
-const EMPTY_WALLET: WalletState = { service: 0, promo: 0, promoExpires: "", transactions: [] };
+const EMPTY_WALLET: WalletState = { service: 0, promo: 0, promoExpires: "", transactions: [], welcome: null };
 
 const LOGGED_OUT: Session = {
   ready: false,
@@ -105,7 +106,7 @@ function fromUser(user: ApiUser | null): Session {
 }
 
 function toWallet(w: ApiWallet): WalletState {
-  return { service: w.service, promo: w.promo, promoExpires: w.promoExpires ?? "", transactions: w.transactions };
+  return { service: w.service, promo: w.promo, promoExpires: w.promoExpires ?? "", transactions: w.transactions, welcome: w.welcome ?? null };
 }
 
 async function applyUser(user: ApiUser | null) {
@@ -154,6 +155,20 @@ export function useHydrated(): boolean {
 
 export function totalBalance(s: Session): number {
   return s.wallet.service + s.wallet.promo;
+}
+
+/** The signed-in customer's welcome free call while it can be used, else null. */
+export function usableWelcome(s: Session): WelcomeBenefit | null {
+  return s.loggedIn && s.role === "customer" && s.wallet.welcome?.available ? s.wallet.welcome : null;
+}
+
+/**
+ * Whether to show "Free call" on astrologers: to a customer holding an unused free call, and to
+ * visitors (every new account gets one). Not once it's used, nor to astrologer or staff accounts.
+ */
+export function showsFreeCalls(s: Session): boolean {
+  if (!s.ready) return false;
+  return !s.loggedIn || !!usableWelcome(s);
 }
 
 export const sessionActions = {

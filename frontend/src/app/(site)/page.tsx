@@ -1,25 +1,25 @@
 import Link from "next/link";
 import FeaturedCard from "@/components/astrologer/featured-card";
-import { Portrait } from "@/components/astrologer/parts";
 import LiveBand from "@/components/home/live-band";
-import LiveSky, { Sparkles } from "@/components/home/navagraha-sky";
+import AvailableNow from "@/components/home/available-now";
+import HeroSky, { Sparkles } from "@/components/home/hero-sky";
+import { consultationLabel } from "@/components/home/review-text";
 import Voices from "@/components/home/voices";
 import LiveRoomCard from "@/components/live-room-card";
 import ToolCard from "@/components/tool-card";
-import { rupee, skillLine } from "@/lib/format";
-import { STEPS, TESTIMONIALS, TRUST_STRIP } from "@/lib/mock/home";
+import { STEPS, TRUST_STRIP } from "@/lib/mock/home";
 import { APP_STORE_URL, PLAY_STORE_URL } from "@/lib/mock/site";
 import { getTools } from "@/lib/mock/tools";
-import { grahaPositions } from "@/lib/sky";
-import { getAstrologers, getLiveRooms } from "./data";
+import { getAstrologers, getFeaturedReviews, getLiveRooms } from "./data";
 
 export default async function HomePage() {
-  const [{ astrologers, total }, liveRooms, tools] = await Promise.all([getAstrologers(), getLiveRooms(), getTools()]);
-  // Where the planets really are as this page is served (the hero animation starts from here).
-  const skyAt = new Date();
-  const sky = grahaPositions(skyAt);
-  const skyTime = skyAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
-  const availableNow = astrologers.filter((a) => a.availability === "on").slice(0, 3);
+  const [{ astrologers, total }, liveRooms, tools, reviews] = await Promise.all([getAstrologers(), getLiveRooms(), getTools(), getFeaturedReviews()]);
+  // Real published reviews only: the newest three as cards, any others rotate in "In their words".
+  const testimonials = reviews.slice(0, 3);
+  const voices = reviews.slice(3);
+  const online = astrologers.filter((a) => a.availability === "on");
+  const onlineCount = online.length;
+  const availableNow = online.slice(0, 4);
   const featured = astrologers.slice(0, 3);
   const rooms = liveRooms
     .map((room) => ({ room, host: astrologers.find((a) => a.id === room.astrologerId) }))
@@ -30,13 +30,12 @@ export default async function HomePage() {
       {/* ---------- Hero ---------- */}
       <section className="relative overflow-hidden border-b border-line-warm bg-[radial-gradient(ellipse_at_74%_50%,#fff9ea_0%,#fdf0d3_45%,#f8e2b4_100%)]">
         <Sparkles className="absolute inset-0" />
-        <div className="relative mx-auto grid max-w-[1240px] items-center gap-8 px-4 pb-12 pt-10 sm:px-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)] lg:gap-12 lg:pb-[60px] lg:pt-16">
-          {/* Above the sky, so planets passing behind never cover the headline. */}
-          <div className="az-rise relative z-10 min-w-0">
+        <div className="relative mx-auto grid max-w-[1240px] items-center gap-8 px-4 pb-8 pt-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-12 lg:pb-9 lg:pt-9">
+          <div className="az-rise min-w-0">
             <div className="az-glass inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[.1em] text-amber-800">
               Verified Vedic guidance
             </div>
-            <h1 className="mt-[18px] text-pretty font-display text-[42px] font-semibold leading-[1.02] tracking-[-.02em] text-ink sm:text-[52px] lg:text-[60px]">
+            <h1 className="mt-[18px] text-balance font-display text-[42px] font-semibold leading-[1.02] tracking-[-.02em] text-ink sm:text-[52px] lg:text-[60px]">
               Talk To A Verified Astrologer, Today
             </h1>
             <p className="mt-[18px] max-w-[44ch] text-pretty text-base leading-normal text-stone-600 sm:text-[17px]">
@@ -64,51 +63,12 @@ export default async function HomePage() {
             </div>
           </div>
 
-          <LiveSky
-            positions={sky}
-            skyTime={skyTime}
-            className="lg:-translate-x-12 xl:-translate-x-20"
-            skyClassName="left-1/2 top-1/2 w-[min(440px,92vw)] -translate-x-1/2 -translate-y-1/2 lg:left-[52%] lg:w-[400px] xl:left-[50%] xl:w-[600px]"
-          >
-            <div className="group/list az-rise az-d2 min-w-0 rounded-3xl border border-amber-900/15 bg-[rgba(255,253,248,.14)] p-4 transition-[background-color,backdrop-filter,box-shadow] duration-300 focus-within:bg-[rgba(255,253,248,.94)] focus-within:shadow-[0_18px_40px_rgba(92,58,20,.18)] focus-within:backdrop-blur-md hover:bg-[rgba(255,253,248,.94)] hover:shadow-[0_18px_40px_rgba(92,58,20,.18)] hover:backdrop-blur-md sm:p-5 [@media(hover:none)]:bg-[rgba(255,253,248,.5)]">
-              <div className="text-[11px] font-bold uppercase tracking-[.12em] text-amber-800">Available right now</div>
-              {availableNow.length === 0 ? (
-                // Nobody is online: say so in the same card, and keep the way to every profile.
-                <div className="mt-3 rounded-2xl border border-dashed border-amber-900/20 bg-[rgba(255,252,248,.22)] px-4 py-5 text-center transition-colors duration-300 group-hover/list:bg-white group-focus-within/list:bg-white [@media(hover:none)]:bg-[rgba(255,252,248,.75)]">
-                  <b className="block text-[15px] font-bold text-plum">No astrologers are online right now</b>
-                  <span className="mt-1 block text-[12.5px] leading-normal text-mauve">
-                    They come online through the day. Browse every astrologer and see who&apos;s live.
-                  </span>
-                </div>
-              ) : (
-              <div className="mt-3 flex flex-col gap-2.5">
-                {availableNow.map((a) => (
-                  <Link
-                    key={a.id}
-                    href={`/astrologer/${a.slug}`}
-                    className="az-lift flex w-full items-center gap-3 rounded-2xl border border-amber-900/10 bg-[rgba(255,252,248,.22)] px-3 py-2.5 transition-colors duration-300 group-hover/list:bg-white group-focus-within/list:bg-white [@media(hover:none)]:bg-[rgba(255,252,248,.75)] text-left hover:no-underline"
-                  >
-                    <Portrait astrologer={a} size={46} />
-                    <span className="block min-w-0 flex-1">
-                      <b className="block truncate font-name text-[15px] font-bold tracking-[-.02em] text-plum">{a.name}</b>
-                      <span className="mt-px block truncate text-xs text-mauve">{skillLine(a)}</span>
-                    </span>
-                    <span className="shrink-0 text-right">
-                      <b className="block text-[15px] font-bold tabular-nums text-plum">{rupee(a.price)}</b>
-                      <span className="block text-[10px] text-mauve">per minute</span>
-                    </span>
-                  </Link>
-                ))}
-              </div>
-              )}
-              <Link
-                href="/astrologers"
-                className="mt-3 flex h-[42px] w-full items-center justify-center rounded-xl border border-amber-900/20 bg-transparent text-sm font-bold text-amber-800 hover:no-underline"
-              >
-                {availableNow.length === 0 ? `Browse all ${total} astrologers` : `See all ${total} astrologers`}
-              </Link>
-            </div>
-          </LiveSky>
+          {/* The real sky as a framed dial — sized by the screen's height too, so it fits the first view. */}
+          <HeroSky className="az-rise az-d2 mx-auto w-[min(74vw,330px)] min-w-0 pt-2.5 sm:w-[380px] lg:mr-2 lg:w-[clamp(360px,calc(100svh-370px),480px)] lg:pt-3.5 xl:mr-8" />
+        </div>
+
+        <div className="relative mx-auto max-w-[1240px] px-4 pb-8 sm:px-6 lg:pb-10">
+          <AvailableNow astrologers={availableNow} online={onlineCount} total={total} className="az-rise az-d3" />
         </div>
       </section>
 
@@ -131,33 +91,35 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <Voices />
+      {voices.length > 0 && <Voices reviews={voices} />}
 
-      {/* ---------- Featured astrologers ---------- */}
-      <section className="mx-auto max-w-[1240px] px-4 pt-14 sm:px-6">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <div className="font-card text-[10px] font-semibold tracking-[.04em] text-[#9a93a8]">HAND-PICKED FOR YOU</div>
-            <h2 className="mt-[3px] font-name text-[28px] font-bold tracking-[-.02em] text-plum sm:text-[32px]">
-              Featured astrologers
-            </h2>
-            <p className="mt-[5px] max-w-[46ch] text-[13px] text-[#8b8498]">
-              Ranked by verified consultations and repeat customers — never by how much they pay us.
-            </p>
+      {/* ---------- Featured astrologers (hidden until there are astrologers to feature) ---------- */}
+      {featured.length > 0 && (
+        <section className="mx-auto max-w-[1240px] px-4 pt-14 sm:px-6">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div className="font-card text-[10px] font-semibold tracking-[.04em] text-[#9a93a8]">HAND-PICKED FOR YOU</div>
+              <h2 className="mt-[3px] font-name text-[28px] font-bold tracking-[-.02em] text-plum sm:text-[32px]">
+                Featured astrologers
+              </h2>
+              <p className="mt-[5px] max-w-[46ch] text-[13px] text-[#8b8498]">
+                Ranked by verified consultations and repeat customers — never by how much they pay us.
+              </p>
+            </div>
+            <Link
+              href="/astrologers"
+              className="inline-flex h-9 items-center rounded-full border border-[#f0d9a8] bg-white px-4 text-[13.5px] font-bold text-ink hover:text-ink hover:no-underline"
+            >
+              Browse all →
+            </Link>
           </div>
-          <Link
-            href="/astrologers"
-            className="inline-flex h-9 items-center rounded-full border border-[#f0d9a8] bg-white px-4 text-[13.5px] font-bold text-ink hover:text-ink hover:no-underline"
-          >
-            Browse all →
-          </Link>
-        </div>
-        <div className="mt-[22px] grid grid-cols-[repeat(auto-fit,minmax(min(290px,100%),1fr))] gap-3.5">
-          {featured.map((a) => (
-            <FeaturedCard key={a.id} astrologer={a} />
-          ))}
-        </div>
-      </section>
+          <div className="mt-[22px] grid grid-cols-[repeat(auto-fit,minmax(min(290px,100%),1fr))] gap-3.5">
+            {featured.map((a) => (
+              <FeaturedCard key={a.id} astrologer={a} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ---------- Live now ---------- */}
       {rooms.length > 0 && (
@@ -220,32 +182,40 @@ export default async function HomePage() {
       </section>
 
       {/* ---------- Testimonials ---------- */}
-      <section className="mx-auto max-w-[1240px] px-4 pb-16 pt-[52px] sm:px-6">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <h2 className="text-[22px] font-bold text-ink">What customers say</h2>
-          <span className="inline-flex h-[22px] items-center rounded-full bg-emerald-50 px-[9px] text-[11px] font-bold text-emerald-700">
-            ✓ Verified consultations only
-          </span>
-        </div>
-        <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(280px,100%),1fr))] gap-3.5">
-          {TESTIMONIALS.map((t) => (
-            <figure
-              key={t.who}
-              className="rounded-[20px] border border-line-warm bg-card p-5 shadow-[0_8px_20px_rgba(90,62,40,.06)]"
-            >
-              <div className="text-sm tracking-[2px] text-[#f5b301]" aria-label="5 out of 5 stars">
-                ★★★★★
-              </div>
-              <blockquote className="mt-2.5 font-display text-xl font-medium leading-[1.35] text-ink">
-                “{t.quote}”
-              </blockquote>
-              <figcaption className="mt-3 text-xs text-mauve">
-                {t.who} · {t.when}
-              </figcaption>
-            </figure>
-          ))}
-        </div>
-      </section>
+      {testimonials.length > 0 && (
+        <section className="mx-auto max-w-[1240px] px-4 pt-[52px] sm:px-6">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h2 className="text-[22px] font-bold text-ink">What customers say</h2>
+            <span className="inline-flex h-[22px] items-center rounded-full bg-emerald-50 px-[9px] text-[11px] font-bold text-emerald-700">
+              ✓ Verified consultations only
+            </span>
+          </div>
+          <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(280px,100%),1fr))] gap-3.5">
+            {testimonials.map((t) => (
+              <figure
+                key={t.id}
+                className="flex min-w-0 flex-col rounded-[20px] border border-line-warm bg-card p-5 shadow-[0_8px_20px_rgba(90,62,40,.06)]"
+              >
+                <div className="text-sm tracking-[2px] text-[#f5b301]" role="img" aria-label={`${t.stars} out of 5 stars`}>
+                  {"★".repeat(t.stars)}
+                  <span className="text-[#e7dcc6]">{"★".repeat(5 - t.stars)}</span>
+                </div>
+                <blockquote className="mt-2.5 line-clamp-6 break-words font-display text-xl font-medium leading-[1.35] text-ink">
+                  “{t.text}”
+                </blockquote>
+                <figcaption className="mt-auto pt-3 text-xs text-mauve">
+                  {t.customerName} · {consultationLabel(t)} with{" "}
+                  <Link href={`/astrologer/${t.astrologerSlug}`} className="font-semibold text-mauve underline-offset-2 hover:text-plum">
+                    {t.astrologerName}
+                  </Link>{" "}
+                  · <span className="whitespace-nowrap">{t.date}</span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
+      )}
+      <div className="pb-16" />
     </div>
   );
 }

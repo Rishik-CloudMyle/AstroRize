@@ -38,7 +38,7 @@ import {
   lastPurge,
   retentionPolicy,
 } from "../../lib/retention.ts";
-import { configNumber, getSetting, putSetting } from "../../lib/settings.ts";
+import { configNumber, putSetting } from "../../lib/settings.ts";
 import type { Prisma } from "../../generated/prisma/client.ts";
 
 export const governanceRouter = Router();
@@ -58,8 +58,8 @@ governanceRouter.get("/trust", async (req, res) => {
   });
   const [queue, density, sampleFloor] = await Promise.all([
     db.review.findMany({ where: { status: { in: ["FLAGGED", "SOFT_HIDDEN"] } }, orderBy: { createdAt: "desc" } }),
-    getSetting("trust.density", { value: 0, target: 100 }),
-    getSetting("trust.sampleFloor", { floor: "", below: "" }),
+    consultationDensity(),
+    sampleFloorStatus(),
   ]);
   res.json({
     trust: {
@@ -83,6 +83,36 @@ governanceRouter.get("/trust", async (req, res) => {
     },
   });
 });
+
+/** A consultation that really happened: it connected and was settled. */
+const COMPLETED = { status: "ENDED", connectedAt: { not: null } } satisfies Prisma.ConsultationWhereInput;
+
+/**
+ * Recommendation engine density gate: completed consultations on the platform so far, against
+ * the target in Config "trust.recommendation.min_consultations".
+ */
+async function consultationDensity() {
+  const [value, target] = await Promise.all([
+    db.consultation.count({ where: COMPLETED }),
+    configNumber("trust.recommendation.min_consultations", 1000),
+  ]);
+  return { value, target: Math.max(1, target) };
+}
+
+/**
+ * Sample floor (Config "trust.rating.min_consults_to_publish"): how many astrologers customers can
+ * see have fewer completed consultations than the floor.
+ */
+async function sampleFloorStatus() {
+  const [floor, astrologers, counts] = await Promise.all([
+    configNumber("trust.rating.min_consults_to_publish", 25),
+    db.astrologer.findMany({ where: { lifecycle: "active", suspension: { not: "full" } }, select: { id: true } }),
+    db.consultation.groupBy({ by: ["astrologerId"], where: COMPLETED, _count: { _all: true } }),
+  ]);
+  const done = new Map(counts.map((c) => [c.astrologerId, c._count._all]));
+  const below = astrologers.filter((a) => (done.get(a.id) ?? 0) < floor).length;
+  return { floor, below, total: astrologers.length };
+}
 
 governanceRouter.post("/reviews/:id/remove", async (req, res) => {
   const admin = requirePage(req, "trust");
@@ -152,11 +182,8 @@ function rbacView(matrix: Matrix, stored: StoredMatrix | null, canEdit: boolean)
 
 governanceRouter.get("/rbac", async (req, res) => {
   const admin = requirePage(req, "rbac");
-  const [{ matrix, stored }, conflictCase] = await Promise.all([
-    loadMatrix(),
-    getSetting("rbac.conflict", null as null | { user: string; requested: string; existing: string; alternative: string; resolved?: string }),
-  ]);
-  res.json({ rbac: { ...rbacView(matrix, stored, capabilitiesOf(admin.adminRole).includes("rbac.edit")), conflict: conflictCase } });
+  const { matrix, stored } = await loadMatrix();
+  res.json({ rbac: rbacView(matrix, stored, capabilitiesOf(admin.adminRole).includes("rbac.edit")) });
 });
 
 const roleKey = z.enum(ROLE_ORDER as [AdminRoleKey, ...AdminRoleKey[]]);
@@ -218,18 +245,6 @@ governanceRouter.post("/rbac/matrix/reset", async (req, res) => {
   await audit(admin, "rbac.matrix.reset", "rbac.matrix", diff.join("; "));
   const fresh = await loadMatrix();
   res.json({ rbac: rbacView(fresh.matrix, fresh.stored, true), changes: diff });
-});
-
-governanceRouter.post("/rbac/conflict/:action", async (req, res) => {
-  requirePage(req, "rbac");
-  const admin = requireCapability(req, "rbac.edit", "Only a Super Admin can change access.");
-  const action = z.enum(["revoke", "grant-alternative"]).parse(req.params.action);
-  const c = await getSetting("rbac.conflict", null as null | { user: string; requested: string; existing: string; alternative: string; resolved?: string });
-  if (!c || c.resolved) throw conflict("There is no open separation-of-duties conflict.");
-  await putSetting("rbac.conflict", { ...c, resolved: action });
-  if (action === "revoke") await audit(admin, "rbac.capability.revoke", `user:${c.user}`, `${c.existing} → —`);
-  else await audit(admin, "rbac.capability.grant", `user:${c.user}`, `— → ${c.alternative}`);
-  res.json({ ok: true });
 });
 
 // ── Audit log ──

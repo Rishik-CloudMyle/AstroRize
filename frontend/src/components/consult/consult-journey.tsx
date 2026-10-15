@@ -6,12 +6,15 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Astrologer, ConsultMode, Settlement } from "@/lib/types";
 import { ApiError, api } from "@/lib/api/client";
-import { clock, duration, rateFor, rupee, skillLine } from "@/lib/format";
+import { clock, rupee, skillLine } from "@/lib/format";
 import { consultationActions, rememberMinimised, type ConsultationView } from "@/lib/consultation-store";
-import { sessionActions, totalBalance, useSession } from "@/lib/session-store";
+import { sessionActions, totalBalance, usableWelcome, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
-import { recheckAvailability } from "../astrologer/use-fresh-astrologer";
+import { recheckAvailability, useFreshAstrologer } from "../astrologer/use-fresh-astrologer";
+import { CallStage, SettlementView } from "./call-stage";
 import { staffConsultNote } from "./consult-gate";
+import ConsultSheet, { CHOICE_TITLE, quotedRateFor, type ConsultChoice, type RateChange } from "./consult-sheet";
+import InCallRecharge from "./in-call-recharge";
 
 type Step = "phone" | "otp" | "mode" | "connecting" | "waiting" | "session" | "settle" | "rate" | "outcome";
 
@@ -40,12 +43,6 @@ function resumeStep(c: ConsultationView): Step {
   return "outcome";
 }
 
-const MODE_CARDS: { key: ConsultMode; icon: string; title: string; body: string }[] = [
-  { key: "chat", icon: "💬", title: "Chat", body: "Type back and forth. Best for a single, specific question." },
-  { key: "voice", icon: "📞", title: "Voice", body: "A masked call — your number is never shown. Best for a conversation." },
-  { key: "video", icon: "📹", title: "Video", body: "Face to face. Needs a stable connection on both sides." },
-];
-
 const KEYPAD = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
 const RESEND_SECS = 30;
 const STEP_MS = 1100;
@@ -58,12 +55,19 @@ interface Placed {
   id: string;
   rate: number;
   held: number;
+  /** A welcome free call */
+  complimentary?: boolean;
 }
-/** The meter the API sets when the astrologer picks up (POST /consultations/:id/connect). */
+/** The meter the API sets when the astrologer picks up (POST /consultations/:id/connect), kept current by the session poll. */
 interface Meter {
   freeSeconds: number;
   maxSeconds: number;
+  complimentary: boolean;
+  reminderSeconds: number;
 }
+
+/** Refusals that mean the free call can't be used here right now (lib/welcome.ts on the API). */
+const WELCOME_REFUSED = ["WEL_DISABLED", "WEL_ASTROLOGER_NOT_PARTICIPATING", "WEL_ASTROLOGER_UNAVAILABLE", "WEL_DAILY_LIMIT", "WEL_NOT_AVAILABLE", "WEL_MODALITY_DENIED"];
 
 export default function ConsultJourney({
   astrologer,
@@ -88,12 +92,19 @@ export default function ConsultJourney({
   const [devCode, setDevCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [mode, setMode] = useState<ConsultMode | null>(resume?.mode ?? initialMode);
+  const [choice, setChoice] = useState<ConsultChoice | null>(resume ? (resume.kind === "instant" ? "instant" : resume.mode) : initialMode);
   const [connectStep, setConnectStep] = useState(resume?.status === "connecting" ? 2 : 0);
-  const [placed, setPlaced] = useState<Placed | null>(resume ? { id: resume.id, rate: resume.rate, held: resume.held } : null);
-  const [meter, setMeter] = useState<Meter>(
-    resume ? { freeSeconds: resume.freeSeconds, maxSeconds: resume.maxSeconds } : { freeSeconds: 60, maxSeconds: 900 },
+  const [placed, setPlaced] = useState<Placed | null>(
+    resume ? { id: resume.id, rate: resume.rate, held: resume.held, complimentary: resume.complimentary } : null,
   );
+  const [meter, setMeter] = useState<Meter>(
+    resume
+      ? { freeSeconds: resume.freeSeconds, maxSeconds: resume.maxSeconds, complimentary: resume.complimentary, reminderSeconds: resume.reminderSeconds }
+      : { freeSeconds: 60, maxSeconds: 900, complimentary: false, reminderSeconds: 0 },
+  );
+  // The API refused because the price changed since the sheet showed it; the customer confirms the new one.
+  const [rateChange, setRateChange] = useState<RateChange | null>(null);
+  const [recharging, setRecharging] = useState(false);
   const [elapsed, setElapsed] = useState(resume?.elapsedSeconds ?? 0);
   const [ending, setEnding] = useState(false);
   const [settlement, setSettlement] = useState<Settlement | null>(resume?.settlement ?? null);
@@ -106,15 +117,18 @@ export default function ConsultJourney({
   // When the session connected, by this browser's clock (from the server's elapsed seconds).
   const startedAt = useRef(now - (resume?.elapsedSeconds ?? 0) * 1000);
   const connectingRef = useRef(false);
-  const instant = (live?.view.kind ?? resume?.kind) === "instant";
+  const instant = (live?.view.kind ?? resume?.kind) === "instant" || choice === "instant";
+  // The sheet follows the astrologer while it is open (price, availability, free calls).
+  const fresh = useFreshAstrologer(astrologer);
+  const mode: ConsultMode | null = choice && choice !== "instant" ? choice : null;
 
-  // Always the astrologer's own price, so it matches every other page.
-  const baseRate = astrologer.price;
   const balance = totalBalance(session);
-  const rate = placed?.rate ?? (instant ? astrologer.instant : rateFor(baseRate, mode));
+  const welcome = usableWelcome(session);
+  // This request uses the customer's welcome free call (Chat or Voice with a taking-part astrologer).
+  const useFree = !!welcome && fresh.freeCall && fresh.availability === "on" && !!mode && welcome.modes.includes(mode);
+  // Once placed, always the session's own rate; before that, the rate the sheet shows.
+  const rate = placed?.rate ?? (choice ? quotedRateFor(fresh, choice) : fresh.price);
   const held = placed?.held ?? 0;
-  const needed = rate * 5;
-  const eligible = balance >= needed;
 
   // Lock page scrolling behind the full-screen flow.
   useEffect(() => {
@@ -210,36 +224,75 @@ export default function ConsultJourney({
     return () => clearInterval(id);
   }, [step]);
 
+  /** The request was refused: say why on the sheet (or go back to the consultation already open). */
+  async function refused(e: unknown, quoted: number) {
+    if (e instanceof ApiError && e.code === "consultation_in_progress") {
+      // Another tab started one in the meantime: go back to that one instead.
+      await consultationActions.refresh();
+      toast(e.message);
+      resumeConsult();
+      return;
+    }
+    setStep("mode");
+    if (e instanceof ApiError && e.code === "rate_changed" && typeof e.details.rate === "number" && choice) {
+      // The price changed after the sheet showed it: nothing started; ask before going on at the new rate.
+      setRateChange({ choice, from: quoted, to: e.details.rate });
+      recheckAvailability();
+      return;
+    }
+    if (e instanceof ApiError && WELCOME_REFUSED.includes(e.code)) {
+      // The free call can't be used here after all: re-read it and the astrologer so the sheet shows paid rates.
+      void sessionActions.refreshWallet().catch(() => {});
+      recheckAvailability();
+    } else if (e instanceof ApiError && e.status === 409) {
+      // Refused because the astrologer just went offline, live or into another consultation:
+      // say why here, and let the page behind re-check so its buttons match.
+      recheckAvailability();
+    }
+    setError(errorText(e));
+  }
+
   // ---- Connecting: the API checks the balance and places the hold, then the call rings ----
-  async function beginConnect() {
-    if (!mode || !eligible || busy) return;
+  /** `quotedOverride`: the new rate the customer just agreed to after a price change. */
+  async function beginConnect(quotedOverride?: number) {
+    if (!choice || busy) return;
+    const quoted = quotedOverride ?? quotedRateFor(fresh, choice);
+    if (!useFree && balance < quoted * 5) return;
     setBusy(true);
     setError("");
+    setRateChange(null);
+    if (choice === "instant") {
+      // Instant Call: placed now, then the astrologer is asked; the hold is taken only when they accept.
+      try {
+        const res = await api.post<{ consultation: ConsultationView }>("/instant-calls", { astrologerId: fresh.id, quotedRate: quoted });
+        consultationActions.apply(res.consultation);
+        setPlaced({ id: res.consultation.id, rate: res.consultation.rate, held: 0 });
+        setLive({ view: res.consultation, at: Date.now() });
+        setNow(Date.now());
+        setStep("waiting");
+      } catch (e) {
+        await refused(e, quoted);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     setPlaced(null);
     setConnectStep(0);
     connectingRef.current = false;
     setStep("connecting");
     try {
       const { consultation } = await api.post<{ consultation: Placed }>("/consultations", {
-        astrologerId: astrologer.id,
-        mode: mode.toUpperCase(),
+        astrologerId: fresh.id,
+        mode: choice.toUpperCase(),
+        quotedRate: quoted,
+        ...(useFree ? { welcome: true } : {}),
       });
       setPlaced(consultation);
       void consultationActions.refresh();
       void sessionActions.refreshWallet().catch(() => {});
     } catch (e) {
-      if (e instanceof ApiError && e.code === "consultation_in_progress") {
-        // Another tab started one in the meantime: go back to that one instead.
-        await consultationActions.refresh();
-        toast(e.message);
-        resumeConsult();
-        return;
-      }
-      // Refused because the astrologer just went offline, live or into another consultation:
-      // say why here, and let the page behind re-check so its buttons match.
-      if (e instanceof ApiError && e.status === 409) recheckAvailability();
-      setError(errorText(e));
-      setStep("mode");
+      await refused(e, quoted);
     } finally {
       setBusy(false);
     }
@@ -250,8 +303,15 @@ export default function ConsultJourney({
     if (connectingRef.current) return;
     connectingRef.current = true;
     try {
-      const res = await api.post<Meter>(`/consultations/${c.id}/connect`);
-      setMeter({ freeSeconds: res.freeSeconds, maxSeconds: res.maxSeconds });
+      const res = await api.post<{ freeSeconds: number; maxSeconds: number }>(`/consultations/${c.id}/connect`);
+      setMeter({
+        freeSeconds: res.freeSeconds,
+        maxSeconds: res.maxSeconds,
+        complimentary: !!c.complimentary,
+        reminderSeconds: c.complimentary ? (welcome?.reminderSeconds ?? 120) : 0,
+      });
+      // A free call is used up once it connects: the wallet's free-call note goes.
+      if (c.complimentary) void sessionActions.refreshWallet().catch(() => {});
       setConnectStep(3);
       void consultationActions.refresh();
     } catch (e) {
@@ -260,7 +320,7 @@ export default function ConsultJourney({
       void consultationActions.refresh();
       void sessionActions.refreshWallet().catch(() => {});
       setPlaced(null);
-      setError(`${errorText(e)} You have not been charged.`);
+      setError(`${errorText(e)} You have not been charged.${c.complimentary ? " Your free call is still yours." : ""}`);
       setStep("mode");
     }
   }
@@ -332,11 +392,12 @@ export default function ConsultJourney({
     consultationActions.apply(v);
     setLive({ view: v, at: Date.now() });
     setNow(Date.now());
+    const nextMeter = { freeSeconds: v.freeSeconds, maxSeconds: v.maxSeconds, complimentary: v.complimentary, reminderSeconds: v.reminderSeconds };
     if (step === "waiting") {
       if (v.status === "active") {
         // Accepted: straight into the session.
-        setPlaced({ id: v.id, rate: v.rate, held: v.held });
-        setMeter({ freeSeconds: v.freeSeconds, maxSeconds: v.maxSeconds });
+        setPlaced({ id: v.id, rate: v.rate, held: v.held, complimentary: v.complimentary });
+        setMeter(nextMeter);
         startedAt.current = Date.now() - v.elapsedSeconds * 1000;
         setElapsed(v.elapsedSeconds);
         setStep("session");
@@ -353,6 +414,10 @@ export default function ConsultJourney({
       setEndedByAstrologer(v.endReason === "astrologer");
       setStep("settle");
       void sessionActions.refreshWallet().catch(() => {});
+    } else if (step === "session" && v.status === "active") {
+      // Money added during the call is held for it: the session's length follows.
+      setMeter(nextMeter);
+      setPlaced((p) => (p && p.id === v.id ? { ...p, held: v.held } : p));
     }
   }
 
@@ -414,12 +479,20 @@ export default function ConsultJourney({
   const secsToAccept =
     waitView?.secondsToAccept != null && live ? Math.max(0, waitView.secondsToAccept - Math.floor((now - live.at) / 1000)) : null;
 
-  const free = meter.freeSeconds;
-  const billedSoFar = Math.ceil(Math.max(0, elapsed - free) / 60);
-  const remainingMins = Math.max(0, Math.floor(held / rate) - Math.ceil(elapsed / 60));
-  const lowBalance = elapsed > 0 && remainingMins <= 2;
-  const costSoFar = Math.min(billedSoFar * rate, held > 0 ? held : Number.MAX_SAFE_INTEGER);
-  const modeTitle = instant ? "Voice call" : (MODE_CARDS.find((m) => m.key === mode)?.title ?? "Chat");
+  const modeTitle = instant ? "Voice call" : mode ? CHOICE_TITLE[mode] : "Chat";
+
+  /** Paid during the call: re-read the session so its new length shows straight away. */
+  async function rechargedInCall(amount: number) {
+    setRecharging(false);
+    toast(`${rupee(amount)} added — your call continues at ${rupee(rate)}/min.`);
+    if (!consultationId) return;
+    try {
+      const { consultation } = await api.get<{ consultation: ConsultationView }>(`/consultations/${consultationId}`);
+      applyViewRef.current(consultation);
+    } catch {
+      // The session poll picks it up in a moment.
+    }
+  }
 
   function headerAction() {
     if (step === "session") {
@@ -461,6 +534,28 @@ export default function ConsultJourney({
       {error}
     </p>
   );
+
+  if (step === "mode") {
+    return (
+      <ConsultSheet
+        astrologer={fresh}
+        choice={choice}
+        onChoose={(c) => {
+          setChoice(c);
+          setError("");
+          setRateChange(null);
+        }}
+        balance={balance}
+        welcome={welcome}
+        busy={busy}
+        error={error}
+        rateChange={rateChange}
+        onAcceptRate={() => rateChange && void beginConnect(rateChange.to)}
+        onStart={() => void beginConnect()}
+        onClose={onClose}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[150] overflow-auto bg-cream" role="dialog" aria-modal="true" aria-label={`Consultation with ${astrologer.name}`}>
@@ -574,66 +669,6 @@ export default function ConsultJourney({
           </div>
         )}
 
-        {step === "mode" && (
-          <div>
-            <h1 className="font-display text-[32px] font-semibold leading-tight text-ink sm:text-4xl">
-              How would you like to talk?
-            </h1>
-            <p className="mt-2 text-[14.5px] leading-[1.55] text-stone-600">
-              Nothing is charged until the call connects, and the first minute is free.
-            </p>
-            <div role="radiogroup" aria-label="Consultation type" className="mt-[22px] flex flex-col gap-[11px]">
-              {MODE_CARDS.map((m) => {
-                const on = mode === m.key;
-                return (
-                  <button
-                    key={m.key}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    onClick={() => setMode(m.key)}
-                    className={`flex w-full items-start gap-3.5 rounded-[18px] border-2 p-4 text-left sm:p-[18px] ${on ? "border-amber-500 bg-amber-50" : "border-line bg-white"}`}
-                  >
-                    <span
-                      className={`mt-[3px] size-[22px] shrink-0 rounded-full border-2 ${on ? "border-amber-500 bg-amber-500" : "border-stone-300 bg-white"}`}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <b className="block text-[17px] font-bold text-ink">
-                        {m.icon} {m.title}
-                      </b>
-                      <span className="mt-1 block text-[13px] leading-normal text-stone-600">{m.body}</span>
-                    </span>
-                    <b className="shrink-0 text-base tabular-nums text-plum">{rupee(rateFor(baseRate, m.key))}/min</b>
-                  </button>
-                );
-              })}
-            </div>
-            {eligible ? (
-              <div className="mt-[18px] rounded-[14px] border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-[13px] leading-[1.55] text-emerald-800">
-                ✓ Your balance is {rupee(balance)}. You need {rupee(needed)} for five minutes at {rupee(rate)}/min — you
-                are eligible.
-              </div>
-            ) : (
-              <div className="mt-[18px] rounded-[14px] border border-rose-200 bg-rose-50 px-4 py-3.5 text-[13px] leading-[1.55] text-rose-900">
-                Your balance is {rupee(balance)}. You need {rupee(needed)} for five minutes at {rupee(rate)}/min.{" "}
-                <Link href="/wallet#add-money" onClick={onClose} className="font-bold underline">
-                  Add money
-                </Link>{" "}
-                to continue.
-              </div>
-            )}
-            {errorLine}
-            <button
-              type="button"
-              onClick={() => void beginConnect()}
-              disabled={!mode || !eligible || busy}
-              className={`mt-[18px] min-h-14 w-full rounded-[14px] text-base font-bold ${mode && eligible ? "bg-amber-500 text-ink" : "bg-amber-200 text-amber-900"}`}
-            >
-              {mode ? "Start the consultation" : "Choose how to talk"}
-            </button>
-          </div>
-        )}
-
         {step === "connecting" && (
           <div className="pt-5 text-center">
             <span className="relative inline-grid size-[110px] place-items-center">
@@ -642,7 +677,16 @@ export default function ConsultJourney({
             </span>
             <h1 className="mt-5 font-display text-[32px] font-semibold text-ink">Connecting you…</h1>
             <ol className="mt-[26px] flex flex-col gap-3 rounded-[18px] border border-line bg-white p-5 text-left">
-              {["Checking your balance", `Placing a hold on ${rupee(placed ? held : balance)}`, `Ringing ${astrologer.name}`, "Connected"].map(
+              {[
+                useFree || placed?.complimentary ? "Checking your free call" : "Checking your balance",
+                useFree || placed?.complimentary
+                  ? held > 0
+                    ? `Free call reserved · ${rupee(held)} held for after it`
+                    : "Free call reserved — no balance needed"
+                  : `Placing a hold on ${rupee(placed ? held : balance)}`,
+                `Ringing ${astrologer.name}`,
+                "Connected",
+              ].map(
                 (label, i) => (
                   <li key={label} className="flex items-center gap-3">
                     <span
@@ -731,92 +775,25 @@ export default function ConsultJourney({
         )}
 
         {step === "session" && (
-          <div>
-            <div className="overflow-hidden rounded-[22px] bg-ink px-5 pb-6 pt-6 text-center text-line sm:px-7">
-              <div className="flex flex-wrap justify-center gap-2">
-                <span className="inline-flex h-[26px] items-center gap-[7px] rounded-full bg-green-400/15 px-3 text-[11.5px] font-extrabold text-green-400">
-                  ● {modeTitle} · connected
-                </span>
-                {instant && (
-                  <span className="inline-flex h-[26px] items-center rounded-full bg-blue-400/15 px-3 text-[11.5px] font-extrabold text-blue-300">
-                    ⚡ Instant Call
-                  </span>
-                )}
-              </div>
-              <span className="relative mx-auto mt-5 grid size-[108px] place-items-center">
-                <span className="az-pulse-ring absolute inset-0 rounded-full border-2 border-green-400/70" />
-                <FlowPortrait astrologer={astrologer} size={96} />
-              </span>
-              <b className="mt-3 block text-lg text-paper">{astrologer.name}</b>
-              <span className="block text-[12.5px] text-muted">{skillLine(astrologer)}</span>
-              <div className="mt-4 text-[54px] font-bold leading-none tabular-nums text-paper" aria-live="off">
-                {clock(elapsed)}
-              </div>
-              <div className="mt-2 text-[13px] text-muted">elapsed — your balance does not tick down during the session</div>
-              {elapsed < free && (
-                <div className="mt-4 inline-flex h-8 items-center rounded-full bg-green-400/15 px-[15px] text-[13px] font-bold text-green-400">
-                  First minute is free · {free - elapsed}s left
-                </div>
-              )}
-              <div className="mt-[22px] grid grid-cols-3 gap-2 border-t border-white/10 pt-4">
-                <div>
-                  <div className="text-[11px] font-bold text-stone-500">Cost so far</div>
-                  <b className="text-lg tabular-nums text-amber-300 sm:text-xl">{rupee(costSoFar)}</b>
-                </div>
-                <div>
-                  <div className="text-[11px] font-bold text-stone-500">Billed</div>
-                  <b className="text-lg tabular-nums text-amber-300 sm:text-xl">
-                    {billedSoFar} min
-                  </b>
-                </div>
-                <div>
-                  <div className="text-[11px] font-bold text-stone-500">Remaining</div>
-                  <b className="text-lg tabular-nums text-amber-300 sm:text-xl">≈ {remainingMins} min</b>
-                </div>
-              </div>
-              <div className="mt-2 text-[12px] text-stone-500">at {rupee(rate)}/min</div>
-            </div>
-            {lowBalance && (
-              <div className="mt-3.5 flex flex-wrap items-start gap-3 rounded-2xl border-2 border-rose-700 bg-rose-50 px-[17px] py-[15px]">
-                <span className="text-base">⚠</span>
-                <div className="min-w-0 flex-1">
-                  <b className="block text-sm text-rose-700">Two minutes of balance left</b>
-                  <span className="mt-0.5 block text-[13px] leading-normal text-rose-900">
-                    Add money now and the session continues without disconnecting.
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => toast("Recharge opened — your consultation continues while you pay.")}
-                  className="h-[38px] whitespace-nowrap rounded-[10px] bg-rose-700 px-[15px] text-[13px] font-bold text-white"
-                >
-                  Add money
-                </button>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => void finish()}
-              disabled={ending}
-              className="mt-[18px] min-h-[54px] w-full rounded-[14px] bg-rose-700 text-base font-bold text-white disabled:opacity-70"
-            >
-              {ending ? "Ending…" : "End consultation"}
-            </button>
-            <p className="mt-3.5 text-center text-[12.5px] leading-[1.55] text-stone-500">
-              One charge is taken after the session ends. Partial minutes round up.
-            </p>
-          </div>
+          <CallStage
+            astrologer={astrologer}
+            modeTitle={modeTitle}
+            instant={instant}
+            complimentary={meter.complimentary}
+            rate={rate}
+            held={held}
+            elapsed={elapsed}
+            freeSeconds={meter.freeSeconds}
+            maxSeconds={meter.maxSeconds}
+            reminderSeconds={meter.reminderSeconds}
+            ending={ending}
+            onEnd={() => void finish()}
+            onAddMoney={() => setRecharging(true)}
+          />
         )}
 
         {step === "settle" && settlement && (
-          <>
-            {endedByAstrologer && (
-              <p className="mb-4 rounded-[14px] border border-line bg-white px-4 py-3 text-center text-[13px] text-stone-600">
-                {astrologer.name} ended the consultation.
-              </p>
-            )}
-            <SettlementView s={settlement} onContinue={() => setStep("rate")} />
-          </>
+          <SettlementView s={settlement} astrologer={astrologer} endedByAstrologer={endedByAstrologer} onContinue={() => setStep("rate")} />
         )}
 
         {step === "outcome" && (
@@ -877,6 +854,9 @@ export default function ConsultJourney({
           </div>
         )}
       </div>
+      {recharging && step === "session" && (
+        <InCallRecharge rate={rate} onPaid={(amount) => void rechargedInCall(amount)} onClose={() => setRecharging(false)} />
+      )}
     </div>
   );
 }
@@ -952,67 +932,6 @@ function Keypad({ onPress }: { onPress: (key: string) => void }) {
           </button>
         ),
       )}
-    </div>
-  );
-}
-
-function SettlementView({ s, onContinue }: { s: Settlement; onContinue: () => void }) {
-  const zero = s.billedMins === 0;
-  const title = zero ? "You have not been charged" : s.reason === "exhausted" ? "Your balance ran out" : "Consultation complete";
-  const lead = zero
-    ? "You ended within the free first minute, so there is nothing to bill. The hold on your balance has been released in full."
-    : s.reason === "exhausted"
-      ? "The session ended on its own when your balance was used up. You have been billed only for the time you were connected — never more than was held."
-      : "One debit, taken now that the session has ended. Your hold has been released.";
-
-  const lines: { label: string; value: string; strong?: boolean; green?: boolean }[] = [
-    { label: "Connected time", value: duration(s.elapsed) },
-    { label: "Free first minute", value: "not billed", green: true },
-    { label: "Billed, rounded up", value: `${s.billedMins} min` },
-  ];
-  if (!zero) {
-    lines.push({ label: "Rate at connect", value: `${rupee(s.rate)}/min` });
-    lines.push({ label: "Promotional balance used first", value: `−${rupee(s.promo)}`, green: true });
-    lines.push({ label: "Service balance", value: `−${rupee(s.service)}` });
-  }
-  lines.push({ label: zero ? "Total charged" : "Charged once, now", value: rupee(s.total), strong: true, green: zero });
-
-  return (
-    <div>
-      <div className="mx-auto grid size-[72px] place-items-center rounded-full bg-emerald-50 text-3xl text-emerald-700">✓</div>
-      <h1 className="mt-[18px] text-center font-display text-[32px] font-semibold text-ink">{title}</h1>
-      <p className="mt-2 text-center text-sm leading-[1.55] text-stone-600">{lead}</p>
-      {zero && (
-        <div className="mt-[18px] flex items-start gap-3 rounded-2xl border-2 border-emerald-700 bg-emerald-50 px-[17px] py-[15px]">
-          <span className="text-base">₹</span>
-          <div className="text-[13.5px] leading-[1.55] text-emerald-800">
-            <b>You have not been charged.</b> The first 60 seconds of every consultation are free, and nothing bills
-            before that window closes.
-          </div>
-        </div>
-      )}
-      <div className="mt-6 rounded-[18px] border border-line bg-white p-5">
-        {lines.map((l, i) => (
-          <div
-            key={l.label}
-            className={`flex justify-between gap-3 py-[9px] text-sm ${i > 0 ? "border-t border-line-soft" : ""}`}
-            style={{
-              color: l.green ? "#047857" : l.strong ? "#1c1917" : "#57534e",
-              fontWeight: l.strong ? 700 : l.green ? 600 : 500,
-            }}
-          >
-            <span>{l.label}</span>
-            <b className="tabular-nums">{l.value}</b>
-          </div>
-        ))}
-      </div>
-      <button
-        type="button"
-        onClick={onContinue}
-        className="mt-5 min-h-[54px] w-full rounded-[14px] bg-amber-500 text-base font-bold text-ink"
-      >
-        Continue
-      </button>
     </div>
   );
 }

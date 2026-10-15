@@ -69,7 +69,20 @@ and in the API's terminal. Any new mobile number creates a fresh customer accoun
 ## Production
 
 - **Database:** a managed PostgreSQL. Set `DATABASE_URL` (and `DATABASE_POOL_MAX`, e.g. 10) on the API.
-  Run `npm run db:deploy --prefix backend` on each release to apply migrations. Never run the seed in production.
+  On each release, apply the migrations and then the reference data:
+
+  ```bash
+  npm run db:deploy --prefix backend      # applies migrations
+  npm run db:bootstrap --prefix backend   # adds missing reference data (safe to run every time)
+  ```
+
+  `db:bootstrap` adds whatever is missing of the Config console keys, recharge amounts, gift
+  catalogue and app settings — it never changes values an admin has edited and never adds demo
+  data. On the **first deploy** it also creates the first Super Admin from
+  `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` (10+ characters with a letter and a number)
+  and `BOOTSTRAP_ADMIN_NAME`; once a Super Admin exists these are ignored. Sign in, change that
+  password, create the rest of the team on the Team page, and remove the variables.
+  Never run the seed in production (it refuses to).
 - **API:** `npm start --prefix backend` (Node runs the TypeScript directly; there's no build step).
   Set `NODE_ENV=production`, `SESSION_SECRET` and `FRONTEND_ORIGIN`.
 - **Website:** `npm run build --prefix frontend` then `npm start --prefix frontend`.

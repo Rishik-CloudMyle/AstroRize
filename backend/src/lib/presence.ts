@@ -1,21 +1,56 @@
 import { db } from "../db.ts";
 import { audit } from "./audit.ts";
+import { configNumber } from "./settings.ts";
 import type { Astrologer, Presence } from "../generated/prisma/client.ts";
 
 // Presence: ON (available) · BUSY (in a consultation) · LIVE (hosting their live room) · OFF.
 // Only the astrologer brings themselves online (the portal's toggle). While any portal page is
-// open it sends a heartbeat (lastSeenAt); an astrologer whose portal has been closed for
-// PRESENCE_STALE_MS is switched offline by the sweep below, so customers never see a stale
-// "Available" or a live room nobody is hosting.
+// open it sends a heartbeat (lastSeenAt); an astrologer whose portal has gone quiet for the
+// stale window (Config "presence.offline_after_mins") is switched offline by the sweep below,
+// so customers never see a stale "Available" or a live room nobody is hosting.
 
-/** How long without a heartbeat before an online astrologer is treated as offline. */
-export const PRESENCE_STALE_MS = 3 * 60_000;
+/** Fallback and bounds for Config "presence.offline_after_mins" (minutes). */
+const STALE_MINS_DEFAULT = 15;
+const STALE_MINS_MIN = 3;
+const STALE_MINS_MAX = 60;
+/** How long the stale window read from Config is reused before it is read again. */
+const STALE_CACHE_MS = 60_000;
 
-const staleCutoff = () => new Date(Date.now() - PRESENCE_STALE_MS);
+let staleMs = STALE_MINS_DEFAULT * 60_000;
+let staleReadAt = 0;
+let staleReading: Promise<number> | null = null;
+
+/**
+ * Reads the stale window from Config (clamped to its bounds) at most once a minute. Hot paths
+ * use the cached value synchronously through presenceStaleMs(); the sweep awaits a fresh read.
+ */
+export function refreshPresenceStaleMs(): Promise<number> {
+  if (Date.now() - staleReadAt < STALE_CACHE_MS) return Promise.resolve(staleMs);
+  staleReading ??= configNumber("presence.offline_after_mins", STALE_MINS_DEFAULT)
+    .then((mins) => {
+      staleMs = Math.min(STALE_MINS_MAX, Math.max(STALE_MINS_MIN, mins)) * 60_000;
+      staleReadAt = Date.now();
+      return staleMs;
+    })
+    // Keep the last known window if the database can't be read; try again next time.
+    .catch(() => staleMs)
+    .finally(() => {
+      staleReading = null;
+    });
+  return staleReading;
+}
+
+/** How long without a heartbeat before an online astrologer is treated as offline (cached). */
+export function presenceStaleMs(): number {
+  void refreshPresenceStaleMs();
+  return staleMs;
+}
+
+const staleCutoff = () => new Date(Date.now() - presenceStaleMs());
 
 /** True while the astrologer's portal has sent a heartbeat recently. */
 export function isFresh(a: Pick<Astrologer, "lastSeenAt">): boolean {
-  return !!a.lastSeenAt && a.lastSeenAt.getTime() >= Date.now() - PRESENCE_STALE_MS;
+  return !!a.lastSeenAt && a.lastSeenAt.getTime() >= Date.now() - presenceStaleMs();
 }
 
 /** True when the account may take sessions or go live (approved, not suspended). */
@@ -105,12 +140,13 @@ export async function goOffline(astrologerId: string): Promise<{ endedLive: bool
 }
 
 /**
- * Switches off astrologers who are shown online but whose portal has gone quiet for
- * PRESENCE_STALE_MS (or who may no longer work). Someone in a session keeps BUSY until it
+ * Switches off astrologers who are shown online but whose portal has gone quiet for the stale
+ * window (or who may no longer work). Someone in a session keeps BUSY until it
  * ends — the consultation sweep closes abandoned sessions — and goes offline on a later sweep.
  * Runs every minute from server.ts. Returns who was switched off.
  */
 export async function sweepStalePresence(): Promise<string[]> {
+  await refreshPresenceStaleMs();
   const candidates = await db.astrologer.findMany({
     where: {
       presence: { not: "OFF" },
