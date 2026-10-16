@@ -85,3 +85,36 @@ export function grahaSamples(date: Date): Record<GrahaKey, GrahaSample> {
   out.ketu = { longitude: norm(rahu + 180), nearFar: 0.5 };
   return out;
 }
+
+/** Each graha's name in English and in Sanskrit, for the wheel's labels. */
+export const GRAHA_NAMES: Record<GrahaKey, { en: string; sa: string }> = {
+  sun: { en: "Sun", sa: "Surya" },
+  moon: { en: "Moon", sa: "Chandra" },
+  mars: { en: "Mars", sa: "Mangala" },
+  mercury: { en: "Mercury", sa: "Budha" },
+  jupiter: { en: "Jupiter", sa: "Guru" },
+  venus: { en: "Venus", sa: "Shukra" },
+  saturn: { en: "Saturn", sa: "Shani" },
+  rahu: { en: "North node", sa: "Rahu" },
+  ketu: { en: "South node", sa: "Ketu" },
+};
+
+/** The twelve rashi, from 0° (Mesha) in steps of 30°. */
+export const RASHI = ["Mesha", "Vrishabha", "Mithuna", "Karka", "Simha", "Kanya", "Tula", "Vrishchika", "Dhanu", "Makara", "Kumbha", "Meena"] as const;
+
+/** The twenty-seven nakshatras, from 0° in steps of 13°20′. */
+export const NAKSHATRA = [
+  "Ashwini", "Bharani", "Krittika", "Rohini", "Mrigashira", "Ardra", "Punarvasu", "Pushya", "Ashlesha",
+  "Magha", "Purva Phalguni", "Uttara Phalguni", "Hasta", "Chitra", "Swati", "Vishakha", "Anuradha", "Jyeshtha",
+  "Mula", "Purva Ashadha", "Uttara Ashadha", "Shravana", "Dhanishta", "Shatabhisha", "Purva Bhadrapada", "Uttara Bhadrapada", "Revati",
+] as const;
+
+/** Where a sidereal longitude falls: its rashi, the whole degree within it, and its nakshatra. */
+export function placeOf(longitude: number): { rashi: string; degree: number; nakshatra: string } {
+  const lon = norm(longitude);
+  return {
+    rashi: RASHI[Math.floor(lon / 30) % 12]!,
+    degree: Math.floor(lon % 30),
+    nakshatra: NAKSHATRA[Math.floor(lon / (360 / 27)) % 27]!,
+  };
+}

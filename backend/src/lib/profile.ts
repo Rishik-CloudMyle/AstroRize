@@ -53,7 +53,7 @@ type ProfileFields = Pick<
   "name" | "initials" | "firstName" | "lastName" | "gender" | "birthDate" | "birthTime" | "birthPlace" | "city" | "state" | "photoUrl" | "pausedAt"
 >;
 
-function displayName(u: ProfileFields): string {
+export function displayName(u: ProfileFields): string {
   // A customer who paused their account ("Deactivate") is shown as such until they sign in again.
   if (u.pausedAt) return "Account paused";
   return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.name;

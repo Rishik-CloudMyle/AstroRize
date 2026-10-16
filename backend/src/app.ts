@@ -6,6 +6,7 @@ import { db } from "./db.ts";
 import { HttpError, isDatabaseDown } from "./lib/errors.ts";
 import { loadSession } from "./middleware/auth.ts";
 import { adminRouter } from "./routes/admin/index.ts";
+import { astroRouter } from "./routes/astro.ts";
 import { authRouter } from "./routes/auth.ts";
 import { catalogRouter } from "./routes/catalog.ts";
 import { customerRouter } from "./routes/customer.ts";
@@ -59,6 +60,7 @@ export function createApp() {
 
   app.use("/api", loadSession);
   app.use("/api/auth", authRouter);
+  app.use("/api/astro", astroRouter);
   app.use("/api", catalogRouter);
   app.use("/api/stats", statsRouter);
   app.use("/api/media", mediaRouter);

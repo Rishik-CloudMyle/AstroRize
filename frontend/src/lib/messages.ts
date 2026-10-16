@@ -27,6 +27,8 @@ export interface ConversationSummary {
   preview: string;
   lastAt: string | null;
   lastFrom: "me" | "astrologer" | null;
+  /** Astrologer replies since the customer last opened the conversation (saved on the server). */
+  unread: number;
 }
 
 /** A conversation the Astrorize team started with the customer ("Astrorize support"), in GET /api/messages. */

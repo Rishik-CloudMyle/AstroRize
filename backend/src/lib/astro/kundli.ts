@@ -1,0 +1,183 @@
+// A Vedic birth chart (Kundli): grahas with rashi, house, nakshatra and navamsa; the lagna;
+// whole-sign houses (the Vedic default) and Sripati bhavas; Vimshottari dasha.
+
+import { GRAHA_NAMES, NAKSHATRAS, RASHIS, RASHI_LORD, nakshatraLord, type GrahaKey } from "./constants.ts";
+import { vimshottari, type DashaPeriod } from "./dasha.ts";
+import { angles, bhavaOf, grahaPositions, norm360, sripatiBhavas, type NodeKind } from "./ephemeris.ts";
+import { offsetLabel, zonedToUtc } from "./time.ts";
+
+const NAK_SPAN = 360 / 27;
+
+export interface BirthInput {
+  /** "YYYY-MM-DD", the local calendar date at the birthplace. */
+  date: string;
+  /** "HH:MM" or "HH:MM:SS", local clock time at the birthplace (24-hour). */
+  time: string;
+  latitude: number;
+  longitude: number;
+  /** IANA time zone of the birthplace, e.g. "Asia/Kolkata". */
+  timezone: string;
+  /** Lunar node: "mean" (default, most Indian almanacs) or "true". */
+  node?: NodeKind;
+}
+
+export interface SignInfo {
+  /** 0 = Aries … 11 = Pisces. */
+  index: number;
+  name: string;
+  sanskrit: string;
+  lord: GrahaKey;
+}
+
+export interface NakshatraInfo {
+  /** 0 = Ashwini … 26 = Revati. */
+  index: number;
+  name: string;
+  /** 1–4. */
+  pada: number;
+  lord: GrahaKey;
+}
+
+/** Everything about one point (a graha or the lagna) in the zodiac. */
+export interface ZodiacPoint {
+  longitude: number;
+  sign: SignInfo;
+  /** Degrees within the sign, 0–30. */
+  degree: number;
+  /** "12°14′05″" */
+  dms: string;
+  nakshatra: NakshatraInfo;
+  /** Navamsa (D9) sign. */
+  navamsa: SignInfo;
+}
+
+export interface KundliGraha extends ZodiacPoint {
+  key: GrahaKey;
+  name: string;
+  sanskrit: string;
+  abbr: string;
+  /** Whole-sign house from the lagna, 1–12. */
+  house: number;
+  /** Sripati bhava, 1–12. */
+  bhava: number;
+  speed: number;
+  retrograde: boolean;
+}
+
+export interface Kundli {
+  birth: {
+    date: string;
+    time: string;
+    timezone: string;
+    utcOffset: string;
+    utc: string;
+    latitude: number;
+    longitude: number;
+    /** "gap" / "ambiguous" when the clock time fell in a DST change (see time.ts). */
+    timeNote: "ok" | "gap" | "ambiguous";
+  };
+  settings: { zodiac: "sidereal"; ayanamsa: "Lahiri (Chitrapaksha)"; ayanamsaDegrees: number; houses: "whole-sign"; node: NodeKind };
+  lagna: ZodiacPoint;
+  grahas: KundliGraha[];
+  /** Whole-sign houses: house n holds sign (lagna + n − 1). */
+  houses: { house: number; sign: SignInfo; grahas: GrahaKey[] }[];
+  /** Navamsa chart: the D9 lagna sign and which grahas fall in each D9 sign. */
+  navamsa: { lagna: SignInfo; houses: { house: number; sign: SignInfo; grahas: GrahaKey[] }[] };
+  bhavas: { madhya: number[]; sandhi: number[] };
+  moonSign: SignInfo;
+  sunSign: SignInfo;
+  birthNakshatra: NakshatraInfo;
+  dasha: { balance: { lord: GrahaKey; years: number; months: number; days: number }; mahadashas: DashaPeriod[] };
+}
+
+export function signInfo(index: number): SignInfo {
+  const i = ((index % 12) + 12) % 12;
+  return { index: i, name: RASHIS[i]!.en, sanskrit: RASHIS[i]!.sa, lord: RASHI_LORD[i]! };
+}
+
+export function nakshatraInfo(longitude: number): NakshatraInfo {
+  const lon = norm360(longitude);
+  const index = Math.min(26, Math.floor(lon / NAK_SPAN));
+  const pada = Math.min(4, Math.floor((lon - index * NAK_SPAN) / (NAK_SPAN / 4)) + 1);
+  return { index, name: NAKSHATRAS[index]!, pada, lord: nakshatraLord(index) };
+}
+
+/** D9: each sign is split into nine parts of 3°20′, counted continuously from Aries. */
+export const navamsaSign = (longitude: number) => Math.floor((norm360(longitude) * 9) / 30) % 12;
+
+export function dms(degreesInSign: number): string {
+  let totalSec = Math.floor(degreesInSign * 3600 + 1e-6);
+  const d = Math.floor(totalSec / 3600);
+  totalSec -= d * 3600;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec - m * 60;
+  return `${d}°${String(m).padStart(2, "0")}′${String(s).padStart(2, "0")}″`;
+}
+
+export function zodiacPoint(longitude: number): ZodiacPoint {
+  const lon = norm360(longitude);
+  const sign = Math.floor(lon / 30);
+  const degree = lon - sign * 30;
+  return { longitude: lon, sign: signInfo(sign), degree, dms: dms(degree), nakshatra: nakshatraInfo(lon), navamsa: signInfo(navamsaSign(lon)) };
+}
+
+export function buildKundli(input: BirthInput): Kundli {
+  const node = input.node ?? "mean";
+  const z = zonedToUtc(input.date, input.time, input.timezone);
+  const ang = angles(z.utc, input.latitude, input.longitude);
+  const lagna = zodiacPoint(ang.ascendant);
+  const bhavas = sripatiBhavas(ang.ascendant, ang.midheaven);
+
+  const grahas: KundliGraha[] = grahaPositions(z.utc, node).map((p) => {
+    const point = zodiacPoint(p.longitude);
+    const names = GRAHA_NAMES[p.key];
+    return {
+      key: p.key,
+      name: names.en,
+      sanskrit: names.sa,
+      abbr: names.abbr,
+      ...point,
+      house: ((point.sign.index - lagna.sign.index + 12) % 12) + 1,
+      bhava: bhavaOf(p.longitude, bhavas.sandhi),
+      speed: p.speed,
+      retrograde: p.retrograde,
+    };
+  });
+
+  const houses = Array.from({ length: 12 }, (_, i) => {
+    const sign = signInfo(lagna.sign.index + i);
+    return { house: i + 1, sign, grahas: grahas.filter((g) => g.sign.index === sign.index).map((g) => g.key) };
+  });
+  const d9Lagna = lagna.navamsa;
+  const d9Houses = Array.from({ length: 12 }, (_, i) => {
+    const sign = signInfo(d9Lagna.index + i);
+    return { house: i + 1, sign, grahas: grahas.filter((g) => g.navamsa.index === sign.index).map((g) => g.key) };
+  });
+
+  const moon = grahas.find((g) => g.key === "moon")!;
+  const sun = grahas.find((g) => g.key === "sun")!;
+  const dasha = vimshottari(moon.longitude, z.utc);
+
+  return {
+    birth: {
+      date: input.date,
+      time: input.time,
+      timezone: input.timezone,
+      utcOffset: offsetLabel(z.offsetSeconds),
+      utc: z.utc.toISOString(),
+      latitude: input.latitude,
+      longitude: input.longitude,
+      timeNote: z.status,
+    },
+    settings: { zodiac: "sidereal", ayanamsa: "Lahiri (Chitrapaksha)", ayanamsaDegrees: ang.ayanamsa, houses: "whole-sign", node },
+    lagna,
+    grahas,
+    houses,
+    navamsa: { lagna: d9Lagna, houses: d9Houses },
+    bhavas,
+    moonSign: moon.sign,
+    sunSign: sun.sign,
+    birthNakshatra: moon.nakshatra,
+    dasha,
+  };
+}

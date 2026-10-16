@@ -112,6 +112,11 @@ async function roomView(room: LiveRoom, voterKey: string | null, userId: string 
     thumb: room.thumb,
     // A private consultation in progress: everyone sees the "private consultation" banner.
     state: inPrivate ? "private" : room.state === "private" ? "normal" : room.state,
+    /**
+     * The live's sound is off for viewers: a private consultation is in session (from the moment
+     * it connects until it ends). Server-driven, so every page and device agrees.
+     */
+    audioPaused: inPrivate?.status === "ACTIVE",
     queue: {
       position: myIndex >= 0 ? myIndex + 1 : waiting.length + 1,
       inQueue: myIndex >= 0,
@@ -256,15 +261,25 @@ catalogRouter.post("/live-rooms/:id/reactions", async (req, res) => {
 
 /**
  * Join the room's consult queue. Consultations from a live are always private (the astrologer's
- * video stays on for everyone; their audio goes only to the customer being consulted). The page
- * sends the rate it showed (`quotedRate`); that rate is locked for this request.
+ * video stays on for everyone; the conversation is only with the customer being consulted), by
+ * chat, voice or video (`mode`; Instant Call isn't offered from a live). The page sends the rate it
+ * showed for that mode (`quotedRate`); that rate is locked for this request.
  */
 catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
   const auth = requireRole(req, "customer");
-  // `mode` / `consent` from older pages are ignored: there is no public (on-stage) option.
-  const { quotedRate } = z.object({ quotedRate: z.number().int().nonnegative().optional() }).parse(req.body ?? {});
+  // Older pages sent `mode: "PUBLIC" | "PRIVATE"` (and `consent`): there is no public option, and
+  // such a request is the voice consultation those pages offered.
+  const { quotedRate, mode } = z
+    .object({
+      quotedRate: z.number().int().nonnegative().optional(),
+      mode: z.preprocess(
+        (m) => (typeof m !== "string" ? m : ["PUBLIC", "PRIVATE"].includes(m.toUpperCase()) ? undefined : m.toUpperCase()),
+        z.enum(["CHAT", "VOICE", "VIDEO"]).optional(),
+      ),
+    })
+    .parse(req.body ?? {});
   const room = await liveRoomOr404(String(req.params.id));
-  const result = await joinQueue(room, auth.user.id, quotedRate);
+  const result = await joinQueue(room, auth.user.id, mode ?? "VOICE", quotedRate);
   if (result.kind === "rate_changed") {
     return res.status(409).json({
       error: {

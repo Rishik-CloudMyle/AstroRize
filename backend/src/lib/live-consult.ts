@@ -1,19 +1,23 @@
 import { config } from "../config.ts";
 import { db } from "../db.ts";
-import { ELIGIBILITY_MINUTES, rateFor } from "./billing.ts";
+import { ELIGIBILITY_MINUTES, rateFor, type Mode } from "./billing.ts";
 import { OPEN_STATUSES, endConsultation, freeWindow, lockKey, openConsultationOf, sessionCapSeconds } from "./consultations.ts";
 import { makeRef } from "./format.ts";
 import { syncPresence } from "./presence.ts";
+import { windowOf } from "./consult-room.ts";
 import { consultSummary } from "./profile.ts";
 import { configNumber } from "./settings.ts";
 import { zegoConfigured, zegoRoom, zegoToken, zegoUserId } from "./zego.ts";
 import type { Consultation, LiveRoom, Prisma, User } from "../generated/prisma/client.ts";
 
 // Private consultations taken from a live room (spec AR-LIVE): the live's video keeps going to
-// everyone, while the astrologer's audio goes privately to the one customer being consulted.
+// everyone, while the astrologer talks privately with the one customer being consulted — by chat,
+// voice or video, as the customer chose when joining the queue. While one is in session the live's
+// sound is off for everyone else.
 //
 //   Join the queue  → a LiveQueueEntry (WAITING) and its Consultation (origin LIVE, status QUEUED)
-//                     with the rate the customer was shown, so the price is locked from then on.
+//                     in the chosen mode, with the rate the customer was shown for that mode, so
+//                     the price is locked from then on.
 //   Accept          → the consultation is CONNECTING and the customer's balance is held; the
 //                     customer has a short window to join the call. One per room at a time; the
 //                     others keep waiting in order.
@@ -34,8 +38,11 @@ export async function answerSeconds(): Promise<number> {
   return Math.min(300, Math.max(20, await configNumber("live.private.answer_seconds", 60)));
 }
 
-/** The rate of a private consultation from this astrologer's live: their voice rate. */
-export const liveRate = (price: number) => rateFor(price, "VOICE");
+/** The rate of a private consultation from this astrologer's live: the same as a direct one in that mode. */
+export const liveRate = (price: number, mode: Mode = "VOICE") => rateFor(price, mode);
+
+/** What each mode costs from this astrologer's live (₹/min). Instant Call isn't offered from a live. */
+export const liveRates = (price: number) => ({ chat: liveRate(price, "CHAT"), voice: liveRate(price, "VOICE"), video: liveRate(price, "VIDEO") });
 
 /** The private consultation happening in the room right now, if any. */
 export function privateInRoom(roomId: string) {
@@ -65,13 +72,14 @@ export type JoinResult =
   | { kind: "open"; open: Consultation };
 
 /**
- * A customer joins the room's consult queue. Always a private consultation. They must have five
- * minutes' balance at the rate they were shown (`quotedRate`, checked against the current one);
- * that rate is stored and is what they pay if accepted. Joining twice changes nothing.
+ * A customer joins the room's consult queue for a private chat, voice or video consultation. They
+ * must have five minutes' balance at the rate they were shown for that mode (`quotedRate`, checked
+ * against the current one); that rate is stored and is what they pay if accepted. Joining twice
+ * changes nothing (the first request, and its mode, stand).
  */
-export async function joinQueue(room: LiveRoom, userId: string, quotedRate: number | undefined): Promise<JoinResult> {
+export async function joinQueue(room: LiveRoom, userId: string, mode: Mode, quotedRate: number | undefined): Promise<JoinResult> {
   const astrologer = await db.astrologer.findUniqueOrThrow({ where: { id: room.astrologerId }, select: { price: true } });
-  const rate = liveRate(astrologer.price);
+  const rate = liveRate(astrologer.price, mode);
   if (quotedRate !== undefined && quotedRate !== rate) return { kind: "rate_changed", rate };
   const needed = rate * ELIGIBILITY_MINUTES;
   await db.wallet.upsert({ where: { userId }, create: { userId }, update: {} });
@@ -99,8 +107,8 @@ export async function joinQueue(room: LiveRoom, userId: string, quotedRate: numb
         customerId: userId,
         customerAlias: alias,
         astrologerId: room.astrologerId,
-        // Private audio with the astrologer; their video is the live everyone already sees.
-        mode: "VOICE",
+        // Chat, voice or video with the astrologer, in a room of its own (never the live's).
+        mode,
         rate,
         status: QUEUED,
       },
@@ -275,6 +283,10 @@ async function meter(c: Consultation) {
     id: c.id,
     ref: c.ref,
     status: c.status === "ACTIVE" ? ("active" as const) : ("connecting" as const),
+    /** chat · voice · video, as chosen when joining the queue */
+    mode: c.mode.toLowerCase() as "chat" | "voice" | "video",
+    /** The window each side opens for it (same as a direct consultation in that mode). */
+    window: windowOf(c),
     rate: c.rate,
     held: c.heldAmount,
     connectedAt: c.connectedAt?.toISOString() ?? null,
@@ -314,7 +326,7 @@ export async function myRequest(room: Pick<LiveRoom, "id" | "startedAt">, userId
   });
   if (!entry) return null;
   const c = entry.consultationId
-    ? await db.consultation.findUnique({ where: { id: entry.consultationId }, select: { status: true, endReason: true, total: true } })
+    ? await db.consultation.findUnique({ where: { id: entry.consultationId }, select: { status: true, endReason: true, total: true, mode: true } })
     : null;
   return {
     id: entry.id,
@@ -324,6 +336,8 @@ export async function myRequest(room: Pick<LiveRoom, "id" | "startedAt">, userId
     consultation: c?.status.toLowerCase() ?? null,
     reason: c?.endReason ?? null,
     charged: c?.total ?? 0,
+    /** chat · voice · video, as chosen when joining */
+    mode: (c?.mode.toLowerCase() ?? null) as "chat" | "voice" | "video" | null,
   };
 }
 

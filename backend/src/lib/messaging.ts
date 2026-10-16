@@ -35,6 +35,14 @@ export function lastDelivered(messages: Message[]): Message | undefined {
   return messages.findLast((m) => !m.blocked);
 }
 
+/**
+ * Messages from the other side that arrived after this side last opened the conversation
+ * (MessageThread.astrologerReadAt / customerReadAt). Blocked messages never reach the other side.
+ */
+export function unreadFrom(messages: Pick<Message, "sender" | "blocked" | "createdAt">[], from: "CUSTOMER" | "ASTROLOGER", readAt: Date | null): number {
+  return messages.filter((m) => m.sender === from && !m.blocked && (!readAt || m.createdAt > readAt)).length;
+}
+
 /** Same pace limit on both sides. Checked before anything is written. */
 export function checkSendRate(userId: string) {
   rateLimit(`dm:${userId}`, 5, 10_000, "You're sending messages too quickly. Wait a few seconds.");

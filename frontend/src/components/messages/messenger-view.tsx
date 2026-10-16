@@ -26,7 +26,8 @@ import { useAppUI } from "../app-provider";
 const errorText = (e: unknown) =>
   e instanceof ApiError ? e.message : "Something went wrong. Check your connection and try again.";
 
-// Which message was last seen in each conversation, on this device: drives the unread dot.
+// Which message this device last saw in each conversation: clears the unread dot at once, before the
+// server's count (GET /messages → unread, saved when a conversation is opened) catches up.
 const SEEN_KEY = "astrorize:messages-seen";
 type Seen = Record<string, string>;
 
@@ -259,7 +260,8 @@ function SignedInMessenger({ slug, supportId }: { slug?: string; supportId?: str
               })}
               {matching.map((c) => {
                 const on = c.astrologer.slug === slug;
-                const unread = !on && c.lastFrom === "astrologer" && !!c.lastAt && !(seen[c.id] && seen[c.id] >= c.lastAt);
+                // The server's count (saved, so it holds on every device); what this tab just saw clears it at once.
+                const unread = !on && c.unread > 0 && !(c.lastAt && seen[c.id] && seen[c.id] >= c.lastAt);
                 return (
                   <li key={c.id}>
                     <Link

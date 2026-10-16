@@ -16,7 +16,7 @@ import {
 import { COMPLIMENTARY, dailyLimitOf, freeCallsToday, releaseWelcome, welcomePolicy } from "../lib/welcome.ts";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
 import { ageLabel, istDate, istDateKey, istDayMonth, istTime, makeRef, weekdayLabel } from "../lib/format.ts";
-import { consultSummary, messageSummary, queueProfile, queueSummary } from "../lib/profile.ts";
+import { consultSummary, displayName, messageSummary, queueProfile, queueSummary } from "../lib/profile.ts";
 import {
   checkSendRate,
   directText,
@@ -30,6 +30,7 @@ import {
   replyDirect,
   teamConversations,
   teamThreadView,
+  unreadFrom,
   visibleTo,
 } from "../lib/messaging.ts";
 import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "../lib/safety.ts";
@@ -37,7 +38,7 @@ import { consultMessageBody, consultationFor, listMessages, mediaFor, sendMessag
 import { canWork, effectivePresence, endLiveRoom, goOffline, goOnline, markSeen, syncPresence, viewerCount } from "../lib/presence.ts";
 import { MAX_VIDEO_BYTES, MAX_VIDEO_SECONDS, VIDEO_TYPES, deleteMedia, saveVideo, sniffVideo, videoDurationSeconds } from "../lib/media.ts";
 import { checkDetailsText, detailsDiff, detailsSchema, liveCategories, sessionFeed } from "../lib/live.ts";
-import { acceptRequest, closeRoomConsultations, declineRequest, expireUnanswered, hostPrivateView, liveMedia, liveRate } from "../lib/live-consult.ts";
+import { acceptRequest, closeRoomConsultations, declineRequest, expireUnanswered, hostPrivateView, liveMedia, liveRate, liveRates } from "../lib/live-consult.ts";
 import { configNumber, getSetting } from "../lib/settings.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
 import type { Astrologer, EarningsLine } from "../generated/prisma/client.ts";
@@ -65,7 +66,10 @@ portalRouter.get("/account", async (req, res) => {
   await expireStaleRequests(a.id);
   const [requests, threads, teamUnread, notices, draft, slaDays] = await Promise.all([
     db.consultation.count({ where: { astrologerId: a.id, status: "REQUESTED" } }),
-    db.messageThread.findMany({ where: { astrologerId: a.id }, include: { messages: { where: { blocked: false }, orderBy: { createdAt: "desc" }, take: 1 } } }),
+    db.messageThread.findMany({
+      where: { astrologerId: a.id },
+      include: { messages: { where: { blocked: false, sender: "CUSTOMER" }, orderBy: { createdAt: "desc" }, take: 1 } },
+    }),
     directUnread((req.auth as AuthContext).user.id),
     db.complianceNotice.count({ where: { astrologerId: a.id, status: "OPEN" } }),
     db.applicationDraft.findUnique({ where: { astrologerId: a.id }, select: { values: true } }),
@@ -100,8 +104,9 @@ portalRouter.get("/account", async (req, res) => {
       },
       counts: {
         consultations: requests,
-        // Customers waiting for a reply, plus Astrorize team conversations with unread messages.
-        messages: threads.filter((t) => t.messages[0]?.sender === "CUSTOMER").length + teamUnread.size,
+        // Conversations with customer messages the astrologer hasn't opened yet, plus Astrorize
+        // team conversations with unread messages. Opening a conversation clears it (POST …/read).
+        messages: threads.filter((t) => unreadFrom(t.messages, "CUSTOMER", t.astrologerReadAt) > 0).length + teamUnread.size,
         compliance: notices,
       },
       online: effectivePresence(a) !== "OFF",
@@ -634,6 +639,15 @@ portalRouter.get("/live", async (req, res) => {
     liveCategories(),
     room.isLive ? hostPrivateView(room.id) : null,
   ]);
+  // How each waiting person asked to be consulted: chat, voice or video (their queued consultation's mode).
+  const queued = await db.consultation.findMany({
+    where: { id: { in: entries.map((e) => e.consultationId).filter((id): id is string => !!id) } },
+    select: { id: true, mode: true, rate: true },
+  });
+  const askedFor = (e: { consultationId: string | null }) => {
+    const c = queued.find((q) => q.id === e.consultationId);
+    return { consultMode: (c?.mode.toLowerCase() ?? "voice") as "chat" | "voice" | "video", rate: c?.rate ?? liveRate(a.price) };
+  };
   const now = new Date();
   const secs = Math.max(0, Math.floor((Date.now() - room.startedAt.getTime()) / 1000));
   res.json({
@@ -655,11 +669,24 @@ portalRouter.get("/live", async (req, res) => {
       image: room.thumb,
       // Consults from a live are always private. First come, first served: only the front request
       // can be accepted, and only while no private consultation is in progress.
-      requests: entries.slice(0, 3).map((e, i) => ({ id: e.id, alias: e.alias, kind: "private", actionable: i < 2, canAccept: i === 0 && !inPrivate })),
+      requests: entries
+        .slice(0, 3)
+        .map((e, i) => ({
+          id: e.id,
+          alias: e.alias,
+          // The customer's real name (as their account shows it), like everywhere else in the portal.
+          name: e.user ? displayName(e.user) : null,
+          kind: "private",
+          ...askedFor(e),
+          actionable: i < 2,
+          canAccept: i === 0 && !inPrivate,
+        })),
       waiting: entries.length,
       pollQuestion: room.pollQuestion,
       pollOptions: room.pollOptions,
       rate: liveRate(a.price),
+      /** What a private consultation from this live costs in each mode (₹/min). */
+      rates: liveRates(a.price),
       /** The private consultation in progress (connecting or in session), or null. */
       private: inPrivate,
       announcements: announcements.map(announcementView),
@@ -668,6 +695,7 @@ portalRouter.get("/live", async (req, res) => {
         id: e.id,
         alias: e.alias,
         mode: "private",
+        consultMode: askedFor(e).consultMode,
         waiting: waitedFor(e.createdAt, now),
         profile: e.user ? queueSummary(e.user) : null,
       })),
@@ -918,6 +946,8 @@ portalRouter.get("/messages", async (req, res) => {
       lastAt: (last ?? t.messages.at(-1))?.createdAt.toISOString() ?? null,
       // The customer wrote last: waiting for the astrologer's reply.
       awaitingReply: last?.sender === "CUSTOMER",
+      // Customer messages since the astrologer last opened this conversation.
+      unread: unreadFrom(t.messages, "CUSTOMER", t.astrologerReadAt),
       messages: t.messages.filter(visibleTo("ASTROLOGER")).map((m) => messageView(m, "ASTROLOGER")),
     };
   });
@@ -975,7 +1005,21 @@ portalRouter.post("/messages/:threadId", async (req, res) => {
   const thread = await db.messageThread.findUnique({ where: { id: String(req.params.threadId) } });
   if (!thread || thread.astrologerId !== a.id) throw notFound("Conversation not found.");
   checkSendRate((req.auth as AuthContext).user.id);
-  res.status(201).json(await postMessage(thread.id, "ASTROLOGER", text));
+  const sent = await postMessage(thread.id, "ASTROLOGER", text);
+  // Replying means they've read it.
+  await db.messageThread.update({ where: { id: thread.id }, data: { astrologerReadAt: new Date() } });
+  res.status(201).json(sent);
+});
+
+/** The astrologer opened a customer conversation: its messages count as read (saved, so it stays read). */
+portalRouter.post("/messages/:threadId/read", async (req, res) => {
+  const a = await me(req);
+  const { count } = await db.messageThread.updateMany({
+    where: { id: String(req.params.threadId), astrologerId: a.id },
+    data: { astrologerReadAt: new Date() },
+  });
+  if (!count) throw notFound("Conversation not found.");
+  res.json({ ok: true });
 });
 
 // ── Earnings ──

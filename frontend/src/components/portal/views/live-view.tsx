@@ -59,7 +59,10 @@ function LiveConsole({ data }: { data: LiveRoom }) {
   const { feed, gifts: giftsShown } = useLiveFeed(live);
   // The private consultation in progress, followed with the feed (every few seconds).
   const priv = live ? (feed ? feed.private : data.private) : null;
-  const broadcast = useLiveBroadcast({ live, privateOn: !!priv });
+  // In session (the customer joined): the live's sound is off for viewers until it ends — automatic,
+  // and from the server's state, so a refresh or a second device shows the same.
+  const audioMutedForPrivate = priv?.status === "active";
+  const broadcast = useLiveBroadcast({ live, privateOn: audioMutedForPrivate });
   const selfView = useRef<HTMLVideoElement | null>(null);
   useEffect(() => {
     const v = selfView.current;
@@ -85,6 +88,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
   const [question, setQuestion] = useState(data.pollQuestion);
   const [options, setOptions] = useState(data.pollOptions.length ? data.pollOptions : ["", ""]);
   const rate = `${rupee(data.rate)}/min`;
+  const MODE_LABEL = { chat: "💬 Chat", voice: "📞 Voice", video: "📹 Video" } as const;
 
   // Keep the queue (and how long people have waited) current while the console is open.
   useEffect(() => {
@@ -141,7 +145,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
       const res = await api.post<{ rate?: number }>(`/portal/live/requests/${q.id}/${decision}`);
       toast(
         decision === "accept"
-          ? `Accepted at ${rupee(res.rate ?? data.rate)}/min. ${q.alias} is being asked to join — while you talk, only they hear you; the room keeps your video.`
+          ? `Accepted at ${rupee(res.rate ?? data.rate)}/min. ${q.name ?? q.alias} is being asked to join — while you talk, only they hear you; the room keeps your video.`
           : "Request declined. The viewer returns to watching, charged ₹0.",
       );
     });
@@ -156,8 +160,10 @@ function LiveConsole({ data }: { data: LiveRoom }) {
   const hostControls = broadcast.local
     ? [
         {
-          label: broadcast.micOn ? "🎤 Mic on" : "🔇 Mic muted",
-          bg: broadcast.micOn ? "rgba(0,0,0,.45)" : "#ea580c",
+          // While a private consultation runs the live's sound is off whatever this says; the
+          // button still sets what happens once it ends.
+          label: audioMutedForPrivate ? (broadcast.micOn ? "🔇 Live audio muted" : "🔇 Mic muted") : broadcast.micOn ? "🎤 Mic on" : "🔇 Mic muted",
+          bg: broadcast.micOn && !audioMutedForPrivate ? "rgba(0,0,0,.45)" : "#ea580c",
           fg: "#fffdf8",
           pressed: broadcast.micOn,
           click: broadcast.toggleMic,
@@ -183,7 +189,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
           : broadcast.answerFailed
             ? "Couldn't reach the live video service. Chat, gifts and the queue still work."
             : broadcast.link === "connected"
-              ? priv
+              ? audioMutedForPrivate
                 ? "On air without sound — you're in a private consultation."
                 : "On air — viewers see and hear you."
               : broadcast.link === "failed"
@@ -250,6 +256,15 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                 <span className="inline-flex h-[26px] items-center rounded-full bg-amber-300 px-[11px] text-[11px] font-extrabold text-ink">
                   🔒 {priv.status === "active" ? "Private consult active" : "Private consult starting"}
                 </span>
+              )}
+              {audioMutedForPrivate && (
+                <div
+                  role="status"
+                  className="flex basis-full items-center gap-2 rounded-xl border border-amber-300/50 bg-[rgba(28,25,23,.82)] px-3 py-2 text-[12.5px] font-bold text-amber-200"
+                >
+                  <span aria-hidden="true">🔇</span>
+                  <span>Live audio muted for viewers — private call in progress</span>
+                </div>
               )}
             </div>
             {!broadcast.local && broadcast.permission !== "granted" && (
@@ -331,15 +346,20 @@ function LiveConsole({ data }: { data: LiveRoom }) {
           )}
 
           <Panel className="relative mt-4 p-5">
-            <h2 className="m-0 mb-3 text-base font-bold">Rate for this live</h2>
+            <h2 className="m-0 mb-3 text-base font-bold">Rates for this live</h2>
             <div className="flex flex-wrap items-end gap-6">
               <div>
-                <div className="text-[11.5px] font-semibold text-stone-500">Standard rate</div>
+                <div className="text-[11.5px] font-semibold text-stone-500">Chat · Voice</div>
                 <b className="text-[22px] tabular-nums">{rate}</b>
+              </div>
+              <div>
+                <div className="text-[11.5px] font-semibold text-stone-500">Video</div>
+                <b className="text-[22px] tabular-nums">{rupee(data.rates?.video ?? data.rate)}/min</b>
               </div>
             </div>
             <p className="mt-3 text-[11.5px] text-stone-500">
-              Consults started from this room are charged at your standard rate — the same rate customers see on your profile.
+              Private consults from this room — chat, voice or video, as the customer chooses — are charged at the same rates customers
+              see on your profile.
             </p>
           </Panel>
 
@@ -367,9 +387,9 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                   }`}
                 >
                   <div className="min-w-0 flex-1">
-                    <b className="block text-[13px] tabular-nums">{q.alias}</b>
+                    <b className="block truncate text-[13px]">{q.name ?? q.alias}</b>
                     <span className="text-[11.5px] text-stone-500">
-                      Private consultation · {rate}
+                      Private {MODE_LABEL[q.consultMode] ?? "consultation"} · {rupee(q.rate)}/min
                     </span>
                   </div>
                   {q.actionable && (
@@ -401,7 +421,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
             <p className="mt-2.5 text-[11.5px] text-stone-500">
               {priv
                 ? "One private consultation at a time — the next person can be accepted when this one ends."
-                : "First come, first served. Accepting starts a private consultation: only that customer hears you, the room keeps your video."}
+                : "First come, first served. Accepting starts a private chat, voice or video consultation, as they asked. Once they join, the room keeps your video without sound."}
             </p>
           </Panel>
           )}

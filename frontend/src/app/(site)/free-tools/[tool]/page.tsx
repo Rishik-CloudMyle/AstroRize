@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import Breadcrumbs from "@/components/breadcrumbs";
 import ToolRunner from "@/components/tools/tool-runner";
-import { getTool, getTools } from "@/lib/mock/tools";
+import { getTool, getTools } from "@/lib/tools";
 
 export const dynamicParams = false;
 
@@ -50,7 +51,10 @@ export default async function ToolPage(props: PageProps<"/free-tools/[tool]">) {
         </div>
       </div>
 
-      <ToolRunner tool={tool} />
+      {/* The tools read their shared-result links (?sign=, ?cards=, …) on the client. */}
+      <Suspense fallback={<div className="mt-6 h-48 animate-pulse rounded-3xl border border-line bg-paper" />}>
+        <ToolRunner tool={tool} />
+      </Suspense>
 
       <div className="mt-10">
         <h2 className="mb-3 text-lg font-bold text-ink">More free tools</h2>

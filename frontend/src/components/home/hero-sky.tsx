@@ -1,74 +1,129 @@
-// Home hero: the "celestial dial" — the nine grahas on their orbit rings inside a round night-sky
-// plate with a graduated zodiac rim, drawn on a canvas. Decorative: no text in the drawing, hidden
-// from screen readers.
+// Home hero: the golden zodiac wheel — an engraved gold rashi chakra on the cream page, with the
+// nine grahas set on it as small gems. Drawn on a canvas (hidden from screen readers; the
+// planets are offered to them as buttons instead). Also here: the hero's sparkles and shooting stars.
 //
-// Real sky: every graha starts where it truly is now (sidereal, Lahiri — src/lib/sky.ts) and
-// moves as a time-lapse at its real speed, one day a second: the Moon fastest, Saturn slowest,
-// Rahu and Ketu backwards and exactly opposite, and the planets' retrograde loops when they
-// happen. The view is from the Earth (centre), looking down on the zodiac: 0° Mesha on the left,
-// signs running anticlockwise. Each planet swings slightly in and out with its real distance, so
-// backwards stretches draw a loop. The nakshatra the Moon is passing through glows on the rim.
+// Outside in: a beaded rim, a degree scale (1°, 5°, 30°), the twelve rashi with their glyphs, a
+// scalloped filigree, the gem track, the twenty-seven nakshatra points, and a rosette round a
+// small engraved sun with a warm glow. The whole wheel turns very slowly (once in four minutes).
 //
-// It always plays — the client wants the sky moving for everyone, including visitors whose OS
-// asks for reduced motion — and has one Pause / Play button for anyone who wants it still
-// (WCAG 2.2.2). It only runs while the dial is on screen and the tab is visible.
+// Real sky: every graha sits on the wheel at its true sidereal longitude now (Lahiri —
+// src/lib/sky.ts) and moves on as a gentle time-lapse at its real speed, half a day a second:
+// the Moon fastest, Saturn barely, Rahu and Ketu backwards and exactly opposite, retrogrades
+// when they really happen. 0° Mesha is on the left, signs run anticlockwise. Gems that meet
+// step inwards so they never sit on top of each other.
+//
+// Close conjunctions are joined by a faint gold line that fades in as the grahas meet. Hovering a
+// gem (or tapping it, or reaching it by keyboard) opens a small card with its rashi, degree,
+// nakshatra and retrograde state, and with a mouse the wheel tilts a little to face it.
+//
+// It always plays — the client wants it moving for everyone, including visitors whose OS asks
+// for reduced motion — and has one Pause / Play button for anyone who wants it still (WCAG
+// 2.2.2). It only runs while the wheel is on screen and the tab is visible.
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { DAY_MS, GRAHA_KEYS, grahaSamples, type GrahaKey, type GrahaSample } from "@/lib/sky";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { DAY_MS, GRAHA_KEYS, GRAHA_NAMES, grahaSamples, placeOf, type GrahaKey, type GrahaSample } from "@/lib/sky";
 
 /** Time-lapse speed: sky days per real second. */
-const DAYS_PER_SECOND = 1;
+const DAYS_PER_SECOND = 0.5;
+/** Seconds for one turn of the wheel. */
+const TURN_SECONDS = 240;
 /** Positions are sampled every half day and interpolated in between. */
 const STEP_DAYS = 0.5;
 /** Redraw at most this often (ms) — about 30 frames a second is plenty for this motion. */
 const FRAME_MS = 32;
-/** Orbit unit R as a fraction of the dial's radius D (the outermost ring, the nodes', sits at R). */
-const ORBIT = 0.78;
-/** The zodiac rim's inner and outer edge, and the nakshatra ring, as fractions of D. */
-const RIM = [0.885, 0.972] as const;
-const NAKSHATRA_RING = 0.855;
-/** Most the inner sky shifts with the mouse, in pixels (the rim stays put, which gives depth). */
-const PARALLAX = 6;
-
-interface Look {
-  /** Orbit radius as a fraction of R. */
-  ring: number;
-  /** Disc radius as a fraction of R. */
-  size: number;
-  /** Highlight, body and shadow colours of the disc. */
-  fill: [string, string, string];
-  /** Glow colour, as "r,g,b". */
-  glow: string;
-  /** Days of trail behind it. */
-  trail: number;
-}
-
-// Traditional Vedic colours: copper-gold Sun, white Moon, red Mars, green Mercury, yellow Jupiter,
-// pearl Venus, blue Saturn, smoky Rahu and Ketu — lifted a little to read on the night plate.
-const LOOK: Record<GrahaKey, Look> = {
-  moon: { ring: 0.3, size: 0.044, fill: ["#ffffff", "#e6e9f2", "#8f98ad"], glow: "214,222,240", trail: 2.5 },
-  mercury: { ring: 0.4, size: 0.03, fill: ["#d4fbe0", "#22c55e", "#166534"], glow: "74,222,128", trail: 18 },
-  venus: { ring: 0.5, size: 0.04, fill: ["#ffffff", "#fbe4ee", "#c49aae"], glow: "255,214,232", trail: 18 },
-  sun: { ring: 0.6, size: 0.072, fill: ["#fff6c9", "#f8a815", "#c2410c"], glow: "251,176,36", trail: 14 },
-  mars: { ring: 0.69, size: 0.034, fill: ["#ffb4a0", "#ef4430", "#7f1d1d"], glow: "239,68,48", trail: 34 },
-  jupiter: { ring: 0.78, size: 0.056, fill: ["#fff4b8", "#eab308", "#92400e"], glow: "234,179,8", trail: 60 },
-  saturn: { ring: 0.87, size: 0.044, fill: ["#dbe0ff", "#6d72f0", "#312e81"], glow: "129,140,248", trail: 60 },
-  rahu: { ring: 1, size: 0.03, fill: ["#e2e8f0", "#7c8798", "#334155"], glow: "148,163,184", trail: 40 },
-  ketu: { ring: 1, size: 0.03, fill: ["#f3dcc2", "#b07d58", "#4a3222"], glow: "196,145,104", trail: 40 },
-};
-const RINGS = [...new Set(GRAHA_KEYS.map((k) => LOOK[k].ring))];
-const MAX_TRAIL = Math.max(...GRAHA_KEYS.map((k) => LOOK[k].trail));
 const TAU = Math.PI * 2;
 
-/** A fixed field of faint stars inside the plate: polar position (fraction of D), size, twinkle phase. */
-const STARS = Array.from({ length: 90 }, (_, i) => {
+/** Radii as fractions of the wheel's radius D. */
+const RAD = {
+  rim: 0.975,
+  beads: 0.952,
+  scaleOut: 0.93,
+  signOut: 0.868,
+  glyph: 0.795,
+  signIn: 0.722,
+  track: 0.632,
+  nakOut: 0.522,
+  nakDot: 0.501,
+  nakIn: 0.48,
+  inner: 0.43,
+  rosette: 0.405,
+  core: 0.165,
+} as const;
+/**
+ * How far a gem steps inwards (fraction of D) to clear another one; gems start to make room
+ * when they come within CLEAR_DEG of each other and have stepped right in by FULL_DEG.
+ */
+const LANE = 0.085;
+const CLEAR_DEG = 11;
+const FULL_DEG = 5;
+
+interface Gem {
+  /** Stone radius as a fraction of D. */
+  size: number;
+  /** Highlight, body and edge colours. */
+  fill: [string, string, string];
+  /** Glow colour, "r,g,b". */
+  glow: string;
+  /** Facet lines: light stones get darker lines. */
+  facet: string;
+  /** Round (pearl) rather than cut. */
+  round?: boolean;
+}
+
+// Each graha's stone, after the navaratna: Sun gold, Moon pearl, Mars ruby, Mercury emerald,
+// Jupiter yellow sapphire, Venus diamond, Saturn blue sapphire, Rahu smoky hessonite, Ketu agate.
+const GEMS: Record<GrahaKey, Gem> = {
+  sun: { size: 0.044, fill: ["#fff4c2", "#f3b21c", "#9a5a06"], glow: "245,170,30", facet: "rgba(255,248,220,.55)" },
+  moon: { size: 0.035, fill: ["#ffffff", "#f3eee8", "#b8adc0"], glow: "214,204,226", facet: "", round: true },
+  mars: { size: 0.031, fill: ["#ffb8bd", "#d3152f", "#5f0614"], glow: "214,30,58", facet: "rgba(255,220,225,.5)" },
+  mercury: { size: 0.029, fill: ["#c4f7da", "#139c58", "#05472a"], glow: "22,160,92", facet: "rgba(220,255,236,.5)" },
+  jupiter: { size: 0.037, fill: ["#fff7b8", "#efc40c", "#946300"], glow: "236,196,20", facet: "rgba(255,252,225,.6)" },
+  venus: { size: 0.034, fill: ["#ffffff", "#eef3fa", "#93a4ba"], glow: "190,214,244", facet: "rgba(90,110,140,.35)" },
+  saturn: { size: 0.034, fill: ["#bccbff", "#2545c4", "#0b1857"], glow: "48,78,206", facet: "rgba(220,230,255,.5)" },
+  rahu: { size: 0.028, fill: ["#e2d9cc", "#76675a", "#2b221b"], glow: "112,98,86", facet: "rgba(255,245,230,.4)" },
+  ketu: { size: 0.028, fill: ["#f8d6b4", "#b8662c", "#55260c"], glow: "184,102,44", facet: "rgba(255,236,214,.5)" },
+};
+/** Who keeps their place when two meet: the rest step inwards. */
+const PRIORITY: readonly GrahaKey[] = ["sun", "moon", "jupiter", "venus", "saturn", "mars", "mercury", "rahu", "ketu"];
+
+// The twelve rashi glyphs, drawn as strokes in a 20 × 20 box centred on 0,0 (upright = outwards).
+const GLYPHS = [
+  // Mesha ♈
+  "M0 8V-1C0-7-2.5-9-5-9S-9-6.5-8.5-4-6-1-5-1M0-1C0-7 2.5-9 5-9S9-6.5 8.5-4 6-1 5-1",
+  // Vrishabha ♉
+  "M-8-9C-7-4-4-2.5 0-2.5S7-4 8-9M5.2 3.5A5.2 5.2 0 1 1-5.2 3.5 5.2 5.2 0 1 1 5.2 3.5",
+  // Mithuna ♊
+  "M-8-8C-3-6 3-6 8-8M-8 8C-3 6 3 6 8 8M-3.2-6.4V6.4M3.2-6.4V6.4",
+  // Karka ♋
+  "M9-2.5C6-8.5-3-9.5-8.5-4.5M-9 2.5C-6 8.5 3 9.5 8.5 4.5M-2-3A3 3 0 1 1-8-3 3 3 0 1 1-2-3M8 3A3 3 0 1 1 2 3 3 3 0 1 1 8 3",
+  // Simha ♌
+  "M-1.5 4C-1.5-1-4-3-4-6-4-9.5 4.5-9.5 4.5-5 4.5-1 1.5 2 1.5 6 1.5 9 5.5 9.5 7 7M-1.5 4A3 3 0 1 1-7.5 4 3 3 0 1 1-1.5 4",
+  // Kanya ♍
+  "M-9-7C-8-7-7.5-6-7.5-4.5V7M-7.5-4C-7.5-8.5-2.5-8.5-2.5-4V7M-2.5-4C-2.5-8.5 2.5-8.5 2.5-4V5.5C2.5 8 4 9.5 6 9.5M2.5 1.5C5-1.5 9-1 8.5 2.5 8 6 4 8.5 0 9.5",
+  // Tula ♎
+  "M-9 7.5H9M-9 3H-3.5C-6.5 0-6-6.5 0-6.5S6.5 0 3.5 3H9",
+  // Vrishchika ♏
+  "M-9-7C-8-7-7.5-6-7.5-4.5V7M-7.5-4C-7.5-8.5-2.5-8.5-2.5-4V7M-2.5-4C-2.5-8.5 2.5-8.5 2.5-4V5C2.5 7.5 4 8.5 6 8.5H9M6.5 6 9 8.5 6.5 11",
+  // Dhanu ♐
+  "M-8 8 8-8M1.5-8H8V-1.5M-6.5-1.5 1.5 6.5",
+  // Makara ♑
+  "M-9-7H-6.5L-3 6 1-5C2-8.5 6-8.5 6-5V4C6 7.5 9.5 8.5 9.5 5 9.5 2 6.5 1.5 4.5 4S-1 9.5-3.5 8.5",
+  // Kumbha ♒
+  "M-9-1-5.5-5-2-1 1.5-5 5-1 8.5-5M-9 6-5.5 2-2 6 1.5 2 5 6 8.5 2",
+  // Meena ♓
+  "M-7-9C-2-4.5-2 4.5-7 9M7-9C2-4.5 2 4.5 7 9M-4.5 0H4.5",
+] as const;
+
+/** Faint glints that flash now and then on the rings: radius (fraction of D), angle, phase, period (s). */
+const GLINTS = Array.from({ length: 16 }, (_, i) => {
   const r = (n: number) => ((Math.sin(i * 12.9898 + n * 78.233) * 43758.5453) % 1 + 1) % 1;
-  return { a: r(1) * TAU, d: 0.12 + Math.sqrt(r(2)) * 0.7, s: 0.5 + r(3) * 0.9, p: r(4) * TAU, f: 0.6 + r(5) * 1.4 };
+  const rings = [RAD.rim, RAD.scaleOut, RAD.signOut, RAD.signIn, RAD.nakOut, RAD.inner, RAD.core];
+  return { d: rings[Math.floor(r(1) * rings.length)]!, a: r(2) * TAU, p: r(3) * TAU, f: 3.5 + r(4) * 4 };
 });
 
-/** Half-day samples, computed on demand and dropped once they fall off the longest trail. */
+/** Half-day samples, computed on demand and dropped once they are behind. */
 class SkyCache {
   private samples = new Map<number, Record<GrahaKey, GrahaSample>>();
   constructor(private start: number) {}
@@ -85,225 +140,532 @@ class SkyCache {
   }
 }
 
-/** Interpolated longitude (degrees, unwrapped near `a`) and nearness between two samples. */
-function blend(a: GrahaSample, b: GrahaSample, f: number): GrahaSample {
+/** Interpolated longitude between two samples (degrees, taking the short way round). */
+function blend(a: GrahaSample, b: GrahaSample, f: number): number {
   let d = b.longitude - a.longitude;
   if (d > 180) d -= 360;
   if (d < -180) d += 360;
-  return { longitude: a.longitude + d * f, nearFar: a.nearFar + (b.nearFar - a.nearFar) * f };
+  return a.longitude + d * f;
 }
 
 /** Canvas angle for a sidereal longitude: 0° Mesha on the left, growing anticlockwise. */
 const angle = (lon: number) => Math.PI - (lon * Math.PI) / 180;
 
-function draw(ctx: CanvasRenderingContext2D, side: number, cache: SkyCache, day: number, sweep: number, clock: number, par: { x: number; y: number }) {
+/** Angular distance between two longitudes, 0–180°. */
+const apart = (a: number, b: number) => {
+  const d = Math.abs((((a - b) % 360) + 360) % 360);
+  return d > 180 ? 360 - d : d;
+};
+
+/**
+ * The still part of the wheel — everything but the gems and the glints — drawn once per size on
+ * an off-screen canvas, then turned and stamped every frame. Each line is laid twice, a pale
+ * line a hair below-right of a gold one, so it reads as engraved.
+ */
+function paintWheel(side: number, dpr: number): HTMLCanvasElement {
+  const layer = document.createElement("canvas");
+  layer.width = Math.round(side * dpr);
+  layer.height = Math.round(side * dpr);
+  const ctx = layer.getContext("2d");
+  if (!ctx) return layer;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const c = side / 2;
+  const D = side / 2;
+  const hair = Math.max(0.9, D / 220);
+
+  // Warm wash behind the centre, inside the rosette.
+  const wash = ctx.createRadialGradient(c, c, 0, c, c, RAD.inner * D);
+  wash.addColorStop(0, "rgba(255,226,150,.38)");
+  wash.addColorStop(1, "rgba(255,226,150,0)");
+  ctx.fillStyle = wash;
+  ctx.beginPath();
+  ctx.arc(c, c, RAD.inner * D, 0, TAU);
+  ctx.fill();
+  // A faint gold tint in the sign band, so the rashi sit on a band of their own.
+  ctx.strokeStyle = "rgba(226,176,58,.16)";
+  ctx.lineWidth = (RAD.signOut - RAD.signIn) * D;
+  ctx.beginPath();
+  ctx.arc(c, c, ((RAD.signOut + RAD.signIn) / 2) * D, 0, TAU);
+  ctx.stroke();
+
+  const metal = ctx.createLinearGradient(0, 0, side, side);
+  metal.addColorStop(0, "#8a580a");
+  metal.addColorStop(0.28, "#b98420");
+  metal.addColorStop(0.5, "#9c6912");
+  metal.addColorStop(0.72, "#c4902a");
+  metal.addColorStop(1, "#7d4f08");
+
+  const lines = (ink: string | CanvasGradient, dx: number) => {
+    ctx.save();
+    ctx.translate(dx, dx);
+    ctx.strokeStyle = ink;
+    ctx.fillStyle = ink;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    const ring = (f: number, w = 1) => {
+      ctx.lineWidth = hair * w;
+      ctx.beginPath();
+      ctx.arc(c, c, f * D, 0, TAU);
+      ctx.stroke();
+    };
+    const spoke = (deg: number, from: number, to: number) => {
+      const t = angle(deg);
+      ctx.moveTo(c + from * D * Math.cos(t), c + from * D * Math.sin(t));
+      ctx.lineTo(c + to * D * Math.cos(t), c + to * D * Math.sin(t));
+    };
+
+    // Rim: a fine outer line, a row of beads, and the scale's edge.
+    ring(RAD.rim, 1.1);
+    for (let d = 0; d < 360; d += 5) {
+      const t = angle(d + 2.5);
+      ctx.beginPath();
+      ctx.arc(c + RAD.beads * D * Math.cos(t), c + RAD.beads * D * Math.sin(t), Math.max(0.7, D * (d % 30 === 25 ? 0.0065 : 0.0042)), 0, TAU);
+      ctx.fill();
+    }
+    ring(RAD.scaleOut, 1.3);
+
+    // Degree scale: every degree, every five, and the sign boundaries right across the band.
+    const span = RAD.scaleOut - RAD.signOut;
+    ctx.lineWidth = hair * 0.6;
+    ctx.beginPath();
+    for (let d = 0; d < 360; d++) if (d % 5) spoke(d, RAD.scaleOut, RAD.scaleOut - span * 0.28);
+    ctx.stroke();
+    ctx.lineWidth = hair * 0.9;
+    ctx.beginPath();
+    for (let d = 5; d < 360; d += 5) if (d % 30) spoke(d, RAD.scaleOut, RAD.scaleOut - span * (d % 10 ? 0.5 : 0.62));
+    ctx.stroke();
+    ring(RAD.signOut, 1.2);
+    ring(RAD.signIn, 1.2);
+    ctx.lineWidth = hair * 1.1;
+    ctx.beginPath();
+    for (let d = 0; d < 360; d += 30) spoke(d, RAD.scaleOut, RAD.signIn);
+    ctx.stroke();
+
+    // The rashi glyphs, upright facing outwards.
+    const g = (D * 0.074) / 20;
+    for (let i = 0; i < 12; i++) {
+      const t = angle(i * 30 + 15);
+      ctx.save();
+      ctx.translate(c + RAD.glyph * D * Math.cos(t), c + RAD.glyph * D * Math.sin(t));
+      ctx.rotate(t + Math.PI / 2);
+      ctx.scale(g, g);
+      ctx.lineWidth = Math.max(1.5, (hair * 1.25) / g);
+      ctx.stroke(new Path2D(GLYPHS[i]));
+      ctx.restore();
+      // Small diamonds either side of each glyph.
+      for (const side of [-1, 1]) {
+        const tt = angle(i * 30 + 15 + side * 9.5);
+        const x = c + RAD.glyph * D * Math.cos(tt);
+        const y = c + RAD.glyph * D * Math.sin(tt);
+        const s = Math.max(1, D * 0.008);
+        ctx.beginPath();
+        ctx.moveTo(x, y - s);
+        ctx.lineTo(x + s * 0.6, y);
+        ctx.lineTo(x, y + s);
+        ctx.lineTo(x - s * 0.6, y);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    // Filigree: a row of small scallops hanging inside the sign band, with a dot in each.
+    const n = 72;
+    const sr = (TAU * RAD.signIn * D) / n / 2;
+    ctx.lineWidth = hair * 0.8;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const t = (i / n) * TAU;
+      const x = c + RAD.signIn * D * Math.cos(t);
+      const y = c + RAD.signIn * D * Math.sin(t);
+      ctx.moveTo(x + sr * Math.cos(t + Math.PI / 2), y + sr * Math.sin(t + Math.PI / 2));
+      ctx.arc(x, y, sr, t + Math.PI / 2, t + (Math.PI * 3) / 2);
+    }
+    ctx.stroke();
+    for (let i = 0; i < n; i++) {
+      const t = ((i + 0.5) / n) * TAU;
+      const r = RAD.signIn * D - sr * 0.9;
+      ctx.beginPath();
+      ctx.arc(c + r * Math.cos(t), c + r * Math.sin(t), Math.max(0.5, D * 0.0028), 0, TAU);
+      ctx.fill();
+    }
+
+    // The gem track: a fine double line.
+    ring(RAD.track + 0.006, 0.7);
+    ring(RAD.track - 0.006, 0.7);
+
+    // Nakshatras: twenty-seven points between two rings, with a fine line at each boundary.
+    ring(RAD.nakOut, 1);
+    ring(RAD.nakIn, 1);
+    ctx.lineWidth = hair * 0.7;
+    ctx.beginPath();
+    for (let i = 0; i < 27; i++) spoke(i * (360 / 27), RAD.nakOut, RAD.nakIn);
+    ctx.stroke();
+    for (let i = 0; i < 27; i++) {
+      const t = angle((i + 0.5) * (360 / 27));
+      ctx.beginPath();
+      ctx.arc(c + RAD.nakDot * D * Math.cos(t), c + RAD.nakDot * D * Math.sin(t), Math.max(0.9, D * 0.0058), 0, TAU);
+      ctx.fill();
+    }
+
+    // Rosette: a dotted ring, twelve long petals and twelve short ones between them.
+    for (let i = 0; i < 120; i++) {
+      const t = (i / 120) * TAU;
+      ctx.beginPath();
+      ctx.arc(c + RAD.inner * D * Math.cos(t), c + RAD.inner * D * Math.sin(t), Math.max(0.5, D * 0.0026), 0, TAU);
+      ctx.fill();
+    }
+    const petal = (t: number, from: number, to: number, width: number) => {
+      const x0 = c + from * D * Math.cos(t);
+      const y0 = c + from * D * Math.sin(t);
+      const x1 = c + to * D * Math.cos(t);
+      const y1 = c + to * D * Math.sin(t);
+      const m = ((from + to) / 2) * D;
+      const w = width * D;
+      const nx = -Math.sin(t);
+      const ny = Math.cos(t);
+      ctx.moveTo(x0, y0);
+      ctx.quadraticCurveTo(c + m * Math.cos(t) + nx * w, c + m * Math.sin(t) + ny * w, x1, y1);
+      ctx.quadraticCurveTo(c + m * Math.cos(t) - nx * w, c + m * Math.sin(t) - ny * w, x0, y0);
+    };
+    ctx.lineWidth = hair * 0.9;
+    ctx.beginPath();
+    for (let i = 0; i < 12; i++) petal((i / 12) * TAU, RAD.core, RAD.rosette, 0.075);
+    ctx.stroke();
+    ctx.lineWidth = hair * 0.7;
+    ctx.beginPath();
+    for (let i = 0; i < 12; i++) petal(((i + 0.5) / 12) * TAU, RAD.core, RAD.core + 0.14, 0.04);
+    for (let i = 0; i < 12; i++) petal((i / 12) * TAU, RAD.core + 0.03, RAD.rosette - 0.07, 0.032);
+    ctx.stroke();
+    ring(RAD.core, 1.1);
+
+    // The engraved sun: wavy rays round a small disc.
+    ctx.lineWidth = hair * 0.85;
+    ctx.beginPath();
+    for (let i = 0; i < 24; i++) {
+      const t = (i / 24) * TAU;
+      const from = D * 0.062;
+      const to = D * (i % 2 ? 0.12 : 0.145);
+      const nx = -Math.sin(t);
+      const ny = Math.cos(t);
+      const w = D * 0.012;
+      ctx.moveTo(c + from * Math.cos(t), c + from * Math.sin(t));
+      ctx.bezierCurveTo(
+        c + (from + (to - from) * 0.33) * Math.cos(t) + nx * w,
+        c + (from + (to - from) * 0.33) * Math.sin(t) + ny * w,
+        c + (from + (to - from) * 0.66) * Math.cos(t) - nx * w,
+        c + (from + (to - from) * 0.66) * Math.sin(t) - ny * w,
+        c + to * Math.cos(t),
+        c + to * Math.sin(t),
+      );
+    }
+    ctx.stroke();
+    ring(0.055, 1.1);
+    ctx.restore();
+  };
+
+  lines("rgba(255,251,238,.9)", Math.max(0.6, hair * 0.8));
+  lines(metal, 0);
+
+  // The sun's disc, polished gold.
+  const disc = ctx.createRadialGradient(c - D * 0.018, c - D * 0.02, D * 0.004, c, c, D * 0.05);
+  disc.addColorStop(0, "#fff3c0");
+  disc.addColorStop(0.55, "#e7b33f");
+  disc.addColorStop(1, "#a86f12");
+  ctx.fillStyle = disc;
+  ctx.beginPath();
+  ctx.arc(c, c, D * 0.05, 0, TAU);
+  ctx.fill();
+  return layer;
+}
+
+/** A cut gem (or a pearl) in a thin gold bezel, with a glow of its own colour. */
+function drawGem(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, gem: Gem, turn: number, sparkle: number, big: boolean) {
+  const glow = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * (big ? 3.6 : 2.6));
+  glow.addColorStop(0, `rgba(${gem.glow},${big ? 0.5 : 0.38})`);
+  glow.addColorStop(1, `rgba(${gem.glow},0)`);
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(x, y, r * (big ? 3.6 : 2.6), 0, TAU);
+  ctx.fill();
+
+  // Bezel, with a soft shadow under it.
+  ctx.save();
+  ctx.shadowColor = "rgba(110,64,8,.35)";
+  ctx.shadowBlur = r * 0.9;
+  ctx.shadowOffsetY = r * 0.25;
+  const bezel = ctx.createLinearGradient(x - r, y - r, x + r, y + r);
+  bezel.addColorStop(0, "#fbe6a6");
+  bezel.addColorStop(0.5, "#c58f26");
+  bezel.addColorStop(1, "#8a570c");
+  ctx.fillStyle = bezel;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 1.2, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+
+  const body = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.08, x, y, r);
+  body.addColorStop(0, gem.fill[0]);
+  body.addColorStop(0.55, gem.fill[1]);
+  body.addColorStop(1, gem.fill[2]);
+  ctx.fillStyle = body;
+  if (gem.round) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, TAU);
+    ctx.fill();
+  } else {
+    // Octagonal brilliant seen from above: girdle, table and the facets between.
+    const pt = (k: number, f: number) => {
+      const t = turn + (k / 8) * TAU;
+      return [x + Math.cos(t) * r * f, y + Math.sin(t) * r * f] as const;
+    };
+    ctx.beginPath();
+    for (let k = 0; k < 8; k++) ctx[k ? "lineTo" : "moveTo"](...pt(k, 1));
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = gem.facet;
+    ctx.lineWidth = Math.max(0.5, r * 0.07);
+    ctx.beginPath();
+    for (let k = 0; k < 8; k++) ctx[k ? "lineTo" : "moveTo"](...pt(k + 0.5, 0.5));
+    ctx.closePath();
+    for (let k = 0; k < 8; k++) {
+      ctx.moveTo(...pt(k + 0.5, 0.5));
+      ctx.lineTo(...pt(k, 1));
+      ctx.moveTo(...pt(k + 0.5, 0.5));
+      ctx.lineTo(...pt(k + 1, 1));
+    }
+    ctx.stroke();
+  }
+  // Specular highlight.
+  ctx.fillStyle = "rgba(255,255,255,.85)";
+  ctx.beginPath();
+  ctx.ellipse(x - r * 0.36, y - r * 0.4, r * 0.24, r * 0.14, -0.7, 0, TAU);
+  ctx.fill();
+  if (sparkle > 0.02) star(ctx, x + r * 0.42, y - r * 0.42, r * (0.6 + sparkle * 0.9), sparkle);
+}
+
+/** A four-pointed glint. */
+function star(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, alpha: number) {
+  ctx.fillStyle = `rgba(255,253,240,${alpha.toFixed(3)})`;
+  ctx.beginPath();
+  ctx.moveTo(x, y - s);
+  ctx.quadraticCurveTo(x, y, x + s, y);
+  ctx.quadraticCurveTo(x, y, x, y + s);
+  ctx.quadraticCurveTo(x, y, x - s, y);
+  ctx.quadraticCurveTo(x, y, x, y - s);
+  ctx.fill();
+}
+
+/** Gems closer than this in the sky (degrees) are joined by a faint gold line, full by LINK_FULL. */
+const LINK_DEG = 16;
+const LINK_FULL = 8;
+/** How far the wheel tilts towards the mouse at most (degrees), and the depth it tilts in (px). */
+const TILT_DEG = 6;
+const PERSPECTIVE = 1100;
+const RADIAN = Math.PI / 180;
+
+/** Where a gem was last drawn (canvas pixels) and what it stands for. */
+interface GemSpot {
+  key: GrahaKey;
+  x: number;
+  y: number;
+  r: number;
+  lon: number;
+  retro: boolean;
+}
+
+/** 0 → 1 with soft ends. */
+const ease = (w: number) => {
+  const v = Math.min(1, Math.max(0, w));
+  return v * v * (3 - 2 * v);
+};
+
+function draw(
+  ctx: CanvasRenderingContext2D,
+  side: number,
+  layer: HTMLCanvasElement,
+  cache: SkyCache,
+  day: number,
+  spin: number,
+  clock: number,
+  focus: GrahaKey | null,
+  focusLevel: number,
+): GemSpot[] {
   ctx.clearRect(0, 0, side, side);
   const c = side / 2;
   const D = side / 2;
-  const R = D * ORBIT;
-  /** Screen point for a longitude at radius r (pixels); the inner sky shifts with the parallax. */
-  const at = (lon: number, r: number) => {
-    const t = angle(lon);
-    const p = r / R;
-    return { x: c + r * Math.cos(t) + par.x * p, y: c + r * Math.sin(t) + par.y * p };
-  };
-  const circle = (r: number, shift = 0) => {
-    ctx.beginPath();
-    ctx.arc(c + par.x * shift, c + par.y * shift, r, 0, TAU);
-  };
+  const hair = Math.max(0.9, D / 220);
 
-  // Warm light at the centre (the Earth's place) and a faint star field.
-  const halo = ctx.createRadialGradient(c, c, 0, c, c, D * 0.62);
-  halo.addColorStop(0, "rgba(251,191,36,.16)");
-  halo.addColorStop(1, "rgba(251,191,36,0)");
+  // The sun-glow at the centre, breathing slowly.
+  const breathe = 0.5 + 0.5 * Math.sin(clock * 0.6);
+  const halo = ctx.createRadialGradient(c, c, 0, c, c, D * (0.3 + 0.03 * breathe));
+  halo.addColorStop(0, `rgba(255,214,110,${(0.55 + 0.15 * breathe).toFixed(3)})`);
+  halo.addColorStop(0.45, "rgba(255,206,100,.22)");
+  halo.addColorStop(1, "rgba(255,206,100,0)");
   ctx.fillStyle = halo;
-  ctx.fillRect(0, 0, side, side);
-  ctx.fillStyle = "#fff7e0";
-  for (const s of STARS) {
-    ctx.globalAlpha = 0.18 + 0.32 * (0.5 + 0.5 * Math.sin(clock * s.f + s.p));
-    ctx.beginPath();
-    ctx.arc(c + Math.cos(s.a) * s.d * D + par.x * 0.4, c + Math.sin(s.a) * s.d * D + par.y * 0.4, Math.max(0.5, s.s * (D / 260)), 0, TAU);
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  ctx.arc(c, c, D * 0.36, 0, TAU);
+  ctx.fill();
 
-  // Zodiac rim: a gold band with degree graduations, the twelve rashi dividers, a small star in
-  // the middle of each sign, and a slow light travelling round it.
-  const [ri, ro] = [RIM[0] * D, RIM[1] * D];
-  ctx.lineCap = "butt";
-  ctx.lineWidth = ro - ri;
-  ctx.strokeStyle = "rgba(226,176,58,.07)";
-  circle((ri + ro) / 2);
-  ctx.stroke();
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(226,176,58,.55)";
-  circle(ro);
-  ctx.stroke();
-  // The light: a bright head running anticlockwise along the rim's outer edge, fading behind.
-  const SEG = 36;
-  ctx.lineWidth = Math.max(1.5, D * 0.008);
-  for (let i = 0; i < SEG; i++) {
-    const a = sweep + i * 0.025;
-    ctx.strokeStyle = `rgba(255,236,170,${(0.85 * (1 - i / SEG) ** 1.8).toFixed(3)})`;
-    ctx.beginPath();
-    ctx.arc(c, c, ro - ctx.lineWidth / 2, a, a + 0.026);
-    ctx.stroke();
-  }
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(226,176,58,.4)";
-  circle(ri);
-  ctx.stroke();
-  const tick = (deg: number, from: number, to: number) => {
-    const t = angle(deg);
-    ctx.moveTo(c + from * Math.cos(t), c + from * Math.sin(t));
-    ctx.lineTo(c + to * Math.cos(t), c + to * Math.sin(t));
-  };
-  const span = ro - ri;
-  ctx.strokeStyle = "rgba(226,176,58,.22)";
-  ctx.beginPath();
-  for (let d = 0; d < 360; d++) if (d % 5) tick(d, ro, ro - span * 0.18);
-  ctx.stroke();
-  ctx.strokeStyle = "rgba(226,176,58,.42)";
-  ctx.beginPath();
-  for (let d = 0; d < 360; d += 5) if (d % 30) tick(d, ro, ro - span * 0.34);
-  ctx.stroke();
-  ctx.strokeStyle = "rgba(226,176,58,.7)";
-  ctx.beginPath();
-  for (let d = 0; d < 360; d += 30) tick(d, ro, ri);
-  ctx.stroke();
-  ctx.fillStyle = "rgba(253,224,138,.75)";
-  const star = Math.max(1.6, span * 0.16);
-  for (let i = 0; i < 12; i++) {
-    const t = angle(i * 30 + 15);
-    const m = ri + span * 0.38;
-    const x = c + m * Math.cos(t);
-    const y = c + m * Math.sin(t);
-    ctx.beginPath();
-    ctx.moveTo(x, y - star);
-    ctx.quadraticCurveTo(x, y, x + star, y);
-    ctx.quadraticCurveTo(x, y, x, y + star);
-    ctx.quadraticCurveTo(x, y, x - star, y);
-    ctx.quadraticCurveTo(x, y, x, y - star);
-    ctx.fill();
+  // The wheel, turned.
+  ctx.save();
+  ctx.translate(c, c);
+  ctx.rotate(spin);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(layer, -c, -c, side, side);
+  ctx.restore();
+
+  // Glints flashing on the rings, turning with the wheel.
+  for (const g of GLINTS) {
+    const a = Math.sin(clock * (TAU / g.f) + g.p);
+    if (a < 0.86) continue;
+    const k = (a - 0.86) / 0.14;
+    const t = g.a + spin;
+    star(ctx, c + g.d * D * Math.cos(t), c + g.d * D * Math.sin(t), D * 0.03 * k, 0.95 * k);
   }
 
-  // Where everything is, at `day`.
+  // Where the grahas are at `day`, and which way each is moving.
   const i0 = Math.floor(day / STEP_DAYS);
   const f = day / STEP_DAYS - i0;
   const now = cache.at(i0);
   const next = cache.at(i0 + 1);
-  const heads = Object.fromEntries(GRAHA_KEYS.map((k) => [k, blend(now[k], next[k], f)])) as Record<GrahaKey, GrahaSample>;
+  const lon = Object.fromEntries(GRAHA_KEYS.map((k) => [k, blend(now[k], next[k], f)])) as Record<GrahaKey, number>;
+  const retro = (k: GrahaKey) => {
+    let d = next[k].longitude - now[k].longitude;
+    if (d > 180) d -= 360;
+    if (d < -180) d += 360;
+    return d < 0;
+  };
 
-  // Twenty-seven nakshatra points just inside the rim; the Moon's current one is lit.
-  const moonStar = Math.floor((((heads.moon.longitude % 360) + 360) % 360) / (360 / 27));
-  const nr = NAKSHATRA_RING * D;
-  for (let i = 0; i < 27; i++) {
-    const t = angle((i + 0.5) * (360 / 27));
-    const x = c + nr * Math.cos(t);
-    const y = c + nr * Math.sin(t);
-    const lit = i === moonStar;
-    if (lit) {
-      const g = ctx.createRadialGradient(x, y, 0, x, y, D * 0.04);
-      g.addColorStop(0, "rgba(226,232,255,.55)");
-      g.addColorStop(1, "rgba(226,232,255,0)");
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(x, y, D * 0.04, 0, TAU);
-      ctx.fill();
+  // Gems that come close step inwards smoothly, by priority, so none hides another.
+  const lane = {} as Record<GrahaKey, number>;
+  for (const [i, k] of PRIORITY.entries()) {
+    let l = 0;
+    for (const j of PRIORITY.slice(0, i)) {
+      const w = Math.min(1, Math.max(0, (CLEAR_DEG - apart(lon[k], lon[j])) / (CLEAR_DEG - FULL_DEG)));
+      l = Math.max(l, (lane[j]! + 1) * (w * w * (3 - 2 * w)));
     }
-    ctx.fillStyle = lit ? "rgba(255,255,255,.95)" : "rgba(226,176,58,.5)";
-    ctx.beginPath();
-    ctx.arc(x, y, Math.max(lit ? 1.6 : 0.9, D * (lit ? 0.009 : 0.0055)), 0, TAU);
-    ctx.fill();
+    lane[k] = Math.min(l, 2);
   }
 
-  // Orbit rings; the nodes' ring is dashed (Rahu and Ketu are points, not bodies).
-  for (const ring of RINGS) {
-    ctx.strokeStyle = ring === 1 ? "rgba(196,181,253,.24)" : "rgba(226,176,58,.17)";
-    ctx.setLineDash(ring === 1 ? [3, 5] : []);
-    circle(ring * R, ring);
+  const spots = {} as Record<GrahaKey, GemSpot>;
+  for (const k of PRIORITY) {
+    const t = angle(lon[k]) + spin;
+    const rr = (RAD.track - lane[k] * LANE) * D;
+    spots[k] = { key: k, x: c + rr * Math.cos(t), y: c + rr * Math.sin(t), r: Math.max(3.5, GEMS[k].size * D * 1.15), lon: lon[k], retro: retro(k) };
+  }
+
+  // Conjunctions: a faint gold line between grahas close together in the sky, fading in as they
+  // meet and out as they part, with a small glint halfway. Gems that have stepped right up to
+  // each other leave no room for a straight line, so there it bows out to the side as a small arc.
+  // Three or more together are joined as a chain, nearest pairs first (a spanning tree), not
+  // every one to every other.
+  const pairs: [GrahaKey, GrahaKey, number][] = [];
+  for (const [i, a] of GRAHA_KEYS.entries()) {
+    for (const b of GRAHA_KEYS.slice(i + 1)) {
+      const d = apart(lon[a], lon[b]);
+      if (d < LINK_DEG) pairs.push([a, b, d]);
+    }
+  }
+  pairs.sort((p, q) => p[2] - q[2]);
+  const group = Object.fromEntries(GRAHA_KEYS.map((k) => [k, k])) as Record<GrahaKey, GrahaKey>;
+  const root = (k: GrahaKey): GrahaKey => (group[k] === k ? k : (group[k] = root(group[k])));
+  ctx.save();
+  ctx.lineCap = "round";
+  for (const [a, b, d] of pairs) {
+    if (root(a) === root(b)) continue;
+    group[root(a)] = root(b);
+    const w = ease((LINK_DEG - d) / (LINK_DEG - LINK_FULL));
+    if (w < 0.01) continue;
+    const A = spots[a];
+    const B = spots[b];
+    const len = Math.hypot(B.x - A.x, B.y - A.y) || 1;
+    let mx = (A.x + B.x) / 2;
+    let my = (A.y + B.y) / 2;
+    const room = len - 1.3 * (A.r + B.r);
+    const want = D * 0.06;
+    if (room < want) {
+      // Bow away from the centre (and, for gems stacked straight inwards, always the same way round).
+      let nx = -(B.y - A.y) / len;
+      let ny = (B.x - A.x) / len;
+      const ox = mx - c;
+      const oy = my - c;
+      if (nx * (ox - oy * 0.6) + ny * (oy + ox * 0.6) < 0) {
+        nx = -nx;
+        ny = -ny;
+      }
+      const bow = (A.r + B.r) * 1.6 * (1 - Math.max(0, room) / want);
+      mx += nx * bow;
+      my += ny * bow;
+    }
+    // Each end leaves its gem's bezel heading for the bend.
+    const end = (s: GemSpot) => {
+      const d = Math.hypot(mx - s.x, my - s.y) || 1;
+      return [s.x + ((mx - s.x) / d) * s.r * 1.3, s.y + ((my - s.y) / d) * s.r * 1.3] as const;
+    };
+    const [x0, y0] = end(A);
+    const [x1, y1] = end(B);
+    // The control point that makes the curve pass through (mx, my) halfway.
+    const qx = 2 * mx - (x0 + x1) / 2;
+    const qy = 2 * my - (y0 + y1) / 2;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.quadraticCurveTo(room < want ? qx : (x0 + x1) / 2, room < want ? qy : (y0 + y1) / 2, x1, y1);
+    ctx.strokeStyle = `rgba(255,224,150,${(0.6 * w).toFixed(3)})`;
+    ctx.lineWidth = hair * 3.4;
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(150,96,12,${(0.75 * w).toFixed(3)})`;
+    ctx.lineWidth = hair * 1.05;
+    ctx.stroke();
+    star(ctx, room < want ? mx : (x0 + x1) / 2, room < want ? my : (y0 + y1) / 2, D * 0.016 * w, 0.95 * w);
+  }
+  ctx.restore();
+
+  // Draw from the back of the priority list so the Sun sits on top.
+  for (const [i, k] of [...PRIORITY].reverse().entries()) {
+    const s = spots[k];
+    const sparkle = Math.max(0, Math.sin(clock * 0.9 + i * 1.7)) ** 12;
+    drawGem(ctx, s.x, s.y, s.r, GEMS[k], angle(s.lon) + spin, sparkle, k === "sun");
+  }
+
+  // A fine gold ring round the gem being looked at (hovered, tapped or reached by keyboard).
+  if (focus && focusLevel > 0.01) {
+    const s = spots[focus];
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r * 1.75, 0, TAU);
+    ctx.strokeStyle = `rgba(255,246,214,${(0.95 * focusLevel).toFixed(3)})`;
+    ctx.lineWidth = hair * 3.4;
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(146,88,6,${(0.95 * focusLevel).toFixed(3)})`;
+    ctx.lineWidth = hair * 1.3;
     ctx.stroke();
   }
-  ctx.setLineDash([]);
 
-  // Trails: back along each graha's path, brightest at the planet, gone at the tail.
-  const radius = (k: GrahaKey, s: GrahaSample) => LOOK[k].ring * R * (1 + 0.12 * (s.nearFar - 0.5));
-  ctx.lineCap = "round";
-  for (const k of GRAHA_KEYS) {
-    const look = LOOK[k];
-    const steps = Math.round(look.trail / STEP_DAYS);
-    const points = [at(heads[k].longitude, radius(k, heads[k]))];
-    for (let j = 0; j < steps; j++) {
-      const s = cache.at(i0 - j)[k];
-      points.push(at(s.longitude, radius(k, s)));
-    }
-    ctx.lineWidth = Math.max(1, look.size * R * 0.55);
-    const groups = 8;
-    for (let g = 0; g < groups; g++) {
-      const from = Math.floor((g * (points.length - 1)) / groups);
-      const to = Math.floor(((g + 1) * (points.length - 1)) / groups);
-      if (to <= from) continue;
-      ctx.strokeStyle = `rgba(${look.glow},${(0.4 * (1 - g / groups) ** 1.6).toFixed(3)})`;
-      ctx.beginPath();
-      ctx.moveTo(points[from]!.x, points[from]!.y);
-      for (let j = from + 1; j <= to; j++) ctx.lineTo(points[j]!.x, points[j]!.y);
-      ctx.stroke();
-    }
-  }
+  cache.prune(i0 - 2);
+  // Top-most first, for hit-testing.
+  return PRIORITY.map((k) => spots[k]);
+}
 
-  // Bodies, the Sun last so its glow sits over the others' trails.
-  for (const k of [...GRAHA_KEYS.filter((g) => g !== "sun"), "sun" as const]) {
-    const look = LOOK[k];
-    const s = heads[k];
-    const p = at(s.longitude, radius(k, s));
-    // Nearer the Earth looks a little bigger.
-    const r = Math.max(2.5, look.size * R * (1 + 0.3 * (0.5 - s.nearFar)));
-    const reach = r * (k === "sun" ? 4 : 2.8);
-    const glow = ctx.createRadialGradient(p.x, p.y, r * 0.6, p.x, p.y, reach);
-    glow.addColorStop(0, `rgba(${look.glow},${k === "sun" ? 0.6 : 0.42})`);
-    glow.addColorStop(1, `rgba(${look.glow},0)`);
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, reach, 0, TAU);
-    ctx.fill();
+/** What the card beside a gem says. */
+interface Tip {
+  key: GrahaKey;
+  title: string;
+  place: string;
+  nakshatra: string;
+  retro: boolean;
+}
 
-    const body = ctx.createRadialGradient(p.x - r * 0.35, p.y - r * 0.4, r * 0.1, p.x, p.y, r);
-    body.addColorStop(0, look.fill[0]);
-    body.addColorStop(0.55, look.fill[1]);
-    body.addColorStop(1, look.fill[2]);
-    ctx.fillStyle = body;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, TAU);
-    ctx.fill();
-
-    if (k === "saturn") {
-      ctx.strokeStyle = "rgba(199,210,254,.85)";
-      ctx.lineWidth = Math.max(1, r * 0.22);
-      ctx.beginPath();
-      ctx.ellipse(p.x, p.y, r * 1.9, r * 0.55, -0.32, 0, TAU);
-      ctx.stroke();
-    }
-  }
-
-  // The Earth at the centre: a small blue-green world with a thin gold ring.
-  const er = Math.max(3, D * 0.026);
-  const ex = c + par.x * 0.02;
-  const ey = c + par.y * 0.02;
-  const earth = ctx.createRadialGradient(ex - er * 0.35, ey - er * 0.4, er * 0.1, ex, ey, er);
-  earth.addColorStop(0, "#d1fae5");
-  earth.addColorStop(0.5, "#38bdf8");
-  earth.addColorStop(1, "#1e3a8a");
-  ctx.fillStyle = earth;
-  ctx.beginPath();
-  ctx.arc(ex, ey, er, 0, TAU);
-  ctx.fill();
-  ctx.strokeStyle = "rgba(226,176,58,.55)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(ex, ey, er + 3, 0, TAU);
-  ctx.stroke();
-
-  cache.prune(i0 - Math.ceil(MAX_TRAIL / STEP_DAYS) - 2);
+function tipFor(s: GemSpot): Tip {
+  const n = GRAHA_NAMES[s.key];
+  const p = placeOf(s.lon);
+  // The nodes are best known by their Sanskrit names.
+  const node = s.key === "rahu" || s.key === "ketu";
+  return {
+    key: s.key,
+    title: node ? `${n.sa} · ${n.en}` : `${n.en} · ${n.sa}`,
+    place: `in ${p.rashi} ${p.degree}°`,
+    nakshatra: `${p.nakshatra} nakshatra`,
+    retro: s.retro,
+  };
 }
 
 function PauseIcon() {
@@ -323,47 +685,158 @@ function PlayIcon() {
   );
 }
 
+type Source = "pointer" | "touch" | "key";
+
+/** What the component can ask of the animation loop. */
+interface Control {
+  update: () => void;
+  show: (key: GrahaKey | null, source: Source) => void;
+  place: () => void;
+  source: () => Source | null;
+}
+
 /**
- * The dial (size it with `className`, which sets its width; it stays square) with, under it, a
+ * The wheel (size it with `className`, which sets its width; it stays square) with, under it, a
  * one-line caption and the Pause / Play button.
+ *
+ * Hover a gem (tap it on a touch screen, or Tab to the planets and use the arrow keys) for a
+ * small card: the graha, its rashi and degree, its nakshatra, and whether it is retrograde; the
+ * time-lapse eases to a stop while the card is open. With a mouse, the wheel tilts a little to
+ * face it.
  */
 export default function HeroSky({ className = "" }: { className?: string }) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const tiltRef = useRef<HTMLDivElement>(null);
+  const shineRef = useRef<HTMLSpanElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const buttonsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  const tipId = useId();
   const [paused, setPaused] = useState(false);
   // null until mounted: the server cannot know the visitor's clock.
   const [skyDate, setSkyDate] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [tip, setTip] = useState<Tip | null>(null);
+  // The planet button that Tab lands on (the others are reached with the arrow keys).
+  const [rove, setRove] = useState(0);
   const pausedRef = useRef(paused);
-  // Lets the Pause / Play button reach the animation loop.
-  const tickerRef = useRef<{ update: () => void } | null>(null);
+  // Lets the buttons, the tooltip and the Pause button reach the animation loop.
+  const controlRef = useRef<Control | null>(null);
 
   useEffect(() => {
+    const stage = stageRef.current;
+    const tiltEl = tiltRef.current;
     const box = boxRef.current;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
-    if (!box || !canvas || !ctx) return;
+    if (!stage || !tiltEl || !box || !canvas || !ctx) return;
 
     const start = Date.now();
     const cache = new SkyCache(start);
     let day = 0; // sky days since `start`
-    let clock = 0; // real seconds of motion, for the stars' twinkle
+    let turn = 0; // seconds of the wheel's turning (slows with the time-lapse)
+    let clock = 0; // real seconds of motion (glints, breathing)
     let side = 0;
+    let layer: HTMLCanvasElement | null = null;
     let raf = 0;
     let last = 0;
     let onScreen = true;
     let shownDate = "";
-    // Slow light round the zodiac (one turn a minute) and the pointer parallax, eased.
-    let sweep = 0;
-    const par = { x: 0, y: 0 };
-    const target = { x: 0, y: 0 };
+    let spots: GemSpot[] = [];
+    // The gem being looked at, and how: a hover follows the mouse, a tap stays until the next tap.
+    let active: { key: GrahaKey; source: Source } | null = null;
+    let ringKey: GrahaKey | null = null;
+    let ring = 0; // strength of the ring round it, eased
+    let speed = 1; // the time-lapse eases to a stop while a gem is shown, so the card can be read
+    let shownTip = "";
+    const tilt = { x: 0, y: 0, tx: 0, ty: 0 }; // rotateX / rotateY now and wanted (degrees)
+    const fine = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const zone = stage.closest("section") ?? document.body;
 
     const dateText = () =>
       new Date(start + day * DAY_MS).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" });
 
+    /** A spot as it appears on screen with the tilt, relative to the stage. */
+    const project = (s: GemSpot) => {
+      const u = s.x - side / 2;
+      const v = s.y - side / 2;
+      const ax = tilt.x * RADIAN;
+      const ay = tilt.y * RADIAN;
+      const x1 = u * Math.cos(ay);
+      const z1 = -u * Math.sin(ay);
+      const y2 = v * Math.cos(ax) - z1 * Math.sin(ax);
+      const z2 = v * Math.sin(ax) + z1 * Math.cos(ax);
+      const k = PERSPECTIVE / (PERSPECTIVE - z2);
+      return { x: side / 2 + x1 * k, y: side / 2 + y2 * k, r: s.r * k };
+    };
+
+    /** The gem under a point on screen, if any (`slop`: extra reach for fingers). */
+    const hit = (clientX: number, clientY: number, slop: number): GrahaKey | null => {
+      const rect = stage.getBoundingClientRect();
+      let best: GrahaKey | null = null;
+      let bestD = Infinity;
+      for (const s of spots) {
+        const q = project(s);
+        const d = Math.hypot(clientX - rect.left - q.x, clientY - rect.top - q.y);
+        if (d <= Math.max(q.r * 1.3 + 3, slop) && d < bestD) {
+          best = s.key;
+          bestD = d;
+        }
+      }
+      return best;
+    };
+
+    const spotOf = (key: GrahaKey) => spots.find((p) => p.key === key);
+
+    const refreshTip = () => {
+      const s = active && spotOf(active.key);
+      const next = s ? tipFor(s) : null;
+      const text = next ? JSON.stringify(next) : "";
+      if (text !== shownTip) {
+        shownTip = text;
+        setTip(next);
+      }
+    };
+
+    /** Sets the card beside its gem, inside what can be seen of the hero and the window. */
+    const place = () => {
+      const el = tipRef.current;
+      const s = active && spotOf(active.key);
+      if (!el || !s) return;
+      const q = project(s);
+      const rect = stage.getBoundingClientRect();
+      const area = zone.getBoundingClientRect();
+      const header = document.querySelector("header")?.getBoundingClientRect().bottom ?? 0;
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      const minX = Math.max(area.left, 0) + 8 - rect.left;
+      const maxX = Math.min(area.right, document.documentElement.clientWidth) - 8 - w - rect.left;
+      const left = Math.max(minX, Math.min(maxX, q.x - w / 2));
+      let top = q.y - q.r * 1.75 - h - 6;
+      const below = rect.top + top < Math.max(area.top, header, 0) + 8;
+      if (below) top = q.y + q.r * 1.75 + 6;
+      el.style.transform = `translate3d(${left.toFixed(1)}px,${top.toFixed(1)}px,0)`;
+      el.style.setProperty("--arrow", `${Math.max(14, Math.min(w - 14, q.x - left)).toFixed(1)}px`);
+      el.dataset.side = below ? "below" : "above";
+    };
+
+    const applyTilt = () => {
+      tiltEl.style.transform = tilt.x || tilt.y ? `perspective(${PERSPECTIVE}px) rotateX(${tilt.x.toFixed(3)}deg) rotateY(${tilt.y.toFixed(3)}deg)` : "";
+      const shine = shineRef.current;
+      if (shine) {
+        // A soft light on the side turned towards the mouse.
+        shine.style.opacity = Math.min(1, Math.hypot(tilt.x, tilt.y) / TILT_DEG).toFixed(3);
+        shine.style.setProperty("--hx", `${(50 + (tilt.y / TILT_DEG) * 30).toFixed(1)}%`);
+        shine.style.setProperty("--hy", `${(50 - (tilt.x / TILT_DEG) * 30).toFixed(1)}%`);
+      }
+    };
+
     const paint = () => {
-      if (side < 24) return; // not laid out yet
-      draw(ctx, side, cache, day, sweep, clock, par);
+      if (side < 24 || !layer) return; // not laid out yet
+      spots = draw(ctx, side, layer, cache, day, -(turn * TAU) / TURN_SECONDS, clock, ringKey, ring);
+      refreshTip();
+      place();
       const text = dateText();
       if (text !== shownDate) {
         shownDate = text;
@@ -371,13 +844,31 @@ export default function HeroSky({ className = "" }: { className?: string }) {
       }
     };
 
+    const show = (key: GrahaKey | null, source: Source) => {
+      active = key ? { key, source } : null;
+      if (key) ringKey = key;
+      // Still (paused or off screen): no loop to ease the ring in, so set it and draw once.
+      if (!raf) {
+        ring = key ? 1 : 0;
+        paint();
+      } else {
+        refreshTip();
+        place();
+      }
+    };
+
     const resize = () => {
       const rect = box.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      side = Math.min(rect.width, rect.height);
-      canvas.width = Math.round(side * dpr);
-      canvas.height = Math.round(side * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const next = Math.min(rect.width, rect.height);
+      if (next < 24) return;
+      if (next !== side || !layer) {
+        side = next;
+        canvas.width = Math.round(side * dpr);
+        canvas.height = Math.round(side * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        layer = paintWheel(side, dpr);
+      }
       paint();
     };
 
@@ -388,11 +879,16 @@ export default function HeroSky({ className = "" }: { className?: string }) {
       if (dt < FRAME_MS) return;
       last = t;
       const sec = Math.min(dt, 100) / 1000; // no leap after the tab was away
-      day += sec * DAYS_PER_SECOND;
+      speed += ((active ? 0 : 1) - speed) * Math.min(1, sec * 5);
+      ring += ((active ? 1 : 0) - ring) * Math.min(1, sec * 9);
+      day += sec * DAYS_PER_SECOND * speed;
+      turn += sec * speed;
       clock += sec;
-      sweep = (sweep - (sec * TAU) / 60) % TAU; // anticlockwise, with the signs
-      par.x += (target.x - par.x) * 0.06;
-      par.y += (target.y - par.y) * 0.06;
+      const k = Math.min(1, sec * 6);
+      tilt.x += (tilt.tx - tilt.x) * k;
+      tilt.y += (tilt.ty - tilt.y) * k;
+      if (!tilt.tx && !tilt.ty && Math.abs(tilt.x) < 0.005 && Math.abs(tilt.y) < 0.005) tilt.x = tilt.y = 0;
+      applyTilt();
       paint();
     };
 
@@ -403,11 +899,72 @@ export default function HeroSky({ className = "" }: { className?: string }) {
           last = 0;
           raf = requestAnimationFrame(frame);
         }
-      } else if (raf) {
+        return;
+      }
+      if (raf) {
         cancelAnimationFrame(raf);
         raf = 0;
       }
+      // Paused means still: the tilt settles flat at once.
+      if (pausedRef.current) {
+        tilt.x = tilt.y = tilt.tx = tilt.ty = 0;
+        applyTilt();
+        place();
+      }
     };
+
+    // Mouse: hovering a gem shows its card.
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      const key = hit(e.clientX, e.clientY, 6);
+      if (key) {
+        if (active?.key !== key) show(key, "pointer");
+      } else if (active?.source === "pointer") show(null, "pointer");
+      stage.style.cursor = key ? "pointer" : "";
+    };
+    const onLeave = () => {
+      if (active?.source === "pointer") show(null, "pointer");
+      stage.style.cursor = "";
+    };
+    // Touch: a tap on a gem shows its card until the next tap (on it again, or anywhere else).
+    let down: { x: number; y: number } | null = null;
+    const onDown = (e: PointerEvent) => {
+      down = e.pointerType === "mouse" ? null : { x: e.clientX, y: e.clientY };
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!down) return;
+      const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10;
+      down = null;
+      if (moved) return;
+      const key = hit(e.clientX, e.clientY, 22);
+      show(key && key !== active?.key ? key : null, "touch");
+    };
+    const onOutside = (e: PointerEvent) => {
+      if (active?.source === "touch" && !stage.contains(e.target as Node)) show(null, "touch");
+    };
+    // The tilt: the wheel turns a little to face the mouse while it is over the hero.
+    const onZoneMove = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse" || !fine.matches || pausedRef.current) return;
+      const r = stage.getBoundingClientRect();
+      const clamp = (n: number) => Math.max(-1, Math.min(1, n));
+      tilt.ty = clamp((e.clientX - (r.left + r.width / 2)) / Math.max(320, window.innerWidth * 0.5)) * TILT_DEG;
+      tilt.tx = -clamp((e.clientY - (r.top + r.height / 2)) / Math.max(240, window.innerHeight * 0.5)) * TILT_DEG;
+    };
+    const onZoneLeave = () => {
+      tilt.tx = tilt.ty = 0;
+    };
+    const onScroll = () => {
+      if (active) place();
+    };
+
+    stage.addEventListener("pointermove", onMove);
+    stage.addEventListener("pointerleave", onLeave);
+    stage.addEventListener("pointerdown", onDown);
+    stage.addEventListener("pointerup", onUp);
+    document.addEventListener("pointerdown", onOutside);
+    zone.addEventListener("pointermove", onZoneMove);
+    zone.addEventListener("pointerleave", onZoneLeave);
+    window.addEventListener("scroll", onScroll, { passive: true });
 
     const ro = new ResizeObserver(resize);
     ro.observe(box);
@@ -415,53 +972,133 @@ export default function HeroSky({ className = "" }: { className?: string }) {
       onScreen = entry?.isIntersecting ?? true;
       update();
     });
-    io.observe(box);
+    io.observe(stage);
     document.addEventListener("visibilitychange", update);
-
-    // A few pixels of depth as a mouse moves (outer rings shift most). Not on touch screens.
-    const fine = window.matchMedia("(pointer: fine)").matches;
-    const onPointer = (e: PointerEvent) => {
-      target.x = (e.clientX / window.innerWidth - 0.5) * -2 * PARALLAX;
-      target.y = (e.clientY / window.innerHeight - 0.5) * -2 * PARALLAX;
-    };
-    if (fine) window.addEventListener("pointermove", onPointer, { passive: true });
 
     resize();
     setReady(true);
-    tickerRef.current = { update };
+    controlRef.current = { update, show, place, source: () => active?.source ?? null };
     update();
 
     return () => {
       cancelAnimationFrame(raf);
+      raf = 0;
       ro.disconnect();
       io.disconnect();
       document.removeEventListener("visibilitychange", update);
-      if (fine) window.removeEventListener("pointermove", onPointer);
-      tickerRef.current = null;
+      stage.removeEventListener("pointermove", onMove);
+      stage.removeEventListener("pointerleave", onLeave);
+      stage.removeEventListener("pointerdown", onDown);
+      stage.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointerdown", onOutside);
+      zone.removeEventListener("pointermove", onZoneMove);
+      zone.removeEventListener("pointerleave", onZoneLeave);
+      window.removeEventListener("scroll", onScroll);
+      controlRef.current = null;
     };
   }, []);
 
   useEffect(() => {
     pausedRef.current = paused;
-    tickerRef.current?.update();
+    controlRef.current?.update();
   }, [paused]);
+
+  // The card has just appeared (or has new words): set it beside its gem before it is seen.
+  useLayoutEffect(() => {
+    if (tip) controlRef.current?.place();
+  }, [tip]);
+
+  // Keyboard: one Tab stop for the nine planets, arrow keys between them, Escape hides the card.
+  const onKey = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
+    const n = PRIORITY.length;
+    const to =
+      e.key === "ArrowRight" || e.key === "ArrowDown"
+        ? (i + 1) % n
+        : e.key === "ArrowLeft" || e.key === "ArrowUp"
+          ? (i + n - 1) % n
+          : e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? n - 1
+              : -1;
+    if (to >= 0) {
+      e.preventDefault();
+      setRove(to);
+      buttonsRef.current[to]?.focus();
+    } else if (e.key === "Escape") {
+      controlRef.current?.show(null, "key");
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      controlRef.current?.show(PRIORITY[i]!, "key");
+    }
+  };
 
   return (
     <div className={`flex flex-col items-center ${className}`}>
-      {/* The plate: a faint outer ring, the night-sky disc with its gold edge, and the canvas on it. */}
-      <div aria-hidden="true" className="pointer-events-none relative aspect-square w-full">
-        <span className="absolute -inset-2.5 rounded-full border border-amber-900/15 sm:-inset-3.5" />
-        <span className="absolute -inset-1 rounded-full bg-[conic-gradient(from_200deg,#f4d58a,#b9832a,#f9e6b4,#a8741f,#f4d58a)] shadow-[0_30px_70px_rgba(76,29,149,.22),0_12px_28px_rgba(120,53,15,.18)]" />
-        <div
-          ref={boxRef}
-          className="absolute inset-0 overflow-hidden rounded-full bg-[radial-gradient(circle_at_50%_45%,#33205a_0%,#24153f_48%,#170d2a_100%)] shadow-[inset_0_0_40px_rgba(0,0,0,.45)]"
-        >
-          <canvas ref={canvasRef} className={`size-full transition-opacity duration-700 ${ready ? "opacity-100" : "opacity-0"}`} />
+      <div ref={stageRef} className="relative aspect-square w-full">
+        {/* A soft warm light behind the wheel; the wheel itself is drawn on the canvas. */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute -inset-[8%] rounded-full bg-[radial-gradient(circle,rgba(255,250,232,.95)_0%,rgba(255,244,214,.7)_42%,rgba(255,238,200,0)_70%)]"
+        />
+        <div ref={tiltRef} aria-hidden="true" className="absolute inset-0 will-change-transform">
+          <div ref={boxRef} className="absolute inset-0">
+            <canvas ref={canvasRef} className={`size-full transition-opacity duration-700 ${ready ? "opacity-100" : "opacity-0"}`} />
+          </div>
+          {/* The light on the side turned towards the mouse (only while tilted). */}
+          <span
+            ref={shineRef}
+            className="pointer-events-none absolute inset-[2.5%] rounded-full opacity-0 mix-blend-soft-light"
+            style={{ background: "radial-gradient(circle at var(--hx,50%) var(--hy,50%), rgba(255,255,255,.9), rgba(255,255,255,0) 58%)" }}
+          />
         </div>
+
+        {/* The planets for keyboards and screen readers: each shows the same card as a hover. */}
+        <div role="group" aria-label="Planets on the zodiac wheel" className="sr-only">
+          {PRIORITY.map((k, i) => (
+            <button
+              key={k}
+              ref={(el) => {
+                buttonsRef.current[i] = el;
+              }}
+              type="button"
+              tabIndex={i === rove ? 0 : -1}
+              aria-describedby={tip?.key === k ? tipId : undefined}
+              onFocus={() => {
+                setRove(i);
+                controlRef.current?.show(k, "key");
+              }}
+              onBlur={() => {
+                if (controlRef.current?.source() === "key") controlRef.current.show(null, "key");
+              }}
+              onKeyDown={(e) => onKey(e, i)}
+            >
+              {GRAHA_NAMES[k].en} ({GRAHA_NAMES[k].sa})
+            </button>
+          ))}
+        </div>
+
+        {tip && (
+          <div
+            ref={tipRef}
+            id={tipId}
+            role="tooltip"
+            className="az-sky-tip pointer-events-none absolute left-0 top-0 z-10 w-max min-w-[150px] max-w-[220px] rounded-[14px] border border-[#ecd29a] bg-[#fffdf8]/95 px-3.5 pb-2.5 pt-2 text-left shadow-[0_14px_34px_rgba(90,62,40,.2)] backdrop-blur-sm"
+          >
+            <b className="block font-name text-[14.5px] font-bold leading-snug tracking-[-.01em] text-plum">{tip.title}</b>
+            <span className="mt-0.5 block text-[12.5px] font-semibold tabular-nums text-amber-900">{tip.place}</span>
+            <span className="block text-[12px] text-stone-600">{tip.nakshatra}</span>
+            {tip.retro && (
+              <span className="mt-1.5 inline-flex h-5 items-center gap-1 rounded-full bg-amber-100 px-2 text-[10.5px] font-bold uppercase tracking-[.06em] text-amber-800">
+                <span aria-hidden="true">℞</span> Retrograde
+              </span>
+            )}
+          </div>
+        )}
       </div>
-      <p className="mt-5 flex max-w-full flex-wrap items-center justify-center gap-x-1.5 gap-y-1.5 text-center text-[12px] font-semibold text-amber-900/80 sm:mt-6">
+      <p className="mt-4 flex max-w-full flex-wrap items-center justify-center gap-x-1.5 gap-y-1.5 text-center text-[12px] font-semibold text-amber-900/80 sm:mt-5">
         {/* On phones the date and the button share a second line. */}
-        <span className="max-sm:basis-full">Today&apos;s real sky, a day a second</span>
+        <span className="max-sm:basis-full">The real sky, in time-lapse</span>
         {/* Its own piece, so on a narrow screen it wraps whole; fixed width so nothing shifts as it changes. */}
         {skyDate && (
           <span className="inline-block min-w-[12ch] whitespace-nowrap tabular-nums">
@@ -472,8 +1109,8 @@ export default function HeroSky({ className = "" }: { className?: string }) {
         <button
           type="button"
           onClick={() => setPaused((p) => !p)}
-          aria-label={paused ? "Play the planets" : "Pause the planets"}
-          className="inline-flex h-7 sm:ml-1.5 max-sm:ml-1 items-center gap-1.5 rounded-full border border-amber-900/20 bg-white/70 px-3 text-[11px] font-bold text-amber-900 hover:bg-white"
+          aria-label={paused ? "Play the zodiac wheel" : "Pause the zodiac wheel"}
+          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-amber-900/20 bg-white/70 px-3 text-[11px] font-bold text-amber-900 hover:bg-white max-sm:ml-1 sm:ml-1.5"
         >
           {paused ? <PlayIcon /> : <PauseIcon />}
           {paused ? "Play" : "Pause"}
@@ -503,4 +1140,178 @@ export function Sparkles({ className = "" }: { className?: string }) {
       ))}
     </div>
   );
+}
+
+/** Shooting stars: one every SHOOT_MIN–SHOOT_MAX ms, at random. */
+const SHOOT_MIN = 6000;
+const SHOOT_MAX = 14000;
+
+interface Streak {
+  x: number;
+  y: number;
+  /** Unit direction of travel. */
+  dx: number;
+  dy: number;
+  /** Distance the head travels, and the longest the tail gets (px). */
+  run: number;
+  tail: number;
+  born: number;
+  /** Milliseconds from first light to gone. */
+  life: number;
+}
+
+/**
+ * Now and then a shooting star — a fine gold-and-white streak — crosses the hero behind the
+ * wheel and the text. Fill the hero with it (`className`, e.g. "absolute inset-0"). It never
+ * crosses anything in the hero marked `data-sky-avoid` (the headline and the lead), so the words
+ * stay clear. Like the wheel it plays for everyone, but only while the hero is on screen and the
+ * tab is visible; it draws nothing at all between stars.
+ */
+export function ShootingStars({ className = "" }: { className?: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext("2d");
+    const host = canvas?.parentElement;
+    if (!canvas || !ctx || !host) return;
+
+    let w = 0;
+    let h = 0;
+    let raf = 0;
+    let timer = 0;
+    let streak: Streak | null = null;
+    let onScreen = true;
+
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      w = rect.width;
+      h = rect.height;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    /** The words to keep clear, in canvas pixels, with a margin. */
+    const keepClear = () => {
+      const base = canvas.getBoundingClientRect();
+      return [...host.querySelectorAll<HTMLElement>("[data-sky-avoid]")].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { l: r.left - base.left - 24, t: r.top - base.top - 24, r: r.right - base.left + 24, b: r.bottom - base.top + 24 };
+      });
+    };
+
+    const schedule = (ms = SHOOT_MIN + Math.random() * (SHOOT_MAX - SHOOT_MIN)) => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(launch, ms);
+    };
+
+    function launch() {
+      if (!onScreen || document.visibilityState !== "visible" || w < 120 || h < 120) return schedule();
+      const avoid = keepClear();
+      // Try a few random paths; take the first that misses the words. None fits? Wait for the next.
+      for (let attempt = 0; attempt < 24; attempt++) {
+        const dir = Math.random() < 0.5 ? -1 : 1;
+        const slope = (14 + Math.random() * 20) * RADIAN;
+        const dx = dir * Math.cos(slope);
+        const dy = Math.sin(slope);
+        const run = Math.min(w * 0.55, Math.max(180, w * (0.18 + Math.random() * 0.16)));
+        const tail = Math.min(run * 0.6, 70 + Math.random() * 90);
+        const x = w * (0.04 + Math.random() * 0.92);
+        const y = h * Math.random() * 0.62;
+        const endX = x + dx * run;
+        const endY = y + dy * run;
+        if (endX < -20 || endX > w + 20 || endY > h * 0.85) continue;
+        let clear = true;
+        for (let i = 0; i <= 24 && clear; i++) {
+          const px = x + (dx * run * i) / 24;
+          const py = y + (dy * run * i) / 24;
+          clear = !avoid.some((a) => px > a.l && px < a.r && py > a.t && py < a.b);
+        }
+        if (!clear) continue;
+        streak = { x, y, dx, dy, run, tail, born: performance.now(), life: 1000 + Math.random() * 600 };
+        if (!raf) raf = requestAnimationFrame(frame);
+        return;
+      }
+      schedule();
+    }
+
+    function frame(now: number) {
+      ctx!.clearRect(0, 0, w, h);
+      const s = streak;
+      if (!s) {
+        raf = 0;
+        return;
+      }
+      // The first frame can carry a time stamp from just before the launch.
+      const t = Math.max(0, (now - s.born) / s.life);
+      if (t >= 1) {
+        streak = null;
+        raf = 0;
+        schedule();
+        return;
+      }
+      raf = requestAnimationFrame(frame);
+      // The head races out and slows; the tail grows behind it; the whole streak brightens, then fades.
+      const p = 1 - (1 - t) ** 3;
+      const hx = s.x + s.dx * s.run * p;
+      const hy = s.y + s.dy * s.run * p;
+      const len = Math.min(s.tail, s.run * p) * (1 - 0.5 * t);
+      const tx = hx - s.dx * len;
+      const ty = hy - s.dy * len;
+      const a = Math.sin(Math.PI * Math.min(1, t * 1.15)) ** 0.7;
+      const c = ctx!;
+      c.lineCap = "round";
+      // On the cream page a white streak alone would vanish: a warm gold body, a pale core.
+      const glow = c.createLinearGradient(tx, ty, hx, hy);
+      glow.addColorStop(0, "rgba(214,146,30,0)");
+      glow.addColorStop(1, `rgba(214,146,30,${(0.42 * a).toFixed(3)})`);
+      c.strokeStyle = glow;
+      c.lineWidth = 4;
+      c.beginPath();
+      c.moveTo(tx, ty);
+      c.lineTo(hx, hy);
+      c.stroke();
+      const body = c.createLinearGradient(tx, ty, hx, hy);
+      body.addColorStop(0, "rgba(176,112,14,0)");
+      body.addColorStop(1, `rgba(176,112,14,${(0.75 * a).toFixed(3)})`);
+      c.strokeStyle = body;
+      c.lineWidth = 1.8;
+      c.stroke();
+      const core = c.createLinearGradient(tx, ty, hx, hy);
+      core.addColorStop(0.4, "rgba(255,250,232,0)");
+      core.addColorStop(1, `rgba(255,255,250,${a.toFixed(3)})`);
+      c.strokeStyle = core;
+      c.lineWidth = 0.8;
+      c.stroke();
+      const head = c.createRadialGradient(hx, hy, 0, hx, hy, 6);
+      head.addColorStop(0, `rgba(255,255,248,${a.toFixed(3)})`);
+      head.addColorStop(0.4, `rgba(255,214,120,${(0.6 * a).toFixed(3)})`);
+      head.addColorStop(1, "rgba(255,214,120,0)");
+      c.fillStyle = head;
+      c.beginPath();
+      c.arc(hx, hy, 6, 0, TAU);
+      c.fill();
+    }
+
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+    const io = new IntersectionObserver(([entry]) => {
+      onScreen = entry?.isIntersecting ?? true;
+    });
+    io.observe(canvas);
+    resize();
+    // The first one comes a little sooner, so a visitor sees one early on.
+    schedule(2500 + Math.random() * 3000);
+
+    return () => {
+      window.clearTimeout(timer);
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      io.disconnect();
+    };
+  }, []);
+
+  return <canvas ref={ref} aria-hidden="true" className={`pointer-events-none ${className}`} />;
 }

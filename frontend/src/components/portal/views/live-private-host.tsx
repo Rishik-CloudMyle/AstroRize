@@ -1,41 +1,39 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { createPortal } from "react-dom";
 import { ApiError, api } from "@/lib/api/client";
 import { rupee } from "@/lib/portal/format";
 import type { LiveHostPrivate, Settlement } from "@/lib/portal/types";
-import { ConsultChat, useConsultChat } from "../../consult/session/consult-chat";
-import { useCallMedia } from "../../consult/session/use-call-media";
-import { useTicking } from "../../live/live-private-call";
+import { useHydrated } from "@/lib/session-store";
+import { SessionWindow } from "../../consult/session/session-window";
+import { WINDOW_TITLE, useTicking } from "../../live/live-private-call";
 import { Avatar } from "./live-queue-people";
 
 // The private consultation running inside the astrologer's live: who it is with, the time and
-// money, the private voice line (only that customer hears the astrologer while it runs — the
-// room keeps the video, without sound) and its chat. Ending it returns the room to public.
+// money, and — once the customer joins — the same session window as a one-to-one consultation in
+// the mode they chose (chat, voice or video), in a private room of its own. While it runs the
+// live's sound is off for viewers (the video carries on); ending it makes the room public again.
 
-const VOICE = { audio: true, video: false };
 const clock = (secs: number) => `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
+
+const TITLE = { chat: "Private chat", voice: "Private voice call", video: "Private video call" } as const;
 
 export default function LivePrivateHost({ p, onEnded }: { p: LiveHostPrivate; onEnded: (message: string) => void }) {
   const active = p.status === "active";
   const base = `/portal/consultations/${encodeURIComponent(p.id)}`;
-  const media = useCallMedia({ base, wants: VOICE, active });
-  const chat = useConsultChat(base, active, true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // The window opens by itself when the customer joins (and again after a refresh); Minimise
+  // returns to the console, and "Open" brings it back.
+  const [windowShut, setWindowShut] = useState(false);
+  const hydrated = useHydrated();
   const elapsed = useTicking(p.elapsedSeconds, active);
   const answerBase = p.secondsToAnswer ?? 0;
   const answerLeft = Math.max(0, answerBase - (useTicking(answerBase, !active) - answerBase));
   const who = p.profile?.name ?? p.alias;
   const billed = Math.ceil(Math.max(0, Math.min(elapsed, p.maxSeconds) - p.freeSeconds) / 60);
-
-  useEffect(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    a.srcObject = media.remote;
-    if (media.remote) void a.play().catch(() => {});
-  }, [media.remote]);
+  const title = TITLE[p.mode] ?? "Private consultation";
 
   async function end() {
     if (busy) return;
@@ -46,8 +44,8 @@ export default function LivePrivateHost({ p, onEnded }: { p: LiveHostPrivate; on
       const s = res.settlement;
       onEnded(
         active
-          ? `Private consultation ended after ${clock(s.elapsed)}. ${s.total > 0 ? `${p.alias} was charged ${rupee(s.total)}.` : "Nothing was charged."} The room is public again.`
-          : `Invitation withdrawn — ${p.alias} wasn't charged. The room is public again.`,
+          ? `${title} ended after ${clock(s.elapsed)}. ${s.total > 0 ? `${who} was charged ${rupee(s.total)}.` : "Nothing was charged."} The room is public again, with sound.`
+          : `Invitation withdrawn — ${who} wasn't charged. The room is public again.`,
       );
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't end it. Check your connection and try again.");
@@ -55,49 +53,12 @@ export default function LivePrivateHost({ p, onEnded }: { p: LiveHostPrivate; on
     }
   }
 
-  let voice: React.ReactNode = null;
-  if (active) {
-    if (media.notConfigured) voice = "Voice isn't connected yet — use the chat below. The room hears nothing while this runs.";
-    else if (media.answerFailed) voice = "Couldn't reach the voice service. The chat below works.";
-    else if (!media.answer) voice = "Connecting voice…";
-    else if (media.permission === "idle" || media.permission === "asking")
-      voice = (
-        <button type="button" onClick={() => void media.allow()} disabled={media.permission === "asking"} className="h-9 rounded-xl bg-amber-400 px-3.5 text-[13px] font-bold text-ink">
-          {media.permission === "asking" ? "Waiting for your browser…" : "Turn on microphone for this call"}
-        </button>
-      );
-    else if (media.permission !== "granted") voice = "Your microphone is blocked or in use. Allow it in the browser's site settings.";
-    else
-      voice = (
-        <span className="flex flex-wrap items-center gap-2">
-          <span>
-            {media.link === "connected"
-              ? media.remote
-                ? `Talking with ${who} — only they can hear you.`
-                : `Connected. Waiting for ${who}'s voice…`
-              : media.link === "failed"
-                ? media.linkProblem || "Voice couldn't connect."
-                : "Connecting voice…"}
-          </span>
-          <button
-            type="button"
-            onClick={media.toggleMic}
-            aria-pressed={media.micMuted}
-            className={`ml-auto h-9 rounded-xl px-3.5 text-[13px] font-bold ${media.micMuted ? "bg-urgent text-white" : "border border-white/20 bg-white/10 text-paper"}`}
-          >
-            {media.micMuted ? "🔇 Unmute" : "🎤 Mute"}
-          </button>
-        </span>
-      );
-  }
-
   return (
     <section aria-labelledby="private-host-title" className="overflow-hidden rounded-[20px] bg-ink text-paper">
-      <audio ref={audioRef} autoPlay />
       <div className="flex flex-wrap items-center gap-3 border-b border-white/10 px-4 py-3.5">
         <Avatar photoUrl={p.profile?.photoUrl ?? null} initials={p.profile?.initials ?? "•"} size={44} />
         <div className="min-w-0 flex-1">
-          <div className="text-[10.5px] font-extrabold uppercase tracking-[.1em] text-amber-300">🔒 Private consultation</div>
+          <div className="text-[10.5px] font-extrabold uppercase tracking-[.1em] text-amber-300">🔒 {title}</div>
           <b id="private-host-title" className="block truncate text-[15px]">
             {who}
             {p.profile && <span className="ml-1.5 text-[12px] font-semibold text-paper/60">{p.alias}</span>}
@@ -107,31 +68,59 @@ export default function LivePrivateHost({ p, onEnded }: { p: LiveHostPrivate; on
             {active
               ? `${clock(elapsed)} · ${elapsed < p.freeSeconds ? "free time" : `${billed} min billed`} · ${rupee(p.rate)}/min`
               : answerLeft > 0
-                ? `Waiting for them to join · ${answerLeft} s`
+                ? `Waiting for them to join · ${answerLeft} s · ${rupee(p.rate)}/min`
                 : "They didn't join — withdrawing the invitation…"}
           </span>
         </div>
-        <button type="button" onClick={() => void end()} disabled={busy} className="h-10 rounded-xl bg-urgent px-4 text-[13.5px] font-bold text-white">
-          {busy ? "Ending…" : active ? "End" : "Cancel"}
-        </button>
+        <div className="flex gap-2">
+          {active && windowShut && (
+            <button type="button" onClick={() => setWindowShut(false)} className="h-10 rounded-xl bg-amber-400 px-4 text-[13.5px] font-bold text-ink">
+              {p.mode === "chat" ? "Open chat" : "Open call"}
+            </button>
+          )}
+          <button type="button" onClick={() => void end()} disabled={busy} className="h-10 rounded-xl bg-urgent px-4 text-[13.5px] font-bold text-white">
+            {busy ? "Ending…" : active ? "End" : "Cancel"}
+          </button>
+        </div>
       </div>
-      <p className="border-b border-white/10 px-4 py-2.5 text-[12px] leading-normal text-paper/75">
-        Your video stays live for everyone, without sound, while this runs. Viewers see “Private consultation in progress”; they never
-        see or hear the customer.
+      <p className="px-4 py-2.5 text-[12px] leading-normal text-paper/75">
+        {active
+          ? "Your live audio is muted for viewers while this runs — your video stays live for everyone. The sound comes back by itself when it ends. Viewers never see or hear the customer."
+          : `They asked for a ${title.toLowerCase()}. Once they join, your live audio is muted for viewers until it ends; your video stays live.`}
       </p>
       {error && (
-        <p role="alert" className="px-4 pt-2.5 text-[12.5px] font-semibold text-rose-300">
+        <p role="alert" className="px-4 pb-2.5 text-[12.5px] font-semibold text-rose-300">
           {error}
         </p>
       )}
-      {active && (
-        <>
-          <div className="px-4 py-2.5 text-[12.5px] leading-normal text-paper/80">{voice}</div>
-          <div className="h-[260px] border-t border-white/10">
-            <ConsultChat chat={chat} peerName={who} dense />
-          </div>
-        </>
-      )}
+
+      {active &&
+        !windowShut &&
+        hydrated &&
+        createPortal(
+          <SessionWindow
+            base={base}
+            kind={p.window}
+            active
+            peer={{ name: who, photo: p.profile?.photoUrl ?? null, initials: p.profile?.initials ?? "?" }}
+            title={WINDOW_TITLE[p.window] ?? title}
+            badges={
+              <span className="inline-flex h-7 items-center rounded-full bg-amber-300/20 px-3 text-[12px] font-bold text-amber-200">
+                🔇 Live audio muted for viewers
+              </span>
+            }
+            clock={clock(elapsed)}
+            chips={
+              <span className="inline-flex h-7 items-center rounded-full bg-white/10 px-3 text-[12px] font-bold tabular-nums text-paper">
+                {elapsed < p.freeSeconds ? "Free time" : `${billed} min billed`} · {rupee(p.rate)}/min
+              </span>
+            }
+            ending={busy}
+            onEnd={() => void end()}
+            onMinimise={() => setWindowShut(true)}
+          />,
+          document.body,
+        )}
     </section>
   );
 }

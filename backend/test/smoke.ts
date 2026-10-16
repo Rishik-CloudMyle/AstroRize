@@ -819,8 +819,10 @@ await applicationFlow(API, check);
   await lal("PATCH", "/portal/presence", { online: false });
 }
 
-// Private consultations taken from a live (AR-LIVE): always private, first come first served,
-// one at a time, billed exactly like any consultation; private media only for its two parties.
+// Private consultations taken from a live (AR-LIVE): always private — chat, voice or video as the
+// customer chooses — first come first served, one at a time, billed exactly like a direct
+// consultation in that mode; private media only for its two parties; the live's sound is off for
+// viewers while one is in session.
 {
   const lal = await login("lalita.bose@email.com");
   await lal("POST", "/portal/live/end");
@@ -828,6 +830,7 @@ await applicationFlow(API, check);
   r = await lal("POST", "/portal/live/start", { topic: "Private consult smoke" });
   check("live private: lalita goes live", r.status === 201, r);
   const rate = (await anon("GET", "/astrologers")).body.astrologers?.find((a: any) => a.id === "lalita")?.price as number;
+  const videoRate = rate + 12; // the video premium, as for a direct video consultation
   const customer = async () => {
     const c = client();
     const phone = String(6000000000 + Math.floor(Math.random() * 999999999));
@@ -846,22 +849,24 @@ await applicationFlow(API, check);
     await c("POST", "/live-rooms/lalita/join");
   }
 
+  r = await A("POST", "/live-rooms/lalita/queue", { mode: "INSTANT", quotedRate: rate });
+  check("live private: Instant Call isn't offered from a live (400)", r.status === 400, r);
   r = await A("POST", "/live-rooms/lalita/queue", { mode: "PUBLIC", consent: true, quotedRate: rate });
-  check("live private: a PUBLIC request is taken as private", r.status === 200 && r.body.room?.queue?.inQueue === true, r);
+  check("live private: a PUBLIC request (older page) is taken as a private voice consultation", r.status === 200 && r.body.room?.queue?.inQueue === true, r);
   const entryA = await db.liveQueueEntry.findFirst({ where: { roomId: "lalita", status: "WAITING" }, orderBy: { createdAt: "desc" } });
   const cidA = entryA?.consultationId ?? "";
   const queuedA = await db.consultation.findUnique({ where: { id: cidA } });
   check(
     "live private: the request is PRIVATE with a queued LIVE consultation at the shown rate",
-    entryA?.mode === "PRIVATE" && entryA?.consent === false && queuedA?.status === "QUEUED" && queuedA?.origin === "LIVE" && queuedA?.liveRoomId === "lalita" && queuedA?.rate === rate && queuedA?.heldAmount === 0,
+    entryA?.mode === "PRIVATE" && entryA?.consent === false && queuedA?.status === "QUEUED" && queuedA?.origin === "LIVE" && queuedA?.liveRoomId === "lalita" && queuedA?.mode === "VOICE" && queuedA?.rate === rate && queuedA?.heldAmount === 0,
     { entryA, queuedA },
   );
   r = await A("GET", "/consultations/active");
   check("live private: waiting in a queue isn't an open consultation", r.status === 200 && r.body.consultation === null, r.body);
-  r = await B("POST", "/live-rooms/lalita/queue", { quotedRate: rate - 1 });
-  check("live private: a stale rate is refused with the current one (409)", r.status === 409 && r.body.error?.code === "rate_changed" && r.body.error?.rate === rate, r);
-  r = await B("POST", "/live-rooms/lalita/queue", { quotedRate: rate });
-  check("live private: B queues behind A", r.status === 200 && r.body.room?.queue?.position === 2, r.body.room?.queue);
+  r = await B("POST", "/live-rooms/lalita/queue", { mode: "VIDEO", quotedRate: rate });
+  check("live private: a video request quoted at the voice rate is refused with the video rate (409)", r.status === 409 && r.body.error?.code === "rate_changed" && r.body.error?.rate === videoRate, r);
+  r = await B("POST", "/live-rooms/lalita/queue", { mode: "VIDEO", quotedRate: videoRate });
+  check("live private: B queues behind A for a video consultation", r.status === 200 && r.body.room?.queue?.position === 2 && r.body.room?.myRequest?.mode === "video", r.body.room);
 
   // Live video credentials: viewers play only; the host publishes; ZEGO not set up → honest "not available"
   r = await B("GET", "/live-rooms/lalita/media");
@@ -878,6 +883,11 @@ await applicationFlow(API, check);
   r = await lal("GET", "/portal/live");
   const [first, second] = r.body.room?.requests ?? [];
   check("live private: only the front request can be accepted", first?.canAccept === true && second?.canAccept === false && r.body.room?.private === null, r.body.room?.requests);
+  check(
+    "live private: the console shows each request's mode and locked rate, and the rates per mode",
+    first?.consultMode === "voice" && first?.rate === rate && second?.consultMode === "video" && second?.rate === videoRate && r.body.room?.rates?.video === videoRate && r.body.room?.rates?.chat === rate,
+    { requests: r.body.room?.requests, rates: r.body.room?.rates },
+  );
   r = await lal("POST", `/portal/live/requests/${second?.id}/accept`);
   check("live private: accepting out of turn is refused (409)", r.status === 409, r);
   r = await lal("POST", `/portal/live/requests/${first?.id}/accept`);
@@ -885,9 +895,17 @@ await applicationFlow(API, check);
   const heldA = (await A("GET", "/wallet")).body.wallet;
   check("live private: A's balance is held for it", heldA?.held === heldA?.service + heldA?.promo && heldA?.held > 0, heldA);
   r = await B("GET", "/live-rooms/lalita");
-  check("live private: B sees the private banner state and no private details", r.body.room?.state === "private" && r.body.room?.private === null, { state: r.body.room?.state, private: r.body.room?.private });
+  check(
+    "live private: B sees the private banner state and no private details (sound still on until it connects)",
+    r.body.room?.state === "private" && r.body.room?.private === null && r.body.room?.audioPaused === false,
+    { state: r.body.room?.state, private: r.body.room?.private, audioPaused: r.body.room?.audioPaused },
+  );
   r = await A("GET", "/live-rooms/lalita");
-  check("live private: A is asked to join", r.body.room?.private?.id === cidA && r.body.room?.private?.status === "connecting" && r.body.room?.private?.secondsToAnswer > 0, r.body.room?.private);
+  check(
+    "live private: A is asked to join a voice call",
+    r.body.room?.private?.id === cidA && r.body.room?.private?.status === "connecting" && r.body.room?.private?.secondsToAnswer > 0 && r.body.room?.private?.mode === "voice" && r.body.room?.private?.window === "voice",
+    r.body.room?.private,
+  );
   r = await B("GET", `/consultations/${cidA}/media`);
   check("live private: another viewer never gets the private room (403)", r.status === 403, r);
   r = await B("GET", `/consultations/${cidA}/messages`);
@@ -903,6 +921,8 @@ await applicationFlow(API, check);
 
   r = await A("POST", "/live-rooms/lalita/private/connect");
   check("live private: A joins the call", r.status === 200 && r.body.room?.private?.status === "active", r.body.room?.private);
+  r = await B("GET", "/live-rooms/lalita");
+  check("live private: in session → the live's sound is paused for viewers", r.body.room?.audioPaused === true, r.body.room?.audioPaused);
   r = await anon("GET", "/astrologers");
   check("live private: lalita still shows as live (not busy)", r.body.astrologers?.find((a: any) => a.id === "lalita")?.availability === "live", r.body.astrologers?.find((a: any) => a.id === "lalita"));
   r = await lal("GET", "/portal/live/feed");
@@ -927,7 +947,7 @@ await applicationFlow(API, check);
   const liveLine = (r.body.earnings?.statement ?? []).find((l: any) => l.session === queuedA?.ref);
   check("live private: earnings line at the locked rate", liveLine?.minutes === 2 && liveLine?.amount === 2 * rate && /Live private/.test(liveLine?.mode), liveLine);
   r = await B("GET", "/live-rooms/lalita");
-  check("live private: the room is public again", r.body.room?.state === "normal", r.body.room?.state);
+  check("live private: the room is public again, with sound", r.body.room?.state === "normal" && r.body.room?.audioPaused === false, r.body.room);
   r = await A("GET", "/live-rooms/lalita");
   check("live private: A's request shows as ended with the charge", r.body.room?.myRequest?.consultation === "ended" && r.body.room?.myRequest?.charged === 2 * rate && r.body.room?.private === null, r.body.room?.myRequest);
 
@@ -935,7 +955,11 @@ await applicationFlow(API, check);
   r = await lal("GET", "/portal/live");
   r = await lal("POST", `/portal/live/requests/${r.body.room?.requests?.[0]?.id}/accept`);
   const cidB = r.body.consultationId;
-  check("live private: next in line accepted", r.status === 200 && !!cidB, r);
+  check("live private: next in line accepted at the video rate", r.status === 200 && !!cidB && r.body.rate === videoRate, r);
+  r = await B("GET", "/live-rooms/lalita");
+  check("live private: B is asked to join a video call", r.body.room?.private?.mode === "video" && r.body.room?.private?.window === "video" && r.body.room?.private?.rate === videoRate, r.body.room?.private);
+  r = await B("GET", `/consultations/${cidB}/media`);
+  check("live private: B's private media answer wants camera and microphone", r.status === 200 && r.body.media?.wants?.audio === true && r.body.media?.wants?.video === true, r.body);
   await db.consultation.update({ where: { id: cidB }, data: { offeredAt: new Date(Date.now() - 10 * 60_000) } });
   r = await B("POST", "/live-rooms/lalita/private/connect");
   check("live private: joining after the window is refused (409)", r.status === 409, r);
@@ -947,16 +971,49 @@ await applicationFlow(API, check);
     { req: r.body.room?.myRequest, walletB },
   );
 
+  // A video consultation from the live: billed at the video rate, earnings labelled as such
+  r = await B("POST", "/live-rooms/lalita/queue", { mode: "VIDEO", quotedRate: videoRate });
+  r = await lal("GET", "/portal/live");
+  r = await lal("POST", `/portal/live/requests/${r.body.room?.requests?.[0]?.id}/accept`);
+  const cidV = r.body.consultationId;
+  r = await B("POST", "/live-rooms/lalita/private/connect");
+  check("live private: B joins the video call", r.status === 200 && r.body.room?.private?.status === "active" && r.body.room?.private?.mode === "video", r.body.room?.private);
+  await db.consultation.update({ where: { id: cidV }, data: { connectedAt: new Date(Date.now() - 150_000) } });
+  r = await B("POST", `/consultations/${cidV}/end`);
+  check("live private: the video consultation is settled at the video rate", r.status === 200 && r.body.settlement?.billedMins === 2 && r.body.settlement?.total === 2 * videoRate, r.body);
+  const refV = (await db.consultation.findUnique({ where: { id: cidV } }))?.ref;
+  r = await lal("GET", "/portal/earnings");
+  const videoLine = (r.body.earnings?.statement ?? []).find((l: any) => l.session === refV);
+  check("live private: earnings line 'Live private · video'", videoLine?.minutes === 2 && videoLine?.mode === "Live private · video", videoLine);
+
   // Leaving the queue, and the live ending, close waiting requests at ₹0
-  r = await B("POST", "/live-rooms/lalita/queue", { quotedRate: rate });
+  r = await B("POST", "/live-rooms/lalita/queue", { mode: "CHAT", quotedRate: rate });
   r = await B("POST", "/live-rooms/lalita/queue/leave");
   check("live private: leaving the queue", r.status === 200 && r.body.room?.queue?.inQueue === false && r.body.room?.myRequest?.status === "left", r.body.room);
-  r = await A("POST", "/live-rooms/lalita/queue", { quotedRate: rate });
+  r = await A("POST", "/live-rooms/lalita/queue", { mode: "CHAT", quotedRate: rate });
+  check("live private: a chat request at the standard rate", r.status === 200 && r.body.room?.myRequest?.mode === "chat", r.body.room?.myRequest);
   const lastEntry = await db.liveQueueEntry.findFirst({ where: { roomId: "lalita", status: "WAITING" }, orderBy: { createdAt: "desc" } });
   r = await lal("POST", "/portal/live/end");
   const closed = await db.consultation.findUnique({ where: { id: lastEntry?.consultationId ?? "" } });
   check("live private: ending the live closes waiting requests (₹0)", r.status === 200 && closed?.status === "CANCELLED" && closed?.total === 0, closed);
   await lal("PATCH", "/portal/presence", { online: false });
+}
+
+// Read state is saved: opening a conversation clears it from the badge, and it stays cleared.
+{
+  const ra = await login("raghav.joshi@email.com");
+  const badge = async () => (await ra("GET", "/portal/account")).body.account?.counts?.messages as number;
+  const before = await badge();
+  r = await ra("GET", "/portal/messages");
+  const unreadThread = (r.body.threads ?? []).find((t: any) => t.kind === "customer" && t.unread > 0);
+  check("messages: a customer conversation shows as unread until opened", !!unreadThread && before > 0, { before, unreadThread: unreadThread?.id });
+  r = await ra("POST", `/portal/messages/${unreadThread?.id}/read`);
+  check("messages: opening it is saved", r.status === 200, r);
+  check("messages: the badge drops by one", (await badge()) === before - 1, await badge());
+  const stored = await db.messageThread.findUnique({ where: { id: unreadThread?.id ?? "" } });
+  check("messages: read time stored in the database (survives restarts)", !!stored?.astrologerReadAt, stored);
+  r = await (await login("meera.iyer@email.com"))("POST", `/portal/messages/${unreadThread?.id}/read`);
+  check("messages: another astrologer can't mark it read (404)", r.status === 404, r);
 }
 
 // Logout revokes session

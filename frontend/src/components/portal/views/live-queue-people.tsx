@@ -53,7 +53,7 @@ export default function LiveQueuePeople({ queue }: { queue: LiveQueuePerson[] })
             const name = p.profile?.name ?? `Viewer ${p.alias}`;
             const details = [
               p.profile ? (p.profile.age !== null ? `Age ${p.profile.age}` : "Age not shared") : "Profile not shared",
-              modeLabel(p.mode),
+              p.consultMode ? `${modeLabel(p.mode)} ${p.consultMode}` : modeLabel(p.mode),
               `waiting ${p.waiting}`,
             ];
             return (

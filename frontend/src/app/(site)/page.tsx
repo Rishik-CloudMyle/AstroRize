@@ -2,14 +2,14 @@ import Link from "next/link";
 import FeaturedCard from "@/components/astrologer/featured-card";
 import LiveBand from "@/components/home/live-band";
 import AvailableNow from "@/components/home/available-now";
-import HeroSky, { Sparkles } from "@/components/home/hero-sky";
+import HeroSky, { ShootingStars, Sparkles } from "@/components/home/hero-sky";
 import { consultationLabel } from "@/components/home/review-text";
 import Voices from "@/components/home/voices";
 import LiveRoomCard from "@/components/live-room-card";
 import ToolCard from "@/components/tool-card";
 import { STEPS, TRUST_STRIP } from "@/lib/mock/home";
 import { APP_STORE_URL, PLAY_STORE_URL } from "@/lib/mock/site";
-import { getTools } from "@/lib/mock/tools";
+import { getTools } from "@/lib/tools";
 import { getAstrologers, getFeaturedReviews, getLiveRooms } from "./data";
 
 export default async function HomePage() {
@@ -17,9 +17,6 @@ export default async function HomePage() {
   // Real published reviews only: the newest three as cards, any others rotate in "In their words".
   const testimonials = reviews.slice(0, 3);
   const voices = reviews.slice(3);
-  const online = astrologers.filter((a) => a.availability === "on");
-  const onlineCount = online.length;
-  const availableNow = online.slice(0, 4);
   const featured = astrologers.slice(0, 3);
   const rooms = liveRooms
     .map((room) => ({ room, host: astrologers.find((a) => a.id === room.astrologerId) }))
@@ -27,22 +24,28 @@ export default async function HomePage() {
 
   return (
     <div>
-      {/* ---------- Hero ---------- */}
+      {/* ---------- Hero ----------
+          Wide screens (1440px+): text | who is available | wheel. Laptops: the available list sits
+          under the text, beside the wheel. Tablets and phones: text, list, wheel, one under another. */}
       <section className="relative overflow-hidden border-b border-line-warm bg-[radial-gradient(ellipse_at_74%_50%,#fff9ea_0%,#fdf0d3_45%,#f8e2b4_100%)]">
         <Sparkles className="absolute inset-0" />
-        <div className="relative mx-auto grid max-w-[1240px] items-center gap-8 px-4 pb-8 pt-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-12 lg:pb-9 lg:pt-9">
-          <div className="az-rise min-w-0">
+        <ShootingStars className="absolute inset-0 size-full" />
+        <div className="relative mx-auto grid max-w-[1240px] items-center gap-x-12 gap-y-8 px-4 pb-10 pt-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-y-7 lg:pb-9 lg:pt-8 min-[90rem]:grid-cols-[minmax(0,1fr)_272px_auto] min-[90rem]:gap-x-9 min-[90rem]:pb-10 min-[90rem]:pt-10">
+          <div className="az-rise min-w-0 lg:col-start-1 lg:row-start-1 lg:self-end min-[90rem]:self-center">
             <div className="az-glass inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[.1em] text-amber-800">
               Verified Vedic guidance
             </div>
-            <h1 className="mt-[18px] text-balance font-display text-[42px] font-semibold leading-[1.02] tracking-[-.02em] text-ink sm:text-[52px] lg:text-[60px]">
+            <h1
+              data-sky-avoid
+              className="mt-[18px] text-balance font-display text-[42px] font-semibold leading-[1.02] tracking-[-.02em] text-ink sm:text-[52px] lg:mt-4 lg:text-[56px] min-[90rem]:text-[54px]"
+            >
               Talk To A Verified Astrologer, Today
             </h1>
-            <p className="mt-[18px] max-w-[44ch] text-pretty text-base leading-normal text-stone-600 sm:text-[17px]">
+            <p data-sky-avoid className="mt-[18px] max-w-[44ch] text-pretty text-base leading-normal text-stone-600 sm:text-[17px] lg:mt-4">
               Pay by the minute. Masked calls, so your number stays private. Wallet money is held, never nibbled — you see
               one charge, after the session ends.
             </p>
-            <div className="mt-7 flex flex-wrap items-center gap-3">
+            <div className="mt-7 flex flex-wrap items-center gap-3 lg:mt-6">
               <Link
                 href="/astrologers"
                 className="az-cta inline-flex h-[52px] items-center rounded-full px-[26px] text-base font-bold shadow-[0_8px_20px_rgba(255,140,26,.32)] hover:text-cta-ink hover:no-underline"
@@ -57,18 +60,20 @@ export default async function HomePage() {
                 Watch live now
               </Link>
             </div>
-            <div className="mt-[22px] flex flex-wrap items-center gap-2.5">
+            <div className="mt-[22px] flex flex-wrap items-center gap-2.5 lg:mt-5">
               <StoreBadge href={APP_STORE_URL} small="Download on the" big="App Store" icon={<AppleIcon />} iconSize="text-[19px]" />
               <StoreBadge href={PLAY_STORE_URL} small="Get it on" big="Google Play" icon="▶" iconSize="text-[17px]" />
             </div>
           </div>
 
-          {/* The real sky as a framed dial — sized by the screen's height too, so it fits the first view. */}
-          <HeroSky className="az-rise az-d2 mx-auto w-[min(74vw,330px)] min-w-0 pt-2.5 sm:w-[380px] lg:mr-2 lg:w-[clamp(360px,calc(100svh-370px),480px)] lg:pt-3.5 xl:mr-8" />
-        </div>
+          <AvailableNow
+            initial={astrologers.map(({ id, slug, name, photo, availability, skills, years, price }) => ({ id, slug, name, photo, availability, skills, years, price }))}
+            initialTotal={total}
+            className="az-rise az-d2 lg:col-start-1 lg:row-start-2 lg:self-start min-[90rem]:col-start-2 min-[90rem]:row-start-1 min-[90rem]:self-center"
+          />
 
-        <div className="relative mx-auto max-w-[1240px] px-4 pb-8 sm:px-6 lg:pb-10">
-          <AvailableNow astrologers={availableNow} online={onlineCount} total={total} className="az-rise az-d3" />
+          {/* The real sky as a framed dial — sized by the screen's height too, so the hero fits the first view. */}
+          <HeroSky className="az-rise az-d3 mx-auto w-[min(84vw,340px)] min-w-0 sm:w-[380px] lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mr-2 lg:w-[clamp(340px,calc(100svh-330px),460px)] lg:pt-2 min-[90rem]:col-start-3 min-[90rem]:row-span-1 min-[90rem]:mr-0 min-[90rem]:w-[clamp(360px,calc(100svh-400px),430px)]" />
         </div>
       </section>
 

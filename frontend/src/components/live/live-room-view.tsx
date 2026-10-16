@@ -15,7 +15,7 @@ import { FROZEN_HINT } from "../consult/consult-lock";
 import { GiftStack, useGiftShow } from "./gift-burst";
 import GiftPanel from "./gift-panel";
 import { FeedAvatar, LiveFeedOverlay, liveForLabel, plannedLabel, useMinuteClock } from "./live-feed";
-import { PrivateCallOverlay, PrivateCallPanel } from "./live-private-call";
+import { PRIVATE_TITLE, PrivateCallOverlay } from "./live-private-call";
 import LiveStage from "./live-stage";
 
 const REACTIONS = ["❤️", "🙏", "🔥", "✨", "👏"];
@@ -283,6 +283,9 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
     [initialRoom.id, endedBy, toast],
   );
   const mine = room.private;
+  // The live's sound: off for everyone while a private consultation is in session (server-driven,
+  // so a refresh or another device agrees), and off for the customer in it while it runs.
+  const silenced = room.audioPaused || mine?.status === "active";
 
   return (
     <div className="mt-6 grid grid-cols-[minmax(0,1fr)] items-start gap-[22px] lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -334,7 +337,7 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
           ) : (
             <>
               {/* The host's real live stream, or the poster with an honest note when live video isn't set up. */}
-              <LiveStage roomId={room.id} poster={room.thumb} hostName={host.name} silenced={room.state === "private" && !mine} quiet={room.state === "private" && mine?.status !== "active"} />
+              <LiveStage roomId={room.id} poster={room.thumb} hostName={host.name} silenced={silenced} quiet={room.state === "private" && mine?.status !== "active"} />
               <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.42)_0%,rgba(28,25,23,.08)_38%,rgba(28,25,23,.72)_100%)]" />
 
               <div className="absolute inset-x-3.5 top-3.5 flex flex-wrap items-center gap-2">
@@ -344,6 +347,9 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
                 <span className="inline-flex h-[26px] items-center rounded-full bg-black/45 px-[11px] text-[11px] font-bold text-white">
                   👁 {room.viewers.toLocaleString("en-IN")} watching
                 </span>
+                {room.audioPaused && (
+                  <span className="inline-flex h-[26px] items-center rounded-full bg-amber-300 px-[11px] text-[11px] font-extrabold text-ink">🔇 Audio paused</span>
+                )}
                 <span className="ml-auto inline-flex items-center gap-[7px] rounded-full bg-black/45 py-1 pl-[5px] pr-3">
                   <span className="relative size-[26px] overflow-hidden rounded-full border-2 border-gold">
                     <Image src={host.photo} alt="" fill sizes="52px" className="object-cover" />
@@ -354,11 +360,26 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
 
               {room.state === "private" && !mine && (
                 <div className="absolute left-1/2 top-1/2 w-[86%] max-w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-[18px] border border-amber-300/35 bg-[rgba(28,25,23,.78)] px-5 py-5 text-center sm:px-[26px]">
-                  <div className="text-[15px] font-bold text-amber-300">Private consultation in progress</div>
-                  <p className="mt-1.5 text-[12.5px] leading-normal text-paper/80">
-                    {host.name}&apos;s video continues, without sound, while they talk privately with one customer. You&apos;ll
-                    hear them again when it ends. The customer is never shown or heard.
-                  </p>
+                  {room.audioPaused ? (
+                    <>
+                      <div role="status" className="text-[15px] font-bold text-amber-300">
+                        Private consultation in progress — audio paused
+                      </div>
+                      <p className="mt-1.5 text-[12.5px] leading-normal text-paper/80">
+                        {host.name}&apos;s video continues, without sound, while they consult one customer privately. The sound
+                        comes back by itself when it ends. The customer is never shown or heard.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div role="status" className="text-[15px] font-bold text-amber-300">
+                        Private consultation starting
+                      </div>
+                      <p className="mt-1.5 text-[12.5px] leading-normal text-paper/80">
+                        {host.name} is about to consult one customer privately. While they do, the video continues without sound.
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -412,15 +433,15 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
                   >
                     <span aria-hidden="true">🎁</span>
                   </button>
-                  {gate.kind === "live" ? (
-                    // Hosting this room: the way to consult them now is the room's queue.
+                  {gate.kind === "live" || mine ? (
+                    // Hosting this room: the way to consult them now is the room's queue (or the private call in it).
                     <button
                       type="button"
                       disabled={room.queue.inQueue || !!mine}
                       onClick={joinQueue}
                       className={`ml-auto h-11 rounded-full px-[22px] text-[14.5px] font-bold ${room.queue.inQueue || mine ? "cursor-default bg-stone-300/90 text-stone-600" : "az-cta shadow-[0_6px_16px_rgba(255,140,26,.32)]"}`}
                     >
-                      {mine ? "🔒 In your private consult" : room.queue.inQueue ? "✓ You're in the queue" : "Join the consult queue"}
+                      {mine ? `🔒 In your ${PRIVATE_TITLE[mine.mode].toLowerCase()}` : room.queue.inQueue ? "✓ You're in the queue" : "Join the consult queue"}
                     </button>
                   ) : (
                     <button
@@ -447,7 +468,6 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
           )}
         </div>
 
-        {!ended && mine && <PrivateCallPanel c={mine} host={host} />}
         {summary && (
           <div role="status" className="mt-3.5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3.5">
             <span className="text-[15px] leading-[1.3]">🔒</span>
@@ -633,8 +653,11 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
           <div className="mt-1.5 inline-flex h-6 items-center gap-1.5 rounded-full bg-blue-50 px-2.5 text-xs font-bold text-blue-700">
             ⏱ {room.queue.eta}
           </div>
+          {room.queue.inQueue && req?.mode && (
+            <p className="mt-2 text-[12.5px] font-semibold text-stone-600">You asked for a {PRIVATE_TITLE[req.mode].toLowerCase()}.</p>
+          )}
           <p className="mt-2 text-[11.5px] leading-[1.45] text-stone-500">
-            Consultations from a live are private: the room keeps seeing the video, only you hear the astrologer.
+            Consultations from a live are private — chat, voice or video. The room keeps seeing the video, never you.
           </p>
           {room.queue.inQueue ? (
             <button
@@ -653,7 +676,7 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
               title={staff ? blockedHint(gate) : frozen ? FROZEN_HINT : undefined}
               className={`mt-3 h-[42px] w-full rounded-xl border border-line bg-white text-[13.5px] font-bold text-ink disabled:cursor-default ${frozen || staff ? "opacity-45" : ""}`}
             >
-              {mine ? "🔒 In your private consultation" : staff ? "For customer accounts" : frozen ? "🔒 Consultation in progress" : "Join the consult queue"}
+              {mine ? `🔒 In your ${PRIVATE_TITLE[mine.mode].toLowerCase()}` : staff ? "For customer accounts" : frozen ? "🔒 Consultation in progress" : "Join the consult queue"}
             </button>
           )}
         </div>

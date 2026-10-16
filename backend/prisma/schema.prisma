@@ -531,16 +531,20 @@ model AvailabilitySlot {
 }
 
 model MessageThread {
-  id            String     @id @default(cuid())
-  astrologerId  String
-  astrologer    Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
-  customerAlias String
+  id               String     @id @default(cuid())
+  astrologerId     String
+  astrologer       Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  customerAlias    String
   /// The customer account this conversation is with. The astrologer sees their real name and,
   /// on request, their profile (like the live and consultation queues).
-  customerId    String?
-  customer      User?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  updatedAt     DateTime   @default(now())
-  messages      Message[]
+  customerId       String?
+  customer         User?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  updatedAt        DateTime   @default(now())
+  /// When each side last opened the conversation: their unread badge counts only the other
+  /// side's messages after this (null = never opened).
+  astrologerReadAt DateTime?
+  customerReadAt   DateTime?
+  messages         Message[]
 
   @@unique([astrologerId, customerId])
 }
@@ -828,4 +832,37 @@ model ConsultMessage {
   createdAt      DateTime     @default(now())
 
   @@index([consultationId, createdAt])
+}
+
+/// A birthplace looked up once (OpenStreetMap) and remembered, so the same search never asks again.
+model Place {
+  id        String   @id @default(cuid())
+  /// Normalised search text, e.g. "kothrud, pune".
+  query     String   @unique
+  /// Display name, e.g. "Kothrud, Pune, Maharashtra, India".
+  name      String
+  latitude  Float
+  longitude Float
+  /// IANA time zone, e.g. "Asia/Kolkata".
+  timezone  String
+  createdAt DateTime @default(now())
+}
+
+/// A chart the astrology engine generated (Kundli), kept so it can be shown again without
+/// recalculating. Belongs to the customer who made it.
+model Chart {
+  id        String   @id @default(cuid())
+  userId    String?
+  /// kundli | matchmaking
+  kind      String
+  /// Name(s) the chart was made for.
+  label     String
+  /// The birth details given (date, time, place, coordinates, time zone).
+  input     Json
+  /// The calculated chart (positions, houses, dasha…), engine version included.
+  result    Json
+  engine    String
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }

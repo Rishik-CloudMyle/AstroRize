@@ -1,87 +1,157 @@
-import { KUNDLI_PLANETS } from "@/lib/mock/tools";
+import { RASHIS } from "@/lib/astro";
 
-// The sample chart has Aries rising, so house N holds sign N.
-const ABBR: Record<string, string> = { Sun: "Su", Moon: "Mo", Mars: "Ma", Mercury: "Me", Jupiter: "Ju" };
+// North and South Indian chart drawings (300 × 300 SVG). Fed with the lagna's sign and a label
+// per graha placed by sign; with `empty` only the frame is drawn (the logged-out view).
 
-function planetsInHouse(house: number) {
-  return KUNDLI_PLANETS.filter((p) => p.house === house).map((p) => ABBR[p.planet]);
+export interface ChartPlacement {
+  /** Sign the graha occupies in this chart, 0 = Aries … 11 = Pisces. */
+  sign: number;
+  /** Short label, e.g. "Sa 14°(R)". */
+  label: string;
+  /** Retrograde grahas are drawn in a different colour. */
+  retrograde?: boolean;
 }
-function planetsInSign(sign: string) {
-  return KUNDLI_PLANETS.filter((p) => p.sign === sign).map((p) => ABBR[p.planet]);
+
+interface ChartData {
+  lagnaSign: number;
+  placements: ChartPlacement[];
+  /** Middle caption of the South chart, e.g. "Rasi" or "Navamsa". */
+  title: string;
 }
 
-/** Where each house's label sits in the North Indian diamond chart (300 × 300). */
-const NORTH_HOUSES: [number, number][] = [
-  [150, 78], [75, 34], [34, 75], [78, 150], [34, 225], [75, 266],
-  [150, 222], [225, 266], [266, 225], [222, 150], [266, 75], [225, 34],
+const LINE = "#d6a84a";
+const LABEL = "#a1824a";
+const PLANET = "#92400e";
+const RETRO = "#be123c";
+
+/** Lines of labels for a cell: one per line, or two per line when crowded. */
+function rows(items: ChartPlacement[], perLine: number): ChartPlacement[][] {
+  const out: ChartPlacement[][] = [];
+  for (let i = 0; i < items.length; i += perLine) out.push(items.slice(i, i + perLine));
+  return out;
+}
+
+function PlacementText({ items, x, y, size, perLine }: { items: ChartPlacement[]; x: number; y: number; size: number; perLine: number }) {
+  const lines = rows(items, perLine);
+  const step = size + 2;
+  const top = y - ((lines.length - 1) * step) / 2;
+  return (
+    <>
+      {lines.map((line, li) => (
+        <text key={li} x={x} y={top + li * step} textAnchor="middle" dominantBaseline="middle" fontSize={size} fontWeight="700">
+          {line.map((p, i) => (
+            <tspan key={i} fill={p.retrograde ? RETRO : PLANET}>
+              {i > 0 ? " " : ""}
+              {p.label}
+            </tspan>
+          ))}
+        </text>
+      ))}
+    </>
+  );
+}
+
+/** North Indian (diamond) chart: houses are fixed, house 1 at the top; each shows its sign number. */
+const NORTH: { center: [number, number]; num: [number, number]; side: boolean }[] = [
+  { center: [150, 66], num: [150, 132], side: false }, // 1
+  { center: [75, 26], num: [75, 64], side: false }, // 2
+  { center: [24, 75], num: [62, 79], side: true }, // 3
+  { center: [66, 150], num: [132, 154], side: false }, // 4
+  { center: [24, 225], num: [62, 229], side: true }, // 5
+  { center: [75, 276], num: [75, 242], side: false }, // 6
+  { center: [150, 234], num: [150, 170], side: false }, // 7
+  { center: [225, 276], num: [225, 242], side: false }, // 8
+  { center: [276, 225], num: [238, 229], side: true }, // 9
+  { center: [234, 150], num: [168, 154], side: false }, // 10
+  { center: [276, 75], num: [238, 79], side: true }, // 11
+  { center: [225, 26], num: [225, 64], side: false }, // 12
 ];
 
-function NorthChart({ empty }: { empty: boolean }) {
+function NorthChart({ data }: { data: ChartData | null }) {
   return (
-    <svg viewBox="0 0 300 300" className="size-full" role="img" aria-label={empty ? "Empty North Indian chart" : "North Indian birth chart"}>
-      <rect x="1" y="1" width="298" height="298" fill="#fffbeb" stroke="#d6a84a" strokeWidth="2" />
-      <path d="M1 1 L299 299 M299 1 L1 299 M150 1 L299 150 L150 299 L1 150 Z" fill="none" stroke="#d6a84a" strokeWidth="1.5" />
-      {!empty && NORTH_HOUSES.map(([x, y], i) => {
-        const house = i + 1;
-        const planets = planetsInHouse(house);
-        return (
-          <g key={house}>
-            <text x={x} y={y - (planets.length ? 7 : 0)} textAnchor="middle" fontSize="11" fill="#a1824a" fontWeight="600">
-              {house}
-              {house === 1 ? " · Asc" : ""}
-            </text>
-            {planets.length > 0 && (
-              <text x={x} y={y + 9} textAnchor="middle" fontSize="13" fill="#92400e" fontWeight="700">
-                {planets.join(" ")}
+    <svg
+      viewBox="0 0 300 300"
+      className="size-full"
+      role="img"
+      aria-label={data ? `North Indian ${data.title} chart` : "Empty North Indian chart"}
+    >
+      <rect x="1" y="1" width="298" height="298" fill="#fffbeb" stroke={LINE} strokeWidth="2" />
+      <path d="M1 1 L299 299 M299 1 L1 299 M150 1 L299 150 L150 299 L1 150 Z" fill="none" stroke={LINE} strokeWidth="1.5" />
+      {data &&
+        NORTH.map((cell, i) => {
+          const sign = (data.lagnaSign + i) % 12;
+          const items = data.placements.filter((p) => p.sign === sign);
+          const size = cell.side ? 8.5 : items.length > 4 ? 8.5 : 9.5;
+          const perLine = cell.side ? 1 : items.length > 3 ? 2 : 1;
+          return (
+            <g key={i}>
+              <text x={cell.num[0]} y={cell.num[1]} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill={LABEL} fontWeight="600">
+                {sign + 1}
               </text>
-            )}
-          </g>
-        );
-      })}
+              {i === 0 && (
+                <text x="150" y="116" textAnchor="middle" dominantBaseline="middle" fontSize="9" fill={LABEL} fontWeight="700">
+                  Asc
+                </text>
+              )}
+              {items.length > 0 && <PlacementText items={items} x={cell.center[0]} y={cell.center[1]} size={size} perLine={perLine} />}
+            </g>
+          );
+        })}
     </svg>
   );
 }
 
 /** South Indian chart: signs are fixed in a 4 × 4 ring, starting with Pisces top-left. */
-const SOUTH_CELLS: [string, number, number][] = [
-  ["Pisces", 0, 0], ["Aries", 1, 0], ["Taurus", 2, 0], ["Gemini", 3, 0],
-  ["Aquarius", 0, 1], ["Cancer", 3, 1],
-  ["Capricorn", 0, 2], ["Leo", 3, 2],
-  ["Sagittarius", 0, 3], ["Scorpio", 1, 3], ["Libra", 2, 3], ["Virgo", 3, 3],
+const SOUTH_CELLS: [number, number, number][] = [
+  [11, 0, 0], [0, 1, 0], [1, 2, 0], [2, 3, 0],
+  [10, 0, 1], [3, 3, 1],
+  [9, 0, 2], [4, 3, 2],
+  [8, 0, 3], [7, 1, 3], [6, 2, 3], [5, 3, 3],
 ];
 
-function SouthChart({ empty }: { empty: boolean }) {
+function SouthChart({ data }: { data: ChartData | null }) {
   const c = 75;
   return (
-    <svg viewBox="0 0 300 300" className="size-full" role="img" aria-label={empty ? "Empty South Indian chart" : "South Indian birth chart"}>
-      <rect x="1" y="1" width="298" height="298" fill="#fffbeb" stroke="#d6a84a" strokeWidth="2" />
+    <svg
+      viewBox="0 0 300 300"
+      className="size-full"
+      role="img"
+      aria-label={data ? `South Indian ${data.title} chart` : "Empty South Indian chart"}
+    >
+      <rect x="1" y="1" width="298" height="298" fill="#fffbeb" stroke={LINE} strokeWidth="2" />
       {SOUTH_CELLS.map(([sign, col, row]) => {
-        const planets = empty ? [] : planetsInSign(sign);
+        const items = data ? data.placements.filter((p) => p.sign === sign) : [];
         const x = col * c;
         const y = row * c;
+        const asc = data?.lagnaSign === sign;
         return (
           <g key={sign}>
-            <rect x={x + 1} y={y + 1} width={c - 1} height={c - 1} fill="none" stroke="#d6a84a" strokeWidth="1" />
-            {!empty && (
-              <text x={x + 6} y={y + 15} fontSize="9.5" fill="#a1824a" fontWeight="600">
-                {sign.slice(0, 3)}
-                {sign === "Aries" ? " · Asc" : ""}
+            <rect x={x + 1} y={y + 1} width={c - 1} height={c - 1} fill="none" stroke={LINE} strokeWidth="1" />
+            {asc && <line x1={x + 1} y1={y + 18} x2={x + 18} y2={y + 1} stroke={LINE} strokeWidth="1.5" />}
+            {data && (
+              <text x={x + (asc ? 20 : 6)} y={y + 13} fontSize="9" fill={LABEL} fontWeight="600">
+                {RASHIS[sign].en.slice(0, 3)}
+                {asc ? " · Asc" : ""}
               </text>
             )}
-            {planets.length > 0 && (
-              <text x={x + c / 2} y={y + c / 2 + 8} textAnchor="middle" fontSize="13" fill="#92400e" fontWeight="700">
-                {planets.join(" ")}
-              </text>
+            {items.length > 0 && (
+              <PlacementText
+                items={items}
+                x={x + c / 2}
+                y={y + c / 2 + 7}
+                size={items.length > 4 ? 8 : 9}
+                perLine={items.length > 4 ? 2 : 1}
+              />
             )}
           </g>
         );
       })}
-      {!empty && (
+      {data && (
         <>
-          <text x="150" y="146" textAnchor="middle" fontSize="13" fill="#92400e" fontWeight="700">
-            Rasi
+          <text x="150" y="146" textAnchor="middle" fontSize="13" fill={PLANET} fontWeight="700">
+            {data.title}
           </text>
-          <text x="150" y="163" textAnchor="middle" fontSize="10" fill="#a1824a">
+          <text x="150" y="163" textAnchor="middle" fontSize="10" fill={LABEL}>
             South Indian
           </text>
         </>
@@ -91,6 +161,16 @@ function SouthChart({ empty }: { empty: boolean }) {
 }
 
 /** `empty`: just the chart frame (no houses, signs or planets), shown before the customer logs in. */
-export default function KundliChart({ style, empty = false }: { style: "north" | "south"; empty?: boolean }) {
-  return style === "north" ? <NorthChart empty={empty} /> : <SouthChart empty={empty} />;
+export default function KundliChart({
+  style,
+  empty = false,
+  lagnaSign = 0,
+  placements = [],
+  title = "Rasi",
+}: {
+  style: "north" | "south";
+  empty?: boolean;
+} & Partial<ChartData>) {
+  const data = empty ? null : { lagnaSign, placements, title };
+  return style === "north" ? <NorthChart data={data} /> : <SouthChart data={data} />;
 }

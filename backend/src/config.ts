@@ -33,4 +33,10 @@ export const config = {
    */
   zegoAppId: Number(process.env.ZEGO_APP_ID ?? 0),
   zegoServerSecret: process.env.ZEGO_SERVER_SECRET ?? "",
+  /**
+   * Birthplace search via OpenStreetMap Nominatim. Their usage policy asks for an identifying
+   * User-Agent with a contact; GEOCODER_CONTACT (an email) is sent with every request.
+   */
+  geocoderContact: process.env.GEOCODER_CONTACT ?? "",
+  nominatimUrl: (process.env.NOMINATIM_URL ?? "https://nominatim.openstreetmap.org").replace(/\/+$/, ""),
 };

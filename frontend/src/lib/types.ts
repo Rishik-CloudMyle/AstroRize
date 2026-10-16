@@ -116,6 +116,8 @@ export interface LiveRoom {
   announcements: { id: string; text: string; at: string }[];
   /** What viewers currently see: normal, a private consult, a compliance monitor, or high-load mode. */
   state: "normal" | "private" | "monitor" | "degrade";
+  /** A private consultation is in session: the live's sound is off for viewers until it ends. */
+  audioPaused: boolean;
   /** The signed-in viewer's latest consult request in this live (null: none, or signed out). */
   myRequest: LiveRequestStatus | null;
   /** The signed-in viewer's own private consultation in this room, while it is connecting or in session. */
@@ -132,6 +134,8 @@ export interface LiveRequestStatus {
   reason: string | null;
   /** What it cost (₹), once settled */
   charged: number;
+  /** How they asked to be consulted */
+  mode: ConsultMode | null;
 }
 
 /** A private consultation taken from a live room, by the server clock. */
@@ -139,6 +143,10 @@ export interface LivePrivateConsult {
   id: string;
   ref: string;
   status: "connecting" | "active";
+  /** Chosen when joining the queue */
+  mode: ConsultMode;
+  /** The window it opens in: the same as a direct consultation in that mode */
+  window: ConsultMode;
   /** Locked when the request joined the queue (₹/min) */
   rate: number;
   held: number;

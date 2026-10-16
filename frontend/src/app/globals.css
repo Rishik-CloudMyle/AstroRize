@@ -218,7 +218,7 @@
   }
 }
 
-/* Home sky: each orbit layer turns once per its own --period. */
+/* Home hero: the soft gold sparkles behind the zodiac wheel. */
 @keyframes azTwinkle {
   0%,
   100% {
@@ -236,6 +236,33 @@
   }
   .az-twinkle {
     animation: azTwinkle 3s ease-in-out infinite;
+  }
+  /* The card beside a planet on the home hero's zodiac wheel: a small pointer towards the gem
+     (hero-sky.tsx sets --arrow, and data-side when the card sits below the gem). */
+  .az-sky-tip::after {
+    content: "";
+    position: absolute;
+    left: calc(var(--arrow, 50%) - 6px);
+    top: 100%;
+    margin-top: -5px;
+    width: 10px;
+    height: 10px;
+    rotate: 45deg;
+    background: inherit;
+    border-right: 1px solid #ecd29a;
+    border-bottom: 1px solid #ecd29a;
+  }
+  .az-sky-tip[data-side="below"]::after {
+    top: auto;
+    bottom: 100%;
+    margin: 0 0 -5px;
+    border: 0;
+    border-left: 1px solid #ecd29a;
+    border-top: 1px solid #ecd29a;
+  }
+  /* A card arriving in the home hero's "Available right now" band */
+  .az-fade-in {
+    animation: azFadeIn 0.45s ease-out both;
   }
   .az-d1 {
     animation-delay: 0.06s;

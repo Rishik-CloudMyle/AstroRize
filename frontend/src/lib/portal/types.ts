@@ -315,8 +315,13 @@ export interface Settlement {
 export interface LiveRequest {
   id: string;
   alias: string;
+  /** The customer's real name; null only for a request without an account behind it. */
+  name: string | null;
   /** Consults from a live are always private. */
   kind: "private";
+  /** How they asked to be consulted, and the rate locked for it (₹/min). */
+  consultMode: "chat" | "voice" | "video";
+  rate: number;
   /** Can be declined (the first two). */
   actionable: boolean;
   /** Can be accepted: the front of the queue, while no private consultation is in progress. */
@@ -329,6 +334,9 @@ export interface LiveHostPrivate {
   ref: string;
   /** connecting: accepted, waiting for the customer to join · active: in session */
   status: "connecting" | "active";
+  mode: "chat" | "voice" | "video";
+  /** The window it opens in (same as a direct consultation in that mode). */
+  window: "chat" | "voice" | "video";
   rate: number;
   held: number;
   connectedAt: string | null;
@@ -364,6 +372,8 @@ export interface LiveRoom {
   pollOptions: string[];
   /** Consults from the room are charged at the standard rate (₹/min) */
   rate: number;
+  /** A private consultation from the room in each mode (₹/min): video carries the video premium. */
+  rates: { chat: number; voice: number; video: number };
   /** The private consultation in progress, or null. */
   private: LiveHostPrivate | null;
   /** Newest first. */
@@ -393,6 +403,7 @@ export interface LiveQueuePerson {
   id: string;
   alias: string;
   mode: "private" | "public";
+  consultMode: "chat" | "voice" | "video";
   /** "12 min" */
   waiting: string;
   profile: LiveQueueSummary | null;
@@ -446,6 +457,8 @@ export interface CustomerThread {
   lastAt: string | null;
   /** The customer wrote last. */
   awaitingReply: boolean;
+  /** Customer messages since the astrologer last opened this conversation. */
+  unread: number;
   messages: ChatMessage[];
 }
 

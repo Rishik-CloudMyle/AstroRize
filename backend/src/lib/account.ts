@@ -179,6 +179,8 @@ export async function deleteAccount(userId: string) {
     // The welcome free call stays with the (hashed) number, unlinked: signing up again with it
     // never grants a new one, and an unused one is linked to the new account instead.
     await tx.welcomeBenefit.updateMany({ where: { userId }, data: { userId: null } });
+    // Saved Kundli and matchmaking charts hold birth details: personal data, so they go too.
+    await tx.chart.deleteMany({ where: { userId } });
     await leaveQueues(tx, userId);
     await revokeSessions(tx, userId);
     await tx.dataRequest.create({ data: { userId, kind: "delete", status: "DONE" } });

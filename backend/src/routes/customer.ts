@@ -30,6 +30,7 @@ import {
   replyDirect,
   teamConversations,
   teamThreadView,
+  unreadFrom,
   visibleTo,
 } from "../lib/messaging.ts";
 import {
@@ -714,6 +715,8 @@ customerRouter.get("/messages", async (req, res) => {
         preview: last?.text.slice(0, 80) ?? "",
         lastAt: (last ?? t.messages.at(-1))?.createdAt.toISOString() ?? null,
         lastFrom: last ? (last.sender === "CUSTOMER" ? "me" : "astrologer") : null,
+        // Astrologer replies since the customer last opened this conversation.
+        unread: unreadFrom(t.messages, "ASTROLOGER", t.customerReadAt),
       };
     }),
   });
@@ -767,6 +770,8 @@ customerRouter.post("/messages/support/:id", async (req, res) => {
 
 customerRouter.get("/messages/:slug", async (req, res) => {
   const { astrologer, thread, canMessage } = await conversationWith(auth(req).user.id, String(req.params.slug));
+  // The customer has the conversation open: everything in it counts as read (saved).
+  if (thread) await db.messageThread.update({ where: { id: thread.id }, data: { customerReadAt: new Date() } });
   res.json({
     astrologer: messengerAstrologer(astrologer),
     conversation: thread

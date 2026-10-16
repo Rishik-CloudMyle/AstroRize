@@ -15,11 +15,14 @@
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
-    "test": "node --env-file=.env test/smoke.ts"
+    "test": "node --env-file=.env test/smoke.ts",
+    "test:astro": "node test/astro.test.ts"
   },
   "dependencies": {
+    "@photostructure/tz-lookup": "11.7.0",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
+    "astronomy-engine": "2.1.19",
     "cookie-parser": "^1.4.7",
     "dotenv": "^18.0.5",
     "express": "^5.2.1",

@@ -109,7 +109,7 @@ export function SessionWindow({
 
   const notice = media.notConfigured ? (
     <div role="status" className="mx-3 mt-2 rounded-xl border border-amber-300/40 bg-amber-300/10 px-3.5 py-2.5 text-[13px] leading-normal text-amber-100 sm:mx-auto sm:w-full sm:max-w-[720px]">
-      <b>Voice/video isn&apos;t connected on Astrorize yet</b> — use the chat here. The timer and billing work as usual.
+      <b>{kind === "video" ? "Video" : "Voice"} isn&apos;t connected on Astrorize yet</b> — use the chat here. The timer and billing work as usual.
       {kind !== "chat" && !drawer && (
         <button type="button" onClick={() => setDrawer(true)} className="ml-1.5 font-bold text-amber-300 underline">
           Open chat

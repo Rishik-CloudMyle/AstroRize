@@ -14,8 +14,8 @@ import { Avatar, PersonProfileDialog } from "./live-queue-people";
 const customerName = (t: CustomerThread) => t.customer?.name ?? `Customer ${t.alias}`;
 const nameOf = (t: Thread) => (t.kind === "team" ? t.title : customerName(t));
 const initialsOf = (t: CustomerThread) => t.customer?.initials ?? t.alias.replace(/[^A-Za-z0-9]/g, "").slice(0, 2);
-/** Waiting for the astrologer: a customer wrote last, or the team sent something not yet opened. */
-const needsAttention = (t: Thread) => (t.kind === "team" ? t.unread > 0 : t.awaitingReply);
+/** Something the astrologer hasn't opened yet (a customer's or the team's new messages). */
+const needsAttention = (t: Thread) => t.unread > 0;
 
 /** Round "A" mark for conversations with the Astrorize team. */
 function TeamAvatar({ size }: { size: number }) {
@@ -65,23 +65,26 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
     return () => clearInterval(id);
   }, []);
 
-  // A team conversation on screen counts as read: tell the API, then refresh the nav badge.
-  const teamUnreadId = thread?.kind === "team" && thread.unread > 0 ? thread.id : null;
+  // A conversation on screen counts as read: tell the API (it's saved, so it stays read after a
+  // restart or on another device), then refresh the nav badge.
+  const unreadId = thread && thread.unread > 0 ? thread.id : null;
+  const unreadKind = thread?.kind;
   useEffect(() => {
-    if (!teamUnreadId) return;
+    if (!unreadId) return;
     let cancelled = false;
+    const path = unreadKind === "team" ? `/portal/team-messages/${encodeURIComponent(unreadId)}/read` : `/portal/messages/${encodeURIComponent(unreadId)}/read`;
     api
-      .post(`/portal/team-messages/${encodeURIComponent(teamUnreadId)}/read`)
+      .post(path)
       .then(() => {
         if (cancelled) return;
-        setThreads((all) => all.map((t) => (t.id === teamUnreadId && t.kind === "team" ? { ...t, unread: 0 } : t)));
+        setThreads((all) => all.map((t) => (t.id === unreadId ? { ...t, unread: 0 } : t)));
         router.refresh();
       })
       .catch(() => {}); // Tried again on the next refresh while it is still unread.
     return () => {
       cancelled = true;
     };
-  }, [teamUnreadId, router]);
+  }, [unreadId, unreadKind, router]);
 
   // Keep the latest message in view.
   const lastId = thread?.messages.at(-1)?.id;
@@ -132,7 +135,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
             ? {
                 ...t,
                 messages: [...t.messages, res.message],
-                ...(res.blocked ? {} : { preview: text.slice(0, 80), lastAt: res.message.at, awaitingReply: false }),
+                ...(res.blocked ? {} : { preview: text.slice(0, 80), lastAt: res.message.at, awaitingReply: false, unread: 0 }),
               }
             : t,
         ),
@@ -256,11 +259,11 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
                         {t.kind === "team" && t.lastFromMe ? "You: " : ""}
                         {t.preview || "No messages yet"}
                       </span>
-                      {needsAttention(t) && !(on && t.kind === "team") && (
+                      {needsAttention(t) && !on && (
                         <span
                           className="size-2 shrink-0 rounded-full bg-urgent"
                           role="img"
-                          aria-label={t.kind === "team" ? "New message from the Astrorize team" : "Waiting for your reply"}
+                          aria-label={t.kind === "team" ? "New message from the Astrorize team" : "New message from the customer"}
                         />
                       )}
                     </span>
