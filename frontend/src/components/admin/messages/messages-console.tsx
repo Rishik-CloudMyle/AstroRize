@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAdmin } from "@/components/admin/admin-provider";
 import { ApiError, api } from "@/lib/api/client";
+import { byNameMatch } from "@/lib/format";
 import { ROLE_LABELS } from "@/lib/admin/constants";
 import type { InboxConversation, InboxMessage, InboxThread } from "@/lib/admin/types";
 import { messageTime } from "@/lib/messages";
@@ -117,12 +118,17 @@ export default function MessagesConsole({
   };
 
   const q = query.trim().toLowerCase();
-  const visible = inbox.filter(
-    (c) =>
-      !q ||
-      c.people.some((p) => p.name.toLowerCase().includes(q) || p.line.toLowerCase().includes(q)) ||
-      (c.subject ?? "").toLowerCase().includes(q) ||
-      c.preview.toLowerCase().includes(q),
+  const visible = byNameMatch(
+    inbox.filter(
+      (c) =>
+        !q ||
+        c.people.some((p) => p.name.toLowerCase().includes(q) || p.line.toLowerCase().includes(q)) ||
+        (c.subject ?? "").toLowerCase().includes(q) ||
+        c.preview.toLowerCase().includes(q),
+    ),
+    q,
+    // The best-matching person in the conversation decides its place.
+    (c) => byNameMatch(c.people, q, (p) => p.name)[0]?.name ?? "",
   );
 
   return (

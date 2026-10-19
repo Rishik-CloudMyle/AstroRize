@@ -21,13 +21,15 @@ const chip = (on: boolean) => ({
   color: on ? "#fcd34d" : "#57534e",
 });
 
-export default function AstrologersList({ astrologers }: { astrologers: LifecycleAstrologer[] }) {
+export default function AstrologersList({ astrologers, initialOpen }: { astrologers: LifecycleAstrologer[]; initialOpen?: string }) {
   const [stage, setStage] = useState("all");
   const [sort, setSort] = useUrlSort(ASTROLOGER_SORTS, ASTROLOGER_DEFAULT_SORT);
   const [query, setQuery] = useState("");
   const [skill, setSkill] = useState("all");
   // The astrologer whose full record is open in the popup.
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(
+    initialOpen && astrologers.some((a) => a.id === initialOpen) ? initialOpen : null,
+  );
 
   const skills = useMemo(
     () => [...new Set(astrologers.flatMap((a) => a.skills))].sort((a, b) => a.localeCompare(b)),

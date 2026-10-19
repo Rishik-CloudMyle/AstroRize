@@ -17,6 +17,7 @@ import {
   staffThreadView,
   type Person,
 } from "../../lib/messaging.ts";
+import { byNameMatch } from "../../lib/format.ts";
 import { pagesOf, requirePage, type AdminRoleKey } from "../../lib/rbac.ts";
 import type { Prisma } from "../../generated/prisma/client.ts";
 
@@ -46,9 +47,9 @@ messagesRouter.get("/messages/unread", async (req, res) => {
 });
 
 /**
- * People to start a conversation with. With no search: the staff, by department. With two or
- * more characters: staff, astrologers and customers by name, email or phone. Customers show only
- * their name and a masked phone number.
+ * People to start a conversation with. With no search: the staff, by department, and the
+ * astrologers. With any text: staff, astrologers and customers by name, email or phone, names
+ * starting with it first. Customers show only their name and a masked phone number.
  */
 messagesRouter.get("/messages/people", async (req, res) => {
   const admin = requirePage(req, "messages");
@@ -57,7 +58,7 @@ messagesRouter.get("/messages/people", async (req, res) => {
   // A phone search: digits only (spaces, dashes and a leading +91 allowed), at least four.
   const digits = q.replace(/^\+91/, "").replace(/[\s()-]/g, "");
   const byPhone: Prisma.UserWhereInput[] = /^\d{4,10}$/.test(digits) ? [{ phone: { contains: digits } }] : [];
-  const searching = q.length >= 2;
+  const searching = q.length > 0;
   const [staff, astrologers, customers] = await Promise.all([
     db.user.findMany({
       where: { role: "ADMIN", active: true, id: { not: admin.user.id }, ...(q ? { OR: [{ name: text }, { email: text }] } : {}) },
@@ -65,29 +66,29 @@ messagesRouter.get("/messages/people", async (req, res) => {
       take: 100,
       include: personInclude,
     }),
-    searching
-      ? db.user.findMany({
-          where: {
-            role: "ASTROLOGER",
-            active: true,
-            astrologer: { isNot: null },
-            OR: [{ name: text }, { email: text }, { astrologer: { name: text } }, ...byPhone],
-          },
-          orderBy: { name: "asc" },
-          take: 8,
-          include: personInclude,
-        })
-      : [],
+    db.user.findMany({
+      where: {
+        role: "ASTROLOGER",
+        active: true,
+        astrologer: { isNot: null },
+        ...(searching ? { OR: [{ name: text }, { email: text }, { astrologer: { name: text } }, ...byPhone] } : {}),
+      },
+      orderBy: { name: "asc" },
+      take: 100,
+      include: personInclude,
+    }),
     searching
       ? db.user.findMany({
           where: { role: "CUSTOMER", active: true, deletedAt: null, OR: [{ name: text }, { email: text }, ...byPhone] },
           orderBy: { name: "asc" },
-          take: 8,
+          take: 100,
           include: personInclude,
         })
       : [],
   ]);
-  res.json({ people: [...staff.filter(canReceive), ...astrologers, ...customers].map(staffSees) });
+  const ranked = <T extends { name: string | null }>(rows: T[], max: number) =>
+    (searching ? byNameMatch(rows, q, (p) => p.name ?? "") : rows).slice(0, max);
+  res.json({ people: [...ranked(staff.filter(canReceive), 100), ...ranked(astrologers, 30), ...ranked(customers, 20)].map(staffSees) });
 });
 
 messagesRouter.get("/messages/:id", async (req, res) => {

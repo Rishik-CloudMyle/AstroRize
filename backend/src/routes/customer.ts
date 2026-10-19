@@ -13,7 +13,7 @@ import {
   rateFor,
   type Mode,
 } from "../lib/billing.ts";
-import { istDate, istDateKey, makeRef, rupee } from "../lib/format.ts";
+import { byNameMatch, istDate, istDateKey, makeRef, rupee } from "../lib/format.ts";
 import { IMAGE_TYPES, MAX_PHOTO_BYTES, deleteMedia, saveImage, sniffImage } from "../lib/media.ts";
 import { GENDERS, ageOn, dateKey, initialsOf, ownProfileView } from "../lib/profile.ts";
 import { rateLimit } from "../lib/safety.ts";
@@ -739,12 +739,13 @@ async function conversationWith(customerId: string, slug: string) {
 /** Listed astrologers matching a name, for "Start a conversation" in the search box. */
 customerRouter.get("/messages/search/astrologers", async (req, res) => {
   const q = z.string().trim().max(60).catch("").parse(req.query.q);
-  if (q.length < 2) return void res.json({ astrologers: [] });
-  const list = await db.astrologer.findMany({
+  if (!q) return void res.json({ astrologers: [] });
+  const found = await db.astrologer.findMany({
     where: { lifecycle: "active", suspension: { not: "full" }, name: { contains: q, mode: "insensitive" } },
     orderBy: { rank: "asc" },
-    take: 8,
+    take: 100,
   });
+  const list = byNameMatch(found, q, (a) => a.name).slice(0, 20);
   res.json({
     astrologers: list.map((a) => ({
       ...messengerAstrologer(a),

@@ -9,16 +9,21 @@
 // Real sky: every graha sits on the wheel at its true sidereal longitude now (Lahiri —
 // src/lib/sky.ts) and moves on as a gentle time-lapse at its real speed, half a day a second:
 // the Moon fastest, Saturn barely, Rahu and Ketu backwards and exactly opposite, retrogrades
-// when they really happen. 0° Mesha is on the left, signs run anticlockwise. Gems that meet
-// step inwards so they never sit on top of each other.
+// when they really happen. 0° Mesha is on the left, signs run anticlockwise. When two gems meet,
+// the faster one swings inwards round the slower one, which keeps its place — the Moon overtakes
+// everyone without pushing anyone aside.
+//
+// Each gem draws a fading trail of its own colour behind it, as long as its real speed (the Moon's
+// is long, Saturn's barely there). The Moon pearl shows its real phase, lit on the side facing the
+// Sun gem. A graha entering a new rashi sends out a soft ripple and lights that sign's band for a
+// moment. Behind it all, faint rays turn slowly round the engraved sun.
 //
 // Close conjunctions are joined by a faint gold line that fades in as the grahas meet. Hovering a
 // gem (or tapping it, or reaching it by keyboard) opens a small card with its rashi, degree,
 // nakshatra and retrograde state, and with a mouse the wheel tilts a little to face it.
 //
-// It always plays — the client wants it moving for everyone, including visitors whose OS asks
-// for reduced motion — and has one Pause / Play button for anyone who wants it still (WCAG
-// 2.2.2). It only runs while the wheel is on screen and the tab is visible.
+// It always plays, for everyone, with no pause control (the client's call — including visitors
+// whose OS asks for reduced motion). It only runs while the wheel is on screen and the tab is visible.
 
 "use client";
 
@@ -52,8 +57,8 @@ const RAD = {
   core: 0.165,
 } as const;
 /**
- * How far a gem steps inwards (fraction of D) to clear another one; gems start to make room
- * when they come within CLEAR_DEG of each other and have stepped right in by FULL_DEG.
+ * How far a gem steps inwards (fraction of D) to clear another one; the faster gem starts to make
+ * room when it comes within CLEAR_DEG of a slower one and has stepped right in by FULL_DEG.
  */
 const LANE = 0.085;
 const CLEAR_DEG = 11;
@@ -85,8 +90,14 @@ const GEMS: Record<GrahaKey, Gem> = {
   rahu: { size: 0.028, fill: ["#e2d9cc", "#76675a", "#2b221b"], glow: "112,98,86", facet: "rgba(255,245,230,.4)" },
   ketu: { size: 0.028, fill: ["#f8d6b4", "#b8662c", "#55260c"], glow: "184,102,44", facet: "rgba(255,236,214,.5)" },
 };
-/** Who keeps their place when two meet: the rest step inwards. */
+/** The order of the planet buttons (for keyboards and screen readers). */
 const PRIORITY: readonly GrahaKey[] = ["sun", "moon", "jupiter", "venus", "saturn", "mars", "mercury", "rahu", "ketu"];
+/**
+ * Slowest to fastest by usual daily motion. When two meet, the faster one steps inwards round the
+ * slower, which keeps its place; the faster one is also drawn on top. A fixed order, so nobody
+ * swaps lanes halfway through a meeting when real speeds cross.
+ */
+const BY_SPEED: readonly GrahaKey[] = ["saturn", "rahu", "ketu", "jupiter", "mars", "sun", "venus", "mercury", "moon"];
 
 // The twelve rashi glyphs, drawn as strokes in a 20 × 20 box centred on 0,0 (upright = outwards).
 const GLYPHS = [
@@ -463,6 +474,18 @@ const TILT_DEG = 6;
 const PERSPECTIVE = 1100;
 const RADIAN = Math.PI / 180;
 
+/** Trails show where a gem was this many sky days ago, at most TRAIL_MAX_DEG long. */
+const TRAIL_DAYS = 1.6;
+const TRAIL_MAX_DEG = 24;
+/** Seconds a sign-entry ripple lasts. */
+const RIPPLE_S = 1.6;
+
+/** What the drawing remembers between frames: each graha's sign, and the ripples still showing. */
+interface Effects {
+  sign: Partial<Record<GrahaKey, number>>;
+  ripples: { key: GrahaKey; sign: number; at: number }[];
+}
+
 /** Where a gem was last drawn (canvas pixels) and what it stands for. */
 interface GemSpot {
   key: GrahaKey;
@@ -489,6 +512,7 @@ function draw(
   clock: number,
   focus: GrahaKey | null,
   focusLevel: number,
+  fx: Effects,
 ): GemSpot[] {
   ctx.clearRect(0, 0, side, side);
   const c = side / 2;
@@ -505,6 +529,27 @@ function draw(
   ctx.beginPath();
   ctx.arc(c, c, D * 0.36, 0, TAU);
   ctx.fill();
+
+  // Soft rays turning slowly round the sun, the other way to the wheel.
+  ctx.save();
+  ctx.translate(c, c);
+  ctx.rotate(clock * 0.045);
+  const rays = ctx.createRadialGradient(0, 0, D * 0.05, 0, 0, D * 0.4);
+  rays.addColorStop(0, `rgba(250,190,70,${(0.42 + 0.14 * breathe).toFixed(3)})`);
+  rays.addColorStop(1, "rgba(255,205,96,0)");
+  ctx.fillStyle = rays;
+  ctx.beginPath();
+  for (let i = 0; i < 16; i++) {
+    const t = (i / 16) * TAU;
+    const reach = D * (i % 2 ? 0.27 : 0.4);
+    const w = 0.07;
+    ctx.moveTo(Math.cos(t - w) * D * 0.06, Math.sin(t - w) * D * 0.06);
+    ctx.lineTo(Math.cos(t) * reach, Math.sin(t) * reach);
+    ctx.lineTo(Math.cos(t + w) * D * 0.06, Math.sin(t + w) * D * 0.06);
+    ctx.closePath();
+  }
+  ctx.fill();
+  ctx.restore();
 
   // The wheel, turned.
   ctx.save();
@@ -536,11 +581,11 @@ function draw(
     return d < 0;
   };
 
-  // Gems that come close step inwards smoothly, by priority, so none hides another.
+  // A faster gem coming up to a slower one swings inwards smoothly round it; the slower one stays.
   const lane = {} as Record<GrahaKey, number>;
-  for (const [i, k] of PRIORITY.entries()) {
+  for (const [i, k] of BY_SPEED.entries()) {
     let l = 0;
-    for (const j of PRIORITY.slice(0, i)) {
+    for (const j of BY_SPEED.slice(0, i)) {
       const w = Math.min(1, Math.max(0, (CLEAR_DEG - apart(lon[k], lon[j])) / (CLEAR_DEG - FULL_DEG)));
       l = Math.max(l, (lane[j]! + 1) * (w * w * (3 - 2 * w)));
     }
@@ -548,10 +593,32 @@ function draw(
   }
 
   const spots = {} as Record<GrahaKey, GemSpot>;
-  for (const k of PRIORITY) {
+  const orbit = {} as Record<GrahaKey, number>;
+  for (const k of BY_SPEED) {
     const t = angle(lon[k]) + spin;
     const rr = (RAD.track - lane[k] * LANE) * D;
+    orbit[k] = rr;
     spots[k] = { key: k, x: c + rr * Math.cos(t), y: c + rr * Math.sin(t), r: Math.max(3.5, GEMS[k].size * D * 1.15), lon: lon[k], retro: retro(k) };
+  }
+
+  // A graha entering a new rashi: a ripple from the gem, and that sign's band lights for a moment.
+  for (const k of GRAHA_KEYS) {
+    const sign = Math.floor((((lon[k] % 360) + 360) % 360) / 30);
+    const was = fx.sign[k];
+    fx.sign[k] = sign;
+    if (was !== undefined && was !== sign) fx.ripples.push({ key: k, sign, at: clock });
+  }
+  fx.ripples = fx.ripples.filter((p) => clock - p.at < RIPPLE_S);
+  for (const p of fx.ripples) {
+    const a = (1 - (clock - p.at) / RIPPLE_S) ** 2;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,208,110,${(0.42 * a).toFixed(3)})`;
+    ctx.lineWidth = (RAD.signOut - RAD.signIn) * D * 0.94;
+    ctx.beginPath();
+    // Canvas angles grow clockwise and longitudes anticlockwise, so the sign runs from its end to its start.
+    ctx.arc(c, c, ((RAD.signOut + RAD.signIn) / 2) * D, angle(p.sign * 30 + 30) + spin, angle(p.sign * 30) + spin);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // Conjunctions: a faint gold line between grahas close together in the sky, fading in as they
@@ -620,11 +687,56 @@ function draw(
   }
   ctx.restore();
 
-  // Draw from the back of the priority list so the Sun sits on top.
-  for (const [i, k] of [...PRIORITY].reverse().entries()) {
+  // Trails: a fading ribbon of the gem's own colour along the way it came, as long as its speed.
+  ctx.save();
+  ctx.lineCap = "round";
+  for (const k of BY_SPEED) {
+    let perDay = next[k].longitude - now[k].longitude;
+    if (perDay > 180) perDay -= 360;
+    if (perDay < -180) perDay += 360;
+    perDay /= STEP_DAYS;
+    const length = Math.min(TRAIL_MAX_DEG, Math.abs(perDay) * TRAIL_DAYS);
+    if (length < 1.2) continue;
+    const back = perDay < 0 ? 1 : -1; // where it came from
+    const steps = 18;
+    for (let n = 0; n < steps; n++) {
+      const a0 = angle(lon[k] + back * length * (n / steps)) + spin;
+      const a1 = angle(lon[k] + back * length * ((n + 1) / steps)) + spin;
+      const fade = (1 - n / steps) ** 1.4;
+      ctx.beginPath();
+      ctx.arc(c, c, orbit[k], Math.min(a0, a1), Math.max(a0, a1));
+      // A soft glow of the gem's colour, and a finer core in its deeper edge colour (so even
+      // the pale pearl and diamond leave a trail that shows on the cream).
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = `rgba(${GEMS[k].glow},${(0.5 * fade).toFixed(3)})`;
+      ctx.lineWidth = Math.max(1, spots[k].r * 1.7 * fade);
+      ctx.stroke();
+      ctx.globalAlpha = 0.9 * fade;
+      ctx.strokeStyle = GEMS[k].fill[2];
+      ctx.lineWidth = Math.max(0.8, spots[k].r * 0.6 * fade);
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // Slowest first, so a faster gem passing by sits on top.
+  for (const [i, k] of BY_SPEED.entries()) {
     const s = spots[k];
     const sparkle = Math.max(0, Math.sin(clock * 0.9 + i * 1.7)) ** 12;
     drawGem(ctx, s.x, s.y, s.r, GEMS[k], angle(s.lon) + spin, sparkle, k === "sun");
+    if (k === "moon") moonPhase(ctx, s, spots.sun, apart(lon.moon, lon.sun));
+  }
+
+  // The ripple round a gem that has just entered a new sign.
+  for (const p of fx.ripples) {
+    const s = spots[p.key];
+    const age = (clock - p.at) / RIPPLE_S;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r * (1.4 + age * 3.2), 0, TAU);
+    ctx.strokeStyle = `rgba(${GEMS[p.key].glow},${(0.7 * (1 - age) ** 1.5).toFixed(3)})`;
+    ctx.lineWidth = hair * (2.4 - age * 1.6);
+    ctx.stroke();
   }
 
   // A fine gold ring round the gem being looked at (hovered, tapped or reached by keyboard).
@@ -642,7 +754,31 @@ function draw(
 
   cache.prune(i0 - 2);
   // Top-most first, for hit-testing.
-  return PRIORITY.map((k) => spots[k]);
+  return [...BY_SPEED].reverse().map((k) => spots[k]);
+}
+
+/**
+ * The Moon's real phase on its pearl: the side away from the Sun gem in soft shadow, the
+ * terminator an ellipse — a thin crescent near new moon, nothing at full.
+ */
+function moonPhase(ctx: CanvasRenderingContext2D, moon: GemSpot, sun: GemSpot, elongation: number) {
+  const p = (elongation * Math.PI) / 180; // 0 new … π full
+  if (p > Math.PI - 0.08) return; // full: all lit
+  const r = moon.r * 0.98;
+  const bulge = r * Math.abs(Math.cos(p));
+  ctx.save();
+  ctx.translate(moon.x, moon.y);
+  // Local +x points at the Sun: that side is lit.
+  ctx.rotate(Math.atan2(sun.y - moon.y, sun.x - moon.x));
+  ctx.beginPath();
+  // The dark half, away from the Sun…
+  ctx.arc(0, 0, r, -Math.PI / 2, Math.PI / 2, true);
+  // …closed by the terminator: into the lit half before first quarter, into the dark half after.
+  ctx.ellipse(0, 0, Math.max(0.01, bulge), r, 0, Math.PI / 2, -Math.PI / 2, p < Math.PI / 2);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(84,72,112,.52)";
+  ctx.fill();
+  ctx.restore();
 }
 
 /** What the card beside a gem says. */
@@ -668,23 +804,6 @@ function tipFor(s: GemSpot): Tip {
   };
 }
 
-function PauseIcon() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
-      <rect x="1.5" y="1" width="2.4" height="8" rx=".6" />
-      <rect x="6.1" y="1" width="2.4" height="8" rx=".6" />
-    </svg>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
-      <path d="M2.2 1.1v7.8a.5.5 0 0 0 .76.43l6.3-3.9a.5.5 0 0 0 0-.86L2.96.67a.5.5 0 0 0-.76.43z" />
-    </svg>
-  );
-}
-
 type Source = "pointer" | "touch" | "key";
 
 /** What the component can ask of the animation loop. */
@@ -697,7 +816,7 @@ interface Control {
 
 /**
  * The wheel (size it with `className`, which sets its width; it stays square) with, under it, a
- * one-line caption and the Pause / Play button.
+ * one-line caption.
  *
  * Hover a gem (tap it on a touch screen, or Tab to the planets and use the arrow keys) for a
  * small card: the graha, its rashi and degree, its nakshatra, and whether it is retrograde; the
@@ -713,15 +832,13 @@ export default function HeroSky({ className = "" }: { className?: string }) {
   const tipRef = useRef<HTMLDivElement>(null);
   const buttonsRef = useRef<(HTMLButtonElement | null)[]>([]);
   const tipId = useId();
-  const [paused, setPaused] = useState(false);
   // null until mounted: the server cannot know the visitor's clock.
   const [skyDate, setSkyDate] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [tip, setTip] = useState<Tip | null>(null);
   // The planet button that Tab lands on (the others are reached with the arrow keys).
   const [rove, setRove] = useState(0);
-  const pausedRef = useRef(paused);
-  // Lets the buttons, the tooltip and the Pause button reach the animation loop.
+  // Lets the buttons and the tooltip reach the animation loop.
   const controlRef = useRef<Control | null>(null);
 
   useEffect(() => {
@@ -750,6 +867,7 @@ export default function HeroSky({ className = "" }: { className?: string }) {
     let ring = 0; // strength of the ring round it, eased
     let speed = 1; // the time-lapse eases to a stop while a gem is shown, so the card can be read
     let shownTip = "";
+    const fx: Effects = { sign: {}, ripples: [] };
     const tilt = { x: 0, y: 0, tx: 0, ty: 0 }; // rotateX / rotateY now and wanted (degrees)
     const fine = window.matchMedia("(hover: hover) and (pointer: fine)");
     const zone = stage.closest("section") ?? document.body;
@@ -834,7 +952,7 @@ export default function HeroSky({ className = "" }: { className?: string }) {
 
     const paint = () => {
       if (side < 24 || !layer) return; // not laid out yet
-      spots = draw(ctx, side, layer, cache, day, -(turn * TAU) / TURN_SECONDS, clock, ringKey, ring);
+      spots = draw(ctx, side, layer, cache, day, -(turn * TAU) / TURN_SECONDS, clock, ringKey, ring, fx);
       refreshTip();
       place();
       const text = dateText();
@@ -847,7 +965,7 @@ export default function HeroSky({ className = "" }: { className?: string }) {
     const show = (key: GrahaKey | null, source: Source) => {
       active = key ? { key, source } : null;
       if (key) ringKey = key;
-      // Still (paused or off screen): no loop to ease the ring in, so set it and draw once.
+      // Still (off screen): no loop to ease the ring in, so set it and draw once.
       if (!raf) {
         ring = key ? 1 : 0;
         paint();
@@ -892,7 +1010,7 @@ export default function HeroSky({ className = "" }: { className?: string }) {
       paint();
     };
 
-    const shouldRun = () => !pausedRef.current && onScreen && document.visibilityState === "visible";
+    const shouldRun = () => onScreen && document.visibilityState === "visible";
     const update = () => {
       if (shouldRun()) {
         if (!raf) {
@@ -904,12 +1022,6 @@ export default function HeroSky({ className = "" }: { className?: string }) {
       if (raf) {
         cancelAnimationFrame(raf);
         raf = 0;
-      }
-      // Paused means still: the tilt settles flat at once.
-      if (pausedRef.current) {
-        tilt.x = tilt.y = tilt.tx = tilt.ty = 0;
-        applyTilt();
-        place();
       }
     };
 
@@ -944,7 +1056,7 @@ export default function HeroSky({ className = "" }: { className?: string }) {
     };
     // The tilt: the wheel turns a little to face the mouse while it is over the hero.
     const onZoneMove = (e: PointerEvent) => {
-      if (e.pointerType !== "mouse" || !fine.matches || pausedRef.current) return;
+      if (e.pointerType !== "mouse" || !fine.matches) return;
       const r = stage.getBoundingClientRect();
       const clamp = (n: number) => Math.max(-1, Math.min(1, n));
       tilt.ty = clamp((e.clientX - (r.left + r.width / 2)) / Math.max(320, window.innerWidth * 0.5)) * TILT_DEG;
@@ -997,11 +1109,6 @@ export default function HeroSky({ className = "" }: { className?: string }) {
       controlRef.current = null;
     };
   }, []);
-
-  useEffect(() => {
-    pausedRef.current = paused;
-    controlRef.current?.update();
-  }, [paused]);
 
   // The card has just appeared (or has new words): set it beside its gem before it is seen.
   useLayoutEffect(() => {
@@ -1097,7 +1204,7 @@ export default function HeroSky({ className = "" }: { className?: string }) {
         )}
       </div>
       <p className="mt-4 flex max-w-full flex-wrap items-center justify-center gap-x-1.5 gap-y-1.5 text-center text-[12px] font-semibold text-amber-900/80 sm:mt-5">
-        {/* On phones the date and the button share a second line. */}
+        {/* On phones the date goes to a second line. */}
         <span className="max-sm:basis-full">The real sky, in time-lapse</span>
         {/* Its own piece, so on a narrow screen it wraps whole; fixed width so nothing shifts as it changes. */}
         {skyDate && (
@@ -1106,15 +1213,6 @@ export default function HeroSky({ className = "" }: { className?: string }) {
             {skyDate}
           </span>
         )}
-        <button
-          type="button"
-          onClick={() => setPaused((p) => !p)}
-          aria-label={paused ? "Play the zodiac wheel" : "Pause the zodiac wheel"}
-          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-amber-900/20 bg-white/70 px-3 text-[11px] font-bold text-amber-900 hover:bg-white max-sm:ml-1 sm:ml-1.5"
-        >
-          {paused ? <PlayIcon /> : <PauseIcon />}
-          {paused ? "Play" : "Pause"}
-        </button>
       </p>
     </div>
   );

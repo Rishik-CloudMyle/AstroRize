@@ -39,11 +39,9 @@ export default function NewMessageDialog({ onClose, onStarted }: { onClose: () =
   const searchBox = useRef<HTMLInputElement>(null);
 
   const q = query.trim();
-  const short = q.length === 1;
 
   // People search, a moment after typing stops. An empty search lists the staff.
   useEffect(() => {
-    if (short) return;
     const n = ++request.current;
     const timer = setTimeout(
       () => {
@@ -60,10 +58,10 @@ export default function NewMessageDialog({ onClose, onStarted }: { onClose: () =
       q ? 250 : 0,
     );
     return () => clearTimeout(timer);
-  }, [q, short]);
+  }, [q]);
 
-  const loading = !short && results?.q !== q && !searchError;
-  const people = !short && results ? results.people : [];
+  const loading = results?.q !== q && !searchError;
+  const people = results ? results.people : [];
   const chosenIds = new Set(chosen.map((p) => p.id));
   const outsider = chosen.find((p) => p.kind !== "staff");
   const blocked = (p: MessagePerson) => p.kind !== "staff" && !!outsider && outsider.id !== p.id;
@@ -221,8 +219,6 @@ export default function NewMessageDialog({ onClose, onStarted }: { onClose: () =
               <p role="alert" className="m-0 px-3 py-3 text-[12.5px] text-rose-700">
                 {searchError}
               </p>
-            ) : short ? (
-              <p className="m-0 px-3 py-3 text-[12.5px] text-[#78716c]">Keep typing…</p>
             ) : !results ? (
               <p className="m-0 px-3 py-3 text-[12.5px] text-[#78716c]">Loading people…</p>
             ) : ordered.length === 0 ? (

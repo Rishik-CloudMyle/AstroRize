@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
 import { homeFor } from "@/lib/auth";
+import { byNameMatch } from "@/lib/format";
 import {
   MAX_MESSAGE_LENGTH,
   MAX_SUPPORT_MESSAGE_LENGTH,
@@ -166,7 +167,7 @@ function SignedInMessenger({ slug, supportId }: { slug?: string; supportId?: str
   }, []);
 
   const q = query.trim().toLowerCase();
-  const matching = list?.filter((c) => !q || c.astrologer.name.toLowerCase().includes(q)) ?? [];
+  const matching = byNameMatch(list?.filter((c) => !q || c.astrologer.name.toLowerCase().includes(q)) ?? [], q, (c) => c.astrologer.name);
   const matchingSupport = support.filter((c) => !q || "astrorize support".includes(q) || (c.subject ?? "").toLowerCase().includes(q));
   const known = new Set(list?.map((c) => c.astrologer.slug));
 
@@ -340,11 +341,9 @@ const PRESENCE: Record<AstrologerMatch["presence"], { label: string; cls: string
 function StartConversation({ query, known, hasMatches }: { query: string; known: Set<string>; hasMatches: boolean }) {
   const [found, setFound] = useState<{ q: string; astrologers: AstrologerMatch[] } | null>(null);
   const [error, setError] = useState<{ q: string; text: string } | null>(null);
-  const short = query.length < 2;
 
   // Searches a moment after typing stops; an answer for an older search is ignored.
   useEffect(() => {
-    if (short) return;
     let cancelled = false;
     const timer = setTimeout(() => {
       api
@@ -356,11 +355,8 @@ function StartConversation({ query, known, hasMatches }: { query: string; known:
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, short]);
+  }, [query]);
 
-  if (short) {
-    return hasMatches ? null : <p className="px-2 py-3 text-[13px] text-stone-500">Type at least two letters to find an astrologer.</p>;
-  }
   if (error?.q === query) {
     return (
       <p role="alert" className="px-2 py-3 text-[13px] text-stone-600">
@@ -370,6 +366,8 @@ function StartConversation({ query, known, hasMatches }: { query: string; known:
   }
   const loading = found?.q !== query;
   const fresh = found?.astrologers.filter((a) => !known.has(a.slug)) ?? [];
+  // Everyone who matches is already in the list above.
+  if (!loading && fresh.length === 0 && hasMatches) return null;
 
   return (
     <div className="mt-3" aria-busy={loading}>

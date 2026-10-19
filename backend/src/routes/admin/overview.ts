@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { db } from "../../db.ts";
 import { Prisma } from "../../generated/prisma/client.ts";
-import { ageLabel, istDateKey, istDayMonth, istTime, rupee } from "../../lib/format.ts";
+import { ageLabel, byNameMatch, istDateKey, istDayMonth, istTime, rupee } from "../../lib/format.ts";
 import { walletTrialBalance } from "../../lib/ledger.ts";
 import { adminOf, capabilitiesOf, pagesOf, requirePage, type PageKey } from "../../lib/rbac.ts";
 import { refundProposerId } from "./support.ts";
@@ -342,10 +342,13 @@ overviewRouter.get("/overview", async (req, res) => {
 overviewRouter.get("/search", async (req, res) => {
   const admin = adminOf(req);
   const q = z.string().trim().max(80).parse(req.query.q ?? "");
-  if (q.length < 2) return res.json({ hits: [] });
+  if (!q) return res.json({ hits: [] });
   const pages = pagesOf(admin.adminRole);
   const contains = { contains: q, mode: "insensitive" as const };
-  const [tickets, applicants, keys, batches, campaigns, targets] = await Promise.all([
+  const [astrologers, tickets, applicants, keys, batches, campaigns, targets] = await Promise.all([
+    pages.includes("hr")
+      ? db.astrologer.findMany({ where: { OR: [{ name: contains }, { slug: contains }] }, orderBy: { name: "asc" }, take: 100 })
+      : [],
     pages.includes("support") ? db.supportTicket.findMany({ where: { OR: [{ id: contains }, { subject: contains }, { sessionRef: contains }] }, take: 5 }) : [],
     pages.includes("hr") ? db.applicant.findMany({ where: { OR: [{ id: contains }, { name: contains }] }, take: 5 }) : [],
     pages.includes("config") ? db.configKey.findMany({ where: { OR: [{ key: contains }, { description: contains }] }, take: 5 }) : [],
@@ -357,6 +360,15 @@ overviewRouter.get("/search", async (req, res) => {
   ]);
   res.json({
     hits: [
+      ...byNameMatch(astrologers, q, (a) => a.name)
+        .slice(0, 6)
+        .map((a) => ({
+          kind: "Astrologer",
+          label: a.name,
+          sub: [a.skills.slice(0, 2).join(", "), a.suspension !== "none" ? "suspended" : a.lifecycle].filter(Boolean).join(" · "),
+          page: "hr",
+          param: `view=astrologers&astrologer=${a.id}`,
+        })),
       ...targets.map((t) => ({ kind: "Live", label: `${t.astrologer.name} · live now`, sub: t.topic, page: "compliance", param: null })),
       ...tickets.map((t) => ({ kind: "Ticket", label: t.id, sub: t.subject, page: "support", param: `ticket=${t.id}` })),
       ...applicants.map((a) => ({ kind: "Application", label: `${a.id} · ${a.name}`, sub: a.state, page: "hr", param: `app=${a.id}` })),

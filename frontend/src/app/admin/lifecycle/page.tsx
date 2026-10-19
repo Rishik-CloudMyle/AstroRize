@@ -18,6 +18,8 @@ export default async function LifecyclePage({ searchParams }: PageProps<"/admin/
   const sp = await searchParams;
   const view = sp.view === "astrologers" ? "astrologers" : "applications";
   const app = typeof sp.app === "string" ? sp.app : undefined;
+  // Opened from the console search: that astrologer's record shows straight away.
+  const astrologer = typeof sp.astrologer === "string" ? sp.astrologer : undefined;
 
   return (
     <div>
@@ -45,7 +47,7 @@ export default async function LifecyclePage({ searchParams }: PageProps<"/admin/
       </nav>
 
       {view === "astrologers" ? (
-        <AstrologersList astrologers={await getLifecycleAstrologers()} />
+        <AstrologersList key={astrologer ?? "all"} astrologers={await getLifecycleAstrologers()} initialOpen={astrologer} />
       ) : (
         <LifecycleView key={app ?? "all"} data={await getLifecycle()} initialApp={app} />
       )}

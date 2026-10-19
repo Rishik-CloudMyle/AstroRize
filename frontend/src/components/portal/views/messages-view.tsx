@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api/client";
+import { byNameMatch } from "@/lib/format";
 import { MAX_MESSAGE_LENGTH, MAX_SUPPORT_MESSAGE_LENGTH, MESSAGE_POLL_MS, messageTime } from "@/lib/messages";
 import type { ChatMessage, CustomerThread, TeamMessage, Thread, ThreadCustomerDetail } from "@/lib/portal/types";
 import { useErrorToast, usePortalState, useToast } from "../portal-provider";
@@ -48,8 +49,12 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
 
   const thread = threads.find((t) => t.id === selectedId) ?? threads[0];
   const q = query.trim().toLowerCase();
-  const visible = threads.filter(
-    (t) => !q || nameOf(t).toLowerCase().includes(q) || t.preview.toLowerCase().includes(q) || (t.kind === "team" && (t.subject ?? "").toLowerCase().includes(q)),
+  const visible = byNameMatch(
+    threads.filter(
+      (t) => !q || nameOf(t).toLowerCase().includes(q) || t.preview.toLowerCase().includes(q) || (t.kind === "team" && (t.subject ?? "").toLowerCase().includes(q)),
+    ),
+    q,
+    nameOf,
   );
 
   // New messages from customers and the team arrive without a reload while the page is open.

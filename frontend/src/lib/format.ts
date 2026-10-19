@@ -109,3 +109,22 @@ export function percentages(counts: number[]): number[] {
   }
   return result;
 }
+
+/**
+ * Search results ordered by how well the name matches what was typed: names starting with it
+ * ("v" → Vikram), then names with a later word starting with it ("Dr Lalita"), then the rest
+ * ("Raghav"). Keeps the given order within each group. Same rule as the API.
+ */
+export function byNameMatch<T>(rows: T[], typed: string, nameOf: (row: T) => string): T[] {
+  const q = typed.trim().toLowerCase();
+  if (!q) return rows;
+  const rank = (name: string) => {
+    const n = name.toLowerCase();
+    if (n.startsWith(q)) return 0;
+    return n.split(/[\s.,'-]+/).some((w) => w.startsWith(q)) ? 1 : 2;
+  };
+  return rows
+    .map((row, i) => ({ row, i, r: rank(nameOf(row)) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((x) => x.row);
+}

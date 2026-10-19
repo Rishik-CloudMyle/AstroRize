@@ -25,7 +25,7 @@ export default function SearchBox() {
 
   const q = query.trim();
   useEffect(() => {
-    if (q.length < 2) return;
+    if (!q) return;
     const timer = setTimeout(async () => {
       try {
         const res = await api.get<{ hits: RawSearchHit[] }>(`/admin/search?q=${encodeURIComponent(q)}`);
@@ -38,8 +38,8 @@ export default function SearchBox() {
   }, [q]);
 
   const hits = result.q === q ? result.hits : [];
-  const pending = q.length >= 2 && result.q !== q;
-  const showList = open && q.length >= 2 && !pending;
+  const pending = q.length > 0 && result.q !== q;
+  const showList = open && q.length > 0 && !pending;
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
