@@ -657,7 +657,7 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
             <p className="mt-2 text-[12.5px] font-semibold text-stone-600">You asked for a {PRIVATE_TITLE[req.mode].toLowerCase()}.</p>
           )}
           <p className="mt-2 text-[11.5px] leading-[1.45] text-stone-500">
-            Consultations from a live are private — chat, voice or video. The room keeps seeing the video, never you.
+            Consultations from a live are private — by voice or video. The room keeps seeing the video, never you.
           </p>
           {room.queue.inQueue ? (
             <button

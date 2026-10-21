@@ -1,13 +1,28 @@
+import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { db } from "../db.ts";
 import type { Astrologer, Message, User } from "../generated/prisma/client.ts";
-import { conflict, notFound } from "./errors.ts";
+import { badRequest, conflict, notFound } from "./errors.ts";
 import { istDate } from "./format.ts";
+import {
+  CHAT_MAX_PHOTO_BYTES,
+  CHAT_MAX_VIDEO_BYTES,
+  CHAT_MAX_VIDEO_SECONDS,
+  IMAGE_TYPES,
+  VIDEO_TYPES,
+  deletePrivateFiles,
+  savePrivateFile,
+  sniffImage,
+  sniffVideo,
+  videoDurationSeconds,
+  type MediaType,
+} from "./media.ts";
 import { ROLE_LABELS, type AdminRoleKey } from "./rbac.ts";
 import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "./safety.ts";
 
-// Astrologer Messenger: free, text-only direct messages between a customer and an astrologer.
-// One conversation per astrologer–customer pair; contact details are never delivered.
+// Astrologer Messenger: free direct messages between a customer and an astrologer — text, and
+// photos or short videos (kept private to the two of them). One conversation per
+// astrologer–customer pair; contact details are never delivered.
 
 export type Side = "CUSTOMER" | "ASTROLOGER";
 
@@ -23,7 +38,22 @@ export const messageText = z
  */
 export function messageView(m: Message, viewer: Side) {
   const from = m.blocked ? "blocked" : m.sender === viewer ? "me" : viewer === "ASTROLOGER" ? "customer" : "astrologer";
-  return { id: m.id, from, text: m.text, at: m.createdAt.toISOString() };
+  const attachment =
+    m.attachment && !m.blocked
+      ? { kind: m.attachmentKind === "VIDEO" ? ("video" as const) : ("image" as const), url: attachmentUrl(m.id, m.attachment) }
+      : null;
+  return { id: m.id, from, text: m.text, attachment, at: m.createdAt.toISOString() };
+}
+
+/** Where a message's photo or video is served: only to that conversation's customer and astrologer. */
+export const attachmentUrl = (messageId: string, file: string) => `/api/media/messages/${encodeURIComponent(messageId)}/${file}`;
+
+const ATTACHMENT_LABEL: Record<string, string> = { IMAGE: "📷 Photo", VIDEO: "🎬 Video" };
+
+/** The list preview for a message: its text, or "📷 Photo" / "🎬 Video" when only a file was sent. */
+export function previewOf(m: Pick<Message, "text" | "attachmentKind"> | undefined, max: number): string {
+  if (!m) return "";
+  return (m.text || (m.attachmentKind ? (ATTACHMENT_LABEL[m.attachmentKind] ?? "") : "")).slice(0, max);
 }
 
 export function visibleTo(viewer: Side) {
@@ -59,6 +89,69 @@ export async function postMessage(threadId: string, sender: Side, text: string) 
   });
   await db.messageThread.update({ where: { id: threadId }, data: { updatedAt: message.createdAt } });
   return { blocked, message: messageView(message, sender) };
+}
+
+// ── Photos and videos ──
+
+/** The optional caption sent with a photo or video (query ?caption=). Same length limit as text. */
+export const captionQuery = z.object({
+  caption: z.string().trim().max(1000, "Captions can be up to 1,000 characters.").default(""),
+});
+
+const CHAT_FILE_LIMITS = `Photos can be up to ${CHAT_MAX_PHOTO_BYTES / (1024 * 1024)} MB and videos up to ${CHAT_MAX_VIDEO_BYTES / (1024 * 1024)} MB.`;
+
+/** Reads the raw file body (the largest allowed size); an oversized file gets a clear message. */
+const readChatFile = express.raw({ type: [...Object.keys(IMAGE_TYPES), ...Object.keys(VIDEO_TYPES)], limit: CHAT_MAX_VIDEO_BYTES });
+export function chatFileBody(req: Request, res: Response, next: NextFunction) {
+  readChatFile(req, res, (err?: unknown) => {
+    if ((err as { status?: number } | undefined)?.status === 413) return next(badRequest(CHAT_FILE_LIMITS));
+    next(err);
+  });
+}
+
+export interface ChatFile {
+  buf: Buffer;
+  type: MediaType;
+  kind: "IMAGE" | "VIDEO";
+}
+
+/** Checks an uploaded photo or video by its own bytes (never the browser's Content-Type), its size and length. */
+export function checkChatFile(body: unknown): ChatFile {
+  if (!Buffer.isBuffer(body) || body.length === 0) throw badRequest("Choose a photo (JPEG, PNG or WebP) or a video (MP4 or WebM).");
+  const image = sniffImage(body);
+  if (image) {
+    if (body.length > CHAT_MAX_PHOTO_BYTES) throw badRequest(`Photos can be up to ${CHAT_MAX_PHOTO_BYTES / (1024 * 1024)} MB.`);
+    return { buf: body, type: image, kind: "IMAGE" };
+  }
+  const video = sniffVideo(body);
+  if (!video) throw badRequest("That file isn't a photo (JPEG, PNG or WebP) or a video (MP4 or WebM).");
+  // WebM recorded in a browser often doesn't state its length; the website checks it before upload.
+  const seconds = videoDurationSeconds(body, video);
+  if (seconds !== null && seconds > CHAT_MAX_VIDEO_SECONDS + 0.5) {
+    throw badRequest(`This video is ${Math.round(seconds)} seconds long. Videos can be up to ${CHAT_MAX_VIDEO_SECONDS} seconds.`);
+  }
+  return { buf: body, type: video, kind: "VIDEO" };
+}
+
+/**
+ * Saves a photo or video message from one side. A caption with contact details stops the whole
+ * message, exactly like text (the file is never stored). The file is removed again if the
+ * database write fails.
+ */
+export async function postAttachment(threadId: string, sender: Side, caption: string, file: ChatFile) {
+  if (caption && containsContactDetails(caption)) return postMessage(threadId, sender, caption);
+  const name = await savePrivateFile(file.buf, file.type);
+  try {
+    const message = await db.$transaction(async (tx) => {
+      const m = await tx.message.create({ data: { threadId, sender, text: caption, attachment: name, attachmentKind: file.kind } });
+      await tx.messageThread.update({ where: { id: threadId }, data: { updatedAt: m.createdAt } });
+      return m;
+    });
+    return { blocked: false, message: messageView(message, sender) };
+  } catch (e) {
+    await deletePrivateFiles([name]);
+    throw e;
+  }
 }
 
 /** Consultations that actually connected and finished between the two. */

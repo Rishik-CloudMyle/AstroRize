@@ -1,6 +1,8 @@
 // Shapes of the data the portal shows, as returned by the Astrorize Node API
 // (backend/src/routes/portal.ts, GET /api/portal/*).
 
+import type { MessageAttachment } from "@/lib/messages";
+
 /** The signed-in astrologer. */
 export interface Astrologer {
   id: string;
@@ -437,7 +439,9 @@ export interface ChatMessage {
   id: string;
   /** "blocked" = the notice shown when a message contained contact details */
   from: "customer" | "me" | "blocked";
+  /** May be "" when only a photo or video was sent. */
   text: string;
+  attachment: MessageAttachment | null;
   /** ISO time it was sent */
   at: string;
 }
@@ -532,6 +536,9 @@ export interface ProfileData {
   /** The intro video on the public profile, or null */
   introVideoUrl: string | null;
   video: { maxMb: number; maxSeconds: number };
+  /** Gallery photos on the public profile, in display order */
+  gallery: string[];
+  galleryLimits: { max: number; maxMb: number };
   /** null until the astrologer is approved and listed on the site. */
   publicProfileUrl: string | null;
   published: { bio: string; skills: string[] };

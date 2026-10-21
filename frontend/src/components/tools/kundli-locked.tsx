@@ -25,7 +25,7 @@ export default function KundliLocked({ access }: { access: Exclude<KundliAccess,
     <div className="grid grid-cols-[minmax(0,1fr)] items-center gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)]">
       {(["north", "south"] as const).map((style) => (
         <figure key={style} className="m-0">
-          <div className="mx-auto aspect-square w-full max-w-[260px] overflow-hidden rounded-2xl border border-line opacity-80">
+          <div className="mx-auto aspect-square w-full max-w-[260px] opacity-90 drop-shadow-[0_8px_18px_rgba(120,72,10,.12)]">
             <KundliChart style={style} empty />
           </div>
           <figcaption className="mt-2 text-center text-xs font-semibold text-stone-500">

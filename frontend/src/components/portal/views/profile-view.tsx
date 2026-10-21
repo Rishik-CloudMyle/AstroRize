@@ -8,6 +8,7 @@ import { discountLabel, ratingLabel, rupee, skillLine } from "@/lib/portal/forma
 import type { ProfileData } from "@/lib/portal/types";
 import { useAccount, useErrorToast, usePortalState, useToast } from "../portal-provider";
 import { PageHeader, Panel } from "../ui";
+import GalleryEditor from "./gallery-editor";
 import IntroVideoEditor from "./intro-video-editor";
 
 export default function ProfileView({ data }: { data: ProfileData }) {
@@ -68,7 +69,7 @@ export default function ProfileView({ data }: { data: ProfileData }) {
     <div>
       <PageHeader
         title="Profile"
-        subtitle="Edits enter moderation. Your live profile stays exactly as it is until they are approved."
+        subtitle="Your intro video and photos go live as soon as they upload. Bio and skill edits enter moderation; your live profile keeps the current text until they are approved."
       />
 
       {pending > 0 && (
@@ -85,9 +86,19 @@ export default function ProfileView({ data }: { data: ProfileData }) {
       </div>
       )}
 
+      {/* Media goes live at once (no moderation), so it sits apart from the bio and skills. */}
       <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(340px,100%),1fr))] items-start gap-4">
         <Panel className="p-5">
-          <h2 className="m-0 mb-3.5 text-base font-bold">Edit</h2>
+          <IntroVideoEditor url={data.introVideoUrl} poster={me.photo} name={me.name} maxMb={data.video.maxMb} maxSeconds={data.video.maxSeconds} />
+        </Panel>
+        <Panel className="p-5">
+          <GalleryEditor photos={data.gallery} max={data.galleryLimits.max} maxMb={data.galleryLimits.maxMb} />
+        </Panel>
+      </div>
+
+      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(340px,100%),1fr))] items-start gap-4">
+        <Panel className="p-5">
+          <h2 className="m-0 mb-3.5 text-base font-bold">Edit bio and skills</h2>
           <label htmlFor="bio" className="mb-1.5 block text-xs font-semibold text-stone-600">
             Bio
           </label>
@@ -128,8 +139,6 @@ export default function ProfileView({ data }: { data: ProfileData }) {
               ＋ Add skill
             </button>
           </div>
-
-          <IntroVideoEditor url={data.introVideoUrl} poster={me.photo} name={me.name} maxMb={data.video.maxMb} maxSeconds={data.video.maxSeconds} />
 
           <div className="mt-[18px] flex gap-2.5">
             <button type="button" onClick={discard} className="h-[46px] flex-1 rounded-xl border border-line bg-white text-sm font-bold">

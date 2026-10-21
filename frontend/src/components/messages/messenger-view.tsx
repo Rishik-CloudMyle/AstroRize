@@ -23,6 +23,7 @@ import {
 } from "@/lib/messages";
 import { useHydrated, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
+import { ATTACH_LIMITS, AttachButton, AttachmentChip, MessageMedia, uploadFile, useAttachment } from "./message-media";
 
 const errorText = (e: unknown) =>
   e instanceof ApiError ? e.message : "Something went wrong. Check your connection and try again.";
@@ -423,6 +424,8 @@ function Conversation({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
+  const [progress, setProgress] = useState<number | null>(null);
+  const attach = useAttachment();
   const scroller = useRef<HTMLDivElement>(null);
   // Bumped on every send, so a refresh that started before it can't wipe the new message.
   const version = useRef(0);
@@ -460,18 +463,31 @@ function Conversation({
     if (conversationId && last) onSeen(conversationId, last.at);
   }, [conversationId, last, onSeen]);
 
+  // A photo has its size now: keep the newest message in view if the reader was already near it.
+  const keepAtBottom = useCallback(() => {
+    const el = scroller.current;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 400) el.scrollTop = el.scrollHeight;
+  }, []);
+
   async function send() {
     const text = draft.trim();
-    if (!text || sending || !detail?.canMessage) return;
+    const file = attach.file;
+    if ((!text && !file) || sending || attach.preparing || !detail?.canMessage) return;
     setSending(true);
     setSendError("");
+    attach.setError("");
     version.current++;
     try {
-      // The API holds back contact details and answers with the notice instead.
-      const res = await api.post<{ conversationId: string; blocked: boolean; message: MessengerMessage }>(
-        `/messages/${encodeURIComponent(slug)}`,
-        { text },
-      );
+      // The API holds back contact details and answers with the notice instead (a caption too).
+      type Sent = { conversationId: string; blocked: boolean; message: MessengerMessage };
+      let res: Sent;
+      if (file) {
+        setProgress(0);
+        res = await uploadFile<Sent>(`/api/messages/${encodeURIComponent(slug)}/attachment`, file, text, setProgress);
+        attach.clear();
+      } else {
+        res = await api.post<Sent>(`/messages/${encodeURIComponent(slug)}`, { text });
+      }
       version.current++;
       setDetail((d) =>
         d
@@ -481,9 +497,10 @@ function Conversation({
       setDraft("");
       onChange();
     } catch (e) {
-      setSendError(errorText(e));
+      setSendError(e instanceof Error ? e.message : errorText(e));
     } finally {
       setSending(false);
+      setProgress(null);
     }
   }
 
@@ -521,7 +538,7 @@ function Conversation({
           <Photo a={a} size={42} />
           <span className="min-w-0">
             <b className="block truncate text-[15px] text-plum">{a.name}</b>
-            <span className="block truncate text-[12px] text-stone-500">Astrologer Messenger · Free · text only</span>
+            <span className="block truncate text-[12px] text-stone-500">Astrologer Messenger · Free</span>
           </span>
         </Link>
       </header>
@@ -566,6 +583,7 @@ function Conversation({
                   : "self-start rounded-[16px_16px_16px_4px] border-line bg-white"
               }`}
             >
+              {m.attachment && <MessageMedia attachment={m.attachment} onLoad={keepAtBottom} />}
               {m.text}
               <span className="mt-0.5 block text-right text-[10.5px] text-stone-500">{messageTime(m.at, true)}</span>
             </div>
@@ -581,29 +599,33 @@ function Conversation({
             send();
           }}
         >
-          {sendError && (
+          {(sendError || attach.error) && (
             <p role="alert" className="mb-2 text-[12.5px] text-rose-700">
-              {sendError}
+              {attach.error || sendError}
             </p>
           )}
+          {attach.file && <AttachmentChip file={attach.file} progress={progress} onRemove={attach.clear} />}
           <div className="flex gap-2">
+            <AttachButton onPick={(f) => void attach.pick(f)} disabled={sending || attach.preparing} />
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               maxLength={MAX_MESSAGE_LENGTH}
-              placeholder="Message"
-              aria-label={`Message ${a.name}`}
+              placeholder={attach.file ? "Add a caption (optional)" : "Message"}
+              aria-label={attach.file ? "Caption" : `Message ${a.name}`}
               className="h-12 min-w-0 flex-1 rounded-full border border-line bg-white px-4 text-[14.5px] text-ink outline-none focus:border-amber-400"
             />
             <button
               type="submit"
-              disabled={sending || !draft.trim()}
-              className="az-cta h-12 shrink-0 rounded-full px-6 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={sending || attach.preparing || (!draft.trim() && !attach.file)}
+              className="az-cta h-12 shrink-0 rounded-full px-5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60 sm:px-6"
             >
-              {sending ? "Sending…" : "Send"}
+              {attach.preparing ? "Preparing…" : sending ? "Sending…" : "Send"}
             </button>
           </div>
-          <p className="mt-1.5 px-1 text-[11px] text-stone-500">Text only. Phone numbers, emails and other contact details are not delivered.</p>
+          <p className="mt-1.5 px-1 text-[11px] leading-normal text-stone-500">
+            {ATTACH_LIMITS} Phone numbers, emails and other contact details are not delivered.
+          </p>
         </form>
       )}
     </section>

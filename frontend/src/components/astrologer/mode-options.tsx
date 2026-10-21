@@ -5,12 +5,13 @@ import { useAppUI } from "../app-provider";
 import { blockedHint, useConsultGate } from "../consult/consult-gate";
 import type { ConsultChoice } from "../consult/consult-sheet";
 import { useFreshAstrologer } from "./use-fresh-astrologer";
+import ModeIcon from "@/components/ui/mode-icon";
 
-const MODES: { key: ConsultChoice; icon: string; label: string }[] = [
-  { key: "chat", icon: "💬", label: "Chat" },
-  { key: "voice", icon: "📞", label: "Voice" },
-  { key: "video", icon: "📹", label: "Video" },
-  { key: "instant", icon: "⚡", label: "Instant" },
+const MODES: { key: ConsultChoice; label: string }[] = [
+  { key: "chat", label: "Chat" },
+  { key: "voice", label: "Voice" },
+  { key: "video", label: "Video" },
+  { key: "instant", label: "Instant" },
 ];
 
 /**
@@ -55,9 +56,7 @@ export default function ModeOptions({ astrologer: initial }: { astrologer: Astro
               blocked ? "opacity-60" : instant ? "hover:bg-blue-50" : "hover:bg-amber-50"
             }`}
           >
-            <span aria-hidden="true" className={`text-base leading-none ${blocked ? "grayscale" : ""}`}>
-              {m.icon}
-            </span>
+            <ModeIcon mode={m.key} size={18} className={blocked ? "text-stone-400" : instant ? "text-blue-600" : "text-amber-700"} />
             <b className={`text-[10px] font-bold ${instant && !blocked ? "text-blue-700" : "text-[#3f4f9a]"}`}>{m.label}</b>
             <span className="text-[10px] font-[650]" style={{ color: instant && !blocked ? "#2563eb" : fg }}>
               {instant && !blocked ? "Ready" : state}

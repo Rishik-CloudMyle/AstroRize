@@ -10,6 +10,7 @@ import type { ChatMessage, CustomerThread, TeamMessage, Thread, ThreadCustomerDe
 import { useErrorToast, usePortalState, useToast } from "../portal-provider";
 import { PageHeader, Panel } from "../ui";
 import { Avatar, PersonProfileDialog } from "./live-queue-people";
+import { ATTACH_LIMITS, AttachButton, AttachmentChip, MessageMedia, uploadFile, useAttachment } from "../../messages/message-media";
 
 /** The customer's real name; only older conversations not linked to an account show the alias. */
 const customerName = (t: CustomerThread) => t.customer?.name ?? `Customer ${t.alias}`;
@@ -40,6 +41,8 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
+  const attach = useAttachment();
   const [profileOf, setProfileOf] = useState<string | null>(null);
   const closeProfile = useCallback(() => setProfileOf(null), []);
   const threadPanel = useRef<HTMLDivElement>(null);
@@ -98,7 +101,18 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
     if (el) el.scrollTop = el.scrollHeight;
   }, [thread?.id, lastId]);
 
+  // A photo has its size now: keep the newest message in view if the reader was already near it.
+  const keepAtBottom = useCallback(() => {
+    const el = list.current;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 400) el.scrollTop = el.scrollHeight;
+  }, []);
+
   const select = (id: string) => {
+    if (id !== selectedId && !busy) {
+      // A chosen photo or video belongs to the conversation it was picked in.
+      attach.clear();
+      attach.setError("");
+    }
     setSelectedId(id);
     // On a phone the conversation sits below the list: bring it into view.
     if (window.matchMedia("(max-width: 899px)").matches) {
@@ -108,7 +122,8 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || !thread || busy) return;
+    const file = thread?.kind === "customer" ? attach.file : null;
+    if ((!text && !file) || !thread || busy || attach.preparing) return;
     setBusy(true);
     version.current++;
     try {
@@ -131,8 +146,17 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
         toast("Sent to the Astrorize team.");
         return;
       }
-      // The API holds back contact details and answers with the notice instead.
-      const res = await api.post<{ blocked: boolean; message: ChatMessage }>(`/portal/messages/${thread.id}`, { text });
+      // The API holds back contact details and answers with the notice instead (a caption too).
+      type Sent = { blocked: boolean; message: ChatMessage };
+      let res: Sent;
+      if (file) {
+        attach.setError("");
+        setProgress(0);
+        res = await uploadFile<Sent>(`/api/portal/messages/${encodeURIComponent(thread.id)}/attachment`, file, text, setProgress);
+        attach.clear();
+      } else {
+        res = await api.post<Sent>(`/portal/messages/${thread.id}`, { text });
+      }
       version.current++;
       setThreads((all) =>
         all.map((t) =>
@@ -140,7 +164,9 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
             ? {
                 ...t,
                 messages: [...t.messages, res.message],
-                ...(res.blocked ? {} : { preview: text.slice(0, 80), lastAt: res.message.at, awaitingReply: false, unread: 0 }),
+                ...(res.blocked
+                  ? {}
+                  : { preview: (text || (file?.kind === "video" ? "🎬 Video" : "📷 Photo")).slice(0, 80), lastAt: res.message.at, awaitingReply: false, unread: 0 }),
               }
             : t,
         ),
@@ -152,6 +178,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
       showError(e);
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   };
 
@@ -173,7 +200,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
   if (!thread) {
     return (
       <div>
-        <PageHeader title="Messages" subtitle="Text only — files and attachments cannot be sent." />
+        <PageHeader title="Messages" subtitle="Text, photos and short videos. Contact details are never delivered." />
         <Panel className="mt-5 p-5">
           <b className="text-[15px]">No messages yet</b>
           <p className="mt-1 text-[12.5px] leading-[1.5] text-stone-500">
@@ -208,7 +235,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
 
   return (
     <div>
-      <PageHeader title="Messages" subtitle="Text only — files and attachments cannot be sent." />
+      <PageHeader title="Messages" subtitle="Text, photos and short videos. Contact details are never delivered." />
       <div className="mt-5 grid items-stretch gap-4 min-[900px]:min-h-[480px] min-[900px]:grid-cols-[280px_minmax(0,1fr)]">
         <Panel className="min-w-0 p-3.5">
           <div className="flex h-[38px] items-center gap-2 rounded-full border border-line bg-white px-[13px]">
@@ -343,6 +370,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
                           : "self-start rounded-[14px_14px_14px_4px] border-line bg-white"
                       }`}
                     >
+                      {m.attachment && <MessageMedia attachment={m.attachment} onLoad={keepAtBottom} />}
                       {m.text}
                       <span className="mt-0.5 block text-right text-[10.5px] text-stone-500">{messageTime(m.at, true)}</span>
                     </div>
@@ -350,23 +378,36 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
                 )}
           </div>
           <form
-            className="flex gap-2.5"
             onSubmit={(e) => {
               e.preventDefault();
               send();
             }}
           >
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              maxLength={thread.kind === "team" ? MAX_SUPPORT_MESSAGE_LENGTH : MAX_MESSAGE_LENGTH}
-              placeholder={thread.kind === "team" ? "Reply to the Astrorize team…" : "Type a message… (text only)"}
-              aria-label={thread.kind === "team" ? "Reply to the Astrorize team" : "Message"}
-              className="h-[46px] min-w-0 flex-1 rounded-xl border border-line bg-white px-3.5 text-sm text-ink outline-none"
-            />
-            <button type="submit" disabled={busy} className="h-[46px] rounded-xl bg-amber-500 px-[22px] text-sm font-bold text-ink">
-              Send
-            </button>
+            {thread.kind === "customer" && attach.error && (
+              <p role="alert" className="mb-2 text-[12.5px] font-semibold text-rose-700">
+                {attach.error}
+              </p>
+            )}
+            {thread.kind === "customer" && attach.file && <AttachmentChip file={attach.file} progress={progress} onRemove={attach.clear} />}
+            <div className="flex gap-2.5">
+              {thread.kind === "customer" && <AttachButton onPick={(f) => void attach.pick(f)} disabled={busy || attach.preparing} size={46} />}
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                maxLength={thread.kind === "team" ? MAX_SUPPORT_MESSAGE_LENGTH : MAX_MESSAGE_LENGTH}
+                placeholder={thread.kind === "team" ? "Reply to the Astrorize team…" : attach.file ? "Add a caption (optional)" : "Type a message…"}
+                aria-label={thread.kind === "team" ? "Reply to the Astrorize team" : attach.file ? "Caption" : "Message"}
+                className="h-[46px] min-w-0 flex-1 rounded-xl border border-line bg-white px-3.5 text-sm text-ink outline-none"
+              />
+              <button
+                type="submit"
+                disabled={busy || attach.preparing}
+                className="h-[46px] shrink-0 rounded-xl bg-amber-500 px-[18px] text-sm font-bold text-ink disabled:opacity-60 sm:px-[22px]"
+              >
+                {attach.preparing ? "Preparing…" : busy && progress !== null ? "Sending…" : "Send"}
+              </button>
+            </div>
+            {thread.kind === "customer" && <p className="mt-1.5 px-1 text-[11px] leading-normal text-stone-500">{ATTACH_LIMITS}</p>}
           </form>
         </Panel>
       </div>

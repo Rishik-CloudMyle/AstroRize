@@ -8,21 +8,22 @@ import type { ConsultMode, LiveRoom } from "@/lib/types";
 import { useAppUI, type QueueRequest } from "../app-provider";
 import { recheckAvailability } from "../astrologer/use-fresh-astrologer";
 import Modal from "../ui/modal";
+import ModeIcon from "@/components/ui/mode-icon";
 
 /** Minutes of balance a consultation needs before it can start (same rule as every consultation). */
 const ELIGIBILITY_MINUTES = 5;
 
-const MODES: { key: ConsultMode; icon: string; title: string; body: string }[] = [
-  { key: "chat", icon: "💬", title: "Chat", body: "Type back and forth, privately." },
-  { key: "voice", icon: "📞", title: "Voice Call", body: "Talk privately — only you hear them." },
-  { key: "video", icon: "📹", title: "Video Call", body: "Face to face, in a private call of its own." },
+/** A private consultation from a live is by voice or video (no chat — the client's call). */
+const MODES: { key: Exclude<ConsultMode, "chat">; title: string; body: string }[] = [
+  { key: "voice", title: "Voice Call", body: "Talk privately — only you hear them." },
+  { key: "video", title: "Video Call", body: "Face to face, in a private call of its own." },
 ];
 
 const MODE_NAME: Record<ConsultMode, string> = { chat: "chat", voice: "voice call", video: "video call" };
 
 /**
- * Live room: join the consult queue for a private chat, voice or video consultation (Instant Call
- * isn't offered from a live). The room keeps seeing the astrologer's video; the conversation is
+ * Live room: join the consult queue for a private voice or video consultation (chat and Instant
+ * Call aren't offered from a live). The room keeps seeing the astrologer's video; the conversation is
  * only with this customer, who is never shown to the room. The rate shown for the chosen mode is
  * the rate they pay if accepted.
  */
@@ -84,7 +85,7 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
       </h2>
       <p className="mt-1.5 text-[13px] leading-normal text-stone-600">
         One-to-one, during the live. Everyone keeps seeing the astrologer&apos;s video with a “private consultation in progress”
-        banner and no sound. Your messages, voice and video are never shown to the room.
+        banner and no sound. Your voice and video are never shown to the room.
       </p>
 
       <div role="radiogroup" aria-label="How would you like to consult?" className="mt-4 flex flex-col gap-2">
@@ -101,8 +102,8 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
                 on ? "border-amber-500 bg-amber-50" : "border-line bg-white hover:border-amber-300"
               }`}
             >
-              <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-lg">
-                {m.icon}
+              <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-800">
+                <ModeIcon mode={m.key} size={21} />
               </span>
               <span className="min-w-0 flex-1">
                 <b className="block text-[15px] font-bold text-ink">{m.title}</b>

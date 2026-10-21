@@ -18,11 +18,12 @@ const check = (name: string, ok: boolean, extra?: unknown) => {
 
 function client() {
   let cookie = "";
-  return async (method: string, path: string, body?: unknown) => {
+  // A Buffer body is sent as-is with `type` (file uploads); anything else as JSON.
+  return async (method: string, path: string, body?: unknown, type = "application/json") => {
     const r = await fetch(API + path, {
       method,
-      headers: { "content-type": "application/json", cookie },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: { "content-type": type, cookie },
+      body: body === undefined ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body),
     });
     const set = r.headers.getSetCookie();
     for (const c of set) {
@@ -223,6 +224,27 @@ r = await arjun("POST", `/portal/messages/${fromSneha?.id}`, { text: "Glad it he
 check("astrologer replies", r.status === 201 && r.body.blocked === false, r);
 r = await cust("GET", "/messages/pandit-arjun-deshmukh");
 check("customer sees the reply", r.body.conversation?.messages?.at(-1)?.from === "astrologer" && r.body.canMessage === true, r.body);
+
+// Photos and videos in messages: private to the two people in the conversation
+const PNG_1x1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==", "base64");
+await new Promise((ok) => setTimeout(ok, 10_500)); // past the send pace limit
+r = await cust("POST", "/messages/pandit-arjun-deshmukh/attachment?caption=Test%20photo", PNG_1x1, "image/png");
+const photo = r.body.message?.attachment;
+check("customer sends a photo with a caption", r.status === 201 && r.body.blocked === false && photo?.kind === "image" && /^\/api\/media\/messages\//.test(photo.url), r);
+r = await arjun("GET", "/portal/messages");
+const withPhoto = (r.body.threads ?? []).find((t: any) => t.customer?.name === "Sneha R");
+check("astrologer sees the photo", withPhoto?.messages?.at(-1)?.attachment?.url === photo?.url && withPhoto?.preview === "Test photo", withPhoto?.messages?.at(-1));
+const fileAt = (who: ReturnType<typeof client>) => who("GET", (photo?.url ?? "/api/x").replace(/^\/api/, ""));
+r = await fileAt(arjun);
+check("the astrologer in the conversation can open the file", r.status === 200, r.status);
+r = await fileAt(astro);
+check("a different astrologer gets 404 for the file", r.status === 404, r.status);
+r = await fileAt(anon);
+check("signed out: no file (401)", r.status === 401, r.status);
+r = await cust("POST", "/messages/pandit-arjun-deshmukh/attachment", Buffer.concat([PNG_1x1, Buffer.alloc(5 * 1024 * 1024)]), "image/png");
+check("photo over 5 MB rejected", r.status === 400 && /5 MB/.test(r.body.error?.message), r);
+r = await cust("POST", "/messages/pandit-arjun-deshmukh/attachment", Buffer.from("not really a picture"), "image/png");
+check("a file that isn't a photo or video is rejected (type read from the bytes)", r.status === 400, r);
 r = await astro("PATCH", "/portal/multiplier", { multiplier: 10 });
 check("multiplier above max rejected", r.status === 400, r);
 

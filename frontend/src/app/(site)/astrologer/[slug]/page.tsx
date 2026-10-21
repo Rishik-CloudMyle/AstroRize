@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Portrait, RecognitionBadge, VerifiedTick } from "@/components/astrologer/parts";
-import IntroVideo from "@/components/astrologer/intro-video";
+import IntroVideo, { IntroVideoPlaceholder } from "@/components/astrologer/intro-video";
+import ProfileGallery from "@/components/astrologer/profile-gallery";
 import ProfileActions from "@/components/astrologer/profile-actions";
 import Breadcrumbs from "@/components/breadcrumbs";
 import { languageLine, percentages, ratingLabel, skillLine, trustJourney, trustMetrics } from "@/lib/format";
@@ -46,8 +47,15 @@ export default async function AstrologerPage(props: PageProps<"/astrologer/[slug
                 <p className="mt-3 max-w-[58ch] text-pretty text-[14.5px] leading-[1.55] text-stone-600">{a.about}</p>
               </div>
             </div>
-            {a.introVideoUrl && <IntroVideo src={a.introVideoUrl} poster={a.photo} name={a.name} className="mt-5" />}
+            {a.introVideoUrl ? (
+              <IntroVideo src={a.introVideoUrl} poster={a.photo} name={a.name} preload="none" className="mt-5" />
+            ) : (
+              <IntroVideoPlaceholder poster={a.photo} className="mt-5" />
+            )}
           </div>
+
+          {/* ---------- Photos ---------- */}
+          <ProfileGallery photos={a.gallery} name={a.name} />
 
           {/* ---------- Trust profile ---------- */}
           <section className="mt-[18px] rounded-3xl border border-line bg-paper p-5 sm:p-6">

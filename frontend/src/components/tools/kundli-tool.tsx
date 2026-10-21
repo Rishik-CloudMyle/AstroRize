@@ -12,6 +12,7 @@ import {
   makeKundli,
   shortDate,
   type DashaPeriod,
+  type KundliGraha,
   type Place,
   type SavedChart,
   type SavedChartSummary,
@@ -22,7 +23,24 @@ import { useAppUI } from "../app-provider";
 import BirthPlaceInput from "./birth-place-input";
 import KundliChart, { type ChartPlacement } from "./kundli-chart";
 import KundliLocked, { useKundliAccess } from "./kundli-locked";
-import { EngineLine, ErrorNote, Field, FormCard, LoadingCard, PillToggle, ResultCard, inputClass, tdClass, thClass } from "./tool-ui";
+import { RashiGlyph } from "./tool-icons";
+import {
+  EngineLine,
+  ErrorNote,
+  Field,
+  FormCard,
+  LoadingCard,
+  Panel,
+  PillToggle,
+  ResultCard,
+  SectionTitle,
+  Stat,
+  inputClass,
+  panelClass,
+  panelPad,
+  tdClass,
+  thClass,
+} from "./tool-ui";
 
 // Kundli: for signed-in customers. The chart is calculated and saved by the API (POST
 // /astro/kundli); saved charts can be reopened or deleted. Everyone else sees empty chart frames
@@ -41,10 +59,11 @@ export default function KundliTool({ tool }: { tool: Tool }) {
   const access = useKundliAccess();
   if (access !== "customer") {
     return (
-      <section className="mt-6 rounded-3xl border border-line bg-paper p-5 sm:p-[26px]">
-        <h2 className="mb-5 font-display text-[26px] font-semibold text-ink">Your Kundli</h2>
-        <KundliLocked access={access} />
-      </section>
+      <Panel toolId="kundli" title="Your Kundli">
+        <div className="mt-6">
+          <KundliLocked access={access} />
+        </div>
+      </Panel>
     );
   }
   return <KundliWorkspace tool={tool} />;
@@ -147,6 +166,7 @@ function KundliWorkspace({ tool }: { tool: Tool }) {
   return (
     <>
       <FormCard
+        toolId="kundli"
         title="Enter your birth details"
         intro="Your Kundli is saved to your account so you can open it again. Only you can see it."
         submitLabel="Make my Kundli"
@@ -224,29 +244,34 @@ function SavedKundlis({
   }
 
   return (
-    <section className="mt-6 rounded-3xl border border-line bg-paper p-5 sm:p-[26px]">
-      <h2 className="font-display text-[24px] font-semibold text-ink">My saved Kundlis</h2>
+    <section className={`mt-6 ${panelClass} ${panelPad}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="font-display text-[24px] font-semibold text-ink">My saved Kundlis</h2>
+        {saved && saved.length > 0 && <span className="text-[12.5px] text-stone-500">{saved.length} saved · only you can see them</span>}
+      </div>
       {error && <ErrorNote>{error}</ErrorNote>}
       {saved === null && !error ? (
         <div className="mt-3 h-12 animate-pulse rounded-2xl bg-line-soft" aria-busy="true" />
       ) : saved && saved.length === 0 ? (
         <p className="mt-2 text-[13.5px] text-stone-600">Kundlis you make are saved here.</p>
       ) : (
-        <ul className="mt-3 grid gap-2">
+        <ul className="mt-4 grid gap-2.5 lg:grid-cols-2">
           {saved?.map((c) => (
             <li
               key={c.id}
               className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-2xl border px-4 py-3 ${
-                c.id === currentId ? "border-amber-300 bg-amber-50" : "border-line-soft bg-white"
+                c.id === currentId ? "border-amber-300 bg-linear-to-b from-[#fffaf0] to-[#fdf0d2]" : "border-line-warm bg-white"
               }`}
             >
-              <div className="min-w-0 flex-1">
+              <div className="min-w-[min(100%,230px)] flex-1">
                 <b className="block truncate text-[14.5px] text-ink">{c.name}</b>
                 <span className="block text-[12.5px] text-stone-600">
                   {shortDate(c.date)}, {c.time} · <span className="break-words">{c.place}</span>
                 </span>
-                <span className="block text-[12px] text-stone-500">
-                  Lagna {c.lagna} · Moon {c.moonSign} · {c.nakshatra}
+                <span className="mt-1.5 flex flex-wrap gap-1.5 text-[11.5px] font-semibold text-amber-900">
+                  <span className="rounded-full bg-amber-100/80 px-2 py-0.5">Lagna {c.lagna}</span>
+                  <span className="rounded-full bg-amber-100/80 px-2 py-0.5">Moon {c.moonSign}</span>
+                  <span className="rounded-full bg-amber-100/80 px-2 py-0.5">{c.nakshatra}</span>
                 </span>
               </div>
               {confirming === c.id ? (
@@ -297,15 +322,14 @@ function SavedKundlis({
 
 // ---------- The chart ----------
 
-const rasiLabel = (abbr: string, degree: number, retrograde: boolean) => `${abbr} ${Math.floor(degree)}°${retrograde ? "(R)" : ""}`;
-
 export function KundliResult({ tool, chart, eyebrow }: { tool: Tool; chart: SavedChart; eyebrow?: string }) {
   const [style, setStyle] = useState<"north" | "south">("north");
   const k = chart.kundli;
   const tz = k.birth.timezone;
-  const rasi: ChartPlacement[] = k.grahas.map((g) => ({ sign: g.sign.index, label: rasiLabel(g.abbr, g.degree, g.retrograde), retrograde: g.retrograde }));
-  const d9: ChartPlacement[] = k.grahas.map((g) => ({ sign: g.navamsa.index, label: g.abbr, retrograde: g.retrograde }));
+  const rasi: ChartPlacement[] = k.grahas.map((g) => ({ sign: g.sign.index, abbr: g.abbr, degree: Math.floor(g.degree), retrograde: g.retrograde }));
+  const d9: ChartPlacement[] = k.grahas.map((g) => ({ sign: g.navamsa.index, abbr: g.abbr, retrograde: g.retrograde }));
   const first = chart.name.trim().split(/\s+/)[0] || chart.name;
+  const glyph = (sign: number) => <RashiGlyph sign={sign} className="size-3.5" strokeWidth={2} />;
 
   return (
     <ResultCard
@@ -316,8 +340,8 @@ export function KundliResult({ tool, chart, eyebrow }: { tool: Tool; chart: Save
         <PillToggle
           label="Chart style"
           options={[
-            { key: "north", label: "North chart" },
-            { key: "south", label: "South chart" },
+            { key: "north", label: "North Indian" },
+            { key: "south", label: "South Indian" },
           ]}
           value={style}
           onChange={(key) => setStyle(key as "north" | "south")}
@@ -325,98 +349,62 @@ export function KundliResult({ tool, chart, eyebrow }: { tool: Tool; chart: Save
       }
     >
       {k.birth.timeNote !== "ok" && (
-        <p role="alert" className="mb-4 rounded-xl border border-orange-200 bg-orange-50 px-3.5 py-2.5 text-[13px] text-orange-800">
+        <p role="alert" className="mb-5 rounded-xl border border-orange-200 bg-orange-50 px-3.5 py-2.5 text-[13px] text-orange-800">
           {k.birth.timeNote === "gap"
             ? `The clocks in ${tz} jumped forward on this date, so ${k.birth.time} never happened there. The chart uses ${k.birth.utcOffset}; check the birth time.`
             : `The clocks in ${tz} went back on this date, so ${k.birth.time} happened twice. The chart uses the first (${k.birth.utcOffset}); check the birth time if it was the second.`}
         </p>
       )}
 
-      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 md:grid-cols-[300px_minmax(0,1fr)]">
-        <figure className="m-0">
-          <div className="mx-auto aspect-square w-full max-w-[300px] overflow-hidden rounded-2xl border border-line">
-            <KundliChart style={style} lagnaSign={k.lagna.sign.index} placements={rasi} title="Rasi" />
-          </div>
-          <figcaption className="mt-2 text-center text-xs text-stone-500">
-            Rasi (D1) · <span className="text-rose-700">red</span> = retrograde
-          </figcaption>
-        </figure>
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
+        <Stat tone="gold" icon={glyph(k.lagna.sign.index)} label="Lagna" value={k.lagna.sign.name} sub={`${k.lagna.sign.sanskrit} · ${k.lagna.dms}`} />
+        <Stat tone="gold" icon={glyph(k.moonSign.index)} label="Moon sign" value={k.moonSign.name} sub={k.moonSign.sanskrit} />
+        <Stat tone="gold" label="Nakshatra" value={k.birthNakshatra.name} sub={`Pada ${k.birthNakshatra.pada}`} />
+        {chart.currentDasha ? (
+          <Stat
+            tone="gold"
+            label="Running dasha"
+            value={`${chart.currentDasha.mahadasha.name}${chart.currentDasha.antardasha ? ` / ${chart.currentDasha.antardasha.name}` : ""}`}
+            sub="Mahadasha / antardasha"
+          />
+        ) : null}
+        <Stat icon={glyph(k.sunSign.index)} label="Sun sign" value={k.sunSign.name} sub={k.sunSign.sanskrit} />
+        <Stat
+          label="Dasha at birth"
+          value={k.dasha.mahadashas[0]?.name ?? "—"}
+          sub={`${k.dasha.balance.years}y ${k.dasha.balance.months}m ${k.dasha.balance.days}d left`}
+        />
+      </div>
 
+      <SectionTitle className="mt-8">Birth charts</SectionTitle>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 sm:grid-cols-2 sm:gap-5">
+        <ChartFigure title="Rasi (D1)" caption={<>Lagna {k.lagna.sign.name} · degrees in each sign</>}>
+          <KundliChart style={style} lagnaSign={k.lagna.sign.index} placements={rasi} title="Rasi" />
+        </ChartFigure>
+        <ChartFigure title="Navamsa (D9)" caption={<>Navamsa lagna {k.navamsa.lagna.name}</>}>
+          <KundliChart style={style} lagnaSign={k.navamsa.lagna.index} placements={d9} title="Navamsa" />
+        </ChartFigure>
+      </div>
+      <p className="mt-3 text-center text-[12.5px] text-stone-600">
+        {style === "north" ? "Numbers are signs (1 = Aries … 12 = Pisces); the top diamond is the lagna. " : ""}
+        <span className="font-bold text-rose-700">Red R</span> = retrograde.
+      </p>
+
+      <div className="mt-8 grid grid-cols-[minmax(0,1fr)] items-start gap-8 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] xl:gap-7">
         <div className="min-w-0">
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-            <Fact label="Lagna (Ascendant)" value={`${k.lagna.sign.name} ${k.lagna.dms}`} sub={k.lagna.sign.sanskrit} />
-            <Fact label="Moon sign" value={k.moonSign.name} sub={k.moonSign.sanskrit} />
-            <Fact label="Sun sign" value={k.sunSign.name} sub={k.sunSign.sanskrit} />
-            <Fact label="Birth nakshatra" value={k.birthNakshatra.name} sub={`Pada ${k.birthNakshatra.pada}`} />
-            {chart.currentDasha && (
-              <Fact
-                label="Running dasha"
-                value={`${chart.currentDasha.mahadasha.name}${chart.currentDasha.antardasha ? ` / ${chart.currentDasha.antardasha.name}` : ""}`}
-                sub="Mahadasha / antardasha"
-              />
-            )}
-            <Fact
-              label="Dasha at birth"
-              value={k.dasha.mahadashas[0]?.name ?? "—"}
-              sub={`${k.dasha.balance.years}y ${k.dasha.balance.months}m ${k.dasha.balance.days}d left`}
-            />
-          </div>
-
-          <h3 className="mb-2 mt-5 text-[15px] font-bold text-ink">Planet positions</h3>
-          <div className="overflow-x-auto rounded-xl">
-            <table className="w-full border-collapse text-[13px]">
-              <thead>
-                <tr>
-                  <th className={thClass}>Planet</th>
-                  <th className={thClass}>Sign</th>
-                  <th className={`${thClass} hidden sm:table-cell`}>Degree</th>
-                  <th className={`${thClass} hidden sm:table-cell`}>Nakshatra</th>
-                  <th className={thClass}>House</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className={`${tdClass} font-semibold text-ink`}>Lagna</td>
-                  <SignCells point={k.lagna} />
-                  <td className={`${tdClass} tabular-nums`}>1</td>
-                </tr>
-                {k.grahas.map((g) => (
-                  <tr key={g.key}>
-                    <td className={`${tdClass} font-semibold text-ink`}>
-                      {g.name}
-                      {g.retrograde && (
-                        <span className="ml-1 text-[11.5px] font-bold text-rose-700" title="Retrograde">
-                          (R)
-                        </span>
-                      )}
-                    </td>
-                    <SignCells point={g} />
-                    <td className={`${tdClass} tabular-nums`}>{g.house}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-1.5 text-[11.5px] text-stone-500">
+          <SectionTitle>Planet positions</SectionTitle>
+          <PlanetTable lagna={k.lagna} grahas={k.grahas} />
+          <PlanetList lagna={k.lagna} grahas={k.grahas} />
+          <p className="mt-2 text-[12px] text-stone-500">
             Houses are whole-sign from the lagna.{k.settings.node === "mean" ? " Rahu and Ketu use the mean nodes, which always move backwards." : ""}
           </p>
         </div>
-      </div>
-
-      <div className="mt-7 grid grid-cols-[minmax(0,1fr)] items-start gap-6 md:grid-cols-[300px_minmax(0,1fr)]">
-        <figure className="m-0">
-          <h3 className="mb-2 text-[15px] font-bold text-ink">Navamsa (D9)</h3>
-          <div className="mx-auto aspect-square w-full max-w-[300px] overflow-hidden rounded-2xl border border-line">
-            <KundliChart style={style} lagnaSign={k.navamsa.lagna.index} placements={d9} title="Navamsa" />
-          </div>
-          <figcaption className="mt-2 text-center text-xs text-stone-500">Navamsa lagna {k.navamsa.lagna.name}</figcaption>
-        </figure>
         <DashaList mahadashas={k.dasha.mahadashas} timeZone={tz} />
       </div>
 
-      <div className="mt-7 rounded-2xl bg-cream px-4 py-3.5">
-        <h3 className="text-[15px] font-bold text-ink">Birth details</h3>
-        <dl className="mt-2 grid gap-x-6 gap-y-1.5 text-[13px] sm:grid-cols-2">
+      <div className="mt-8 rounded-2xl border border-line-warm bg-[#fbf6ea] px-4 py-4 sm:px-5">
+        <SectionTitle className="!mb-2 !text-[19px]">Birth details</SectionTitle>
+        <dl className="grid gap-x-8 gap-y-2 text-[13px] sm:grid-cols-2">
           <Detail term="Name" value={chart.input.name} />
           <Detail term="Born" value={`${longDate(k.birth.date)}, ${k.birth.time}`} />
           <Detail term="Place" value={chart.input.place.name} />
@@ -430,30 +418,102 @@ export function KundliResult({ tool, chart, eyebrow }: { tool: Tool; chart: Save
   );
 }
 
-/** Sign, degree and nakshatra cells; on phones degree and nakshatra sit under the sign. */
-function SignCells({ point }: { point: ZodiacPoint }) {
-  const nak = `${point.nakshatra.name}–${point.nakshatra.pada}`;
+function ChartFigure({ title, caption, children }: { title: string; caption: React.ReactNode; children: React.ReactNode }) {
   return (
-    <>
-      <td className={tdClass}>
-        {point.sign.name}
-        <span className="block text-[11.5px] tabular-nums text-stone-500 sm:hidden">
-          {point.dms} · {nak}
-        </span>
-      </td>
-      <td className={`${tdClass} hidden tabular-nums sm:table-cell`}>{point.dms}</td>
-      <td className={`${tdClass} hidden sm:table-cell`}>{nak}</td>
-    </>
+    <figure className="m-0 min-w-0">
+      <div className="mx-auto w-full max-w-[400px]">
+        <div className="mb-2 flex items-baseline justify-between gap-2">
+          <b className="text-[14px] font-bold text-ink">{title}</b>
+          <span className="truncate text-[12px] text-stone-500">{caption}</span>
+        </div>
+        <div className="aspect-square w-full drop-shadow-[0_8px_18px_rgba(120,72,10,.14)]">{children}</div>
+      </div>
+    </figure>
   );
 }
 
-function Fact({ label, value, sub }: { label: string; value: string; sub?: string }) {
+const nakLabel = (p: ZodiacPoint) => `${p.nakshatra.name} · pada ${p.nakshatra.pada}`;
+
+/** Wider screens: the planet table. */
+function PlanetTable({ lagna, grahas }: { lagna: ZodiacPoint; grahas: KundliGraha[] }) {
   return (
-    <div className="min-w-0 rounded-[14px] bg-cream px-3.5 py-3">
-      <div className="text-[11px] font-semibold text-stone-500">{label}</div>
-      <b className="mt-[3px] block break-words text-[15px] font-bold leading-snug text-ink">{value}</b>
-      {sub && <span className="block text-[11.5px] text-stone-500">{sub}</span>}
+    <div className="hidden overflow-hidden rounded-2xl border border-line-warm bg-white sm:block">
+      <table className="w-full border-collapse text-[13.5px]">
+        <thead>
+          <tr>
+            <th className={thClass}>Planet</th>
+            <th className={thClass}>Sign</th>
+            <th className={thClass}>Degree</th>
+            <th className={thClass}>Nakshatra</th>
+            <th className={`${thClass} text-right`}>House</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="bg-amber-50/60">
+            <td className={`${tdClass} font-bold text-ink`}>Lagna</td>
+            <td className={tdClass}>{lagna.sign.name}</td>
+            <td className={`${tdClass} tabular-nums`}>{lagna.dms}</td>
+            <td className={tdClass}>{nakLabel(lagna)}</td>
+            <td className={`${tdClass} text-right font-semibold tabular-nums text-ink`}>1</td>
+          </tr>
+          {grahas.map((g) => (
+            <tr key={g.key} className="hover:bg-[#fffaf0]">
+              <td className={`${tdClass} font-semibold text-ink`}>
+                {g.name}
+                {g.retrograde && <RetroBadge />}
+              </td>
+              <td className={tdClass}>{g.sign.name}</td>
+              <td className={`${tdClass} tabular-nums`}>{g.dms}</td>
+              <td className={tdClass}>{nakLabel(g)}</td>
+              <td className={`${tdClass} text-right font-semibold tabular-nums text-ink`}>{g.house}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
+  );
+}
+
+/** Phones: one stacked row per planet instead of a cramped table. */
+function PlanetList({ lagna, grahas }: { lagna: ZodiacPoint; grahas: KundliGraha[] }) {
+  const rowsList = [
+    { key: "lagna", abbr: "As", name: "Lagna", point: lagna, house: 1, retrograde: false },
+    ...grahas.map((g) => ({ key: g.key, abbr: g.abbr, name: g.name, point: g as ZodiacPoint, house: g.house, retrograde: g.retrograde })),
+  ];
+  return (
+    <ul className="grid gap-2 sm:hidden">
+      {rowsList.map((r) => (
+        <li key={r.key} className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 ${r.key === "lagna" ? "border-amber-200 bg-amber-50/70" : "border-line-warm bg-white"}`}>
+          <span
+            aria-hidden="true"
+            className="grid size-9 shrink-0 place-items-center rounded-full border border-[#d6a84a] bg-[radial-gradient(circle_at_35%_30%,#fffaf0,#f6e3b4)] text-[12px] font-bold text-amber-900"
+          >
+            {r.abbr}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline justify-between gap-2">
+              <b className="text-[14.5px] text-ink">
+                {r.name}
+                {r.retrograde && <RetroBadge />}
+              </b>
+              <span className="shrink-0 text-[12.5px] font-semibold text-stone-600">House {r.house}</span>
+            </div>
+            <div className="text-[13px] text-stone-700">
+              {r.point.sign.name} <span className="tabular-nums text-stone-500">· {r.point.dms}</span>
+            </div>
+            <div className="text-[12px] text-stone-500">{nakLabel(r.point)}</div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function RetroBadge() {
+  return (
+    <span className="ml-1.5 inline-flex h-[18px] items-center rounded-full bg-rose-50 px-1.5 align-[1px] text-[10.5px] font-bold text-rose-700" title="Retrograde">
+      R<span className="sr-only">etrograde</span>
+    </span>
   );
 }
 
@@ -474,40 +534,43 @@ function DashaList({ mahadashas, timeZone }: { mahadashas: DashaPeriod[]; timeZo
 
   return (
     <div className="min-w-0">
-      <h3 className="mb-2 text-[15px] font-bold text-ink">Vimshottari dasha</h3>
+      <SectionTitle>Vimshottari dasha</SectionTitle>
       <ul className="grid gap-1.5">
         {mahadashas.map((md) => {
           const on = running(md);
           const past = md.end <= now;
           return (
             <li key={md.start}>
-              <details open={on} className={`group rounded-xl border ${on ? "border-amber-300 bg-amber-50" : "border-line-soft bg-white"}`}>
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-2.5 [&::-webkit-details-marker]:hidden">
-                  <span className={`text-[13.5px] font-bold ${past ? "text-stone-500" : "text-ink"}`}>
+              <details
+                open={on}
+                className={`group rounded-xl border ${on ? "border-amber-300 bg-linear-to-b from-[#fffaf0] to-[#fdf0d2]" : "border-line-warm bg-white"}`}
+              >
+                <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-x-3 gap-y-0.5 rounded-xl px-3.5 py-2.5 [&::-webkit-details-marker]:hidden">
+                  <span className={`text-[14px] font-bold ${past ? "text-stone-500" : "text-ink"}`}>
                     {md.name}
                     {on && <span className="ml-2 rounded-full bg-amber-500 px-2 py-0.5 text-[10.5px] font-bold text-ink">Now</span>}
                   </span>
-                  <span className="flex items-center gap-2 text-[12px] tabular-nums text-stone-600">
+                  <span className="flex items-center gap-2 text-[12.5px] tabular-nums text-stone-600">
                     {isoDate(md.start, timeZone)} – {isoDate(md.end, timeZone)}
-                    <span className="text-stone-400 transition-transform group-open:rotate-90" aria-hidden>
+                    <span className="text-[15px] leading-none text-amber-700 transition-transform group-open:rotate-90" aria-hidden>
                       ›
                     </span>
                   </span>
                 </summary>
                 {md.antardashas && (
-                  <ul className="grid gap-0.5 border-t border-line-soft px-3.5 py-2">
+                  <ul className="grid gap-0.5 border-t border-amber-200/70 px-2 py-2 sm:px-3">
                     {md.antardashas.map((ad) => {
                       const adOn = running(ad);
                       return (
                         <li
                           key={ad.start}
                           className={`flex flex-wrap items-center justify-between gap-x-3 rounded-lg px-2 py-1 text-[12.5px] ${
-                            adOn ? "bg-amber-200/60 font-bold text-ink" : "text-stone-600"
+                            adOn ? "bg-amber-200/70 font-bold text-ink" : "text-stone-600"
                           }`}
                         >
                           <span>
                             {md.name} / {ad.name}
-                            {adOn && <span className="ml-1.5 text-[10.5px] font-bold uppercase text-amber-800">now</span>}
+                            {adOn && <span className="ml-1.5 text-[10.5px] font-bold uppercase text-amber-900">now</span>}
                           </span>
                           <span className="tabular-nums">
                             {isoDate(ad.start, timeZone)} – {isoDate(ad.end, timeZone)}
@@ -522,7 +585,7 @@ function DashaList({ mahadashas, timeZone }: { mahadashas: DashaPeriod[]; timeZo
           );
         })}
       </ul>
-      <p className="mt-1.5 text-[11.5px] text-stone-500">
+      <p className="mt-2 text-[12px] text-stone-500">
         Dates in the birthplace&apos;s time zone. The first mahadasha began before birth; &ldquo;Dasha at birth&rdquo; shows
         what was left of it.
       </p>

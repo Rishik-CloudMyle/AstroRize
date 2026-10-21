@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import type { Astrologer, ConsultMode, WelcomeBenefit } from "@/lib/types";
 import { rateFor, rupee } from "@/lib/format";
 import { Portrait } from "../astrologer/parts";
+import ModeIcon from "@/components/ui/mode-icon";
 
 // "Consult now" opens this sheet (the app's consult sheet, laid out for the web): Chat, Voice
 // Call and Video Call at the astrologer's rate, and Instant Call at its own rate. It follows the
@@ -24,11 +25,11 @@ export function multiplierLabel(a: Astrologer): string {
   return `${Math.round(m * 10) / 10}× standard`;
 }
 
-const ROWS: { key: ConsultChoice; icon: string; title: string; body: string }[] = [
-  { key: "chat", icon: "💬", title: "Chat", body: "Type back and forth. Best for a single, specific question." },
-  { key: "voice", icon: "📞", title: "Voice Call", body: "A masked call — your number is never shown." },
-  { key: "video", icon: "📹", title: "Video Call", body: "Face to face. Needs a stable connection on both sides." },
-  { key: "instant", icon: "⚡", title: "Instant Call", body: "Rings them straight away; they have 3 minutes to accept." },
+const ROWS: { key: ConsultChoice; title: string; body: string }[] = [
+  { key: "chat", title: "Chat", body: "Type back and forth. Best for a single, specific question." },
+  { key: "voice", title: "Voice Call", body: "A masked call — your number is never shown." },
+  { key: "video", title: "Video Call", body: "Face to face. Needs a stable connection on both sides." },
+  { key: "instant", title: "Instant Call", body: "Rings them straight away; they have 3 minutes to accept." },
 ];
 
 export const CHOICE_TITLE: Record<ConsultChoice, string> = { chat: "Chat", voice: "Voice call", video: "Video call", instant: "Instant Call" };
@@ -194,9 +195,9 @@ export default function ConsultSheet({
                   >
                     <span
                       aria-hidden="true"
-                      className={`grid size-10 shrink-0 place-items-center rounded-xl text-lg ${disabled ? "bg-stone-100 grayscale" : instant ? "bg-blue-100" : "bg-amber-100"}`}
+                      className={`grid size-10 shrink-0 place-items-center rounded-xl ${disabled ? "bg-stone-100 text-stone-400" : instant ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-800"}`}
                     >
-                      {row.icon}
+                      <ModeIcon mode={row.key} size={21} />
                     </span>
                     <span className="min-w-0 flex-1">
                       <b className={`block text-[15.5px] font-bold ${disabled ? "text-stone-500" : instant ? "text-blue-800" : "text-ink"}`}>

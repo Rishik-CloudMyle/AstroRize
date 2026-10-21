@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api/client";
 import type { Astrologer } from "@/lib/types";
 import { languageLine, ratingLabel, rupee, skillLine } from "@/lib/format";
-import { AvailabilityBadge, DiscountBadge, Portrait, RecognitionBadge, VerifiedTick, WasPrice } from "../astrologer/parts";
+import { AvailabilityBadge, DiscountBadge, IntroBadge, Portrait, RecognitionBadge, VerifiedTick, WasPrice } from "../astrologer/parts";
 import { FreeCallBadge, WelcomeBanner } from "../consult/free-call";
 import FilterPanel from "./filter-panel";
 import {
@@ -253,6 +253,7 @@ function DirectoryCard({ astrologer: a }: { astrologer: Astrologer }) {
           </span>
           <AvailabilityBadge astrologer={a} />
           <FreeCallBadge astrologer={a} />
+          <IntroBadge astrologer={a} />
           {a.eta && (
             <span className="inline-flex h-[22px] items-center gap-[5px] rounded-full bg-blue-50 px-[9px] text-[11px] font-bold text-blue-700">
               ⏱ waits {a.eta}

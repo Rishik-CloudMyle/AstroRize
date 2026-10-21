@@ -19,6 +19,9 @@ import { GENDERS, ageOn, dateKey, initialsOf, ownProfileView } from "../lib/prof
 import { rateLimit } from "../lib/safety.ts";
 import { consultMessageBody, consultationFor, listMessages, mediaFor, sendMessage } from "../lib/consult-room.ts";
 import {
+  captionQuery,
+  chatFileBody,
+  checkChatFile,
   checkSendRate,
   directText,
   directThreadFor,
@@ -26,7 +29,9 @@ import {
   lastDelivered,
   messageText,
   messageView,
+  postAttachment,
   postMessage,
+  previewOf,
   replyDirect,
   teamConversations,
   teamThreadView,
@@ -682,7 +687,7 @@ customerRouter.delete("/me/photo", async (req, res) => {
 });
 
 // ── Astrologer Messenger ──
-// Free, text-only direct messages with an astrologer. One conversation per astrologer; any
+// Free direct messages with an astrologer (text, photos and short videos). One conversation per astrologer; any
 // listed astrologer can be messaged. Conversations started by the Astrorize team sit alongside.
 
 const START_RULE = "This astrologer isn't taking new messages right now.";
@@ -712,7 +717,7 @@ customerRouter.get("/messages", async (req, res) => {
       return {
         id: t.id,
         astrologer: messengerAstrologer(t.astrologer),
-        preview: last?.text.slice(0, 80) ?? "",
+        preview: previewOf(last, 80),
         lastAt: (last ?? t.messages.at(-1))?.createdAt.toISOString() ?? null,
         lastFrom: last ? (last.sender === "CUSTOMER" ? "me" : "astrologer") : null,
         // Astrologer replies since the customer last opened this conversation.
@@ -790,15 +795,43 @@ customerRouter.post("/messages/:slug", async (req, res) => {
   const { astrologer, thread, canMessage } = await conversationWith(me.id, String(req.params.slug));
   if (!canMessage) throw new HttpError(403, START_RULE, "forbidden");
   checkSendRate(me.id);
-  // Upsert: two first messages sent at once still make one conversation.
-  const threadId =
-    thread?.id ??
-    (
-      await db.messageThread.upsert({
-        where: { astrologerId_customerId: { astrologerId: astrologer.id, customerId: me.id } },
-        create: { astrologerId: astrologer.id, customerId: me.id, customerAlias: newAlias() },
-        update: {},
-      })
-    ).id;
+  const threadId = thread?.id ?? (await startThread(astrologer.id, me.id));
   res.status(201).json({ conversationId: threadId, ...(await postMessage(threadId, "CUSTOMER", text)) });
 });
+
+/** Upsert: two first messages sent at once still make one conversation. */
+async function startThread(astrologerId: string, customerId: string): Promise<string> {
+  const t = await db.messageThread.upsert({
+    where: { astrologerId_customerId: { astrologerId, customerId } },
+    create: { astrologerId, customerId, customerAlias: newAlias() },
+    update: {},
+  });
+  return t.id;
+}
+
+/**
+ * Send a photo (JPEG/PNG/WebP, up to 5 MB) or a video (MP4/WebM, up to 25 MB and 60 s) as the
+ * raw request body, with an optional ?caption=. The first message may be one. Who may message,
+ * the pace limit and the caption's contact-details check are the same as for text; they are
+ * checked before the file is read.
+ */
+customerRouter.post(
+  "/messages/:slug/attachment",
+  async (req, res, next) => {
+    const me = auth(req).user;
+    const { caption } = captionQuery.parse(req.query);
+    const { astrologer, thread, canMessage } = await conversationWith(me.id, String(req.params.slug));
+    if (!canMessage) throw new HttpError(403, START_RULE, "forbidden");
+    checkSendRate(me.id);
+    res.locals.chat = { astrologerId: astrologer.id, threadId: thread?.id ?? null, caption };
+    next();
+  },
+  chatFileBody,
+  async (req, res) => {
+    const me = auth(req).user;
+    const { astrologerId, threadId: existing, caption } = res.locals.chat as { astrologerId: string; threadId: string | null; caption: string };
+    const file = checkChatFile(req.body);
+    const threadId = existing ?? (await startThread(astrologerId, me.id));
+    res.status(201).json({ conversationId: threadId, ...(await postAttachment(threadId, "CUSTOMER", caption, file)) });
+  },
+);

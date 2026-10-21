@@ -138,15 +138,15 @@ export async function saveProfile(form: Form): Promise<{ profile: Profile } | { 
   }
 }
 
-/** Decodes the chosen file and re-encodes it as a JPEG of at most PHOTO_MAX_SIDE px. */
-export async function preparePhoto(file: File): Promise<Blob> {
+/** Decodes the chosen file and re-encodes it as a JPEG of at most `maxSide` px (PHOTO_MAX_SIDE by default). */
+export async function preparePhoto(file: File, maxSide = PHOTO_MAX_SIDE): Promise<Blob> {
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(file);
   } catch {
     throw new Error("That file isn't a photo we can use. Choose a JPEG, PNG or WebP image.");
   }
-  const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bitmap.width * scale));
   canvas.height = Math.max(1, Math.round(bitmap.height * scale));

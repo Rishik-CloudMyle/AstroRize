@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-// Uploaded media: customer profile photos and astrologers' intro videos.
+// Uploaded media: customer profile photos and astrologers' intro videos (public), and photos
+// and videos sent in customer–astrologer messages (private: see PRIVATE_DIR).
 //
 // ⚠ Production: files are written to this server's own disk (backend/uploads/). That disk is
 // not permanent on most hosts (redeploys, autoscaling and container restarts wipe it, and
@@ -12,8 +13,22 @@ import path from "node:path";
 export const UPLOAD_DIR = path.resolve(import.meta.dirname, "../../uploads");
 export const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+/** Largest gallery photo an astrologer may upload (the website downsizes before sending). */
+export const MAX_GALLERY_PHOTO_BYTES = 5 * 1024 * 1024;
+/** Fallback for Config "profile.gallery.max": photos one astrologer may show on their profile. */
+export const GALLERY_MAX_DEFAULT = 8;
 /** Longest intro video accepted, in seconds. */
 export const MAX_VIDEO_SECONDS = 120;
+/** Photos and videos sent in customer–astrologer messages (client decision, Oct 2026). */
+export const CHAT_MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+export const CHAT_MAX_VIDEO_BYTES = 25 * 1024 * 1024;
+export const CHAT_MAX_VIDEO_SECONDS = 60;
+/**
+ * Files sent in messages. Never served by the public /api/media/<file> route (it only accepts a
+ * bare file name in UPLOAD_DIR); only through the signed-in route that checks the viewer is in
+ * that conversation.
+ */
+export const PRIVATE_DIR = path.join(UPLOAD_DIR, "private");
 /** Public path prefix the API serves uploaded files from. */
 export const MEDIA_PREFIX = "/api/media/";
 
@@ -38,6 +53,8 @@ const CONTENT_TYPE_BY_EXT: Record<string, MediaType> = {
   mp4: "video/mp4",
   webm: "video/webm",
 };
+
+const CONTENT_TYPE_EXT: Record<MediaType, string> = { ...IMAGE_TYPES, ...VIDEO_TYPES };
 
 /** Names we generate ourselves: 32 hex characters and a known extension. Nothing else is served. */
 const FILE_NAME = /^[a-f0-9]{32}\.(jpg|png|webp|mp4|webm)$/;
@@ -88,10 +105,30 @@ export async function saveVideo(buf: Buffer, type: VideoType): Promise<string> {
 }
 
 async function saveFile(buf: Buffer, ext: string): Promise<string> {
-  await mkdir(UPLOAD_DIR, { recursive: true });
+  return MEDIA_PREFIX + (await writeNew(UPLOAD_DIR, buf, ext));
+}
+
+async function writeNew(dir: string, buf: Buffer, ext: string): Promise<string> {
+  await mkdir(dir, { recursive: true });
   const name = `${randomBytes(16).toString("hex")}.${ext}`;
-  await writeFile(path.join(UPLOAD_DIR, name), buf, { flag: "wx" });
-  return MEDIA_PREFIX + name;
+  await writeFile(path.join(dir, name), buf, { flag: "wx" });
+  return name;
+}
+
+/**
+ * Saves a photo or video sent in a message into the private folder and returns the stored file
+ * name (not a URL). JPEG camera metadata (GPS) is removed first.
+ */
+export async function savePrivateFile(buf: Buffer, type: MediaType): Promise<string> {
+  const ext = CONTENT_TYPE_EXT[type];
+  return writeNew(PRIVATE_DIR, type === "image/jpeg" ? stripJpegMetadata(buf) : buf, ext);
+}
+
+/** Deletes message files by stored name. Missing files and names we couldn't have issued are ignored. */
+export async function deletePrivateFiles(names: (string | null | undefined)[]): Promise<void> {
+  await Promise.all(
+    names.map((n) => (n && FILE_NAME.test(n) ? unlink(path.join(PRIVATE_DIR, n)).catch(() => {}) : undefined)),
+  );
 }
 
 // ── Videos ──

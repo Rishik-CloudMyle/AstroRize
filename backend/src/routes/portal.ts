@@ -18,6 +18,9 @@ import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
 import { ageLabel, istDate, istDateKey, istDayMonth, istTime, makeRef, weekdayLabel } from "../lib/format.ts";
 import { consultSummary, displayName, messageSummary, queueProfile, queueSummary } from "../lib/profile.ts";
 import {
+  captionQuery,
+  chatFileBody,
+  checkChatFile,
   checkSendRate,
   directText,
   directThreadFor,
@@ -26,7 +29,9 @@ import {
   lastDelivered,
   messageText,
   messageView,
+  postAttachment,
   postMessage,
+  previewOf,
   replyDirect,
   teamConversations,
   teamThreadView,
@@ -36,7 +41,22 @@ import {
 import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "../lib/safety.ts";
 import { consultMessageBody, consultationFor, listMessages, mediaFor, sendMessage, windowOf } from "../lib/consult-room.ts";
 import { canWork, effectivePresence, endLiveRoom, goOffline, goOnline, markSeen, syncPresence, viewerCount } from "../lib/presence.ts";
-import { MAX_VIDEO_BYTES, MAX_VIDEO_SECONDS, VIDEO_TYPES, deleteMedia, saveVideo, sniffVideo, videoDurationSeconds } from "../lib/media.ts";
+import {
+  IMAGE_TYPES,
+  MAX_GALLERY_PHOTO_BYTES,
+  MAX_VIDEO_BYTES,
+  MAX_VIDEO_SECONDS,
+  MEDIA_PREFIX,
+  VIDEO_TYPES,
+  deleteMedia,
+  mediaFileOf,
+  saveImage,
+  saveVideo,
+  sniffImage,
+  sniffVideo,
+  videoDurationSeconds,
+} from "../lib/media.ts";
+import { addGalleryPhoto, galleryMax, removeGalleryPhoto, reorderGallery } from "../lib/gallery.ts";
 import { checkDetailsText, detailsDiff, detailsSchema, liveCategories, sessionFeed } from "../lib/live.ts";
 import { acceptRequest, closeRoomConsultations, declineRequest, expireUnanswered, hostPrivateView, liveMedia, liveRate, liveRates } from "../lib/live-consult.ts";
 import { configNumber, getSetting } from "../lib/settings.ts";
@@ -942,7 +962,7 @@ portalRouter.get("/messages", async (req, res) => {
       id: t.id,
       alias: t.customerAlias,
       customer: t.customer ? messageSummary(t.customer) : null,
-      preview: last?.text.slice(0, 80) ?? "",
+      preview: previewOf(last, 80),
       lastAt: (last ?? t.messages.at(-1))?.createdAt.toISOString() ?? null,
       // The customer wrote last: waiting for the astrologer's reply.
       awaitingReply: last?.sender === "CUSTOMER",
@@ -1010,6 +1030,33 @@ portalRouter.post("/messages/:threadId", async (req, res) => {
   await db.messageThread.update({ where: { id: thread.id }, data: { astrologerReadAt: new Date() } });
   res.status(201).json(sent);
 });
+
+/**
+ * Reply with a photo (JPEG/PNG/WebP, up to 5 MB) or a video (MP4/WebM, up to 25 MB and 60 s) as
+ * the raw request body, with an optional ?caption=. Same checks as a text reply, made before the
+ * file is read.
+ */
+portalRouter.post(
+  "/messages/:threadId/attachment",
+  async (req, res, next) => {
+    const a = await me(req);
+    const { caption } = captionQuery.parse(req.query);
+    const thread = await db.messageThread.findUnique({ where: { id: String(req.params.threadId) } });
+    if (!thread || thread.astrologerId !== a.id) throw notFound("Conversation not found.");
+    checkSendRate((req.auth as AuthContext).user.id);
+    res.locals.chat = { threadId: thread.id, caption };
+    next();
+  },
+  chatFileBody,
+  async (req, res) => {
+    const { threadId, caption } = res.locals.chat as { threadId: string; caption: string };
+    const file = checkChatFile(req.body);
+    const sent = await postAttachment(threadId, "ASTROLOGER", caption, file);
+    // Replying means they've read it.
+    await db.messageThread.update({ where: { id: threadId }, data: { astrologerReadAt: new Date() } });
+    res.status(201).json(sent);
+  },
+);
 
 /** The astrologer opened a customer conversation: its messages count as read (saved, so it stays read). */
 portalRouter.post("/messages/:threadId/read", async (req, res) => {
@@ -1088,7 +1135,10 @@ portalRouter.get("/earnings", async (req, res) => {
 
 portalRouter.get("/profile", async (req, res) => {
   const a = await me(req);
-  const pending = await db.profileSubmission.findMany({ where: { astrologerId: a.id, status: "PENDING" }, orderBy: { createdAt: "desc" } });
+  const [pending, max] = await Promise.all([
+    db.profileSubmission.findMany({ where: { astrologerId: a.id, status: "PENDING" }, orderBy: { createdAt: "desc" } }),
+    galleryMax(),
+  ]);
   res.json({
     profile: {
       pendingChanges: pending.length,
@@ -1096,6 +1146,9 @@ portalRouter.get("/profile", async (req, res) => {
       // The intro video on the public profile (published at once, no review), and its limits.
       introVideoUrl: a.introVideoUrl,
       video: { maxMb: MAX_VIDEO_BYTES / (1024 * 1024), maxSeconds: MAX_VIDEO_SECONDS },
+      // Gallery photos on the public profile, in display order (published at once, no review).
+      gallery: a.gallery,
+      galleryLimits: { max, maxMb: MAX_GALLERY_PHOTO_BYTES / (1024 * 1024) },
       // Only astrologers listed on the site have a public profile (same rule as the directory).
       publicProfileUrl: a.lifecycle === "active" && a.suspension !== "full" ? `/astrologer/${a.slug}` : null,
       published: { bio: a.about, skills: a.skills },
@@ -1145,6 +1198,58 @@ portalRouter.delete("/profile/video", async (req, res) => {
   await deleteMedia(a.introVideoUrl);
   await audit(req.auth ?? null, "astrologer.intro_video.remove", a.id, "removed");
   res.json({ introVideoUrl: null });
+});
+
+/** Reads the raw photo body; a file over the limit gets a clear message instead of a generic one. */
+const readGalleryPhoto = express.raw({ type: Object.keys(IMAGE_TYPES), limit: MAX_GALLERY_PHOTO_BYTES });
+function galleryPhotoBody(req: Request, res: Response, next: NextFunction) {
+  readGalleryPhoto(req, res, (err?: unknown) => {
+    if ((err as { status?: number } | undefined)?.status === 413) return next(badRequest(`Gallery photos can be up to ${MAX_GALLERY_PHOTO_BYTES / (1024 * 1024)} MB.`));
+    next(err);
+  });
+}
+
+/** Adds a photo (JPEG, PNG or WebP) to the end of the gallery. It shows on the public profile at once. */
+portalRouter.post("/profile/gallery", galleryPhotoBody, async (req, res) => {
+  const a = await me(req);
+  rateLimit(`gallery:${a.id}`, 30, 10 * 60 * 1000, "Too many photo uploads. Try again in a few minutes.");
+  const body: unknown = req.body;
+  if (!Buffer.isBuffer(body) || body.length === 0) throw badRequest("Choose a JPEG, PNG or WebP photo.");
+  // Trust the file's own bytes, not the name or Content-Type the browser sent.
+  const type = sniffImage(body);
+  if (!type) throw badRequest("That file isn't a JPEG, PNG or WebP photo.");
+  const max = await galleryMax();
+  // Checked again under the lock; this saves writing a file that can't be added.
+  if (a.gallery.length >= max) throw conflict(`Your gallery is full (${max} photos). Remove one to add another.`);
+  const url = await saveImage(body, type);
+  let gallery: string[];
+  try {
+    gallery = await addGalleryPhoto(a.id, url, max);
+  } catch (e) {
+    await deleteMedia(url);
+    throw e;
+  }
+  await audit(req.auth ?? null, "astrologer.gallery.add", a.id, `photo added · ${gallery.length} of ${max} · ${type} · ${Math.ceil(body.length / 1024)} KB`);
+  res.status(201).json({ gallery });
+});
+
+/** Removes one gallery photo (by its file name) and deletes the file. Already gone counts as done. */
+portalRouter.delete("/profile/gallery/:file", async (req, res) => {
+  const a = await me(req);
+  const url = MEDIA_PREFIX + String(req.params.file);
+  if (!mediaFileOf(url)) throw notFound("That photo isn't in your gallery.");
+  const { gallery, removed, position } = await removeGalleryPhoto(a.id, url);
+  if (removed) await audit(req.auth ?? null, "astrologer.gallery.remove", a.id, `photo ${position} removed · ${gallery.length} left`);
+  res.json({ gallery });
+});
+
+/** Saves a new display order. The list must hold exactly the photos in the gallery now. */
+portalRouter.put("/profile/gallery/order", async (req, res) => {
+  const a = await me(req);
+  const { gallery: order } = z.object({ gallery: z.array(z.string().max(200)).max(50) }).parse(req.body);
+  const { gallery, changed } = await reorderGallery(a.id, order);
+  if (changed) await audit(req.auth ?? null, "astrologer.gallery.reorder", a.id, `${gallery.length} photos reordered`);
+  res.json({ gallery });
 });
 
 portalRouter.post("/profile/submission", async (req, res) => {

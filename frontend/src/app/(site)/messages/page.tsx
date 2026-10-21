@@ -14,7 +14,7 @@ export default function MessagesPage() {
       <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Messages" }]} />
       <h1 className="mb-1 font-display text-[36px] font-semibold text-ink sm:text-[42px]">Messages</h1>
       <p className="mb-6 text-sm text-stone-600">
-        Astrologer Messenger — free, text-only messages with any astrologer on Astrorize. Astrologers reply personally.
+        Astrologer Messenger — free messages with any astrologer on Astrorize: text, photos and short videos. Astrologers reply personally.
       </p>
       <MessengerView />
     </div>

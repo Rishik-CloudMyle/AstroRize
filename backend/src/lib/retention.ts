@@ -1,5 +1,6 @@
 import { db } from "../db.ts";
 import { audit } from "./audit.ts";
+import { deletePrivateFiles } from "./media.ts";
 import { getSetting, putSetting } from "./settings.ts";
 
 // How long written conversations are kept: live-room chat (ChatMessage), astrologer–customer
@@ -55,12 +56,16 @@ export const lastPurge = () => getSetting<PurgeResult | null>(LAST_PURGE_SETTING
 export async function purgeExpiredConversations(now = new Date()): Promise<PurgeResult> {
   const { days } = await retentionPolicy();
   const cutoff = new Date(now.getTime() - days * DAY_MS);
+  // Photos and videos sent in the messages being removed go with them (after the delete, so a
+  // file is never missing for a message that is still there).
+  const files = await db.message.findMany({ where: { createdAt: { lt: cutoff }, attachment: { not: null } }, select: { attachment: true } });
   const [chat, direct, consult, threads] = await db.$transaction([
     db.chatMessage.deleteMany({ where: { createdAt: { lt: cutoff } } }),
     db.message.deleteMany({ where: { createdAt: { lt: cutoff } } }),
     db.consultMessage.deleteMany({ where: { createdAt: { lt: cutoff } } }),
     db.messageThread.deleteMany({ where: { updatedAt: { lt: cutoff }, messages: { none: {} } } }),
   ]);
+  await deletePrivateFiles(files.map((f) => f.attachment));
   const messages = direct.count + consult.count;
   const result: PurgeResult = {
     at: now.toISOString(),

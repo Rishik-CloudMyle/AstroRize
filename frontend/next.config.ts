@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
     // OneDrive folder, and a half-written cache (sync locks, a crash, a forced stop) made
     // `next dev` serve 404s for pages that exist. Each `npm run dev` now starts fresh.
     turbopackFileSystemCacheForDev: false,
+    // Uploads pass through the /api rewrite, which buffers request bodies (10 MB by default).
+    // Intro videos go up to 50 MB and message videos to 25 MB, so allow a little over 50 MB.
+    proxyClientMaxBodySize: "52mb",
   },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${backend}/api/:path*` }];

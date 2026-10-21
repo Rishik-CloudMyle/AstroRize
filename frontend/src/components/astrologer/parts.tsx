@@ -85,6 +85,22 @@ export function AvailabilityBadge({ astrologer, small = false }: { astrologer: A
   );
 }
 
+/** "▶ Intro": the astrologer has an intro video on their profile. */
+export function IntroBadge({ astrologer, small = false }: { astrologer: Pick<Astrologer, "introVideoUrl">; small?: boolean }) {
+  if (!astrologer.introVideoUrl) return null;
+  return (
+    <span
+      title="Has an intro video on their profile"
+      className={`inline-flex items-center whitespace-nowrap rounded-full bg-[#fdf2f8] font-bold text-plum ${
+        small ? "h-5 gap-1 px-[7px] text-[10px]" : "h-[22px] gap-[5px] px-[9px] text-[11px]"
+      }`}
+    >
+      <span aria-hidden="true" className="text-[0.8em]">▶</span>
+      Intro<span className="sr-only"> video</span>
+    </span>
+  );
+}
+
 export function DiscountBadge({ astrologer, className = "" }: { astrologer: Astrologer; className?: string }) {
   const label = discountLabel(astrologer.price, astrologer.was);
   if (!label) return null;

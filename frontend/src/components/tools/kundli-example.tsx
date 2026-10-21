@@ -6,6 +6,8 @@ import { ApiError } from "@/lib/api/client";
 import { getKundli, listKundlis, type SavedChart } from "@/lib/astro";
 import type { Tool } from "@/lib/types";
 import KundliLocked, { useKundliAccess } from "./kundli-locked";
+import { ToolMedallion } from "./tool-icons";
+import { GoldHairline, panelClass, panelPad } from "./tool-ui";
 import { KundliResult } from "./kundli-tool";
 
 // The Kundli panel under the tool cards on /free-tools. A signed-in customer sees their most
@@ -16,8 +18,12 @@ export default function KundliExample({ tool }: { tool: Tool }) {
 
   if (access !== "customer") {
     return (
-      <section className="relative mt-9 rounded-3xl border border-line bg-paper p-5 sm:p-[26px]">
-        <div className="text-[11px] font-bold uppercase tracking-[.1em] text-stone-500">Free with an account</div>
+      <section className={`mt-9 ${panelClass} ${panelPad}`}>
+        <GoldHairline />
+        <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[.1em] text-amber-900">
+          <ToolMedallion id="kundli" size="sm" />
+          Free with an account
+        </div>
         <h2 className="mt-1 font-display text-[28px] font-semibold text-ink">Your Kundli</h2>
         <div className="mt-5">
           <KundliLocked access={access} />
@@ -62,8 +68,12 @@ function LatestKundli({ tool }: { tool: Tool }) {
   }
 
   return (
-    <section className="relative mt-9 rounded-3xl border border-line bg-paper p-5 sm:p-[26px]" aria-busy={state.kind === "loading"}>
-      <div className="text-[11px] font-bold uppercase tracking-[.1em] text-stone-500">Free with your account</div>
+    <section className={`mt-9 ${panelClass} ${panelPad}`} aria-busy={state.kind === "loading"}>
+      <GoldHairline />
+      <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[.1em] text-amber-900">
+        <ToolMedallion id="kundli" size="sm" />
+        Free with your account
+      </div>
       <h2 className="mt-1 font-display text-[28px] font-semibold text-ink">Your Kundli</h2>
       {state.kind === "loading" ? (
         <div className="mt-4 h-24 animate-pulse rounded-2xl bg-line-soft" />

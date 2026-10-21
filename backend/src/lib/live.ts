@@ -22,7 +22,7 @@ function initialsOf(name: string): string {
   return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "")).toUpperCase() || "•";
 }
 
-/** One line of the room feed: a message, "<name> joined" or "<name> sent 🪔 Lotus". */
+/** One line of the room feed: a message, "<name> joined" or "<name> sent 🪷 Lotus". */
 export function chatLineView(c: ChatMessage) {
   return {
     id: c.id,

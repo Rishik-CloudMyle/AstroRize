@@ -257,6 +257,8 @@ model Astrologer {
   createdAt           DateTime    @default(now())
   /// Public URL of the intro video shown on the profile (e.g. /api/media/<file>), if any.
   introVideoUrl       String?
+  /// Photos on the public profile's gallery (public URLs, in display order), set from the portal.
+  gallery             String[]    @default([])
   /// Takes part in the welcome campaign: customers can use their one free call with them.
   /// Set by staff (Astrologer lifecycle); astrologers can't switch it on themselves by default.
   freeCallsEnabled    Boolean     @default(false)
@@ -555,7 +557,13 @@ model Message {
   thread    MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
   /// CUSTOMER | ASTROLOGER | SYSTEM
   sender    String
+  /// May be empty when the message is only a photo or video.
   text      String
+  /// A photo or video sent with the message: the stored file name (served only to the
+  /// thread's customer and astrologer, and staff), or null.
+  attachment     String?
+  /// IMAGE | VIDEO (set with `attachment`).
+  attachmentKind String?
   /// True when the message was stopped because it contained contact details.
   blocked   Boolean       @default(false)
   createdAt DateTime      @default(now())

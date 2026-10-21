@@ -42,6 +42,8 @@ export interface Astrologer {
   photo: string;
   /** The astrologer's intro video (shown on their profile), or null */
   introVideoUrl: string | null;
+  /** The astrologer's gallery photos, in display order (may be empty) */
+  gallery: string[];
   /** Count of 5★, 4★, 3★, 2★, 1★ ratings */
   ratingDistribution: [number, number, number, number, number];
   reviews: Review[];
@@ -58,7 +60,7 @@ export interface Tool {
   description: string;
 }
 
-/** One line of a live room's feed: a chat message, "<name> joined" or "<name> sent 🪔 Lotus". */
+/** One line of a live room's feed: a chat message, "<name> joined" or "<name> sent 🪷 Lotus". */
 export interface LiveChatLine {
   id: string;
   kind: "message" | "join" | "gift";

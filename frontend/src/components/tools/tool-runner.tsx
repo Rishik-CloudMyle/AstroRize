@@ -8,7 +8,7 @@ import { DailyTool, HoroscopeTool } from "./horoscope-tool";
 import KundliTool from "./kundli-tool";
 import MatchmakingTool from "./matchmaking-tool";
 import PanchangTool from "./panchang-tool";
-import { Field, FormCard, ResultCard, inputClass } from "./tool-ui";
+import { Field, FormCard, Panel, ResultCard, inputClass } from "./tool-ui";
 
 // Picks the tool for /free-tools/[tool]. Kundli, horoscope, daily insight, matchmaking and
 // panchang are calculated by Astrorize's astrology engine (the API); numerology and tarot are
@@ -67,7 +67,7 @@ function NumerologyTool({ tool }: { tool: Tool }) {
 
   return (
     <>
-      <FormCard title="Your name and birth date" submitLabel="Find my numbers" error={error} onSubmit={calculate}>
+      <FormCard toolId="numerology" title="Your name and birth date" submitLabel="Find my numbers" error={error} onSubmit={calculate}>
         <Field label="Full name at birth">
           <input
             required
@@ -95,11 +95,22 @@ function NumerologyTool({ tool }: { tool: Tool }) {
               { label: "Life path number", value: result.lifePath, from: "from your date of birth" },
               { label: "Destiny number", value: result.destiny, from: "from the letters of your name" },
             ].map((n) => (
-              <div key={n.label} className="rounded-2xl border border-line-warm bg-card p-5">
-                <div className="text-[11px] font-bold uppercase tracking-[.1em] text-stone-500">{n.label}</div>
-                <div className="mt-1 font-display text-[56px] font-semibold leading-none text-amber-600">{n.value}</div>
-                <p className="mt-2 text-[13.5px] leading-normal text-stone-600">{NUMBER_MEANINGS[n.value]}</p>
-                <p className="mt-1 text-[11.5px] text-stone-500">Calculated {n.from}</p>
+              <div
+                key={n.label}
+                className="flex min-w-0 items-start gap-4 rounded-2xl border border-[#ecd49a] bg-linear-to-b from-[#fffaf0] to-[#fbefd2] p-5"
+              >
+                <span
+                  className="grid size-[76px] shrink-0 place-items-center rounded-full border-2 border-[#d6a84a] bg-[radial-gradient(circle_at_35%_30%,#ffffff,#f8e7bd_70%,#ecc979)] font-display text-[40px] font-bold leading-none text-amber-900 shadow-[inset_0_1px_0_rgba(255,255,255,.9),0_6px_14px_rgba(146,64,14,.18)] [font-variant-numeric:lining-nums_tabular-nums]"
+                  aria-hidden="true"
+                >
+                  {n.value}
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold uppercase tracking-[.1em] text-amber-900">{n.label}</div>
+                  <div className="sr-only">{n.value}</div>
+                  <p className="mt-1.5 text-[14.5px] leading-normal text-stone-700">{NUMBER_MEANINGS[n.value]}</p>
+                  <p className="mt-1.5 text-[12px] text-stone-500">Calculated {n.from}</p>
+                </div>
               </div>
             ))}
           </div>
@@ -155,16 +166,15 @@ function TarotTool({ tool }: { tool: Tool }) {
 
   return (
     <>
-      <div className="mt-6 rounded-3xl border border-line bg-paper p-5 sm:p-[26px]">
-        <h2 className="font-display text-[26px] font-semibold text-ink">Hold your question in mind</h2>
-        <p className="mt-1 max-w-[56ch] text-sm text-stone-600">
-          Take a breath, think of one specific question, then draw. Three cards from the 22 of the Major Arcana, shuffled
-          fresh each time: what led here, where you are, and what comes next.
-        </p>
-        <button type="button" onClick={pull} className="az-cta mt-5 h-12 rounded-full px-6 text-[15px] font-bold">
+      <Panel
+        toolId="tarot"
+        title="Hold your question in mind"
+        intro="Take a breath, think of one specific question, then draw. Three cards from the 22 of the Major Arcana, shuffled fresh each time: what led here, where you are, and what comes next."
+      >
+        <button type="button" onClick={pull} className="az-cta mt-6 h-12 w-full rounded-full px-7 text-[15px] font-bold sm:w-auto">
           {draw ? "Draw again" : "Draw three cards"}
         </button>
-      </div>
+      </Panel>
 
       {draw && (
         <ResultCard
@@ -180,17 +190,17 @@ function TarotTool({ tool }: { tool: Tool }) {
               return (
                 <div
                   key={card.name}
-                  className="az-rise rounded-2xl border border-line-warm bg-linear-180 from-[#fffaf0] to-[#f6edd6] p-5 text-center"
+                  className="az-rise flex min-w-0 items-center gap-4 rounded-2xl border border-[#ecd49a] bg-linear-180 from-[#fffaf0] to-[#f6e8c8] p-4 text-left sm:flex-col sm:gap-0 sm:p-5 sm:text-center"
                   style={{ animationDelay: `${i * 0.12}s` }}
                 >
-                  <div className="text-[11px] font-bold uppercase tracking-[.1em] text-amber-800">
-                    {["Past", "Present", "What comes next"][i]}
+                  <CardFace number={id} />
+                  <div className="min-w-0 sm:mt-4">
+                    <div className="text-[11px] font-bold uppercase tracking-[.1em] text-amber-900">
+                      {["Past", "Present", "What comes next"][i]}
+                    </div>
+                    <b className="mt-0.5 block font-display text-[22px] font-semibold leading-tight text-ink">{card.name}</b>
+                    <p className="mt-1.5 text-[13.5px] leading-normal text-stone-700">{card.meaning}</p>
                   </div>
-                  <div className="mx-auto my-3 grid h-24 w-16 place-items-center rounded-lg border-2 border-gold bg-plum text-2xl text-amber-300">
-                    ✦
-                  </div>
-                  <b className="font-display text-xl font-semibold text-ink">{card.name}</b>
-                  <p className="mt-1.5 text-[13px] leading-normal text-stone-600">{card.meaning}</p>
                 </div>
               );
             })}
@@ -198,5 +208,26 @@ function TarotTool({ tool }: { tool: Tool }) {
         </ResultCard>
       )}
     </>
+  );
+}
+
+const ROMAN = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX", "XXI"];
+
+/** A drawn card: deep plum face in a gold double frame, with its Major Arcana number. */
+function CardFace({ number }: { number: number }) {
+  return (
+    <div
+      aria-hidden="true"
+      className="relative h-[112px] w-[72px] shrink-0 rounded-[10px] border-2 border-[#d6a84a] bg-[radial-gradient(circle_at_50%_40%,#4a2d7a,#2a1848_75%)] p-1 shadow-[0_10px_22px_rgba(42,24,72,.28)] sm:h-[150px] sm:w-[96px]"
+    >
+      <div className="flex size-full flex-col items-center justify-between rounded-[6px] border border-[#d6a84a]/70 py-1.5 text-amber-300">
+        <span className="font-display text-[13px] font-semibold leading-none [font-variant-numeric:lining-nums] sm:text-[15px]">{ROMAN[number]}</span>
+        <svg viewBox="0 0 40 40" className="size-8 sm:size-11" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+          <circle cx="20" cy="20" r="7" />
+          <path d="M20 4v6M20 30v6M4 20h6M30 20h6M8.7 8.7l4.2 4.2M27.1 27.1l4.2 4.2M8.7 31.3l4.2-4.2M27.1 12.9l4.2-4.2" />
+        </svg>
+        <span className="text-[9px] leading-none tracking-[.3em]">✦✦✦</span>
+      </div>
+    </div>
   );
 }

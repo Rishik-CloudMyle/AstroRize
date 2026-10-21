@@ -11,12 +11,13 @@ import { multiplierLabel, type ConsultChoice } from "../consult/consult-sheet";
 import MessageButton from "../messages/message-button";
 import { DiscountBadge, WasPrice, priceNote } from "./parts";
 import { useFreshAstrologer } from "./use-fresh-astrologer";
+import ModeIcon from "@/components/ui/mode-icon";
 
-const OPTIONS: { key: ConsultChoice; icon: string; title: string }[] = [
-  { key: "chat", icon: "💬", title: "Chat" },
-  { key: "voice", icon: "📞", title: "Voice Call" },
-  { key: "video", icon: "📹", title: "Video Call" },
-  { key: "instant", icon: "⚡", title: "Instant Call" },
+const OPTIONS: { key: ConsultChoice; title: string }[] = [
+  { key: "chat", title: "Chat" },
+  { key: "voice", title: "Voice Call" },
+  { key: "video", title: "Video Call" },
+  { key: "instant", title: "Instant Call" },
 ];
 
 /** Why an option can't be used right now, shown under it ("In consultation · wait ~6–12 min"). */
@@ -117,9 +118,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
                           : "border-line bg-white hover:border-amber-300"
                     }`}
                   >
-                    <span aria-hidden="true" className={`text-base ${blocked ? "opacity-50 grayscale" : ""}`}>
-                      {o.icon}
-                    </span>
+                    <ModeIcon mode={o.key} size={20} className={blocked ? "text-stone-400" : instant ? "text-blue-600" : "text-amber-700"} />
                     <span className="min-w-0 flex-1">
                       <b className={`block text-[13.5px] font-bold ${blocked ? "text-stone-500" : instant ? "text-blue-800" : "text-ink"}`}>{o.title}</b>
                       <span className={`block text-[11.5px] leading-snug ${unavailable ? "font-semibold text-rose-700" : "text-stone-500"}`}>

@@ -7,6 +7,8 @@ import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { instantRate, rateFor } from "../../lib/billing.ts";
 import { ageLabel, istDate, istStamp, rupee } from "../../lib/format.ts";
 import { requireCapability, requirePage } from "../../lib/rbac.ts";
+import { removeGalleryPhoto } from "../../lib/gallery.ts";
+import { deleteMedia } from "../../lib/media.ts";
 import { configNumber } from "../../lib/settings.ts";
 import { dailyLimitOf, freeCallsToday, welcomePolicy } from "../../lib/welcome.ts";
 import type { Applicant, Prisma } from "../../generated/prisma/client.ts";
@@ -190,6 +192,9 @@ operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
       training: a.training.length ? { done: a.training.filter((t) => t.done).length, total: a.training.length } : null,
       application: a.application ? { step: a.application.currentStep + 1, savedAt: istDate(a.application.savedAt) } : null,
       openNotices: notices,
+      // Published straight from the portal (no review); staff can take an item down below.
+      introVideoUrl: a.introVideoUrl,
+      gallery: a.gallery,
       // Welcome campaign: whether customers can use their free call with this astrologer.
       freeCalls: {
         enabled: a.freeCallsEnabled,
@@ -240,6 +245,34 @@ operationsRouter.patch("/lifecycle/astrologers/:id/free-calls", async (req, res)
   }
   const fresh = await db.astrologer.findUniqueOrThrow({ where: { id: a.id }, select: { freeCallsEnabled: true, freeCallsDailyLimit: true } });
   res.json({ freeCalls: { enabled: fresh.freeCallsEnabled, dailyLimit: fresh.freeCallsDailyLimit } });
+});
+
+/**
+ * Takes down an inappropriate intro video or gallery photo (HR). The file is deleted and the
+ * action audited; the astrologer can upload a replacement from their portal.
+ */
+operationsRouter.post("/lifecycle/astrologers/:id/media/remove", async (req, res) => {
+  const admin = requirePage(req, "hr");
+  const { url, reason } = z
+    .object({ url: z.string().max(200), reason: z.string().trim().max(300).optional() })
+    .parse(req.body);
+  const a = await db.astrologer.findUnique({ where: { id: String(req.params.id) }, select: { id: true, introVideoUrl: true, gallery: true } });
+  if (!a) throw notFound("Astrologer not found.");
+  const why = reason ? ` · ${reason}` : "";
+  if (a.introVideoUrl && a.introVideoUrl === url) {
+    // Only clears it if it's still the same video (the astrologer may have replaced it meanwhile).
+    const { count } = await db.astrologer.updateMany({ where: { id: a.id, introVideoUrl: url }, data: { introVideoUrl: null } });
+    if (count) {
+      await deleteMedia(url);
+      await audit(admin, "astrologer.intro_video.takedown", a.id, `intro video removed by staff${why}`);
+    }
+  } else {
+    const { removed, position } = await removeGalleryPhoto(a.id, url);
+    if (!removed) throw notFound("That photo or video is no longer on this profile.");
+    await audit(admin, "astrologer.gallery.takedown", a.id, `gallery photo ${position} removed by staff${why}`);
+  }
+  const fresh = await db.astrologer.findUniqueOrThrow({ where: { id: a.id }, select: { introVideoUrl: true, gallery: true } });
+  res.json(fresh);
 });
 
 /** One application with its negotiation and the audit trail of every action taken on it. */

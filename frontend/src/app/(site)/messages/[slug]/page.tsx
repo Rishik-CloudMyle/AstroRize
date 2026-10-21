@@ -15,7 +15,7 @@ export default async function ConversationPage(props: PageProps<"/messages/[slug
       {/* On a phone the conversation gets the screen; the heading stays for screen readers. */}
       <h1 className="mb-1 font-display text-[42px] font-semibold text-ink max-lg:sr-only">Messages</h1>
       <p className="mb-6 text-sm text-stone-600 max-lg:hidden">
-        Astrologer Messenger — free, text-only messages with any astrologer on Astrorize. Astrologers reply personally.
+        Astrologer Messenger — free messages with any astrologer on Astrorize: text, photos and short videos. Astrologers reply personally.
       </p>
       <MessengerView slug={slug} />
     </div>

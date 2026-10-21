@@ -29,6 +29,7 @@ export const CONFIG_KEYS: ConfigKeyRow[] = [
   ["marketing.gift.max_value", true, "Ceiling on a single gift in the catalogue. Anything above needs Admin approval before it goes ACTIVE.", "5100", "global", "100–10000", "Lowering it sends catalogue gifts above the new ceiling back for Admin approval.", "marketing"],
   ["marketing.campaign.max_discount_pct", false, "Largest discount a campaign may advertise before the cashback floor clamps it.", "40", "segment", "0–70", "Raising it allows bigger advertised discounts; the cashback floor still limits the effective price.", "marketing"],
   ["hr.application.review_sla_days", false, "Days an application may sit in review before it is flagged past SLA on the queue.", "5", "global", "1–21", "Lowering it flags applications as past SLA sooner on the lifecycle queue.", "hr"],
+  ["profile.gallery.max", false, "Photos one astrologer may show in the gallery on their public profile.", "8", "global", "0–20", "Lowering it keeps photos already uploaded but blocks new ones until an astrologer is under the new limit.", "hr"],
   ["hr.pricing.max_increase_pct", true, "Largest per-minute price increase an astrologer may request in a single price version.", "25", "global", "0–50", "Lowering it sends more astrologer price-increase requests for a manual override.", "hr"],
   ["welcome.enabled", true, "Turns the welcome campaign on (1) or off (0): every new customer's one free consultation.", "1", "global", "0–1", "Turning it off stops new free calls; customers keep the free call they already hold.", "consult"],
   ["welcome.complimentary_seconds", true, "Length of the welcome free call, in seconds.", "300", "global", "60–900", "Applies to calls requested after the change; calls already running keep their length.", "consult"],
@@ -54,7 +55,7 @@ export const DENOMINATIONS: { amount: number; bonus: number; enabled?: boolean }
 
 /** Live-room gift catalogue (client). `rank` is the list position. */
 export const GIFTS: { icon: string; name: string; price: number; state: string }[] = [
-  { icon: "🪔", name: "Lotus", price: 51, state: "ACTIVE" },
+  { icon: "🪷", name: "Lotus", price: 51, state: "ACTIVE" },
   { icon: "🔔", name: "Divine Bell", price: 501, state: "ACTIVE" },
   { icon: "👑", name: "Honor Crown", price: 1001, state: "PENDING ADMIN" },
   { icon: "✦", name: "Eternal Gratitude", price: 5100, state: "ACTIVE" },

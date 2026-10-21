@@ -206,6 +206,8 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
             </div>
           </Section>
 
+          <MediaSection id={a.id} name={a.name} introVideoUrl={a.introVideoUrl} gallery={a.gallery} onSaved={() => void load()} />
+
           <Section title="Consultations">
             <div className="grid grid-cols-3 gap-2.5">
               <Fact label="Lifetime (public figure)">{a.consults.toLocaleString("en-IN")}</Fact>
@@ -284,6 +286,84 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
         </>
       )}
     </AdminDialog>
+  );
+}
+
+/**
+ * The intro video and gallery photos on the public profile. Astrologers publish them without
+ * review; staff can take down anything inappropriate (the file is deleted and the action audited).
+ */
+function MediaSection({
+  id,
+  name,
+  introVideoUrl,
+  gallery,
+  onSaved,
+}: {
+  id: string;
+  name: string;
+  introVideoUrl: string | null;
+  gallery: string[];
+  onSaved: () => void;
+}) {
+  const { run, busy } = useAction();
+
+  const takeDown = async (url: string, what: string) => {
+    const reason = window.prompt(`Remove this ${what} from ${name}'s public profile? It is deleted for good and the action is audited.
+
+Reason (optional):`, "");
+    if (reason === null) return;
+    const res = await run(
+      () => api.post(`/admin/lifecycle/astrologers/${encodeURIComponent(id)}/media/remove`, { url, reason: reason.trim() || undefined }),
+      `${what[0]!.toUpperCase() + what.slice(1)} removed from ${name}'s profile.`,
+      false,
+    );
+    if (res) onSaved();
+  };
+
+  const removeBtn =
+    "h-8 rounded-[9px] border border-rose-200 bg-white px-2.5 text-[12px] font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50";
+
+  return (
+    <Section title="Intro video and photos">
+      <p className="mt-0 mb-2.5 text-[12px] text-[#78716c]">
+        Published by the astrologer straight from their portal, without review. Remove anything inappropriate.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
+        <div className="min-w-0 rounded-[12px] bg-cream p-2.5">
+          <div className={EYEBROW}>Intro video</div>
+          {introVideoUrl ? (
+            <>
+              <video src={introVideoUrl} controls preload="metadata" playsInline className="mt-1.5 aspect-video w-full rounded-[10px] bg-ink" />
+              <button type="button" disabled={busy} onClick={() => void takeDown(introVideoUrl, "intro video")} className={`${removeBtn} mt-2`}>
+                Remove video
+              </button>
+            </>
+          ) : (
+            <p className="mt-1 mb-0 text-[13px] text-[#78716c]">None uploaded.</p>
+          )}
+        </div>
+        <div className="min-w-0 rounded-[12px] bg-cream p-2.5">
+          <div className={EYEBROW}>Gallery · {gallery.length} {gallery.length === 1 ? "photo" : "photos"}</div>
+          {gallery.length ? (
+            <ul className="mt-1.5 grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-2">
+              {gallery.map((url, i) => (
+                <li key={url} className="min-w-0">
+                  <a href={url} target="_blank" rel="noopener noreferrer" className="relative block aspect-[4/3] overflow-hidden rounded-[10px] bg-white">
+                    <Image src={url} alt={`Gallery photo ${i + 1}`} fill unoptimized sizes="140px" className="object-cover" />
+                  </a>
+                  <button type="button" disabled={busy} onClick={() => void takeDown(url, "photo")} className={`${removeBtn} mt-1.5 w-full`}>
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 mb-0 text-[13px] text-[#78716c]">None uploaded.</p>
+          )}
+        </div>
+      </div>
+    </Section>
   );
 }
 

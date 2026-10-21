@@ -76,6 +76,17 @@ const TOOLS: Tool[] = [
   },
 ];
 
+/** One line on what each tool gives you, for the tool cards on /free-tools. */
+export const TOOL_BENEFITS: Record<string, string> = {
+  kundli: "Your birth chart, planets, houses and dasha, saved to your account.",
+  horoscope: "Today or the week ahead for your Moon sign, from real transits.",
+  matchmaking: "Guna milan out of 36, with Mangal dosha for both.",
+  panchang: "Tithi, nakshatra, sunrise and Rahu Kaal for any place.",
+  numerology: "Your life path and destiny numbers, and what they mean.",
+  tarot: "Three cards for one question: past, present and next.",
+  daily: "One short, specific thing to keep in mind today.",
+};
+
 export async function getTools(): Promise<Tool[]> {
   return TOOLS;
 }

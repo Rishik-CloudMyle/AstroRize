@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { readResponse } from "@/lib/api/errors";
 import { apiDelete } from "@/lib/portal/request";
-import IntroVideo from "../../astrologer/intro-video";
+import IntroVideo, { IntroVideoPlaceholder } from "../../astrologer/intro-video";
 import Modal from "../modal";
 import { useErrorToast, useToast } from "../portal-provider";
 
@@ -117,13 +117,30 @@ export default function IntroVideoEditor({
   }
 
   return (
-    <div className="relative mt-[18px] rounded-[14px] border border-line bg-cream px-[15px] py-[13px]">
-      <b className="text-[13.5px]">Intro video</b>
-      <p className="mt-1 mb-2.5 text-[12.5px] leading-[1.5] text-stone-500">
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="m-0 text-base font-bold">Intro video</h2>
+        <span
+          className={`inline-flex h-6 items-center rounded-full px-2.5 text-[12px] font-bold ${url ? "bg-emerald-50 text-emerald-700" : "bg-cream text-stone-600"}`}
+        >
+          {url ? "Live on your profile" : "Not added yet"}
+        </span>
+      </div>
+      <p className="mt-1 mb-3 text-[12.5px] leading-[1.5] text-stone-500">
         {url ? "Customers see this on your public profile. " : "Introduce yourself to customers on your public profile. "}
         {limitText} It goes live as soon as it uploads.
       </p>
-      {url && <IntroVideo key={url} src={url} poster={poster} name={name} className="mb-3" heightClass="h-[200px]" />}
+      {url ? (
+        <IntroVideo key={url} src={url} poster={poster} name={name} className="mb-3" heightClass="h-[200px] sm:h-[240px]" />
+      ) : (
+        <IntroVideoPlaceholder
+          poster={poster}
+          label="No intro video yet"
+          note="Until you add one, customers see “Intro video coming soon” here."
+          className="mb-3"
+          heightClass="h-[200px] sm:h-[240px]"
+        />
+      )}
       <input
         ref={input}
         type="file"
@@ -138,7 +155,7 @@ export default function IntroVideoEditor({
           type="button"
           onClick={() => input.current?.click()}
           disabled={busy}
-          className="h-9 rounded-[10px] border border-line bg-white px-3.5 text-[12.5px] font-bold disabled:opacity-60"
+          className={`h-10 rounded-[10px] px-4 text-[13px] font-bold disabled:opacity-60 ${url ? "border border-line bg-white" : "bg-[linear-gradient(90deg,#ffd233,#ff8c1a)] text-cta-ink"}`}
         >
           {progress !== null ? `Uploading… ${progress}%` : url ? "Replace video" : "Upload intro video"}
         </button>
@@ -147,7 +164,7 @@ export default function IntroVideoEditor({
             type="button"
             onClick={() => setConfirmRemove(true)}
             disabled={busy}
-            className="h-9 rounded-[10px] px-3 text-[12.5px] font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+            className="h-10 rounded-[10px] px-3 text-[13px] font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60"
           >
             Remove
           </button>

@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Astrologer } from "@/lib/types";
 import { languageLine, ratingLabel, rupee, skillLine } from "@/lib/format";
 import ModeOptions from "./mode-options";
-import { AvailabilityBadge, DiscountBadge, Portrait, RecognitionBadge, VerifiedTick, WasPrice, priceNote } from "./parts";
+import { AvailabilityBadge, DiscountBadge, IntroBadge, Portrait, RecognitionBadge, VerifiedTick, WasPrice, priceNote } from "./parts";
 
 /** Glassy astrologer card from the home page "Featured astrologers" row. */
 export default function FeaturedCard({ astrologer: a }: { astrologer: Astrologer }) {
@@ -10,7 +10,10 @@ export default function FeaturedCard({ astrologer: a }: { astrologer: Astrologer
     <div className="az-lift relative rounded-[20px] border border-[rgba(240,228,208,.9)] bg-[rgba(255,252,248,.84)] px-3.5 pb-3 pt-2.5 font-card shadow-[0_10px_26px_rgba(90,62,40,.09),inset_0_1px_0_rgba(255,255,255,.8)] backdrop-blur-[14px] backdrop-saturate-[1.2]">
       <div className="flex items-center justify-between gap-2">
         <AvailabilityBadge astrologer={a} small />
-        <RecognitionBadge astrologer={a} />
+        <span className="flex items-center gap-1.5">
+          <IntroBadge astrologer={a} small />
+          <RecognitionBadge astrologer={a} />
+        </span>
       </div>
       <div className="mt-2.5 flex items-start gap-3">
         <Portrait astrologer={a} size={72} rays />

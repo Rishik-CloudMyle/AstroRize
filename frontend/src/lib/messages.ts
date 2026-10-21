@@ -1,4 +1,5 @@
-// Astrologer Messenger: free, text-only direct messages between a customer and an astrologer.
+// Astrologer Messenger: free direct messages between a customer and an astrologer — text,
+// photos and short videos.
 
 /** How often an open conversation checks for new messages. */
 export const MESSAGE_POLL_MS = 10_000;
@@ -12,11 +13,19 @@ export interface MessengerAstrologer {
   photo: string;
 }
 
+/** A photo or video sent in a customer–astrologer conversation. `url` works only for the two of them. */
+export interface MessageAttachment {
+  kind: "image" | "video";
+  url: string;
+}
+
 export interface MessengerMessage {
   id: string;
   /** "blocked" = the notice shown when a message contained contact details */
   from: "me" | "astrologer" | "blocked";
+  /** May be "" when only a photo or video was sent. */
   text: string;
+  attachment: MessageAttachment | null;
   at: string;
 }
 

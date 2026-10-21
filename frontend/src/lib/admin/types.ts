@@ -288,6 +288,9 @@ export interface AstrologerDetail {
   training: { done: number; total: number } | null;
   application: { step: number; savedAt: string } | null;
   openNotices: number;
+  /** Intro video and gallery photos on the public profile (published without review) */
+  introVideoUrl: string | null;
+  gallery: string[];
   /** Welcome campaign: whether customers can use their free call with this astrologer. */
   freeCalls: {
     enabled: boolean;

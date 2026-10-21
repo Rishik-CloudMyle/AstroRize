@@ -47,6 +47,8 @@ export function astrologerView(a: AstrologerWithReviews, freeCall = false) {
     photo: a.photo,
     /** The astrologer's own intro video, or null. */
     introVideoUrl: a.introVideoUrl ?? null,
+    /** The astrologer's own gallery photos, in display order. */
+    gallery: a.gallery,
     ratingDistribution: a.ratingDistribution,
     reviews: (a.reviews ?? []).map((r) => ({ name: r.customerName, stars: r.stars, when: istDate(r.createdAt), text: r.text })),
   };
@@ -262,8 +264,8 @@ catalogRouter.post("/live-rooms/:id/reactions", async (req, res) => {
 /**
  * Join the room's consult queue. Consultations from a live are always private (the astrologer's
  * video stays on for everyone; the conversation is only with the customer being consulted), by
- * chat, voice or video (`mode`; Instant Call isn't offered from a live). The page sends the rate it
- * showed for that mode (`quotedRate`); that rate is locked for this request.
+ * voice or video (`mode`; chat and Instant Call aren't offered from a live — the client's call). The
+ * page sends the rate it showed for that mode (`quotedRate`); that rate is locked for this request.
  */
 catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
   const auth = requireRole(req, "customer");
@@ -274,7 +276,7 @@ catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
       quotedRate: z.number().int().nonnegative().optional(),
       mode: z.preprocess(
         (m) => (typeof m !== "string" ? m : ["PUBLIC", "PRIVATE"].includes(m.toUpperCase()) ? undefined : m.toUpperCase()),
-        z.enum(["CHAT", "VOICE", "VIDEO"]).optional(),
+        z.enum(["VOICE", "VIDEO"], { message: "A private consultation from a live is by voice or video." }).optional(),
       ),
     })
     .parse(req.body ?? {});

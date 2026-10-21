@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import Breadcrumbs from "@/components/breadcrumbs";
+import { ToolGlyph } from "@/components/tools/tool-icons";
 import ToolRunner from "@/components/tools/tool-runner";
 import { getTool, getTools } from "@/lib/tools";
 
@@ -52,12 +53,12 @@ export default async function ToolPage(props: PageProps<"/free-tools/[tool]">) {
       </div>
 
       {/* The tools read their shared-result links (?sign=, ?cards=, …) on the client. */}
-      <Suspense fallback={<div className="mt-6 h-48 animate-pulse rounded-3xl border border-line bg-paper" />}>
+      <Suspense fallback={<div className="mt-6 h-48 animate-pulse rounded-3xl border border-line-warm bg-paper" />}>
         <ToolRunner tool={tool} />
       </Suspense>
 
       <div className="mt-10">
-        <h2 className="mb-3 text-lg font-bold text-ink">More free tools</h2>
+        <h2 className="mb-3 font-display text-[24px] font-semibold text-ink">More free tools</h2>
         <div className="flex flex-wrap gap-2">
           {tools
             .filter((t) => t.id !== tool.id)
@@ -65,8 +66,9 @@ export default async function ToolPage(props: PageProps<"/free-tools/[tool]">) {
               <Link
                 key={t.id}
                 href={`/free-tools/${t.id}`}
-                className="inline-flex h-9 items-center rounded-full border border-line bg-white px-4 text-[13px] font-semibold text-ink hover:border-amber-300 hover:text-ink hover:no-underline"
+                className="inline-flex h-10 items-center gap-2 rounded-full border border-line-warm bg-paper pl-3 pr-4 text-[13.5px] font-semibold text-ink shadow-[0_2px_6px_rgba(62,38,18,.05)] hover:border-amber-300 hover:text-ink hover:no-underline"
               >
+                <ToolGlyph id={t.id} className="size-[18px] text-amber-700" />
                 {t.name}
               </Link>
             ))}

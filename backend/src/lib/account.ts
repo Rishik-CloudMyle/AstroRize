@@ -3,7 +3,7 @@ import { audit } from "./audit.ts";
 import { conflict } from "./errors.ts";
 import { istDateKey, makeRef, rupee } from "./format.ts";
 import { lockKey, OPEN_STATUSES } from "./consultations.ts";
-import { deleteMedia } from "./media.ts";
+import { deleteMedia, deletePrivateFiles } from "./media.ts";
 import type { Prisma } from "../generated/prisma/client.ts";
 
 // A customer closing their own account (Wallet & account → "Deactivate" / "Delete my account").
@@ -109,6 +109,9 @@ async function freeTxnRef(tx: Tx, prefix: string): Promise<string> {
   }
 }
 
+/** Shown in place of a photo or video a customer sent before deleting their account. */
+const FILE_REMOVED = "This photo or video was removed when the customer deleted their account.";
+
 /**
  * Delete: refunds the service balance (WalletRefund, PENDING until Finance — or, once the
  * Razorpay keys exist, the gateway — pays it), forfeits promotional credit, erases personal
@@ -181,14 +184,23 @@ export async function deleteAccount(userId: string) {
     await tx.welcomeBenefit.updateMany({ where: { userId }, data: { userId: null } });
     // Saved Kundli and matchmaking charts hold birth details: personal data, so they go too.
     await tx.chart.deleteMany({ where: { userId } });
+    // Photos and videos the customer sent in messages are personal data too. The messages stay
+    // for the astrologer (as for text); a file-only one says what happened.
+    const sentFiles = { thread: { customerId: userId }, sender: "CUSTOMER", attachment: { not: null } };
+    const files = (await tx.message.findMany({ where: sentFiles, select: { attachment: true } })).map((m) => m.attachment);
+    if (files.length) {
+      await tx.message.updateMany({ where: { ...sentFiles, text: "" }, data: { text: FILE_REMOVED } });
+      await tx.message.updateMany({ where: sentFiles, data: { attachment: null, attachmentKind: null } });
+    }
     await leaveQueues(tx, userId);
     await revokeSessions(tx, userId);
     await tx.dataRequest.create({ data: { userId, kind: "delete", status: "DONE" } });
-    return { refund, forfeited, photoUrl: user.photoUrl };
+    return { refund, forfeited, photoUrl: user.photoUrl, files };
   });
 
-  // The uploaded photo file goes once the database no longer points at it.
+  // The uploaded files go once the database no longer points at them.
   await deleteMedia(result.photoUrl);
+  await deletePrivateFiles(result.files);
   await audit(
     null,
     "account.delete",

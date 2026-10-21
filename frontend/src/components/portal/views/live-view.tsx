@@ -17,6 +17,7 @@ import LiveDetailsForm, { type LiveDetails } from "./live-details-form";
 import LivePrivateHost from "./live-private-host";
 import LiveQueuePeople from "./live-queue-people";
 import { useLiveBroadcast } from "./use-live-broadcast";
+import ModeIcon from "@/components/ui/mode-icon";
 
 const MOD_ACTIONS = ["Mute 5m", "Mute 15m", "Mute 60m", "Block from room", "Delete message"];
 
@@ -88,7 +89,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
   const [question, setQuestion] = useState(data.pollQuestion);
   const [options, setOptions] = useState(data.pollOptions.length ? data.pollOptions : ["", ""]);
   const rate = `${rupee(data.rate)}/min`;
-  const MODE_LABEL = { chat: "💬 Chat", voice: "📞 Voice", video: "📹 Video" } as const;
+  const MODE_LABEL = { chat: "chat", voice: "voice", video: "video" } as const;
 
   // Keep the queue (and how long people have waited) current while the console is open.
   useEffect(() => {
@@ -169,7 +170,8 @@ function LiveConsole({ data }: { data: LiveRoom }) {
           click: broadcast.toggleMic,
         },
         {
-          label: broadcast.camOn ? "📹 Camera on" : "🚫 Camera off",
+          label: broadcast.camOn ? "Camera on" : "Camera off",
+          video: true,
           bg: broadcast.camOn ? "rgba(0,0,0,.45)" : "#ea580c",
           fg: "#fffdf8",
           pressed: broadcast.camOn,
@@ -294,9 +296,10 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                   type="button"
                   aria-pressed={h.pressed}
                   onClick={h.click}
-                  className="h-10 rounded-xl border border-[rgba(255,255,255,.2)] px-3 text-[13.5px] font-bold sm:px-4"
+                  className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[rgba(255,255,255,.2)] px-3 text-[13.5px] font-bold sm:px-4"
                   style={{ background: h.bg, color: h.fg }}
                 >
+                  {"video" in h && <ModeIcon mode="video" size={17} className={h.pressed ? "" : "opacity-80"} />}
                   {h.label}
                 </button>
               ))}
@@ -389,6 +392,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                   <div className="min-w-0 flex-1">
                     <b className="block truncate text-[13px]">{q.name ?? q.alias}</b>
                     <span className="text-[11.5px] text-stone-500">
+                      {q.consultMode && <ModeIcon mode={q.consultMode} size={13} className="mr-1 inline-block align-[-2px] text-amber-700" />}
                       Private {MODE_LABEL[q.consultMode] ?? "consultation"} · {rupee(q.rate)}/min
                     </span>
                   </div>

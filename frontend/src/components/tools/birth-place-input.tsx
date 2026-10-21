@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import { searchPlaces, suggestPlaces, type Place } from "@/lib/astro";
-import { inputClass } from "./tool-ui";
+import { inputBase } from "./tool-ui";
 
 // Birthplace picker. While typing it suggests places Astrorize has found before (our own cache);
 // a new place is looked up on OpenStreetMap only when the person presses Search or Enter — the
@@ -232,7 +232,7 @@ export default function BirthPlaceInput({
 
   return (
     <div className="min-w-0">
-      <label htmlFor={`${id}-input`} className="text-xs font-semibold text-stone-600">
+      <label htmlFor={`${id}-input`} className="text-[12.5px] font-semibold text-stone-700">
         {label}
       </label>
       <div className="relative mt-1.5 flex gap-2">
@@ -253,13 +253,13 @@ export default function BirthPlaceInput({
           onKeyDown={onKeyDown}
           onFocus={onFocus}
           onBlur={() => setOpen(false)}
-          className={`${inputClass} mt-0 flex-1 ${invalid && !value ? "border-rose-400" : ""}`}
+          className={`${inputBase} flex-1 ${invalid && !value ? "border-rose-400" : ""}`}
         />
         <button
           type="button"
           onClick={() => void search()}
           disabled={searching}
-          className="h-11 shrink-0 rounded-xl border border-line bg-white px-3.5 text-[13px] font-bold text-ink hover:border-amber-400 disabled:cursor-wait disabled:opacity-70"
+          className="h-11 shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-4 text-[13px] font-bold text-ink hover:border-amber-500 hover:bg-amber-100 disabled:cursor-wait disabled:opacity-70"
         >
           {searching ? "Searching…" : "Search"}
         </button>
@@ -316,7 +316,7 @@ export default function BirthPlaceInput({
         )}
       </div>
 
-      <div className="mt-1 min-h-[18px] text-[11.5px] leading-snug" aria-live="polite">
+      <div className="mt-1 min-h-[18px] break-words text-[12px] leading-snug" aria-live="polite">
         {value ? (
           <span className="text-emerald-800">
             ✓ {value.name} · {value.timezone}
@@ -338,7 +338,7 @@ export default function BirthPlaceInput({
           <span className="text-stone-500">Type the town, then press Search and pick it from the list.</span>
         )}
       </div>
-      <div className="text-[10.5px] text-stone-400">
+      <div className="text-[11px] text-stone-500">
         Place data ©{" "}
         <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="text-stone-500 underline">
           OpenStreetMap contributors
