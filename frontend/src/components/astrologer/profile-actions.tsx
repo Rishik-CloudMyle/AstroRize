@@ -2,7 +2,10 @@
 
 import type { Astrologer } from "@/lib/types";
 import { rateFor, rupee } from "@/lib/format";
+import { freeLength } from "@/lib/free-calls";
 import { usableWelcome, useSession } from "@/lib/session-store";
+import { discountedRate, useConsultDiscount } from "@/lib/offers";
+import { useMakeGood } from "@/lib/makegood";
 import { useAppUI } from "../app-provider";
 import { ConsultBlockedNote, blockedHint, blockedLabel, useConsultGate, type ConsultGate } from "../consult/consult-gate";
 import { ConsultFrozenNote, FROZEN_HINT } from "../consult/consult-lock";
@@ -46,8 +49,14 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
   const disabledTitle = frozen ? FROZEN_HINT : blockedHint(gate);
   const shareText = `astrorize.com/astrologer/${a.slug}`;
   const welcome = usableWelcome(session);
-  const freeMins = welcome && a.freeCall ? Math.round(welcome.freeSeconds / 60) : 0;
+  // A free replacement call with this astrologer (offered after a complaint): Chat, Voice or Video,
+  // free for its minutes. It takes the place of the welcome free call and any offer here.
+  const makeGood = useMakeGood(a.id);
+  const freeSecs = makeGood ? makeGood.minutes * 60 : welcome && a.freeCall ? welcome.freeSeconds : 0;
   const unavailable = unavailableLine(gate, a);
+  // A claimed consultation offer: percent off paid Chat, Voice and Video.
+  const offer = useConsultDiscount();
+  const discount = makeGood ? null : offer;
 
   async function copyLink() {
     try {
@@ -76,6 +85,19 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
           <FreeCallBadge astrologer={a} />
           <span className="text-[11.5px] text-mauve">{priceNote(a)}</span>
         </div>
+        {makeGood && (
+          <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-[12.5px] leading-[1.5] text-emerald-900">
+            <b className="block text-[13.5px] text-emerald-800">🎁 Free replacement call · {makeGood.minutes} min</b>
+            We&apos;re sorry about session {makeGood.sessionRef}. Talk to {a.name} again free by Chat, Voice or Video — use it by{" "}
+            {makeGood.validUntil}, when they&apos;re available.
+          </div>
+        )}
+        {discount && (
+          <p className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-[12.5px] font-semibold text-emerald-800">
+            {discount.pct}% off applied · {rupee(discountedRate(a.price, discount.pct))}/min instead of {rupee(a.price)} — your offer “
+            {discount.name}”
+          </p>
+        )}
         {gate.kind === "frozen" ? (
           <div className="mt-4">
             <ConsultFrozenNote open={gate.open} astrologerId={a.id} />
@@ -102,7 +124,8 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
             {OPTIONS.map((o) => {
               const instant = o.key === "instant";
               const rate = o.key === "instant" ? a.instant : rateFor(a.price, o.key);
-              const free = freeMins > 0 && !blocked && (o.key === "chat" || o.key === "voice");
+              const free = freeSecs > 0 && !blocked && (o.key === "chat" || o.key === "voice" || (!!makeGood && o.key === "video"));
+              const pct = discount && !instant && !free ? discount.pct : 0;
               return (
                 <li key={o.key}>
                   <button
@@ -122,11 +145,20 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
                     <span className="min-w-0 flex-1">
                       <b className={`block text-[13.5px] font-bold ${blocked ? "text-stone-500" : instant ? "text-blue-800" : "text-ink"}`}>{o.title}</b>
                       <span className={`block text-[11.5px] leading-snug ${unavailable ? "font-semibold text-rose-700" : "text-stone-500"}`}>
-                        {unavailable ?? (instant ? multiplierLabel(a) : free ? `Free ${freeMins} min, then ${rupee(rate)}/min` : "Billed per minute")}
+                        {unavailable ??
+                          (instant
+                            ? multiplierLabel(a)
+                            : free
+                              ? `Free ${freeLength(freeSecs)}, then ${rupee(rate)}/min`
+                              : pct
+                                ? `${pct}% off · instead of ${rupee(rate)}/min`
+                                : "Billed per minute")}
                       </span>
                     </span>
-                    <b className={`shrink-0 text-[13.5px] tabular-nums ${blocked ? "text-stone-400" : free ? "text-emerald-700" : instant ? "text-blue-700" : "text-plum"}`}>
-                      {free ? "Free" : `${rupee(rate)}/min`}
+                    <b
+                      className={`shrink-0 text-[13.5px] tabular-nums ${blocked ? "text-stone-400" : free || pct ? "text-emerald-700" : instant ? "text-blue-700" : "text-plum"}`}
+                    >
+                      {free ? "Free" : `${rupee(pct ? discountedRate(rate, pct) : rate)}/min`}
                     </b>
                   </button>
                 </li>
@@ -136,7 +168,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
           <MessageButton slug={a.slug} name={a.name} />
         </div>
         <div className="mt-3.5 border-t border-[#f3e9d8] pt-3 text-[11.5px] leading-normal text-stone-500">
-          Eligibility needs 5 minutes of balance{freeMins > 0 ? " (not for your free call)" : ""}. Nothing is billed before the call
+          Eligibility needs 5 minutes of balance{freeSecs > 0 ? ` (not for your ${makeGood ? "free replacement call" : "free call"})` : ""}. Nothing is billed before the call
           connects — failed attempts cost ₹0.
         </div>
       </div>

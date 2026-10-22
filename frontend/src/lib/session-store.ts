@@ -246,9 +246,13 @@ export const sessionActions = {
    * stand-in provider that confirms straight away.
    */
   async recharge(amount: number) {
-    const order = await api.post<{ orderId: string; amount: number; gst: number; bonus: number; total: number }>("/wallet/recharge", { amount });
-    await api.post(`/wallet/recharge/${order.orderId}/confirm`);
+    const order = await api.post<{ orderId: string; amount: number; gst: number; bonus: number; cashback: number; cashbackFrom: string | null; total: number }>(
+      "/wallet/recharge",
+      { amount },
+    );
+    // `cashback`: what a claimed offer actually added (0 if its use was taken meanwhile).
+    const paid = await api.post<{ cashback: number }>(`/wallet/recharge/${order.orderId}/confirm`);
     await sessionActions.refreshWallet();
-    return order;
+    return { ...order, cashback: paid.cashback ?? 0 };
   },
 };

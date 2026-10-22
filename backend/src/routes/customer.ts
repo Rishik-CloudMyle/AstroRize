@@ -48,9 +48,21 @@ import {
   openConsultationOf,
   sessionCapSeconds,
   settlementView,
+  startsFree,
 } from "../lib/consultations.ts";
-import { COMPLIMENTARY, WELCOME_MODES, consumeWelcome, freeCallRefusal, reserveWelcome, welcomePolicy, welcomeView } from "../lib/welcome.ts";
+import { MAKE_GOOD, consumeMakeGood, reserveMakeGood, usableMakeGood } from "../lib/makegood.ts";
+import {
+  COMPLIMENTARY,
+  WELCOME_MODES,
+  consumeWelcome,
+  freeCallRefusal,
+  reserveWelcome,
+  welcomeAvailability,
+  welcomePolicy,
+  welcomeView,
+} from "../lib/welcome.ts";
 import { effectivePresence, syncPresence } from "../lib/presence.ts";
+import { cashbackQuotes, discountQuote, discountedRate, useClaim } from "../lib/campaigns.ts";
 import { astrologerView } from "./catalog.ts";
 import { configNumber } from "../lib/settings.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
@@ -101,9 +113,19 @@ customerRouter.get("/wallet", async (req, res) => {
   res.json({ wallet: await walletView(auth(req).user.id) });
 });
 
-customerRouter.get("/wallet/denominations", async (_req, res) => {
+customerRouter.get("/wallet/denominations", async (req, res) => {
   const list = await db.denomination.findMany({ where: { enabled: true }, orderBy: { amount: "asc" } });
-  res.json({ denominations: list.map((d) => ({ amount: d.amount, bonus: d.bonus })), gstRate: GST_RATE });
+  // The cashback a claimed offer adds to each amount, shown before paying.
+  const quotes = await cashbackQuotes(auth(req).user.id, list.map((d) => d.amount));
+  res.json({
+    denominations: list.map((d, i) => ({
+      amount: d.amount,
+      bonus: d.bonus,
+      cashback: quotes[i]?.cashback ?? 0,
+      cashbackFrom: quotes[i]?.name ?? null,
+    })),
+    gstRate: GST_RATE,
+  });
 });
 
 /**
@@ -118,18 +140,31 @@ customerRouter.post("/wallet/recharge", async (req, res) => {
   const denom = await db.denomination.findUnique({ where: { amount } });
   if (!denom?.enabled) throw badRequest("That recharge amount isn't available.");
   const gst = Math.round(amount * GST_RATE);
+  // A claimed cashback offer that fits this amount (its use is taken when the payment succeeds).
+  const [offer] = await cashbackQuotes(auth(req).user.id, [amount]);
   const payment = await db.payment.create({
     data: {
       userId: auth(req).user.id,
       amount,
       gst,
       bonus: denom.bonus,
+      cashback: offer?.cashback ?? 0,
+      campaignClaimId: offer?.claimId ?? null,
       total: amount + gst,
       provider: "mock",
       providerOrderId: `order_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
     },
   });
-  res.status(201).json({ orderId: payment.providerOrderId, amount, gst, bonus: denom.bonus, total: payment.total, provider: payment.provider });
+  res.status(201).json({
+    orderId: payment.providerOrderId,
+    amount,
+    gst,
+    bonus: denom.bonus,
+    cashback: payment.cashback,
+    cashbackFrom: offer?.name ?? null,
+    total: payment.total,
+    provider: payment.provider,
+  });
 });
 
 /** Step 2: the payment succeeded. Credits the wallet exactly once (safe to retry). */
@@ -140,28 +175,37 @@ customerRouter.post("/wallet/recharge/:orderId/confirm", async (req, res) => {
   // The real gateway confirms payments through its signed webhook, never this route.
   if (payment.provider === "mock" && !config.mockPayments) throw new HttpError(503, "Recharges aren't available yet.", "unavailable");
 
+  let cashback = payment.status === "PAID" ? payment.cashback : 0;
   if (payment.status !== "PAID") {
-    const [payRef, bonusRef] = await Promise.all([txRef("PAY"), txRef("CMP")]);
-    const ops: Prisma.PrismaPromise<unknown>[] = [
-      db.payment.update({ where: { id: payment.id, status: "CREATED" }, data: { status: "PAID", paidAt: new Date() } }),
-      db.wallet.update({
+    const [payRef, bonusRef, cashbackRef] = await Promise.all([txRef("PAY"), txRef("CMP"), txRef("CMC")]);
+    const now = new Date();
+    cashback = await db.$transaction(async (tx) => {
+      // Only one confirmation credits the wallet; a second one (retry, other tab) changes nothing.
+      const { count } = await tx.payment.updateMany({ where: { id: payment.id, status: "CREATED" }, data: { status: "PAID", paidAt: now } });
+      if (!count) return (await tx.payment.findUniqueOrThrow({ where: { id: payment.id } })).cashback;
+      // The offer's cashback, if its use is still there (another recharge may have used it meanwhile).
+      let extra = payment.cashback;
+      if (extra > 0 && !(payment.campaignClaimId && (await useClaim(tx, payment.campaignClaimId, now)))) {
+        extra = 0;
+        await tx.payment.update({ where: { id: payment.id }, data: { cashback: 0 } });
+      }
+      await tx.wallet.update({
         where: { userId },
-        data: { service: { increment: payment.amount }, promo: { increment: payment.bonus } },
-      }),
-      db.transaction.create({ data: { userId, type: "Recharge", ref: payRef, bucket: "Service", amount: payment.amount } }),
-    ];
-    if (payment.bonus > 0) {
-      ops.push(db.transaction.create({ data: { userId, type: "Cashback", ref: bonusRef, bucket: "Promotional", amount: payment.bonus } }));
-    }
-    try {
-      await db.$transaction(ops);
-    } catch {
-      // Another request confirmed it first — the wallet was credited once.
-    }
+        data: { service: { increment: payment.amount }, promo: { increment: payment.bonus + extra } },
+      });
+      await tx.transaction.create({ data: { userId, type: "Recharge", ref: payRef, bucket: "Service", amount: payment.amount } });
+      if (payment.bonus > 0) {
+        await tx.transaction.create({ data: { userId, type: "Cashback", ref: bonusRef, bucket: "Promotional", amount: payment.bonus } });
+      }
+      if (extra > 0) {
+        await tx.transaction.create({ data: { userId, type: "Campaign cashback", ref: cashbackRef, bucket: "Promotional", amount: extra } });
+      }
+      return extra;
+    });
   }
   // Recharged during a consultation: the new money is held for it, so it carries on without disconnecting.
   await extendHold(userId);
-  res.json({ credited: payment.amount, bonus: payment.bonus, wallet: await walletView(userId) });
+  res.json({ credited: payment.amount, bonus: payment.bonus, cashback, wallet: await walletView(userId) });
 });
 
 // ── Consultations ──
@@ -206,11 +250,11 @@ async function availableAstrologer(astrologerId: string) {
  * 409 when the rate the customer was shown is no longer the astrologer's rate: they confirm the
  * new one before anything starts. A consultation always runs at the rate it was started at.
  */
-function rateChanged(res: Response, quoted: number, rate: number) {
+function rateChanged(res: Response, quoted: number, rate: number, message?: string) {
   res.status(409).json({
     error: {
       code: "rate_changed",
-      message: `The rate changed from ${rupee(quoted)} to ${rupee(rate)}/min. Continue at ${rupee(rate)}/min?`,
+      message: message ?? `The rate changed from ${rupee(quoted)} to ${rupee(rate)}/min. Continue at ${rupee(rate)}/min?`,
       quotedRate: quoted,
       rate,
     },
@@ -220,9 +264,6 @@ function rateChanged(res: Response, quoted: number, rate: number) {
 /** The free call can only be used for Chat and Voice; Video and Instant Call stay paid. */
 const modalityDenied = () =>
   new HttpError(400, "Your free call can be used for Chat or Voice. Video and Instant Call are paid.", "WEL_MODALITY_DENIED");
-
-const astrologerBusy = async (astrologerId: string) =>
-  !!(await db.consultation.findFirst({ where: { astrologerId, status: "ACTIVE" }, select: { id: true } }));
 
 async function ownConsultation(userId: string, id: string) {
   const c = await db.consultation.findUnique({ where: { id } });
@@ -249,6 +290,9 @@ async function consultationView(c: Consultation & { astrologer: Astrologer }) {
     liveRoomId: c.liveRoomId,
     mode: c.mode.toLowerCase(),
     rate: c.rate,
+    /** The price before a claimed offer's discount (null = no discount), and the percent off. */
+    listRate: c.listRate,
+    discountPct: c.discountPct,
     held: c.heldAmount,
     astrologer: astrologerView(c.astrologer),
     requestedAt: c.requestedAt.toISOString(),
@@ -260,10 +304,12 @@ async function consultationView(c: Consultation & { astrologer: Astrologer }) {
     elapsedSeconds: c.status === "ACTIVE" && c.connectedAt ? Math.max(0, Math.floor((now.getTime() - c.connectedAt.getTime()) / 1000)) : 0,
     /** Seconds not billed at the start: the standard free minute, or a free call's complimentary time. */
     freeSeconds: freeWindow(c, standardFree),
-    /** A welcome free call (complimentary, then the same session continues at `rate`). */
-    complimentary: c.billingMode === COMPLIMENTARY,
+    /** A welcome free call or a free replacement call (complimentary, then the same session continues at `rate`). */
+    complimentary: startsFree(c),
+    /** A free replacement call offered on a complaint (instead of a refund). */
+    makeGood: c.billingMode === MAKE_GOOD,
     /** When to remind the customer, before the free time ends, to add money to continue. */
-    reminderSeconds: c.billingMode === COMPLIMENTARY ? policy.reminderSeconds : 0,
+    reminderSeconds: startsFree(c) ? policy.reminderSeconds : 0,
     maxSeconds: sessionCapSeconds(c, standardFree),
     endReason: c.endReason,
     settlement: c.status === "ENDED" ? settlementView(c) : null,
@@ -297,37 +343,61 @@ const quotedRateSchema = z.number().int().nonnegative().optional();
 
 customerRouter.post("/consultations", async (req, res) => {
   const me = auth(req);
-  const { astrologerId, mode, quotedRate, welcome } = z
-    .object({ astrologerId: z.string(), mode: modeSchema, quotedRate: quotedRateSchema, welcome: z.boolean().optional() })
+  const { astrologerId, mode, quotedRate, welcome, makeGoodCreditId } = z
+    .object({
+      astrologerId: z.string(),
+      mode: modeSchema,
+      quotedRate: quotedRateSchema,
+      welcome: z.boolean().optional(),
+      /** Use a free replacement call (make-good) with this astrologer. */
+      makeGoodCreditId: z.string().max(40).optional(),
+    })
     .parse(req.body);
   if (welcome && !(WELCOME_MODES as readonly string[]).includes(mode)) throw modalityDenied();
+  // A free replacement call stands alone: never together with a welcome free call (or an offer).
+  if (welcome && makeGoodCreditId) throw badRequest("Use either your free call or your free replacement call — not both at once.");
   const astrologer = await availableAstrologer(astrologerId);
-  // The rate is fixed now and the whole session is billed at it.
-  const rate = rateFor(astrologer.price, mode as Mode);
-  if (quotedRate !== undefined && quotedRate !== rate) return rateChanged(res, quotedRate, rate);
+  // The rate is fixed now and the whole session is billed at it. A claimed consultation offer
+  // lowers it — never together with a free call or a free replacement call.
+  const listRate = rateFor(astrologer.price, mode as Mode);
+  const offer = welcome || makeGoodCreditId ? null : await discountQuote(me.user.id);
+  const rate = offer ? discountedRate(listRate, offer.pct) : listRate;
+  if (quotedRate !== undefined && quotedRate !== rate) {
+    return rateChanged(res, quotedRate, rate, offer && quotedRate === listRate
+      ? `Your ${offer.pct}% offer (${offer.name}) applies: ${rupee(rate)}/min instead of ${rupee(listRate)}. Continue at ${rupee(rate)}/min?`
+      : !offer && quotedRate < listRate
+        ? `Your offer no longer applies (used or expired). The rate is ${rupee(rate)}/min. Continue at ${rupee(rate)}/min?`
+        : undefined);
+  }
   const needed = rate * ELIGIBILITY_MINUTES;
   const policy = welcome ? await welcomePolicy() : null;
   await walletOf(me.user.id);
   const ref = await newRef();
 
   const result = await db.$transaction(async (tx) => {
+    // The astrologer first (same order as accepting a request), then the customer: requests for
+    // one astrologer are decided one at a time, so their free-call capacity can't be overshot and
+    // two free calls never overlap.
+    await lockKey(tx, `astro:${astrologerId}`);
     await lockKey(tx, `consult:${me.user.id}`);
-    // One free call request at a time per astrologer, so their daily quota can't be overshot.
-    if (policy) await lockKey(tx, `welcome:${astrologerId}`);
     const open = await openConsultationOf(tx, me.user.id);
     if (open) return { kind: "open" as const, open };
     if (await tx.consultation.findFirst({ where: { astrologerId, status: "ACTIVE" }, select: { id: true } })) return { kind: "busy" as const };
     const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: me.user.id } });
     const spendable = Math.max(0, wallet.service + wallet.promo - wallet.held);
+    // The replacement call must be this customer's, with this astrologer, unused and not expired.
+    const makeGood = makeGoodCreditId ? await usableMakeGood(tx, me.user.id, astrologerId) : null;
+    if (makeGoodCreditId && (!makeGood || makeGood.credit.id !== makeGoodCreditId || makeGood.inUse)) {
+      return { kind: "refused" as const, code: "MAKEGOOD_NOT_AVAILABLE", message: "This free replacement call isn't available any more. You can still consult at the normal rate." };
+    }
     if (policy) {
-      // The customer's own free call first: "you've used it" is the answer that matters to them.
-      const benefit = await tx.welcomeBenefit.findUnique({ where: { userId: me.user.id }, select: { status: true } });
-      if (benefit?.status !== "GRANTED") {
-        return { kind: "refused" as const, code: "WEL_NOT_AVAILABLE", message: "You don't have a free call to use. You can still consult at the normal rate." };
-      }
+      // The customer's own allowance first: "you've used it" is the answer that matters to them.
+      const mine = await welcomeAvailability(tx, me.user.id, policy);
+      if (!mine.ok) return { kind: "refused" as const, code: mine.code, message: mine.message };
       const refusal = await freeCallRefusal(astrologer, policy, tx);
       if (refusal) return { kind: "refused" as const, ...refusal };
-    } else if (spendable < needed) {
+    } else if (!makeGood && spendable < needed) {
+      // (A free replacement call is free for its first minutes, so it needs no minimum balance.)
       return { kind: "short" as const, spendable };
     }
     // Hold the available balance for the length of the session; one debit is taken at the end.
@@ -343,8 +413,14 @@ customerRouter.post("/consultations", async (req, res) => {
         status: "CONNECTING",
         heldAmount: spendable,
         ...(policy ? { billingMode: COMPLIMENTARY, complimentarySeconds: policy.complimentarySeconds } : {}),
+        ...(makeGood ? { billingMode: MAKE_GOOD, complimentarySeconds: makeGood.credit.minutes * 60, makeGoodCreditId: makeGood.credit.id } : {}),
+        // The offer is only used up once the consultation connects.
+        ...(offer ? { listRate, discountPct: offer.pct, campaignClaimId: offer.claimId } : {}),
       },
     });
+    if (makeGood && !(await reserveMakeGood(tx, makeGood.credit.id, makeGood.credit.consultationId, consultation.id))) {
+      throw new HttpError(409, "This free replacement call isn't available any more. You can still consult at the normal rate.", "MAKEGOOD_NOT_AVAILABLE");
+    }
     if (policy && !(await reserveWelcome(tx, me.user.id, consultation.id))) {
       // Undo everything above: the free call isn't there to use.
       throw new HttpError(409, "You don't have a free call to use. You can still consult at the normal rate.", "WEL_NOT_AVAILABLE");
@@ -361,7 +437,7 @@ customerRouter.post("/consultations", async (req, res) => {
   }
   const c = result.consultation;
   res.status(201).json({
-    consultation: { id: c.id, ref, rate, held: c.heldAmount, status: c.status, complimentary: c.billingMode === COMPLIMENTARY },
+    consultation: { id: c.id, ref, rate, held: c.heldAmount, status: c.status, complimentary: startsFree(c), makeGood: c.billingMode === MAKE_GOOD, listRate: c.listRate, discountPct: c.discountPct },
   });
 });
 
@@ -369,15 +445,25 @@ customerRouter.post("/consultations", async (req, res) => {
 customerRouter.post("/consultations/:id/connect", async (req, res) => {
   const c = await ownConsultation(auth(req).user.id, String(req.params.id));
   if (c.status !== "CONNECTING") throw conflict("This consultation can no longer connect.");
-  if (await astrologerBusy(c.astrologerId)) throw conflict("The astrologer is in another consultation right now.");
   const connectedAt = new Date();
-  const count = await db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
+    // Under the astrologer's lock (as when they accept a request), so two sessions that are both
+    // connecting can never both go ACTIVE: an astrologer is in one consultation at a time.
+    await lockKey(tx, `astro:${c.astrologerId}`);
+    const busy = await tx.consultation.findFirst({ where: { astrologerId: c.astrologerId, status: "ACTIVE", id: { not: c.id } }, select: { id: true } });
+    if (busy) return "busy" as const;
     const { count } = await tx.consultation.updateMany({ where: { id: c.id, status: "CONNECTING" }, data: { status: "ACTIVE", connectedAt } });
-    // A free call is used up once it connects.
-    if (count && c.billingMode === COMPLIMENTARY) await consumeWelcome(tx, c.id, connectedAt);
-    return count;
+    if (!count) return "gone" as const;
+    // A free call counts against the customer's allowance once it connects.
+    if (c.billingMode === COMPLIMENTARY) await consumeWelcome(tx, c.id, connectedAt);
+    // A free replacement call is used once it connects.
+    if (c.billingMode === MAKE_GOOD) await consumeMakeGood(tx, c.id);
+    // A claimed consultation offer is used once the consultation connects (never before).
+    if (c.campaignClaimId) await useClaim(tx, c.campaignClaimId, connectedAt);
+    return "ok" as const;
   });
-  if (!count) throw conflict("This consultation can no longer connect.");
+  if (result === "busy") throw conflict("The astrologer is in another consultation right now.");
+  if (result === "gone") throw conflict("This consultation can no longer connect.");
   await syncPresence(c.astrologerId); // the astrologer is now in a session → BUSY
   const updated = await db.consultation.findUniqueOrThrow({ where: { id: c.id } });
   const standardFree = await configNumber("consult.free_seconds", 60);
@@ -516,6 +602,40 @@ customerRouter.post("/me/data-requests", async (req, res) => {
 // ── Deactivate or delete my account (see lib/account.ts) ──
 
 /** Refund and forfeit amounts, how to confirm, and whether anything blocks it right now. */
+/**
+ * The customer's free replacement calls still to use (offered on a complaint instead of a refund):
+ * which astrologer, how many free minutes, and the last day to book. Shown on that astrologer's
+ * profile and consult sheet.
+ */
+customerRouter.get("/me/makegood", async (req, res) => {
+  const now = new Date();
+  const credits = await db.makeGoodCredit.findMany({
+    where: { userId: auth(req).user.id, status: "AVAILABLE", expiresAt: { gt: now } },
+    orderBy: { expiresAt: "asc" },
+  });
+  const astrologers = credits.length
+    ? await db.astrologer.findMany({ where: { id: { in: [...new Set(credits.map((c) => c.astrologerId))] } }, select: { id: true, slug: true, name: true } })
+    : [];
+  const open = await openConsultationOf(db, auth(req).user.id);
+  res.json({
+    credits: credits.map((c) => {
+      const a = astrologers.find((x) => x.id === c.astrologerId);
+      return {
+        id: c.id,
+        astrologerId: c.astrologerId,
+        astrologerSlug: a?.slug ?? null,
+        astrologerName: a?.name ?? "",
+        minutes: c.minutes,
+        sessionRef: c.sessionRef,
+        /** "5 Nov 2026": the last day it can be booked. */
+        validUntil: istDate(c.expiresAt),
+        /** A consultation using it is open right now. */
+        inUse: !!open && c.consultationId === open.id,
+      };
+    }),
+  });
+});
+
 customerRouter.get("/me/account", async (req, res) => {
   res.json({ account: await accountStatus(auth(req).user.id) });
 });

@@ -1,6 +1,7 @@
 import { createApp } from "./app.ts";
 import { config } from "./config.ts";
 import { db } from "./db.ts";
+import { sweepCampaigns } from "./lib/campaigns.ts";
 import { sweepAbandonedConsultations } from "./lib/consultations.ts";
 import { isDatabaseDown } from "./lib/errors.ts";
 import { sweepStalePresence } from "./lib/presence.ts";
@@ -35,6 +36,11 @@ const sweeper = setInterval(() => {
     .then(() => purgeDaily())
     .catch((e: unknown) => {
       if (!isDatabaseDown(e)) console.error("Retention purge failed:", e);
+    })
+    // Campaigns: close ended ones, expire old claims, announce new offers, the daily offers notice.
+    .then(() => sweepCampaigns())
+    .catch((e: unknown) => {
+      if (!isDatabaseDown(e)) console.error("Campaign sweep failed:", e);
     });
 }, 60_000);
 

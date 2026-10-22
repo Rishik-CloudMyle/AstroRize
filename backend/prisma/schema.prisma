@@ -28,6 +28,9 @@ enum AdminRole {
 
 model User {
   id           String     @id @default(cuid())
+  campaignClaims  CampaignClaim[]
+  notifications   Notification[]
+  makeGoodCredits MakeGoodCredit[]
   role         Role       @default(CUSTOMER)
   adminRole    AdminRole?
   name         String
@@ -106,8 +109,47 @@ model WelcomeBenefit {
   /// Times it came back after a call dropped early through no fault of the customer (bounded).
   faultRestores  Int       @default(0)
   updatedAt      DateTime  @updatedAt
+  uses           FreeCallUse[]
 
   @@index([status])
+}
+
+/// An astrologer's change to their own per-minute price. Decreases apply at once (status APPLIED);
+/// increases wait as PENDING until staff with the Astrologer lifecycle page approve (APPROVED, and the
+/// price changes then) or reject them. Finance sees the whole list read-only.
+model PriceChange {
+  id             String     @id @default(cuid())
+  astrologerId   String
+  astrologer     Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  fromPrice      Int
+  toPrice        Int
+  /// PENDING | APPROVED | REJECTED | APPLIED (a decrease, live at once) | WITHDRAWN (by the astrologer)
+  status         String     @default("PENDING")
+  requestedAt    DateTime   @default(now())
+  decidedAt      DateTime?
+  decidedById    String?
+  decidedByName  String?
+  /// Why it was rejected (shown to the astrologer).
+  reason         String?
+
+  @@index([status, requestedAt])
+  @@index([astrologerId, requestedAt])
+}
+
+/// One free call that connected, counted against the person's allowance (Config: how many free
+/// calls per customer, per period — once ever, a week or a month). Keyed by the same mobile-number
+/// identity as WelcomeBenefit, so a new account on the same number shares the count.
+model FreeCallUse {
+  id             String         @id @default(cuid())
+  identityKey    String
+  benefit        WelcomeBenefit @relation(fields: [identityKey], references: [identityKey])
+  consultationId String         @unique
+  astrologerId   String
+  usedAt         DateTime       @default(now())
+  /// Set when the call dropped early through no fault of the customer and the use was given back.
+  restoredAt     DateTime?
+
+  @@index([identityKey, usedAt])
 }
 
 /// Money owed back to a customer from their wallet (e.g. on account deletion). Paid to the
@@ -252,6 +294,9 @@ model Astrologer {
   lifecycle           String      @default("active")
   /// none | partial | full
   suspension          String      @default("none")
+  /// Why staff suspended the account (shown to the astrologer), and when.
+  suspensionReason    String?
+  suspendedAt         DateTime?
   /// Popularity ranking used for the default directory order.
   rank                Int         @default(0)
   createdAt           DateTime    @default(now())
@@ -262,8 +307,15 @@ model Astrologer {
   /// Takes part in the welcome campaign: customers can use their one free call with them.
   /// Set by staff (Astrologer lifecycle); astrologers can't switch it on themselves by default.
   freeCallsEnabled    Boolean     @default(false)
-  /// Most complimentary calls this astrologer takes in a day (IST); null = the platform default.
+  /// Most complimentary calls this astrologer takes per `freeCallsLimitPeriod` (IST); null = the
+  /// platform default. Set by the astrologer in the portal, within the admin maximum.
   freeCallsDailyLimit Int?
+  /// DAY | WEEK — the period `freeCallsDailyLimit` counts over.
+  freeCallsLimitPeriod String   @default("DAY")
+  /// When the astrologer went live (lifecycle → active): starts the "new astrologer" share period.
+  activatedAt         DateTime?
+  /// Last time the astrologer changed their own price (for the change cooldown).
+  priceChangedAt      DateTime?
   giftsReceived       GiftSend[]
 
   reviews            Review[]
@@ -274,6 +326,7 @@ model Astrologer {
   profileSubmissions ProfileSubmission[]
   complianceNotices  ComplianceNotice[]
   earnings           EarningsLine[]
+  priceChanges       PriceChange[]
   training           TrainingModule[]
   application        ApplicationDraft?
 }
@@ -430,6 +483,9 @@ model Payment {
   amount          Int
   gst             Int
   bonus           Int
+  /// Campaign cashback added on top of `bonus` (promotional credit), and the claim it came from.
+  cashback        Int       @default(0)
+  campaignClaimId String?
   total           Int
   /// CREATED | PAID | FAILED
   status          String    @default("CREATED")
@@ -477,6 +533,13 @@ model Consultation {
   source               String           @default("WEB")
   /// Per-minute rate snapshotted when the consultation was requested (₹).
   rate                 Int
+  /// The astrologer's price before a campaign discount (null = no discount); `rate` is what the customer pays.
+  listRate             Int?
+  /// The claimed campaign whose discount applies, and its percent.
+  campaignClaimId      String?
+  discountPct          Int              @default(0)
+  /// A free replacement call (make-good) this consultation uses.
+  makeGoodCreditId     String?
   /// REQUESTED | CONNECTING | ACTIVE | ENDED | REJECTED | TIMED_OUT | CANCELLED
   status               String           @default("REQUESTED")
   heldAmount           Int              @default(0)
@@ -613,8 +676,25 @@ model EarningsLine {
   mode         String
   minutes      Int
   gifts        Int        @default(0)
+  /// What the line is worth before the split, ₹ (customer charge, gift price, or free minutes
+  /// valued at the astrologer's rate). Null on lines written before shares existed (valued on read).
+  gross        Int?
+  /// The astrologer's share of `gross`, percent, fixed when the line was written.
+  sharePct     Int?
+  /// The astrologer's earnings from this line, ₹ (gross × sharePct / 100, rounded down).
+  amount       Int?
+  /// CUSTOMER (paid from a customer's wallet) | PLATFORM (Astrorize pays: free-call compensation).
+  fundedBy     String     @default("CUSTOMER")
+  /// Complimentary seconds this line compensates (free-call compensation lines).
+  freeSeconds  Int        @default(0)
+  /// ₹ of `gross` that Astrorize paid because of a campaign discount (the customer paid gross − discount).
+  discount     Int        @default(0)
+  /// The payout batch that pays this line, once batched.
+  payoutBatchId String?
+  payoutBatch  PayoutBatch? @relation(fields: [payoutBatchId], references: [id])
 
   @@index([astrologerId, date])
+  @@index([payoutBatchId])
 }
 
 model TrainingModule {
@@ -679,7 +759,12 @@ model ConfigChange {
 model PayoutBatch {
   /// e.g. "PB-2026-09-B"
   id             String     @id
+  /// EARNINGS (customer-paid shares, half-monthly) | FREE_CALLS (free-call compensation, monthly or weekly)
+  kind           String     @default("EARNINGS")
   cycle          String
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  lines          EarningsLine[]
   astrologers    Int
   gross          Int
   tds            Int
@@ -709,6 +794,8 @@ model SupportTicket {
   refundAmount  Int      @default(0)
   proposedBy    String?
   approvedBy    String?
+  /// REFUND (customer refunded; astrologer's share reversed) | MAKE_GOOD (free replacement call) | null
+  resolution    String?
   createdAt     DateTime @default(now())
 }
 
@@ -756,11 +843,93 @@ model ObserverLease {
 model Campaign {
   id       String @id
   name     String
-  denoms   String
-  cashback String
+  /// Legacy display fields from the first campaigns (recharge amounts, "5–14%").
+  denoms   String @default("")
+  cashback String @default("")
   /// DRAFT | SUBMITTED | UNDER_REVIEW | ACTIVE | EXPIRED
   state    String
   rank     Int    @default(0)
+  /// RECHARGE_CASHBACK (percent back as promotional credit on a recharge) | CONSULT_DISCOUNT
+  /// (percent off the per-minute price, paid by Astrorize) | BONUS_CREDIT (flat promotional credit on claim).
+  kind        String    @default("RECHARGE_CASHBACK")
+  /// What customers read on the offer.
+  description String    @default("")
+  /// Cashback or discount percent (RECHARGE_CASHBACK, CONSULT_DISCOUNT).
+  percent     Int?
+  /// Flat credit, ₹ (BONUS_CREDIT).
+  flatAmount  Int?
+  /// Smallest recharge the cashback applies to, ₹.
+  minRecharge Int?
+  /// Most one use can be worth, ₹ (cashback or discount cap).
+  maxBenefit  Int?
+  /// When customers can claim it (null start = when approved; null end = until expired by staff).
+  startsAt    DateTime?
+  endsAt      DateTime?
+  /// Days a claimed offer stays usable.
+  claimValidDays Int     @default(7)
+  /// Times one customer can use it once claimed.
+  usesPerCustomer Int    @default(1)
+  /// ALL | NEW (customers with no paid consultation yet)
+  audience    String    @default("ALL")
+  createdAt   DateTime  @default(now())
+  claims      CampaignClaim[]
+}
+
+/// A customer's claimed campaign offer. Only claimed offers apply (client decision).
+model CampaignClaim {
+  id          String    @id @default(cuid())
+  campaignId  String
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  claimedAt   DateTime  @default(now())
+  expiresAt   DateTime
+  usesLeft    Int
+  /// ACTIVE | USED | EXPIRED
+  status      String    @default("ACTIVE")
+  lastUsedAt  DateTime?
+
+  @@unique([campaignId, userId])
+  @@index([userId, status])
+}
+
+/// In-app notifications (the bell) for customers and astrologers: new offers, daily offer
+/// summaries, price decisions, suspensions, make-good calls.
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// e.g. campaign.new | campaign.daily | campaign.expiring | makegood.offered | account.suspended
+  kind      String
+  title     String
+  body      String
+  /// Where tapping it goes, e.g. /offers
+  href      String?
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+
+  @@index([userId, createdAt])
+}
+
+/// A free replacement call offered on a complaint instead of a refund: the customer gets `minutes`
+/// with the same astrologer, free; the astrologer keeps the original earnings and isn't paid again.
+model MakeGoodCredit {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  astrologerId   String
+  ticketId       String
+  /// The session the complaint was about.
+  sessionRef     String
+  minutes        Int
+  /// AVAILABLE | USED | EXPIRED | CANCELLED
+  status         String    @default("AVAILABLE")
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime
+  /// The replacement consultation, once used.
+  consultationId String?   @unique
+
+  @@index([userId, status])
 }
 
 model Gift {

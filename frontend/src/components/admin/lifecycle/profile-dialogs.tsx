@@ -8,6 +8,7 @@ import AdminDialog from "@/components/admin/dialog";
 import { EYEBROW, TD, TH_SM } from "@/components/admin/ui";
 import { api, ApiError } from "@/lib/api/client";
 import type { ApplicationDetail, AstrologerDetail } from "@/lib/admin/types";
+import { DecideButtons, HistoryLine } from "./price-requests";
 import { stageOf, stateTone, SUSPENSION } from "./stages";
 
 // The lifecycle page's profile popups: one astrologer's full record, and one application
@@ -109,6 +110,9 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
   const sus = a ? SUSPENSION[a.suspension] : undefined;
   const presence = a ? (PRESENCE[a.presence] ?? PRESENCE.off) : null;
   const isPublic = a ? a.lifecycle === "active" && a.suspension !== "full" : false;
+  // Suspensions are managed on the Live monitoring page (Compliance).
+  const { session } = useAdmin();
+  const canManageSuspension = session.pages.includes("compliance");
 
   return (
     <AdminDialog
@@ -118,6 +122,14 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
       width={840}
       footer={
         <div className="flex flex-wrap items-center justify-end gap-2.5">
+          {a && canManageSuspension && a.lifecycle === "active" && (
+            <Link
+              href="/admin/monitoring#suspensions"
+              className="mr-auto inline-flex h-10 items-center text-[13px] font-bold text-rose-700 hover:no-underline"
+            >
+              {a.suspension === "none" ? "Suspend on Live monitoring ›" : "Manage suspension ›"}
+            </Link>
+          )}
           {a &&
             (isPublic ? (
               <Link
@@ -182,7 +194,7 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
           </div>
 
           <Section title="Profile">
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
               <Fact label="Skills">{a.skills.join(", ") || "—"}</Fact>
               <Fact label="Languages">{a.languages.join(", ") || "—"}</Fact>
               <Fact label="Experience">
@@ -209,7 +221,7 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
           <MediaSection id={a.id} name={a.name} introVideoUrl={a.introVideoUrl} gallery={a.gallery} onSaved={() => void load()} />
 
           <Section title="Consultations">
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
               <Fact label="Lifetime (public figure)">{a.consults.toLocaleString("en-IN")}</Fact>
               <Fact label="Last 30 days">
                 {a.month.consultations.toLocaleString("en-IN")}{" "}
@@ -253,11 +265,45 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
                 /min.
               </p>
             )}
+            <p className="mt-2 mb-0 text-[12px] text-[#78716c]">
+              {a.price.changedAt
+                ? `Last changed on ${a.price.changedAt} (the astrologer's own change).`
+                : "Not changed by the astrologer yet — this is the price set at onboarding."}
+            </p>
+            {a.price.pending && (
+              <div className="mt-3 rounded-[14px] border border-amber-200 bg-amber-50 p-3.5">
+                <b className="block text-[13.5px] text-ink">
+                  Increase waiting: {a.price.chat} → ₹{a.price.pending.to.toLocaleString("en-IN")}/min
+                </b>
+                <span className="mt-0.5 block text-[12px] text-amber-900">
+                  Requested {a.price.pending.requestedOn}. Customers keep paying {a.price.chat}/min until it&apos;s approved.
+                </span>
+                <div className="mt-2.5">
+                  <DecideButtons
+                    change={a.price.pending}
+                    name={a.name}
+                    current={a.price.value}
+                    problem={null}
+                    onDone={() => void load()}
+                  />
+                </div>
+              </div>
+            )}
+            {a.price.history.length > 0 && (
+              <div className="mt-3">
+                <div className={EYEBROW}>Price changes and requests</div>
+                <ul className="m-0 mt-1 list-none p-0">
+                  {a.price.history.map((h) => (
+                    <HistoryLine key={h.id} c={h} />
+                  ))}
+                </ul>
+              </div>
+            )}
           </Section>
 
           <Section title="Contact and account">
             {a.contact ? (
-              <div className="grid grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 <Fact label="Email">{a.contact.email ?? "—"}</Fact>
                 <Fact label="Phone">{a.contact.phone ?? "—"}</Fact>
                 <Fact label="Last portal sign-in">{a.contact.lastSignIn ?? "Never"}</Fact>
@@ -270,7 +316,7 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
           <FreeCallsSection id={a.id} name={a.name} freeCalls={a.freeCalls} onSaved={() => void load()} />
 
           <Section title="Work">
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <Fact label="Live room">
                 {a.live ? (a.live.isLive ? `Live now · ${a.live.topic}` : "Not live") : "No live room"}
               </Fact>
@@ -383,15 +429,19 @@ function FreeCallsSection({
   onSaved: () => void;
 }) {
   const { run, busy } = useAction();
-  const [limit, setLimit] = useState(f.dailyLimit === null ? "" : String(f.dailyLimit));
+  const savedPeriod = f.period === "week" ? "WEEK" : "DAY";
+  const [limit, setLimit] = useState(f.ownLimit === null ? "" : String(f.ownLimit));
+  const [period, setPeriod] = useState<"DAY" | "WEEK">(savedPeriod);
   const [error, setError] = useState<string | null>(null);
-  const savedLimit = f.dailyLimit === null ? "" : String(f.dailyLimit);
+  const savedLimit = f.ownLimit === null ? "" : String(f.ownLimit);
+  const max = period === "WEEK" ? f.maxPerWeek : f.maxPerDay;
+  const per = period === "WEEK" ? "week" : "day";
   const path = `/admin/lifecycle/astrologers/${encodeURIComponent(id)}/free-calls`;
 
   const toggle = async () => {
     const res = await run(
-      () => api.patch(path, { enabled: !f.enabled }),
-      !f.enabled ? `${name} now takes free calls.` : `${name} no longer takes free calls.`,
+      () => api.patch(path, { enabled: !f.optedIn }),
+      !f.optedIn ? `${name} now takes free calls.` : `${name} no longer takes free calls.`,
       false,
     );
     if (res) onSaved();
@@ -400,14 +450,14 @@ function FreeCallsSection({
   const saveLimit = async () => {
     const trimmed = limit.trim();
     const value = trimmed === "" ? null : Number(trimmed);
-    if (value !== null && (!Number.isInteger(value) || value < 0 || value > f.maxLimit)) {
-      setError(`Enter a whole number from 0 to ${f.maxLimit}, or leave it blank for the default (${f.defaultLimit}).`);
+    if (value !== null && (!Number.isInteger(value) || value < 0 || value > max)) {
+      setError(`Enter a whole number from 0 to ${max} per ${per}, or leave it blank for the default (${f.defaultLimit} per day).`);
       return;
     }
     setError(null);
     const res = await run(
-      () => api.patch(path, { dailyLimit: value }),
-      value === null ? `Daily limit set to the campaign default (${f.defaultLimit}).` : `Daily limit set to ${value} free calls.`,
+      () => api.patch(path, value === null ? { dailyLimit: null } : { dailyLimit: value, period }),
+      value === null ? `Limit set to the campaign default (${f.defaultLimit} per day).` : `Limit set to ${value} free calls per ${per}.`,
       false,
     );
     if (res) onSaved();
@@ -420,21 +470,21 @@ function FreeCallsSection({
           <button
             type="button"
             role="switch"
-            aria-checked={f.enabled}
+            aria-checked={f.optedIn}
             aria-label="Takes free calls"
             onClick={() => void toggle()}
             disabled={busy}
-            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${f.enabled ? "bg-emerald-600" : "bg-stone-300"}`}
+            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${f.optedIn ? "bg-emerald-600" : "bg-stone-300"}`}
           >
             <span
-              className={`absolute top-0.5 size-6 rounded-full bg-white shadow transition-[left] ${f.enabled ? "left-[22px]" : "left-0.5"}`}
+              className={`absolute top-0.5 size-6 rounded-full bg-white shadow transition-[left] ${f.optedIn ? "left-[22px]" : "left-0.5"}`}
             />
           </button>
           <div className="min-w-0 flex-1">
-            <b className="block text-[13.5px] text-ink">{f.enabled ? "Takes free calls" : "Doesn't take free calls"}</b>
+            <b className="block text-[13.5px] text-ink">{f.optedIn ? "Takes free calls" : "Doesn't take free calls"}</b>
             <span className="block text-[12px] text-[#78716c]">
-              New customers can use their one free call (Chat or Voice) with astrologers who take part. The free minutes earn
-              the astrologer nothing.
+              Customers can use their welcome free calls (Chat or Voice, {Math.max(1, Math.round(f.freeSeconds / 60))} min each) with astrologers who
+              take part, one at a time. The astrologer can also switch this and set their capacity in the portal.
             </span>
           </div>
         </div>
@@ -445,14 +495,14 @@ function FreeCallsSection({
         )}
         <div className="mt-3 flex flex-wrap items-end gap-2.5">
           <label className="min-w-0">
-            <span className={EYEBROW}>Daily limit</span>
+            <span className={EYEBROW}>Limit</span>
             <input
               type="number"
               inputMode="numeric"
               min={0}
-              max={f.maxLimit}
+              max={max}
               value={limit}
-              placeholder={`Default ${f.defaultLimit}`}
+              placeholder={`Default ${f.defaultLimit}/day`}
               onChange={(e) => {
                 setLimit(e.target.value);
                 setError(null);
@@ -460,16 +510,31 @@ function FreeCallsSection({
               className="mt-1 block h-10 w-[150px] rounded-[10px] border border-line bg-white px-3 text-[13.5px] tabular-nums"
             />
           </label>
+          <label className="min-w-0">
+            <span className={EYEBROW}>Per</span>
+            <select
+              value={period}
+              onChange={(e) => {
+                setPeriod(e.target.value === "WEEK" ? "WEEK" : "DAY");
+                setError(null);
+              }}
+              disabled={limit.trim() === ""}
+              className="mt-1 block h-10 rounded-[10px] border border-line bg-white px-3 text-[13.5px] disabled:opacity-60"
+            >
+              <option value="DAY">Day</option>
+              <option value="WEEK">Week (Mon–Sun)</option>
+            </select>
+          </label>
           <button
             type="button"
             onClick={() => void saveLimit()}
-            disabled={busy || limit.trim() === savedLimit}
+            disabled={busy || (limit.trim() === savedLimit && (limit.trim() === "" || period === savedPeriod))}
             className="h-10 rounded-[10px] border-0 bg-ink px-4 text-[13px] font-bold text-white disabled:opacity-50"
           >
             Save limit
           </button>
           <span className="pb-2.5 text-[12px] text-[#78716c]">
-            {f.today} of {f.effectiveLimit} used today (IST) · up to {f.maxLimit}
+            {f.used} of {f.limit} used {f.period === "week" ? "this week" : "today"} (IST) · up to {f.maxPerDay}/day or {f.maxPerWeek}/week
           </span>
         </div>
         {error && (
@@ -636,7 +701,7 @@ export function ApplicationDialog({ id, onClose }: { id: string; onClose: () => 
         <LoadState error={error} onRetry={() => void load()} />
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
             <Fact label="Applicant">{app.name}</Fact>
             <Fact label="Primary skill">{app.skill}</Fact>
             <Fact label="Stage">

@@ -16,7 +16,7 @@ export default async function TrustPage() {
 
   return (
     <div>
-      <PageTitle title="Trust & reviews" sub="Reasoned removals, dual-controlled appeals, governed sample floors." />
+      <PageTitle title="Trust & reviews" sub="Flagged reviews to keep or remove with a reason, and the rating sample floor." />
 
       <div className={`${PANEL} relative mt-[18px] p-5`}>
         <h2 className="mt-0 mb-3.5 text-[16px] font-bold">Moderation queue</h2>
@@ -62,9 +62,9 @@ export default async function TrustPage() {
               </b>
             </div>
           </div>
-          <div className="mt-3.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3 text-[12px] leading-[1.5] text-rose-900">
-            Publishing a metric below the floor needs sign-off from both Legal <b>and</b> Admin, and the metric is
-            clearly labelled.
+          <div className="mt-3.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12px] leading-[1.5] text-amber-900">
+            The floor isn&rsquo;t applied on the website yet: every astrologer&rsquo;s rating is shown, whatever their
+            number of consultations.
           </div>
         </div>
       </div>

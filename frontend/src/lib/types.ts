@@ -172,9 +172,20 @@ export interface Transaction {
   amount: number;
 }
 
-/** The customer's one welcome free call (GET /wallet → welcome). */
+/** The customer's welcome free calls (GET /wallet → welcome). */
 export interface WelcomeBenefit {
+  /** granted (free calls left) | reserved (one is being requested) | consumed (none left for now) | revoked */
   status: "granted" | "reserved" | "consumed" | "revoked";
+  /** How many free calls, per what period (set by Astrorize) */
+  allowance: {
+    count: number;
+    /** once = once ever; day / week (Mon–Sun) / month in IST */
+    period: "once" | "day" | "week" | "month";
+    used: number;
+    remaining: number;
+    /** ISO time the allowance starts again; null for "once ever" */
+    resetsAt: string | null;
+  };
   /** True while it can be used to start a free call. */
   available: boolean;
   /** Length of the free call, in seconds */
@@ -207,6 +218,12 @@ export interface Settlement {
   /** A welcome free call: its first complimentarySeconds were free */
   complimentary: boolean;
   complimentarySeconds: number;
+  /** A free replacement call (offered after a complaint) rather than the welcome free call */
+  makeGood?: boolean;
+  /** A claimed offer's discount: the price before it (null = none), percent off, and ₹ saved. Optional: older API answers. */
+  listRate?: number | null;
+  discountPct?: number;
+  saved?: number;
 }
 
 /** A published customer review shown on the home page (GET /reviews/featured). */

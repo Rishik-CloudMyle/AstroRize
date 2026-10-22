@@ -11,6 +11,8 @@ import { authRouter } from "./routes/auth.ts";
 import { catalogRouter } from "./routes/catalog.ts";
 import { customerRouter } from "./routes/customer.ts";
 import { mediaRouter } from "./routes/media.ts";
+import { notificationsRouter } from "./routes/notifications.ts";
+import { offersRouter } from "./routes/offers.ts";
 import { portalRouter } from "./routes/portal.ts";
 import { statsRouter } from "./routes/stats.ts";
 
@@ -66,6 +68,8 @@ export function createApp() {
   app.use("/api/media", mediaRouter);
   app.use("/api/portal", portalRouter);
   app.use("/api/admin", adminRouter);
+  app.use("/api/notifications", notificationsRouter);
+  app.use("/api/offers", offersRouter);
   app.use("/api", customerRouter);
 
   app.use("/api", (_req, res) => res.status(404).json({ error: { code: "not_found", message: "No such API route." } }));

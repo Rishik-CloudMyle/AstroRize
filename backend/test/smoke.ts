@@ -460,6 +460,131 @@ check("marketing can't open Finance", r.status === 403, r);
 r = await mkt("POST", "/admin/campaigns/CMP-15/approve");
 check("marketing can't approve a campaign", r.status === 403, r);
 
+// Campaign offers: Marketing drafts, an Admin approves, customers claim, and only then they apply
+{
+  r = await mkt("POST", "/admin/campaigns", { kind: "BONUS_CREDIT", name: "Smoke bonus", flatAmount: 99999 });
+  check("offers: a bonus above marketing.bonus_credit.max is refused", r.status === 400, r);
+  r = await mkt("POST", "/admin/campaigns", { kind: "RECHARGE_CASHBACK", name: "Smoke cashback", percent: 90 });
+  check("offers: a percent above the limit is refused", r.status === 400, r);
+  r = await mkt("POST", "/admin/campaigns", { kind: "CONSULT_DISCOUNT", name: "Guaranteed results", percent: 10 });
+  check("offers: outcome promises in the copy are refused", r.status === 400, r);
+  r = await mkt("POST", "/admin/campaigns", { kind: "RECHARGE_CASHBACK", name: "Smoke cashback", percent: 10, minRecharge: 500, maxBenefit: 30 });
+  check("offers: Marketing drafts a cashback campaign", r.status === 201 && /^CMP-\d+$/.test(r.body.id), r);
+  const cbId: string = r.body.id;
+  r = await mkt("POST", "/admin/campaigns", { kind: "CONSULT_DISCOUNT", name: "Smoke discount", percent: 20, claimValidDays: 3 });
+  const cdId: string = r.body.id;
+  r = await mkt("POST", "/admin/campaigns", { kind: "BONUS_CREDIT", name: "Smoke bonus", flatAmount: 25 });
+  const bcId: string = r.body.id;
+  check("offers: discount and bonus drafted", !!cdId && !!bcId && cdId !== bcId, { cdId, bcId });
+  r = await mkt("PATCH", `/admin/campaigns/${cbId}`, { kind: "RECHARGE_CASHBACK", name: "Smoke cashback", percent: 10, minRecharge: 500, maxBenefit: 30, description: "Edited" });
+  check("offers: a draft can be edited", r.status === 200, r);
+  r = await anon("GET", "/offers");
+  check("offers: drafts aren't offered", r.status === 200 && !(r.body.offers ?? []).some((o: any) => [cbId, cdId, bcId].includes(o.id)), r.body);
+  for (const id of [cbId, cdId, bcId]) {
+    r = await mkt("POST", `/admin/campaigns/${id}/submit`);
+    check(`offers: ${id} submitted`, r.status === 200, r);
+  }
+  r = await mkt("PATCH", `/admin/campaigns/${cbId}`, { kind: "RECHARGE_CASHBACK", name: "Changed", percent: 10 });
+  check("offers: a submitted campaign can't be edited (409)", r.status === 409, r);
+  r = await mkt("POST", `/admin/campaigns/${cbId}/approve`);
+  check("offers: Marketing can't approve (403)", r.status === 403, r);
+  for (const id of [cbId, cdId, bcId]) {
+    r = await superA("POST", `/admin/campaigns/${id}/approve`);
+    check(`offers: Admin approves ${id}`, r.status === 200, r);
+  }
+  check("offers: approvals are audited", (await db.auditLog.count({ where: { action: "campaign.approve", object: { in: [cbId, cdId, bcId] } } })) === 3);
+  const snehaUser = await db.user.findFirstOrThrow({ where: { email: "customer@astrorize.com" } });
+  check("offers: customers are told about a new offer", (await db.notification.count({ where: { userId: snehaUser.id, kind: "campaign.new", href: `/offers#${cbId}` } })) === 1);
+  r = await anon("GET", "/offers");
+  check("offers: visitors see live offers, unclaimed", [cbId, cdId, bcId].every((id) => (r.body.offers ?? []).some((o: any) => o.id === id && o.claim === null)), r.body);
+  r = await anon("POST", `/offers/${bcId}/claim`);
+  check("offers: claiming needs sign-in (401)", r.status === 401, r);
+
+  // Bonus credit: credited at once, with its ledger line
+  const before = (await cust("GET", "/wallet")).body.wallet;
+  r = await cust("POST", `/offers/${bcId}/claim`);
+  check("offers: bonus credit claimed and credited", r.status === 201 && r.body.credited === 25 && r.body.claim?.status === "USED", r);
+  r = await cust("POST", `/offers/${bcId}/claim`);
+  check("offers: an offer is claimed once (409)", r.status === 409, r);
+  let w = (await cust("GET", "/wallet")).body.wallet;
+  check("offers: +₹25 promotional, ledger line 'Campaign bonus'", w.promo === before.promo + 25 && w.transactions?.[0]?.type === "Campaign bonus" && w.transactions?.[0]?.amount === 25, w);
+
+  // Recharge cashback: nothing before it is claimed; 10% of ₹500 capped at ₹30 once claimed
+  r = await cust("GET", "/wallet/denominations");
+  check("offers: no cashback before claiming", (r.body.denominations ?? []).every((d: any) => d.cashback === 0), r.body);
+  r = await cust("POST", `/offers/${cbId}/claim`);
+  check("offers: cashback claimed (ACTIVE, 1 use)", r.status === 201 && r.body.claim?.status === "ACTIVE" && r.body.claim?.usesLeft === 1, r);
+  r = await cust("GET", "/wallet/denominations");
+  const d500 = (r.body.denominations ?? []).find((d: any) => d.amount === 500);
+  const d200 = (r.body.denominations ?? []).find((d: any) => d.amount === 200);
+  check("offers: recharge sheet shows the cashback (capped, minimum respected)", d500?.cashback === 30 && d500?.cashbackFrom === "Smoke cashback" && d200?.cashback === 0, r.body);
+  r = await cust("POST", "/wallet/recharge", { amount: 500 });
+  check("offers: the order carries the cashback", r.status === 201 && r.body.cashback === 30, r);
+  const cbOrder = r.body.orderId;
+  r = await cust("POST", `/wallet/recharge/${cbOrder}/confirm`);
+  check("offers: confirm credits the cashback", r.status === 200 && r.body.cashback === 30, r);
+  r = await cust("POST", `/wallet/recharge/${cbOrder}/confirm`);
+  w = r.body.wallet;
+  check(
+    "offers: cashback credited once, ledger line 'Campaign cashback'",
+    r.body.cashback === 30 && (w.transactions ?? []).filter((t: any) => t.type === "Campaign cashback").length === 1,
+    r.body,
+  );
+  check("offers: the claim is used up", (await db.campaignClaim.findFirstOrThrow({ where: { campaignId: cbId, userId: snehaUser.id } })).status === "USED");
+  r = await cust("POST", "/wallet/recharge", { amount: 500 });
+  check("offers: a used claim adds no more cashback", r.body.cashback === 0, r);
+
+  // Consultation discount: quoted at the discounted rate, used on connect, Astrorize pays the discount
+  r = await cust("GET", "/offers/consult-discount");
+  check("offers: no discount before claiming", r.status === 200 && r.body.discount === null, r);
+  r = await cust("POST", `/offers/${cdId}/claim`);
+  r = await cust("GET", "/offers/consult-discount");
+  check("offers: claimed discount is offered", r.body.discount?.pct === 20, r);
+  await arjun("PATCH", "/portal/presence", { online: true });
+  const listRate: number = (await anon("GET", "/astrologers/pandit-arjun-deshmukh")).body.astrologer?.price;
+  const offerRate = Math.max(1, Math.floor((listRate * 80) / 100));
+  r = await cust("POST", "/consultations", { astrologerId: "arjun", mode: "VOICE", quotedRate: listRate });
+  check("offers: quoting the undiscounted rate asks first (409 rate_changed)", r.status === 409 && r.body.error?.code === "rate_changed" && r.body.error?.rate === offerRate, r);
+  r = await cust("POST", "/consultations", { astrologerId: "arjun", mode: "VOICE", quotedRate: offerRate });
+  check(
+    "offers: consultation at the discounted rate",
+    r.status === 201 && r.body.consultation?.rate === offerRate && r.body.consultation?.listRate === listRate && r.body.consultation?.discountPct === 20,
+    r,
+  );
+  const dcId: string = r.body.consultation?.id;
+  check("offers: not used before it connects", (await db.campaignClaim.findFirstOrThrow({ where: { campaignId: cdId, userId: snehaUser.id } })).usesLeft === 1);
+  r = await cust("POST", `/consultations/${dcId}/connect`);
+  check("offers: used once it connects", r.status === 200 && (await db.campaignClaim.findFirstOrThrow({ where: { campaignId: cdId, userId: snehaUser.id } })).status === "USED", r);
+  await db.consultation.update({ where: { id: dcId }, data: { connectedAt: new Date(Date.now() - 150_000) } });
+  r = await cust("POST", `/consultations/${dcId}/end`);
+  const ds = r.body.settlement;
+  check("offers: settlement shows the discount", ds?.rate === offerRate && ds?.listRate === listRate && ds?.discountPct === 20 && ds?.saved === ds?.billedMins * (listRate - offerRate), ds);
+  const dRef = (await db.consultation.findUniqueOrThrow({ where: { id: dcId } })).ref;
+  const dLine = await db.earningsLine.findFirst({ where: { sessionRef: dRef, kind: "voice" } });
+  check(
+    "offers: astrologer earns on the full price; the line records Astrorize's discount",
+    !!dLine &&
+      dLine.gross === ds.total + dLine.discount &&
+      dLine.discount === ds.billedMins * (listRate - offerRate) &&
+      dLine.fundedBy === "CUSTOMER" &&
+      dLine.amount === Math.floor(((dLine.gross ?? 0) * (dLine.sharePct ?? 0)) / 100),
+    dLine,
+  );
+  await arjun("PATCH", "/portal/presence", { online: false });
+
+  // Finance sees what offers cost; ending a campaign stops it (and its unused claims)
+  r = await fin("GET", "/admin/finance");
+  check("offers: Finance shows the campaign cost", typeof r.body.finance?.kpis?.campaignCost === "string" && r.body.finance?.kpis?.campaignCashback !== "₹0", r.body.finance?.kpis);
+  for (const id of [cbId, cdId, bcId]) {
+    r = await mkt("POST", `/admin/campaigns/${id}/expire`);
+    check(`offers: ${id} ended (audited)`, r.status === 200 && (await db.auditLog.count({ where: { action: "campaign.expire", object: id } })) === 1, r);
+  }
+  r = await anon("GET", "/offers");
+  check("offers: ended campaigns are no longer offered", !(r.body.offers ?? []).some((o: any) => [cbId, cdId, bcId].includes(o.id)), r.body);
+  r = await mkt("GET", "/admin/marketing");
+  check("offers: legacy campaigns are listed and marked", (r.body.marketing?.campaigns ?? []).some((c: any) => c.legacy === true), r.body.marketing?.campaigns);
+}
+
 // Several people per department, managed by the Super Admin
 r = await superA("GET", "/admin/staff");
 const support = r.body.departments?.find((d: any) => d.label === "Customer Support" || d.role === "support");
@@ -606,7 +731,7 @@ await applicationFlow(API, check);
   await astro("POST", `/portal/availability/${blocker}/cancel`);
 }
 
-// Price lock and the welcome free call (spec AR-WEL): one 5-minute free call per mobile number, ever
+// Price lock and the welcome free calls (spec AR-WEL), with the seeded Config: one 5-minute free call per mobile number, ever
 {
   const freshPhone = () => String(7000000000 + Math.floor(Math.random() * 999999999));
   const signUp = async (phone: string) => {
@@ -632,6 +757,7 @@ await applicationFlow(API, check);
   const { c: w1 } = await signUp(p1);
   let wel = await welcomeOf(w1);
   check("welcome: granted on OTP sign-up (5 min, chat + voice)", wel?.status === "granted" && wel.available === true && wel.freeSeconds === 300 && wel.modes.join() === "chat,voice", wel);
+  check("welcome: allowance 1, once ever, none used", wel?.allowance?.count === 1 && wel.allowance.period === "once" && wel.allowance.remaining === 1 && wel.allowance.resetsAt === null, wel?.allowance);
 
   // Price lock: the rate the customer saw must still be the rate
   r = await w1("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT", quotedRate: 1, welcome: true });
@@ -667,15 +793,17 @@ await applicationFlow(API, check);
   const freeId = r.body.consultation?.id;
   r = await w1("POST", `/consultations/${freeId}/connect`);
   check("welcome: connected free call: 300 free seconds, capped at 300", r.status === 200 && r.body.freeSeconds === 300 && r.body.maxSeconds === 300, r);
-  check("welcome: connecting uses it up", (await welcomeOf(w1))?.status === "consumed");
+  wel = await welcomeOf(w1);
+  check("welcome: connecting uses it up", wel?.status === "consumed" && wel.available === false && wel.allowance?.remaining === 0, wel);
+  check("welcome: the connected call is counted once (FreeCallUse)", (await db.freeCallUse.count({ where: { consultationId: freeId, restoredAt: null } })) === 1);
   r = await raghav("GET", "/portal/consultations");
   check("welcome: portal marks the session as a free call", r.body.consultations?.session?.free === true && r.body.consultations?.freeCalls?.today >= 1, r.body.consultations);
   r = await anon("GET", "/astrologers/pt-raghav-joshi");
   check("welcome: busy astrologer shows no free call", r.body.astrologer?.availability === "busy" && r.body.astrologer?.freeCall === false, r.body.astrologer);
 
   // Daily quota: counts connected free calls only
-  r = await hr("PATCH", "/admin/lifecycle/astrologers/raghav/free-calls", { dailyLimit: 51 });
-  check("welcome: daily limit above 50 refused", r.status === 400, r);
+  r = await hr("PATCH", "/admin/lifecycle/astrologers/raghav/free-calls", { dailyLimit: 11 });
+  check("welcome: daily limit above the admin maximum (10/day) refused", r.status === 400, r);
   r = await hr("PATCH", "/admin/lifecycle/astrologers/raghav/free-calls", { dailyLimit: 1 });
   check("welcome: HR sets raghav's daily limit (audited)", r.status === 200 && r.body.freeCalls?.dailyLimit === 1 && !!(await db.auditLog.findFirst({ where: { action: "astrologer.free_calls.limit", object: "raghav" } })), r);
 
@@ -688,7 +816,13 @@ await applicationFlow(API, check);
   const ref1 = (await db.consultation.findUniqueOrThrow({ where: { id: freeId } })).ref;
   r = await raghav("GET", "/portal/earnings");
   const line1 = (r.body.earnings?.statement ?? []).find((l: any) => l.session === ref1);
-  check("welcome: astrologer earns ₹0 for the free part (welcome line)", line1?.kind === "welcome" && line1.amount === 0 && line1.minutes === 0, line1);
+  const sharePct1 = r.body.earnings?.share?.pct;
+  check(
+    "welcome: Astrorize pays the astrologer for the free minutes (5 min × ₹28 × share, PLATFORM-funded)",
+    line1?.kind === "free_call" && line1.fundedBy === "PLATFORM" && line1.minutes === 5 && line1.freeSeconds === 300 && line1.gross === 140 &&
+      line1.sharePct === sharePct1 && line1.amount === Math.floor((140 * sharePct1) / 100),
+    { line1, sharePct1 },
+  );
   r = await w1("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT", quotedRate: 28, welcome: true });
   check("welcome: only once per customer", r.status === 409 && r.body.error?.code === "WEL_NOT_AVAILABLE", r);
 
@@ -719,7 +853,14 @@ await applicationFlow(API, check);
   const ref2 = (await db.consultation.findUniqueOrThrow({ where: { id: paidOnId } })).ref;
   r = await raghav("GET", "/portal/earnings");
   const line2 = (r.body.earnings?.statement ?? []).find((l: any) => l.session === ref2);
-  check("welcome: astrologer earns the paid minutes only, at the snapshot rate", line2?.minutes === 3 && line2.amount === 84, line2);
+  const sharePct2 = r.body.earnings?.share?.pct;
+  check(
+    "welcome: paid minutes at the snapshot rate, astrologer keeps their share",
+    line2?.fundedBy === "CUSTOMER" && line2?.minutes === 3 && line2.gross === 84 && line2.sharePct === sharePct2 && line2.amount === Math.floor((84 * sharePct2) / 100),
+    line2,
+  );
+  const free2 = (r.body.earnings?.statement ?? []).find((l: any) => l.session === ref2 && l.kind === "free_call");
+  check("welcome: and the free 5 minutes on their own compensation line", free2?.fundedBy === "PLATFORM" && free2?.minutes === 5 && free2?.gross === 140, free2);
 
   // Recharging during a free call makes the same session longer without ending it
   const p3 = freshPhone();
@@ -735,7 +876,44 @@ await applicationFlow(API, check);
   // Ended by the astrologer in its first seconds: the free call comes back (bounded, audited)
   r = await raghav("POST", `/portal/consultations/${topUpId}/end`);
   const b3 = await benefitOf(p3);
-  check("welcome: early drop by the astrologer restores it", r.status === 200 && b3?.status === "GRANTED" && b3.faultRestores === 1, b3);
+  check("welcome: early drop by the astrologer restores it", r.status === 200 && b3?.status === "GRANTED" && b3.faultRestores === 1 && (await welcomeOf(w3))?.available === true, b3);
+  check("welcome: the restored call no longer counts", !!(await db.freeCallUse.findUnique({ where: { consultationId: topUpId } }))?.restoredAt);
+
+  // One free call at a time per astrologer: a second customer is told to try again shortly
+  const { c: w4 } = await signUp(freshPhone());
+  const { c: w5 } = await signUp(freshPhone());
+  r = await w4("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT", quotedRate: 28, welcome: true });
+  const inFlightId = r.body.consultation?.id;
+  check("welcome: first free call requested", r.status === 201, r);
+  r = await w5("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT", quotedRate: 28, welcome: true });
+  check("welcome: a second free call with the same astrologer is refused while one is in flight", r.status === 409 && r.body.error?.code === "WEL_ASTROLOGER_BUSY", r);
+  r = await anon("GET", "/astrologers/pt-raghav-joshi");
+  check("welcome: no free-call badge while a free call is in flight", r.body.astrologer?.freeCall === false, r.body.astrologer);
+  await w4("POST", `/consultations/${inFlightId}/end`);
+  r = await w5("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT", quotedRate: 28, welcome: true });
+  check("welcome: free again once the first one is over", r.status === 201, r);
+  await w5("POST", `/consultations/${r.body.consultation?.id}/end`);
+
+  // Two paid sessions connecting with the same astrologer at once: only one goes ACTIVE
+  r = await w2("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT", quotedRate: 28 });
+  const raceA = r.body.consultation?.id;
+  r = await w3("POST", "/consultations", { astrologerId: "raghav", mode: "CHAT", quotedRate: 28 });
+  const raceB = r.body.consultation?.id;
+  const both = await Promise.all([w2("POST", `/consultations/${raceA}/connect`), w3("POST", `/consultations/${raceB}/connect`)]);
+  check("consult: two connects at once — exactly one goes active", both.filter((x) => x.status === 200).length === 1 && both.filter((x) => x.status === 409).length === 1, both.map((x) => x.status));
+  check("consult: never two ACTIVE sessions for one astrologer", (await db.consultation.count({ where: { astrologerId: "raghav", status: "ACTIVE" } })) === 1);
+  await w2("POST", `/consultations/${raceA}/end`);
+  await w3("POST", `/consultations/${raceB}/end`);
+
+  // The astrologer sets their own capacity, per day or per week, within the admin maximum
+  r = await raghav("PATCH", "/portal/free-calls", { limit: 11, period: "DAY" });
+  check("free calls: portal refuses more than the daily maximum", r.status === 400, r);
+  r = await raghav("PATCH", "/portal/free-calls", { limit: 20, period: "WEEK" });
+  check("free calls: portal sets 20 per week (audited)", r.status === 200 && r.body.freeCalls?.limit === 20 && r.body.freeCalls?.period === "week" && !!(await db.auditLog.findFirst({ where: { action: "astrologer.free_calls.limit", object: "raghav", diff: { contains: "20 per week" } } })), r.body);
+  r = await hr("GET", "/admin/lifecycle/astrologers/raghav");
+  check("free calls: HR sees the weekly capacity", r.body.astrologer?.freeCalls?.period === "week" && r.body.astrologer.freeCalls.limit === 20, r.body.astrologer?.freeCalls);
+  r = await hr("PATCH", "/admin/lifecycle/astrologers/raghav/free-calls", { dailyLimit: null });
+  check("free calls: HR puts raghav back on the default", r.status === 200 && r.body.freeCalls?.ownLimit === null && r.body.freeCalls?.period === "day", r.body);
   check("welcome: restore is audited", !!(await db.auditLog.findFirst({ where: { action: "welcome.fault_restore" } })));
 
   // Deleting the account keeps the (hashed) record; the number never gets a second one
@@ -743,11 +921,118 @@ await applicationFlow(API, check);
   r = await w1("POST", "/me/account/delete", { code });
   check("welcome: account deleted", r.status === 200, r);
   const kept = await db.welcomeBenefit.findFirst({ where: { consultationId: freeId } });
-  check("welcome: benefit row kept, unlinked", kept?.userId === null && kept.status === "CONSUMED", kept);
+  check("welcome: benefit row kept, unlinked", kept?.userId === null && kept.status === "GRANTED", kept);
   const { c: again } = await signUp(p1);
-  check("welcome: re-signing up with the same number grants nothing", (await welcomeOf(again)) === null);
+  wel = await welcomeOf(again);
+  check("welcome: re-signing up with the same number grants nothing new", wel?.available === false && wel.allowance?.remaining === 0, wel);
 
   r = await raghav("PATCH", "/portal/presence", { online: false });
+}
+
+// Astrologers set their own price (seeded Config: +₹15 at most per change, ₹5–₹500, once every 7 days)
+{
+  const arjun = await login("arjun.deshmukh@email.com");
+  const before = await db.astrologer.findUniqueOrThrow({ where: { id: "arjun" } });
+  await db.astrologer.update({ where: { id: "arjun" }, data: { priceChangedAt: null } });
+  r = await arjun("GET", "/portal/dashboard");
+  const pr = r.body.dashboard?.pricing;
+  check("price: dashboard shows the price, customer rates and the allowed range", pr?.price === before.price && pr.rates?.video === before.price + 12 && pr.allowed?.max === Math.min(500, before.price + 15) && pr.editable === true && pr.nextChangeOn === null, pr);
+  r = await arjun("PATCH", "/portal/price", { price: before.price + 16 });
+  check("price: raising by more than ₹15 refused", r.status === 400, r);
+  r = await arjun("PATCH", "/portal/price", { price: 4 });
+  check("price: below ₹5 refused", r.status === 400, r);
+  r = await arjun("PATCH", "/portal/price", { price: before.price });
+  check("price: the same price refused", r.status === 400, r);
+  const started = new Date();
+  // An increase waits for approval (client decision): the price doesn't move until staff approve it.
+  r = await arjun("PATCH", "/portal/price", { price: before.price + 10 });
+  check(
+    "price: +₹10 becomes a request waiting for approval (price unchanged, audited)",
+    r.status === 200 && r.body.applied === false && r.body.pricing?.price === before.price && r.body.pricing?.pending?.to === before.price + 10 && r.body.pricing?.nextChangeOn === null &&
+      !!(await db.auditLog.findFirst({ where: { action: "astrologer.price.request", object: "arjun", at: { gte: started } } })),
+    r.body,
+  );
+  const reqId = r.body.pricing?.pending?.id as string;
+  r = await arjun("PATCH", "/portal/price", { price: before.price - 1 });
+  check("price: a second change while one waits is refused (409)", r.status === 409, r);
+  r = await anon("GET", "/astrologers/" + before.slug);
+  check("price: customers still see the current price while it waits", r.body.astrologer?.price === before.price, r.body.astrologer);
+  r = await fin("POST", `/admin/lifecycle/price-requests/${reqId}/approve`);
+  check("price: Finance can't approve a price increase (403)", r.status === 403, r);
+  r = await fin("GET", "/admin/finance/price-changes");
+  check("price: Finance sees the request in Price changes", r.status === 200 && r.body.changes?.some((c: any) => c.id === reqId && c.status === "PENDING"), r.body);
+  r = await superA("GET", "/admin/lifecycle/price-requests");
+  check("price: the queue lists it for the Super Admin (can decide)", r.body.canDecide === true && r.body.pending?.some((p: any) => p.id === reqId && p.astrologer?.id === "arjun"), r.body);
+  r = await superA("GET", "/admin/overview");
+  check("price: the Overview worklist shows increases waiting", r.body.overview?.worklist?.some((w: any) => w.page === "hr" && w.param === "view=prices"), r.body.overview?.worklist);
+  r = await superA("POST", `/admin/lifecycle/price-requests/${reqId}/reject`, {});
+  check("price: rejecting needs a reason (400)", r.status === 400, r);
+  // Withdrawn by the astrologer: no cooldown starts.
+  r = await arjun("POST", "/portal/price/withdraw");
+  check("price: the astrologer withdraws it", r.status === 200 && r.body.pricing?.pending === null && r.body.pricing?.nextChangeOn === null, r.body);
+  r = await arjun("POST", "/portal/price/withdraw");
+  check("price: withdrawing twice is refused (409)", r.status === 409, r);
+  r = await superA("POST", `/admin/lifecycle/price-requests/${reqId}/approve`);
+  check("price: a withdrawn request can't be approved (409)", r.status === 409, r);
+  // Rejected with a reason: shown to the astrologer, price unchanged, no cooldown.
+  r = await arjun("PATCH", "/portal/price", { price: before.price + 5 });
+  const rejId = r.body.pricing?.pending?.id as string;
+  r = await superA("POST", `/admin/lifecycle/price-requests/${rejId}/reject`, { reason: "Please wait for more reviews" });
+  check("price: rejected (audited)", r.status === 200 && !!(await db.auditLog.findFirst({ where: { action: "price.change.reject", object: "arjun", at: { gte: started } } })), r);
+  r = await arjun("GET", "/portal/dashboard");
+  const rej = r.body.dashboard?.pricing;
+  check(
+    "price: the portal shows the rejection and its reason; price unchanged; no cooldown",
+    rej?.price === before.price && rej?.lastDecision?.status === "REJECTED" && rej.lastDecision.reason === "Please wait for more reviews" && rej.nextChangeOn === null && rej.pending === null,
+    rej,
+  );
+  // Re-checked at approval against the price in force now.
+  r = await arjun("PATCH", "/portal/price", { price: before.price + 15 });
+  const bigId = r.body.pricing?.pending?.id as string;
+  await db.astrologer.update({ where: { id: "arjun" }, data: { price: before.price - 1 } });
+  r = await superA("POST", `/admin/lifecycle/price-requests/${bigId}/approve`);
+  check(
+    "price: approval refused when it's now more than ₹15 above the current price (409)",
+    r.status === 409 && (await db.astrologer.findUniqueOrThrow({ where: { id: "arjun" } })).price === before.price - 1,
+    r,
+  );
+  await superA("POST", `/admin/lifecycle/price-requests/${bigId}/reject`, { reason: "Price changed meanwhile" });
+  await db.astrologer.update({ where: { id: "arjun" }, data: { price: before.price } });
+  // Approved: the price goes live and the cooldown starts.
+  r = await arjun("PATCH", "/portal/price", { price: before.price + 10 });
+  const okId = r.body.pricing?.pending?.id as string;
+  const [a1, a2] = await Promise.all([
+    superA("POST", `/admin/lifecycle/price-requests/${okId}/approve`),
+    superA("POST", `/admin/lifecycle/price-requests/${okId}/approve`),
+  ]);
+  check("price: a double-clicked approval applies once (one 200, one 409)", [a1.status, a2.status].sort().join() === "200,409", [a1, a2]);
+  check(
+    "price: approved → live, audited once",
+    (await db.astrologer.findUniqueOrThrow({ where: { id: "arjun" } })).price === before.price + 10 &&
+      (await db.auditLog.count({ where: { action: "price.change.approve", object: "arjun", at: { gte: started } } })) === 1,
+  );
+  r = await arjun("GET", "/portal/dashboard");
+  check("price: the portal shows the approval and the cooldown", r.body.dashboard?.pricing?.lastDecision?.status === "APPROVED" && !!r.body.dashboard?.pricing?.nextChangeOn, r.body.dashboard?.pricing);
+  r = await arjun("PATCH", "/portal/price", { price: before.price });
+  check("price: a second change within 7 days refused", r.status === 409, r);
+  await arjun("PATCH", "/portal/presence", { online: true });
+  const cust = await login("customer@astrorize.com");
+  r = await cust("POST", "/consultations", { astrologerId: "arjun", mode: "CHAT", quotedRate: before.price });
+  check("price: a customer quoting the old price gets 409 rate_changed", r.status === 409 && r.body.error?.code === "rate_changed" && r.body.error?.rate === before.price + 10, r);
+  r = await anon("GET", "/astrologers/" + before.slug);
+  check("price: the public profile shows the new price", r.body.astrologer?.price === before.price + 10, r.body.astrologer);
+  await arjun("PATCH", "/portal/presence", { online: false });
+  // A decrease applies at once (no approval).
+  await db.astrologer.update({ where: { id: "arjun" }, data: { priceChangedAt: null } });
+  r = await arjun("PATCH", "/portal/price", { price: before.price });
+  check(
+    "price: a decrease applies at once (APPLIED, audited)",
+    r.status === 200 && r.body.applied === true && r.body.pricing?.price === before.price && r.body.pricing?.pending === null &&
+      !!(await db.priceChange.findFirst({ where: { astrologerId: "arjun", status: "APPLIED", toPrice: before.price, requestedAt: { gte: started } } })),
+    r.body,
+  );
+  await db.priceChange.deleteMany({ where: { astrologerId: "arjun", requestedAt: { gte: started } } });
+  await db.astrologer.update({ where: { id: "arjun" }, data: { price: before.price, priceChangedAt: before.priceChangedAt } });
 }
 
 // Live sessions: preview and join, details set and edited while live, gifts (HTTP only)
@@ -830,7 +1115,12 @@ await applicationFlow(API, check);
   check("live: the astrologer's console shows the gift", r.body.feed?.giftsTotal === gift?.price && r.body.feed?.gifts?.[0]?.id === g1.body.gift?.id, r.body.feed);
   r = await lal("GET", "/portal/earnings");
   const giftRow = (r.body.earnings?.statement ?? []).find((l: any) => l.kind === "gift");
-  check("live: the gift is in the astrologer's earnings", giftRow?.gifts === gift?.price && giftRow?.amount === 0 && giftRow?.minutes === 0 && r.body.earnings?.gifts >= gift?.price, giftRow);
+  check(
+    "live: the gift is in the astrologer's earnings at their share",
+    giftRow?.gifts === gift?.price && giftRow?.gross === gift?.price && giftRow?.minutes === 0 && giftRow?.fundedBy === "CUSTOMER" &&
+      giftRow?.amount === Math.floor((gift?.price * giftRow?.sharePct) / 100) && r.body.earnings?.gifts >= giftRow?.amount,
+    giftRow,
+  );
 
   r = await lal("POST", "/portal/live/end");
   check("live: lalita ends live", r.status === 200 && r.body.ended === true, r);
@@ -967,7 +1257,11 @@ await applicationFlow(API, check);
   );
   r = await lal("GET", "/portal/earnings");
   const liveLine = (r.body.earnings?.statement ?? []).find((l: any) => l.session === queuedA?.ref);
-  check("live private: earnings line at the locked rate", liveLine?.minutes === 2 && liveLine?.amount === 2 * rate && /Live private/.test(liveLine?.mode), liveLine);
+  check(
+    "live private: earnings line at the locked rate, astrologer's share",
+    liveLine?.minutes === 2 && liveLine?.gross === 2 * rate && liveLine?.amount === Math.floor((2 * rate * liveLine?.sharePct) / 100) && /Live private/.test(liveLine?.mode),
+    liveLine,
+  );
   r = await B("GET", "/live-rooms/lalita");
   check("live private: the room is public again, with sound", r.body.room?.state === "normal" && r.body.room?.audioPaused === false, r.body.room);
   r = await A("GET", "/live-rooms/lalita");
@@ -1036,6 +1330,158 @@ await applicationFlow(API, check);
   check("messages: read time stored in the database (survives restarts)", !!stored?.astrologerReadAt, stored);
   r = await (await login("meera.iyer@email.com"))("POST", `/portal/messages/${unreadThread?.id}/read`);
   check("messages: another astrologer can't mark it read (404)", r.status === 404, r);
+}
+
+// Revenue split and payout batches: prepare a closed cycle's batch (earnings and free-call compensation).
+{
+  const { closedCycles } = await import("../src/lib/earnings.ts");
+  const fin = await login("finance@astrorize.com");
+  const now = new Date();
+  // Move one split line of each kind into closed cycles that have no batch yet.
+  const paidLine = await db.earningsLine.findFirstOrThrow({ where: { fundedBy: "CUSTOMER", amount: { not: null }, payoutBatchId: null } });
+  const freeLine = await db.earningsLine.findFirstOrThrow({ where: { fundedBy: "PLATFORM", amount: { not: null }, payoutBatchId: null } });
+  const earnCycle = closedCycles("EARNINGS", now, 30, 5)[4]!; // older than the seeded batches
+  const freeCycle = closedCycles("FREE_CALLS", now, 30, 1)[0]!;
+  await db.earningsLine.update({ where: { id: paidLine.id }, data: { date: new Date(earnCycle.start.getTime() + 3600_000) } });
+  await db.earningsLine.update({ where: { id: freeLine.id }, data: { date: new Date(freeCycle.start.getTime() + 3600_000) } });
+  // Outside any payout hold for this check.
+  await db.astrologer.updateMany({ where: { id: { in: [paidLine.astrologerId, freeLine.astrologerId] } }, data: { activatedAt: new Date(now.getTime() - 200 * 86400000) } });
+
+  r = await fin("GET", "/admin/finance");
+  const toPrepare = r.body.finance?.toPrepare ?? [];
+  check("payouts: closed cycles with unbatched lines are offered", toPrepare.some((c: any) => c.id === earnCycle.id && c.kind === "EARNINGS") && toPrepare.some((c: any) => c.id === freeCycle.id && c.kind === "FREE_CALLS"), toPrepare);
+  check("payouts: split KPIs present", typeof r.body.finance?.kpis?.platformRevenue === "string" && typeof r.body.finance?.kpis?.freeCallCost === "string", r.body.finance?.kpis);
+  r = await fin("POST", "/admin/payouts/prepare", { kind: "EARNINGS", cycleId: closedCycles("EARNINGS", now, 30, 1)[0]!.id.replace(/-[AB]$/, "-Z") });
+  check("payouts: only a closed cycle can be prepared (400)", r.status === 400, r);
+  r = await fin("POST", "/admin/payouts/prepare", { kind: "EARNINGS", cycleId: earnCycle.id });
+  check("payouts: Finance prepares an earnings batch", r.status === 200 && r.body.already === false && r.body.batch?.id === earnCycle.id, r);
+  const pb = await db.payoutBatch.findUniqueOrThrow({ where: { id: earnCycle.id }, include: { lines: true } });
+  check(
+    "payouts: the batch owes the astrologers' amounts, TDS 5%, lines linked",
+    pb.kind === "EARNINGS" && pb.state === "DRAFT" && pb.lines.some((l) => l.id === paidLine.id) && pb.gross === pb.lines.reduce((s, l) => s + (l.amount ?? 0), 0) && pb.lines.every((l) => l.fundedBy === "CUSTOMER"),
+    pb,
+  );
+  r = await fin("POST", "/admin/payouts/prepare", { kind: "EARNINGS", cycleId: earnCycle.id });
+  check("payouts: preparing the same cycle again changes nothing", r.status === 200 && r.body.already === true && (await db.earningsLine.count({ where: { payoutBatchId: earnCycle.id } })) === pb.lines.length, r);
+  r = await fin("POST", "/admin/payouts/prepare", { kind: "FREE_CALLS", cycleId: freeCycle.id });
+  check("payouts: Finance prepares a free-call compensation batch", r.status === 200 && r.body.batch?.id === freeCycle.id && /^FC-\d{4}-\d{2}$/.test(freeCycle.id), r);
+  const fc = await db.payoutBatch.findUniqueOrThrow({ where: { id: freeCycle.id }, include: { lines: true } });
+  check("payouts: free-call batch takes PLATFORM lines only", fc.kind === "FREE_CALLS" && fc.lines.length > 0 && fc.lines.every((l) => l.fundedBy === "PLATFORM"), fc);
+  check("payouts: prepare is audited", (await db.auditLog.count({ where: { action: "payout.batch.prepare", object: { in: [earnCycle.id, freeCycle.id] } } })) === 2);
+  const sup = await login("support@astrorize.com");
+  r = await sup("POST", "/admin/payouts/prepare", { kind: "FREE_CALLS", cycleId: freeCycle.id });
+  check("payouts: Support can't prepare batches (403)", r.status === 403, r);
+  r = await fin("POST", `/admin/payouts/${freeCycle.id}/approve`);
+  check("payouts: the prepared batch is approved as usual", r.status === 200, r);
+}
+
+// Notifications (the bell), make-good (free replacement call), refund adjustment, suspension reason
+{
+  const sup = await login("support@astrorize.com");
+  const fin = await login("finance@astrorize.com");
+  const comp = await login("compliance@astrorize.com");
+  const superA = await login("admin@astrorize.com");
+  const arjun = await login("arjun.deshmukh@email.com");
+  const vikram = await login("vikram.sethi@email.com");
+  r = await anon("GET", "/notifications");
+  check("bell: needs sign-in (401)", r.status === 401, r);
+  r = await sup("GET", "/notifications");
+  check("bell: staff have no bell (403)", r.status === 403, r);
+  r = await cust("GET", "/notifications");
+  check("bell: customer reads own list + unread count", r.status === 200 && Array.isArray(r.body.notifications) && typeof r.body.unread === "number", r.body);
+
+  // A real connected session to complain about.
+  await arjun("PATCH", "/portal/presence", { online: true });
+  const open = await cust("GET", "/consultations/active");
+  if (open.body.consultation) await cust("POST", `/consultations/${open.body.consultation.id}/end`);
+  r = await cust("POST", "/consultations", { astrologerId: "arjun", mode: "CHAT" });
+  const orig = r.body.consultation;
+  await cust("POST", `/consultations/${orig?.id}/connect`);
+  await cust("POST", `/consultations/${orig?.id}/end`);
+  r = await arjun("POST", "/portal/reports", { subject: "SMOKE make-good test", sessionRef: orig?.ref });
+  const tkt = r.body.caseRef;
+  check("make-good: astrologer report opens a ticket", r.status === 201 && /^CMP-/.test(tkt), r);
+  r = await sup("POST", `/admin/support/${tkt}/makegood/propose`, { minutes: 999 });
+  check("make-good: more than the Config maximum is refused (400)", r.status === 400, r);
+  r = await sup("POST", `/admin/support/${tkt}/makegood/propose`, { minutes: 5 });
+  check("make-good: Support proposes 5 free minutes", r.status === 200 && r.body.minutes === 5, r);
+  r = await sup("POST", `/admin/support/${tkt}/refund/propose`);
+  check("make-good: no refund on top of a proposed make-good (409)", r.status === 409, r);
+  r = await sup("POST", `/admin/support/${tkt}/makegood/approve`);
+  check("make-good: Support can't approve (403)", r.status === 403, r);
+  r = await fin("GET", "/admin/finance");
+  check("make-good: Finance sees it to approve", r.body.finance?.disputeRefunds?.some((x: any) => x.id === tkt && x.kind === "MAKE_GOOD"), r.body.finance?.disputeRefunds);
+  r = await fin("POST", `/admin/support/${tkt}/refund/approve`);
+  check("make-good: it can't be approved as a refund (409)", r.status === 409, r);
+  r = await fin("POST", `/admin/support/${tkt}/makegood/approve`);
+  check("make-good: Finance approves", r.status === 200 && r.body.minutes === 5, r);
+  r = await sup("GET", `/admin/support/${tkt}`);
+  check("make-good: ticket resolved with resolution MAKE_GOOD and an AVAILABLE credit", r.body.case?.state === "RESOLVED" && r.body.case?.resolution === "MAKE_GOOD" && r.body.case?.makeGood?.credit?.status === "AVAILABLE", r.body.case);
+  r = await cust("GET", "/me/makegood");
+  const credit = (r.body.credits ?? []).find((c: any) => c.sessionRef === orig?.ref);
+  check("make-good: customer holds a 5-minute credit with Arjun", credit?.minutes === 5 && credit.astrologerId === "arjun" && !credit.inUse, r.body);
+  r = await cust("GET", "/notifications");
+  const offered = (r.body.notifications ?? []).find((n: any) => n.kind === "makegood.offered");
+  check("make-good: customer notified, unread, links to the profile", !!offered && !offered.read && /^\/astrologer\//.test(offered.href) && r.body.unread >= 1, r.body);
+  r = await arjun("GET", "/notifications");
+  check("make-good: astrologer notified", (r.body.notifications ?? []).some((n: any) => n.kind === "makegood.astrologer"), r.body);
+  r = await arjun("POST", `/notifications/${offered?.id}/read`);
+  check("bell: someone else's notification is 404", r.status === 404, r);
+  r = await cust("POST", `/notifications/${offered?.id}/read`);
+  check("bell: mark one read", r.status === 200, r);
+  r = await cust("POST", "/notifications/read-all");
+  r = await cust("GET", "/notifications");
+  check("bell: read-all clears the count", r.body.unread === 0, r.body);
+  r = await cust("POST", "/consultations", { astrologerId: "arjun", mode: "CHAT", welcome: true, makeGoodCreditId: credit?.id });
+  check("make-good: can't combine with the welcome free call (400)", r.status === 400, r);
+  r = await otp("POST", "/consultations", { astrologerId: "arjun", mode: "CHAT", makeGoodCreditId: credit?.id });
+  check("make-good: another customer can't use it (409)", r.status === 409 && r.body.error?.code === "MAKEGOOD_NOT_AVAILABLE", r);
+  r = await cust("POST", "/consultations", { astrologerId: "arjun", mode: "VIDEO", makeGoodCreditId: credit?.id });
+  const repl = r.body.consultation;
+  check("make-good: replacement consultation starts free (no discount)", r.status === 201 && repl?.complimentary === true && repl?.makeGood === true && !repl?.discountPct, r);
+  r = await cust("POST", `/consultations/${repl?.id}/connect`);
+  check("make-good: 5 free minutes on connect", r.status === 200 && r.body.freeSeconds === 300, r);
+  r = await cust("GET", "/me/makegood");
+  check("make-good: credit used on connect", !(r.body.credits ?? []).some((c: any) => c.id === credit?.id), r.body);
+  r = await cust("POST", `/consultations/${repl?.id}/end`);
+  check("make-good: ₹0 for the free minutes", r.status === 200 && r.body.settlement?.total === 0 && r.body.settlement?.makeGood === true, r.body);
+  const replRef = (await cust("GET", `/consultations/${repl?.id}`)).body.consultation?.ref;
+  check("make-good: no compensation line for the astrologer", (await db.earningsLine.count({ where: { sessionRef: replRef } })) === 0);
+
+  // Refund on a billed session: the astrologer's share comes back as a negative line.
+  const billed = await db.consultation.findFirst({ where: { status: "ENDED", total: { gt: 4 }, customerId: { not: null } }, orderBy: { endedAt: "desc" } });
+  const taken = billed ? await db.supportTicket.findFirst({ where: { sessionRef: billed.ref, refundState: { not: "NONE" } } }) : null;
+  if (billed && !taken) {
+    const line = await db.earningsLine.findFirst({ where: { sessionRef: billed.ref, fundedBy: "CUSTOMER" } });
+    r = await arjun("POST", "/portal/reports", { subject: "SMOKE refund adjustment test", sessionRef: billed.ref });
+    const rt = r.body.caseRef;
+    r = await sup("POST", `/admin/support/${rt}/refund/propose`, { amount: billed.total + 1 });
+    check("refund: more than billed is refused (409)", r.status === 409, r);
+    r = await sup("POST", `/admin/support/${rt}/refund/propose`, { amount: 4 });
+    check("refund: Support proposes a partial ₹4 refund", r.status === 200, r);
+    r = await fin("POST", `/admin/support/${rt}/refund/approve`);
+    check("refund: Finance approves ₹4", r.status === 200 && r.body.billed === "₹4", r);
+    const adj = await db.earningsLine.findFirst({ where: { kind: "refund_adjustment", sessionRef: rt } });
+    const pct = line ? (line.sharePct ?? 100) : null;
+    check(
+      "refund: negative adjustment = −(share of ₹4), customer-funded",
+      pct === null || Math.floor((4 * pct) / 100) === 0 ? !adj : adj?.amount === -Math.floor((4 * pct) / 100) && adj.fundedBy === "CUSTOMER" && adj.gross === -4,
+      adj,
+    );
+    check("refund: ticket resolution REFUND", (await db.supportTicket.findUnique({ where: { id: rt } }))?.resolution === "REFUND");
+  }
+
+  // Suspension reason shown to the astrologer, cleared on lift.
+  r = await comp("POST", "/admin/suspensions/vikram", { level: "partial", reason: "SMOKE: repeated late joins" });
+  check("suspension: compliance suspends with a reason", r.status === 200, r);
+  r = await vikram("GET", "/portal/account");
+  check("suspension: portal shows the reason and date", r.body.account?.status?.suspensionReason === "SMOKE: repeated late joins" && !!r.body.account?.status?.suspendedOn, r.body.account?.status);
+  r = await vikram("GET", "/notifications");
+  check("suspension: astrologer notified", (r.body.notifications ?? []).some((n: any) => n.kind === "account.suspended" && /SMOKE: repeated late joins/.test(n.body)), r.body);
+  r = await superA("POST", "/admin/suspensions/vikram", { level: "none", reason: "SMOKE: lifted after review" });
+  check("suspension: super lifts it", r.status === 200, r);
+  r = await vikram("GET", "/portal/account");
+  check("suspension: reason cleared on lift", r.body.account?.status?.suspension === "none" && !r.body.account?.status?.suspensionReason, r.body.account?.status);
 }
 
 // Logout revokes session

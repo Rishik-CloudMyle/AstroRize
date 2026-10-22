@@ -183,7 +183,14 @@ export default function AstrologersList({ astrologers, initialOpen }: { astrolog
                           className="h-[34px] w-[34px] flex-[0_0_34px] rounded-full object-cover"
                         />
                         <div className="min-w-0">
-                          <b className="block truncate text-ink">{a.name}</b>
+                          <button
+                            type="button"
+                            onClick={() => setOpenId(a.id)}
+                            aria-haspopup="dialog"
+                            className="block max-w-full truncate border-0 bg-transparent p-0 text-left font-bold text-ink hover:underline"
+                          >
+                            {a.name}
+                          </button>
                           <span className="font-mono text-[11px] text-[#78716c]">{a.id}</span>
                         </div>
                       </div>

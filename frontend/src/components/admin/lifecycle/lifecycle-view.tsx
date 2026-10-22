@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAction, useAdmin } from "@/components/admin/admin-provider";
+import { useAction } from "@/components/admin/admin-provider";
 import SortSelect, { useUrlSort } from "@/components/admin/sort-select";
 import { PANEL, TD, TH, TH_SM } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
@@ -11,16 +11,12 @@ import { ApplicationDialog } from "./profile-dialogs";
 import { stateTone } from "./stages";
 
 export default function LifecycleView({ data, initialApp }: { data: LifecycleData; initialApp?: string }) {
-  const { say } = useAdmin();
   const { run } = useAction();
   const [filter, setFilter] = useState("All");
   const [sort, setSort] = useUrlSort(APPLICATION_SORTS, APPLICATION_DEFAULT_SORT);
   const [openApp, setOpenApp] = useState<string | null>(
     data.applications.some((a) => a.id === initialApp) ? (initialApp as string) : null,
   );
-  // "Return to negotiation" has no API yet; the created price version comes back from the API.
-  const [pricingStage, setPricingStage] = useState<"pending" | "negotiation" | "approved">("pending");
-  const [createdVersion, setCreatedVersion] = useState<string | null>(null);
   const nego = data.negotiation;
   const round = nego?.round ?? 0;
   const max = nego?.maxRounds ?? 0;
@@ -53,27 +49,7 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
   };
   const acceptRates = async () => {
     if (!nego) return;
-    const res = await applicantAct(
-      { id: nego.appId, version: nego.version },
-      "accept-rates",
-      "Rates accepted and sent to pricing approval.",
-    );
-    if (res) setPricingStage("pending");
-  };
-  const pricingReturn = () => {
-    setPricingStage("negotiation");
-    say(`Returned to negotiation. Round ${max} of ${max} opened.`);
-  };
-  const pricingApprove = async () => {
-    if (pricingStage === "approved") return;
-    const res = await run(
-      () => api.post<{ version: string }>("/admin/pricing/versions"),
-      (r) => `Price Version ${r.version} created — immutable. Effective ${data.pricing.effective}.`,
-    );
-    if (res) {
-      setCreatedVersion(res.version);
-      setPricingStage("approved");
-    }
+    await applicantAct({ id: nego.appId, version: nego.version }, "accept-rates", "Rates accepted — the application moves to the Pricing stage.");
   };
 
   const left = Math.max(0, max - round);
@@ -134,7 +110,17 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
                 return (
                   <tr key={a.id} style={{ background: a.breach ? "#fff1f2" : "transparent" }}>
                     <td className={`${TD} px-2.5 py-[11px] font-mono text-[11.5px] text-[#57534e]`}>{a.id}</td>
-                    <td className={`${TD} px-2.5 py-[11px] font-bold text-ink`}>{a.name}</td>
+                    <td className={`${TD} px-2.5 py-[11px] font-bold text-ink`}>
+                      {/* The name opens the application too (on a phone "Open" is off to the right). */}
+                      <button
+                        type="button"
+                        onClick={() => open(a.id)}
+                        aria-haspopup="dialog"
+                        className="border-0 bg-transparent p-0 text-left font-bold text-ink hover:underline"
+                      >
+                        {a.name}
+                      </button>
+                    </td>
                     <td className={`${TD} px-2.5 py-[11px] text-[#57534e]`}>{a.skill}</td>
                     <td className={`${TD} px-2.5 py-[11px]`}>
                       <span
@@ -176,104 +162,59 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
 
       {openApp && <ApplicationDialog key={openApp} id={openApp} onClose={() => setOpenApp(null)} />}
 
-      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] items-start gap-4">
-        {nego && (
-          <div className={`${PANEL} relative p-5`}>
-            <h2 className="mt-0 mb-1 text-[16px] font-bold">
-              Negotiation · {nego.appId} {nego.applicant}
-            </h2>
-            <p className="mt-0 mb-3.5 text-[12px] text-[#78716c]">
-              Round {round} of {max}. {left} counter-offer
-              {left === 1 ? "" : "s"} remaining.
-            </p>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-[13px]">
-                <thead>
-                  <tr>
-                    <th className={`${TH_SM} text-left`}>Modality</th>
-                    <th className={`${TH_SM} text-right`}>Requested</th>
-                    <th className={`${TH_SM} text-right`}>Proposed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nego.rows.map((n) => (
-                    <tr key={n.mode}>
-                      <td className={`${TD} p-2.5 font-semibold text-[#57534e]`}>{n.mode}</td>
-                      <td className={`${TD} p-2.5 text-right text-[#78716c] tabular-nums`}>{n.requested}</td>
-                      <td className={`${TD} p-2.5 text-right font-bold text-amber-700 tabular-nums`}>{n.proposed}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-3.5 flex flex-wrap gap-[9px]">
-              {capReached ? (
-                <span className="inline-flex h-10 items-center rounded-[11px] border border-dashed border-stone-300 bg-stone-100 px-4 text-[13px] font-bold text-[#78716c]">
-                  Counter-offer — round cap reached
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={counterOffer}
-                  className="h-10 rounded-[11px] border border-line bg-white px-4 text-[13px] font-bold"
-                >
-                  Counter-offer
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => void acceptRates()}
-                className="h-10 rounded-[11px] border-0 bg-amber-500 px-4 text-[13px] font-bold text-ink"
-              >
-                Accept &amp; send to pricing
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="relative rounded-[18px] border border-amber-200 bg-amber-50 p-5">
-          <h2 className="mt-0 mb-1 text-[16px] font-bold">Pricing approval</h2>
-          <p className="mt-0 mb-3.5 text-[12px] text-amber-800">
-            Approving creates an immutable Price Version. Corrections create a new version — nothing is edited in place.
+      {nego && (
+        <div className={`${PANEL} relative mt-4 max-w-[640px] p-5`}>
+          <h2 className="mt-0 mb-1 text-[16px] font-bold">
+            Negotiation · {nego.appId} {nego.applicant}
+          </h2>
+          <p className="mt-0 mb-3.5 text-[12px] text-[#78716c]">
+            Round {round} of {max}. {left} counter-offer
+            {left === 1 ? "" : "s"} remaining.
           </p>
-          <div className="flex flex-wrap gap-4">
-            <div>
-              <div className="text-[11px] font-bold text-amber-800">Effective date</div>
-              <b className="text-[16px]">{data.pricing.effective}</b>
-            </div>
-            <div>
-              <div className="text-[11px] font-bold text-amber-800">Approval mode</div>
-              <b className="text-[16px]">{data.pricing.mode}</b>
-            </div>
-            <div>
-              <div className="text-[11px] font-bold text-amber-800">Version to create</div>
-              <b className="font-mono text-[16px]">{data.pricing.version}</b>
-            </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr>
+                  <th className={`${TH_SM} text-left`}>Modality</th>
+                  <th className={`${TH_SM} text-right`}>Requested</th>
+                  <th className={`${TH_SM} text-right`}>Proposed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {nego.rows.map((n) => (
+                  <tr key={n.mode}>
+                    <td className={`${TD} p-2.5 font-semibold text-[#57534e]`}>{n.mode}</td>
+                    <td className={`${TD} p-2.5 text-right text-[#78716c] tabular-nums`}>{n.requested}</td>
+                    <td className={`${TD} p-2.5 text-right font-bold text-amber-700 tabular-nums`}>{n.proposed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div className="mt-4 flex flex-wrap gap-[9px]">
-            <button
-              type="button"
-              onClick={pricingReturn}
-              className="h-10 rounded-[11px] border border-amber-200 bg-white px-4 text-[13px] font-bold text-amber-800"
-            >
-              Return to negotiation
-            </button>
-            {pricingStage === "approved" ? (
-              <span className="inline-flex h-10 items-center rounded-[11px] border border-emerald-200 bg-emerald-50 px-4 text-[13px] font-bold text-emerald-700">
-                ✓ {createdVersion} created · immutable
+          <div className="mt-3.5 flex flex-wrap gap-[9px]">
+            {capReached ? (
+              <span className="inline-flex h-10 items-center rounded-[11px] border border-dashed border-stone-300 bg-stone-100 px-4 text-[13px] font-bold text-[#78716c]">
+                Counter-offer — round cap reached
               </span>
             ) : (
               <button
                 type="button"
-                onClick={() => void pricingApprove()}
-                className="h-10 rounded-[11px] border-0 bg-amber-500 px-[18px] text-[13px] font-bold text-ink"
+                onClick={counterOffer}
+                className="h-10 rounded-[11px] border border-line bg-white px-4 text-[13px] font-bold"
               >
-                Approve — step-up MFA
+                Counter-offer
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => void acceptRates()}
+              className="h-10 rounded-[11px] border-0 bg-amber-500 px-4 text-[13px] font-bold text-ink"
+            >
+              Accept &amp; send to pricing
+            </button>
           </div>
         </div>
-      </div>
+      )}
     </>
   );
 }

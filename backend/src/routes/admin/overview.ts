@@ -4,6 +4,7 @@ import { db } from "../../db.ts";
 import { Prisma } from "../../generated/prisma/client.ts";
 import { ageLabel, byNameMatch, istDateKey, istDayMonth, istTime, rupee } from "../../lib/format.ts";
 import { walletTrialBalance } from "../../lib/ledger.ts";
+import { offerSummary } from "../../lib/campaigns.ts";
 import { adminOf, capabilitiesOf, pagesOf, requirePage, type PageKey } from "../../lib/rbac.ts";
 import { refundProposerId } from "./support.ts";
 import { hostedLiveRoom } from "../../lib/presence.ts";
@@ -100,8 +101,9 @@ async function analytics(now: Date) {
         SELECT ${CHANNEL} AS channel, count(*) AS n FROM "Consultation" WHERE "status" = 'ACTIVE' GROUP BY 1`,
       db.consultation.count({ where: { status: "REQUESTED" } }),
       db.consultation.findFirst({ where: { status: "REQUESTED" }, orderBy: { requestedAt: "asc" }, select: { requestedAt: true } }),
-      db.liveRoom.count({ where: { isLive: true } }),
-      db.liveQueueEntry.count({ where: { status: "WAITING", room: { isLive: true } } }),
+      // Hosted rooms only (host still connected), the same rooms Live monitoring lists.
+      db.liveRoom.count({ where: hostedLiveRoom() }),
+      db.liveQueueEntry.count({ where: { status: "WAITING", room: hostedLiveRoom() } }),
       // The public roster: the astrologers the directory lists.
       db.astrologer.groupBy({ by: ["presence"], where: { lifecycle: "active", suspension: { not: "full" } }, _count: { _all: true } }),
       db.consultation.aggregate({ where: { status: "ENDED", connectedAt: thisWeek }, _count: { _all: true }, _sum: { total: true } }),
@@ -172,7 +174,7 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
   const slaDays = await configNumber("hr.application.review_sla_days", 5);
   const slaCutoff = new Date(now.getTime() - slaDays * 86400000);
 
-  const [drafts, approved, configs, proposed, walletRefunds, breached, overSla, flagged, campaignsToApprove, campaignDrafts] = await Promise.all([
+  const [drafts, approved, configs, proposed, walletRefunds, breached, overSla, flagged, campaignsToApprove, campaignDrafts, priceRequests] = await Promise.all([
     can("finance", "payout.approve") ? db.payoutBatch.findMany({ where: { state: "DRAFT" }, orderBy: { createdAt: "asc" } }) : [],
     can("finance", "payout.release")
       ? db.payoutBatch.findMany({ where: { state: "APPROVED", OR: [{ approvedById: null }, { approvedById: { not: me } }] }, orderBy: { approvedAt: "asc" } })
@@ -193,6 +195,8 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
     can("marketing", "campaign.submit") && !caps.includes("campaign.approve")
       ? db.campaign.findMany({ where: { state: "DRAFT" }, orderBy: { rank: "asc" } })
       : [],
+    // Astrologers' price increases waiting for a decision (decreases apply at once).
+    can("hr", "price.approve") ? db.priceChange.findMany({ where: { status: "PENDING" }, orderBy: { requestedAt: "asc" }, select: { requestedAt: true } }) : [],
   ]);
   // A refund this person proposed needs someone else (compared by person, as the approve route does).
   const mine = await Promise.all(proposed.map((t) => refundProposerId(t.id)));
@@ -203,7 +207,7 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
     ...drafts.map((b) => ({
       ico: "₹",
       title: `Payout batch ${b.id} awaiting approval`,
-      sub: `${b.astrologers} astrologers · ${lakh(b.gross)} · step-up MFA`,
+      sub: `${b.kind === "FREE_CALLS" ? "Free-call compensation · " : ""}${b.astrologers} astrologers · ${lakh(b.gross)}`,
       age: ageLabel(b.createdAt, now),
       tone: "amber",
       page: "finance" as const,
@@ -212,7 +216,7 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
     ...approved.map((b) => ({
       ico: "₹",
       title: `Payout batch ${b.id} awaiting release`,
-      sub: b.approvedByName ? `Approved by ${b.approvedByName} · ${lakh(b.gross)}` : lakh(b.gross),
+      sub: `${b.kind === "FREE_CALLS" ? "Free-call compensation · " : ""}${b.approvedByName ? `Approved by ${b.approvedByName} · ` : ""}${lakh(b.gross)}`,
       age: b.approvedAt ? ageLabel(b.approvedAt, now) : "—",
       tone: "amber",
       page: "finance" as const,
@@ -220,8 +224,8 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
     })),
     ...toApprove.map((t) => ({
       ico: "↺",
-      title: `Refund on ${t.id} awaiting your approval`,
-      sub: `${rupee(t.refundAmount)} · proposed by ${t.proposedBy ?? "Support"} · ${t.subject}`,
+      title: t.state === "MAKEGOOD_PROPOSED" ? `Free replacement call on ${t.id} awaiting your approval` : `Refund on ${t.id} awaiting your approval`,
+      sub: `${t.state === "MAKEGOOD_PROPOSED" ? "Instead of a refund" : rupee(t.refundAmount)} · proposed by ${t.proposedBy ?? "Support"} · ${t.subject}`,
       age: ageLabel(t.createdAt, now),
       tone: "amber",
       page: pages.includes("finance") ? ("finance" as const) : ("support" as const),
@@ -263,6 +267,19 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
           },
         ]
       : []),
+    ...(priceRequests.length
+      ? [
+          {
+            ico: "₹",
+            title: `${priceRequests.length} price increase${priceRequests.length === 1 ? "" : "s"} waiting`,
+            sub: "Astrologers' new prices · approve or reject before customers see them",
+            age: ageLabel(priceRequests[0]!.requestedAt, now),
+            tone: "amber",
+            page: "hr" as const,
+            param: "view=prices",
+          },
+        ]
+      : []),
     ...(flagged.length
       ? [
           {
@@ -276,7 +293,7 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
           },
         ]
       : []),
-    ...campaignsToApprove.map((c) => ({ ico: "◈", title: `Campaign ${c.id} awaiting approval`, sub: `${c.name} · ${c.cashback} cashback`, age: "—", tone: "plain", page: "marketing" as const, param: null })),
+    ...campaignsToApprove.map((c) => ({ ico: "◈", title: `Campaign ${c.id} awaiting approval`, sub: `${c.name} · ${offerSummary(c)}`, age: "—", tone: "plain", page: "marketing" as const, param: null })),
     ...campaignDrafts.map((c) => ({ ico: "◈", title: `Campaign ${c.id} is still a draft`, sub: `${c.name} · submit it for Admin approval`, age: "—", tone: "plain", page: "marketing" as const, param: null })),
   ];
 }

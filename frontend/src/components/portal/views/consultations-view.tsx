@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api/client";
 import { countdown, rupee } from "@/lib/portal/format";
@@ -38,11 +38,13 @@ function factsOf(profile: ConsultCustomer | null): string {
   return [profile.age !== null ? `Age ${profile.age}` : "Age not shared", profile.gender, profile.city].filter(Boolean).join(" · ");
 }
 
+const noSubscribe = () => () => {};
+
 /** A customer's welcome free call: distinct from paid requests. */
 function FreeBadge({ className = "" }: { className?: string }) {
   return (
     <span
-      title="The customer's welcome free call: the free minutes earn nothing; any paid minutes after them earn as usual."
+      title="The customer's free call: Astrorize pays you for the free minutes (monthly, at your rate × your share); any paid minutes after them earn as usual."
       className={`inline-flex h-[22px] items-center rounded-full bg-emerald-700 px-2 text-[10.5px] font-extrabold tracking-[.04em] text-white ${className}`}
     >
       🎁 FREE CALL
@@ -75,6 +77,13 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
   const queueSize = useRef(initial.queue.length);
   // The session window: opens by itself when a session starts (and on arrival during one).
   const [windowFor, setWindowFor] = useState<string | null>(initial.session?.id ?? null);
+  // The session window is portalled into <body>, which only exists in the browser: a page loaded
+  // while a session is in progress must not render it on the server.
+  const inBrowser = useSyncExternalStore(
+    noSubscribe,
+    () => true,
+    () => false,
+  );
   const sessionRef = useRef<string | null>(initial.session?.id ?? null);
   // Set while this astrologer is ending the session, so it isn't reported as ended by the customer.
   const endingRef = useRef(false);
@@ -221,10 +230,10 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
         <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
           <FreeBadge />
           <b className="text-[13.5px] text-emerald-900 tabular-nums">
-            {data.freeCalls.remaining} of {data.freeCalls.limit} free calls left today
+            {data.freeCalls.remaining} of {data.freeCalls.limit} free calls left {data.freeCalls.period === "week" ? "this week" : "today"}
           </b>
           <span className="text-[12px] text-emerald-900/75">
-            New customers can use their welcome free call with you. The free minutes earn nothing; paid minutes after them earn as usual.
+            Customers can use their welcome free calls with you, one at a time. Change how many you take on your dashboard.
           </span>
         </div>
       )}
@@ -392,7 +401,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                     {session.mode}
                     {session.free &&
                       (sessionSecs < session.freeSeconds
-                        ? ` · 🎁 free call · ${mmss(session.freeSeconds - sessionSecs)} free left`
+                        ? ` · 🎁 ${session.makeGood ? "free replacement call" : "free call"} · ${mmss(session.freeSeconds - sessionSecs)} free left`
                         : " · 🎁 free time over — now billed")}
                     {session.profile && (
                       <>
@@ -458,6 +467,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
 
       {/* The session's own window (chat, voice or video), over the whole portal. */}
       {session &&
+        inBrowser &&
         windowFor === session.id &&
         createPortal(
           <SessionWindow
@@ -477,7 +487,9 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                 )}
                 {session.free && (
                   <span className="inline-flex h-7 items-center rounded-full bg-emerald-400/15 px-3 text-[12px] font-bold text-emerald-300">
-                    {sessionSecs < session.freeSeconds ? `🎁 Free call · ${mmss(session.freeSeconds - sessionSecs)} free left` : "🎁 Free time over — now billed"}
+                    {sessionSecs < session.freeSeconds
+                      ? `🎁 ${session.makeGood ? "Free replacement call" : "Free call"} · ${mmss(session.freeSeconds - sessionSecs)} free left`
+                      : "🎁 Free time over — now billed"}
                   </span>
                 )}
               </>

@@ -1,6 +1,8 @@
 // Shared types for the admin console. lib/admin/api.ts turns the Node API's answers
 // into these view shapes (adding the prototype's colours), so the pages stay presentational.
 
+import type { PriceChange } from "./price-changes";
+
 export type Role = "super" | "finance" | "support" | "compliance" | "marketing";
 
 /** One key per console page; CAPS decides which keys a role may open. */
@@ -280,7 +282,22 @@ export interface AstrologerDetail {
   rating: number | null;
   ratings: number;
   reviews: number;
-  price: { chat: string; voice: string; video: string; instant: string; multiplier: number; was: string | null };
+  /** changedAt: when the astrologer last changed their own price in the portal ("22 Oct 2026"), or null */
+  price: {
+    /** Chat & voice ₹/min */
+    value: number;
+    chat: string;
+    voice: string;
+    video: string;
+    instant: string;
+    multiplier: number;
+    was: string | null;
+    changedAt: string | null;
+    /** An increase waiting for approval, or null */
+    pending: PriceChange | null;
+    /** Recent decided changes, newest first (empty for changes made before approvals existed) */
+    history: PriceChange[];
+  };
   month: { consultations: number; minutes: number; billed: string };
   lastConsultation: string | null;
   contact: { email: string | null; phone: string | null; lastSignIn: string | null } | null;
@@ -293,17 +310,29 @@ export interface AstrologerDetail {
   gallery: string[];
   /** Welcome campaign: whether customers can use their free call with this astrologer. */
   freeCalls: {
+    /** Taking free calls right now: the campaign is on and the astrologer takes part */
     enabled: boolean;
-    /** Their own daily limit, or null for the campaign default */
-    dailyLimit: number | null;
-    defaultLimit: number;
-    effectiveLimit: number;
-    /** Free calls connected today (IST) */
-    today: number;
+    /** The astrologer's own switch (portal or HR) */
+    optedIn: boolean;
     /** The campaign itself is switched on (Config "welcome.enabled") */
     campaignOn: boolean;
-    /** Highest daily limit that may be set */
-    maxLimit: number;
+    /** Their own number, or null for the campaign default (per day) */
+    ownLimit: number | null;
+    /** day | week — the period their capacity counts over */
+    period: "day" | "week";
+    /** Capacity in force (capped to the admin maximum for the period) */
+    limit: number;
+    isDefault: boolean;
+    defaultLimit: number;
+    /** Free calls connected this period (today, or this Mon–Sun week, IST) */
+    used: number;
+    remaining: number;
+    resetsAt: string;
+    /** Highest capacity that may be set per day / per week (Config) */
+    maxPerDay: number;
+    maxPerWeek: number;
+    /** Length of each free call, in seconds */
+    freeSeconds: number;
   };
 }
 
@@ -350,12 +379,39 @@ export interface StaffDepartment {
 // ── Marketing ──
 export type CampaignState = "DRAFT" | "SUBMITTED" | "UNDER_REVIEW" | "ACTIVE" | "EXPIRED";
 
+export type CampaignKind = "RECHARGE_CASHBACK" | "CONSULT_DISCOUNT" | "BONUS_CREDIT";
+
 export interface Campaign {
   id: string;
   name: string;
+  /** Legacy display fields (campaigns made before offers existed). */
   denoms: string;
   cashback: string;
   state: CampaignState;
+  kind: CampaignKind;
+  /** Made before offers existed: listed only, never claimable. */
+  legacy: boolean;
+  /** "10% cashback on recharges of ₹500 or more, up to ₹100" */
+  summary: string;
+  description: string;
+  percent: number | null;
+  /** The percent that applies after the cashback floor (lower than `percent` when clamped). */
+  appliedPct: number | null;
+  flatAmount: number | null;
+  minRecharge: number | null;
+  maxBenefit: number | null;
+  /** IST calendar days, "2026-10-22" (null: from approval / until ended). */
+  startsOn: string | null;
+  endsOn: string | null;
+  /** "22 Oct 2026 – 31 Oct 2026" */
+  dates: string;
+  claimValidDays: number;
+  usesPerCustomer: number;
+  audience: "ALL" | "NEW";
+  /** Live and claimable now. */
+  open: boolean;
+  claims: number;
+  used: number;
 }
 
 export interface Gift {
@@ -371,9 +427,18 @@ export interface Gift {
 }
 
 export interface MarketingData {
-  ribbon: string[];
-  activeIndex: number;
-  ribbonCampaign: string;
+  /** How many campaigns are at each step: DRAFT → SUBMITTED → ACTIVE → EXPIRED. */
+  flow: { state: string; count: number }[];
+  /** "CMP-14 · Recharge more, get more" for each live campaign. */
+  activeCampaigns: string[];
+  /** marketing.campaign.max_discount_pct: the most cashback a campaign may advertise. */
+  maxDiscountPct: number;
+  /** wallet.cashback.floor_pct, Finance's floor mode, and the most percent the floor lets apply. */
+  floorPct: number;
+  floorMode: "reject" | "adjust";
+  floorCapPct: number;
+  /** marketing.bonus_credit.max (₹) */
+  bonusMax: number;
   campaigns: Campaign[];
   gifts: Gift[];
   giftCap: string;
@@ -382,8 +447,16 @@ export interface MarketingData {
 // ── Finance ──
 export type BatchState = "DRAFT" | "APPROVED" | "RELEASED";
 
+export type BatchKind = "EARNINGS" | "FREE_CALLS";
+
 export interface PayoutBatch {
   id: string;
+  /** EARNINGS (customer-paid shares, half-monthly) | FREE_CALLS (free-call compensation, paid by Astrorize) */
+  kind: BatchKind;
+  /** "Earnings · 1–15 Oct 2026" */
+  cycle: string;
+  /** Earnings lines in the batch (0 on batches made before lines were linked) */
+  lines: number;
   astrologers: number;
   gross: string;
   /** Gross in rupees and the batch's ISO creation time, for sorting. */
@@ -408,15 +481,47 @@ export interface DisputeRefund {
   subject: string;
   customer: string;
   session: string;
+  /** REFUND, or MAKE_GOOD: a free replacement call with the same astrologer instead of money back. */
+  kind: "REFUND" | "MAKE_GOOD";
+  /** "₹120", or "10 min free call" for a make-good. */
   amount: string;
   proposedBy: string | null;
   proposedById: string | null;
+}
+
+/** A closed payout cycle with something to pay and no batch yet. */
+export interface PrepareCandidate {
+  kind: BatchKind;
+  /** The batch id it will get, e.g. "PB-2026-10-B" or "FC-2026-10" */
+  id: string;
+  label: string;
+  lines: number;
+  carriedOver: number;
+  astrologers: number;
+  gross: number;
+  grossLabel: string;
+  tdsLabel: string;
+  heldPaused: number;
+  heldNew: number;
+}
+
+/** A payout cycle still running: nothing in it can be prepared before it closes. */
+export interface RunningCycle {
+  kind: BatchKind;
+  id: string;
+  /** "16–31 Oct 2026" */
+  label: string;
+  /** "31 Oct" */
+  closes: string;
 }
 
 export interface FinanceData {
   kpis: Kpi[];
   cycle: string;
   batches: PayoutBatch[];
+  toPrepare: PrepareCandidate[];
+  running: RunningCycle[];
+  tdsPct: number;
   disputeRefunds: DisputeRefund[];
   denominations: number[];
   enabledDenominations: number[];
@@ -439,6 +544,8 @@ export interface Ticket {
   alias: string;
   session: string;
   refundState: "NONE" | "PROPOSED" | "INITIATED";
+  /** What was granted: REFUND | MAKE_GOOD, else null. */
+  resolution: "REFUND" | "MAKE_GOOD" | null;
 }
 
 export interface Evidence {
@@ -460,9 +567,36 @@ export interface SupportCase {
   /** User id of the proposer (null for older data); the approver must be a different person. */
   proposedById: string | null;
   approvedBy: string | null;
+  /** Why a refund can't be proposed on this ticket (already refunded for the session, nothing billed), else null. */
+  refundBlocked: string | null;
+  /** Why a free replacement call can't be proposed (no real connected session, a remedy elsewhere), else null. */
+  makeGoodBlocked: string | null;
+  /** What was granted once approved. */
+  resolution: "REFUND" | "MAKE_GOOD" | null;
+  /** What is proposed or granted on this ticket (null when nothing is). */
+  remedy: "REFUND" | "MAKE_GOOD" | null;
   metering: { label: string; value: string }[];
   evidence: Evidence[];
-  refund: { billed: string; buckets: { label: string; value: string; total?: boolean }[] };
+  refund: {
+    billed: string;
+    billedValue: number;
+    /** The refund proposed or paid ("₹40"); may be less than billed. */
+    amount: string | null;
+    buckets: { label: string; value: string; total?: boolean }[];
+    /** The astrologer's share a refund takes back, percent (null when they earned nothing on it). */
+    astrologerSharePct: number | null;
+    /** The negative earnings line written on approval, as a sentence. */
+    adjustment: string | null;
+  };
+  makeGood: {
+    maxMinutes: number;
+    validDays: number;
+    suggestedMinutes: number;
+    astrologer: string | null;
+    /** Minutes proposed or granted. */
+    minutes: number | null;
+    credit: { status: "AVAILABLE" | "USED" | "EXPIRED" | "CANCELLED"; minutes: number; validUntil: string; used: boolean } | null;
+  };
 }
 
 // ── Live monitoring ──
@@ -499,6 +633,27 @@ export interface MonitoringData {
   flagReasons: string[];
   /** The observer lease this admin holds right now, if any. */
   myLease: { id: string; roomId: string; astrologer: string } | null;
+}
+
+/** none | partial (no new sessions or lives, still listed) | full (also hidden and can't be messaged) */
+export type SuspensionLevel = "none" | "partial" | "full";
+
+/** GET /admin/suspensions — suspended astrologers and who can be suspended. */
+export interface SuspensionsData {
+  suspended: {
+    id: string;
+    name: string;
+    photo: string;
+    level: Exclude<SuspensionLevel, "none">;
+    /** When, by whom and why it was last changed (from the audit log; null for older suspensions). */
+    since: string | null;
+    by: string | null;
+    reason: string | null;
+  }[];
+  /** Active astrologers who aren't suspended. */
+  astrologers: { id: string; name: string }[];
+  canSuspend: boolean;
+  canRestore: boolean;
 }
 
 /** GET /admin/monitoring/leases/:id — what the observer sees. */
@@ -582,8 +737,9 @@ export interface AuditEntry {
 
 // ── Recording & retention ──
 export interface RecordingData {
-  provider: { connected: boolean };
-  stored: { liveChat: number; messages: number; conversations: number; oldest: string | null };
+  /** Whether voice and video are connected (ZEGO). Nothing from them is ever recorded. */
+  media: { connected: boolean };
+  stored: { liveChat: number; messages: number; conversations: number; consultChat: number; oldest: string | null };
   retention: {
     days: number;
     defaultDays: number;

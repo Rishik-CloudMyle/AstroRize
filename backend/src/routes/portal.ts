@@ -13,9 +13,11 @@ import {
   sessionCapSeconds,
   settlementView,
 } from "../lib/consultations.ts";
-import { COMPLIMENTARY, dailyLimitOf, freeCallsToday, releaseWelcome, welcomePolicy } from "../lib/welcome.ts";
+import { MAKE_GOOD } from "../lib/makegood.ts";
+import { COMPLIMENTARY, capacityOf, capacityProblem, capacityView, periodName, releaseWelcome, welcomePolicy } from "../lib/welcome.ts";
+import { priceProblem, priceRequestState, priceView, pricingPolicy } from "../lib/pricing.ts";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
-import { ageLabel, istDate, istDateKey, istDayMonth, istTime, makeRef, weekdayLabel } from "../lib/format.ts";
+import { ageLabel, istDate, istDateKey, istDayMonth, istTime, makeRef, rupee, weekdayLabel } from "../lib/format.ts";
 import { consultSummary, displayName, messageSummary, queueProfile, queueSummary } from "../lib/profile.ts";
 import {
   captionQuery,
@@ -60,6 +62,7 @@ import { addGalleryPhoto, galleryMax, removeGalleryPhoto, reorderGallery } from 
 import { checkDetailsText, detailsDiff, detailsSchema, liveCategories, sessionFeed } from "../lib/live.ts";
 import { acceptRequest, closeRoomConsultations, declineRequest, expireUnanswered, hostPrivateView, liveMedia, liveRate, liveRates } from "../lib/live-consult.ts";
 import { configNumber, getSetting } from "../lib/settings.ts";
+import { closedCycles, closesOn, cycleOf, freeCallsCycleDays, sharePolicy, shareStatus, tdsOn, tdsPct } from "../lib/earnings.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
 import type { Astrologer, EarningsLine } from "../generated/prisma/client.ts";
 
@@ -117,6 +120,9 @@ portalRouter.get("/account", async (req, res) => {
       status: {
         lifecycle: a.lifecycle,
         suspension: a.suspension,
+        // Why staff suspended the account and since when (shown in the suspended banner).
+        suspensionReason: a.suspension !== "none" ? a.suspensionReason : null,
+        suspendedOn: a.suspension !== "none" && a.suspendedAt ? istDate(a.suspendedAt) : null,
         // Where the application stands, for the banner: when it went to HR and HR's latest note.
         submittedOn: submittedOn(meta),
         note: meta[META.note] ?? null,
@@ -137,18 +143,28 @@ portalRouter.get("/account", async (req, res) => {
 });
 
 /**
- * Amount an earnings line is worth to the astrologer (₹). A session's minutes are worth the rate
- * fixed when it was requested (`rates`, by session ref), so a later price change never rewrites
- * past earnings; lines without a session fall back to the astrologer's current rates.
- * Welcome (free call) lines and adjustments are ₹0.
+ * What a line written before the revenue split is worth (₹), valued exactly as it was then: 100% of
+ * the session's minutes at the rate fixed when it was requested (`rates`, by session ref; lines
+ * without a session fall back to current rates), or the gift's price. Welcome lines and
+ * adjustments are ₹0.
  */
-function lineAmount(a: Astrologer, l: Pick<EarningsLine, "kind" | "minutes" | "sessionRef">, rates: Map<string, number>): number {
-  // Gift lines carry their value in `gifts`, not minutes.
-  if (l.kind === "adjustment" || l.kind === "welcome" || l.kind === "gift") return 0;
+function legacyValue(a: Astrologer, l: Pick<EarningsLine, "kind" | "minutes" | "sessionRef" | "gifts">, rates: Map<string, number>): number {
+  if (l.kind === "adjustment" || l.kind === "welcome") return 0;
+  if (l.kind === "gift") return l.gifts;
   const rate =
     rates.get(l.sessionRef) ??
     (l.kind === "video" ? a.price + VIDEO_PREMIUM : l.kind === "emergency" ? instantRate(a.price, a.instantMultiplier) : a.price);
   return l.minutes * rate;
+}
+
+/**
+ * A line's gross, the share the astrologer keeps (fixed when it was written) and their amount.
+ * Lines from before the split have no stored amount: they count in full and say so (`legacy`).
+ */
+function valued(a: Astrologer, l: EarningsLine, rates: Map<string, number>) {
+  if (l.amount !== null) return { gross: l.gross ?? l.amount, sharePct: l.sharePct, amount: l.amount, legacy: false };
+  const v = legacyValue(a, l, rates);
+  return { gross: v, sharePct: null, amount: v, legacy: true };
 }
 
 /** The per-minute rate each line's session was billed at, by session ref. */
@@ -159,11 +175,9 @@ async function sessionRates(astrologerId: string, lines: Pick<EarningsLine, "ses
   return new Map(sessions.map((c) => [c.ref, c.rate]));
 }
 
-/** Today's free calls (welcome campaign) for the portal: taking part, the limit and what is left. */
+/** Free calls (welcome campaign) for the portal: taking part, capacity per day or week, and what is left. */
 async function freeCallsView(a: Astrologer) {
-  const [policy, today] = await Promise.all([welcomePolicy(), freeCallsToday(a.id)]);
-  const limit = dailyLimitOf(a, policy);
-  return { enabled: policy.enabled && a.freeCallsEnabled, limit, today, remaining: Math.max(0, limit - today) };
+  return capacityView(a, await welcomePolicy());
 }
 
 portalRouter.get("/dashboard", async (req, res) => {
@@ -186,7 +200,7 @@ portalRouter.get("/dashboard", async (req, res) => {
   for (let i = 9; i >= 0; i--) byDay.set(istDateKey(new Date(now.getTime() - i * 86400000)), 0);
   for (const l of lines) {
     const k = istDateKey(l.date);
-    if (byDay.has(k)) byDay.set(k, (byDay.get(k) ?? 0) + lineAmount(a, l, rates) + l.gifts);
+    if (byDay.has(k)) byDay.set(k, (byDay.get(k) ?? 0) + valued(a, l, rates).amount);
   }
   const days = [...byDay.values()];
   const best = Math.max(1, ...days);
@@ -213,9 +227,11 @@ portalRouter.get("/dashboard", async (req, res) => {
       dateLine: `${now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" })} · all times IST`,
       todayEarnings: today,
       earningsDelta: yesterday > 0 ? `${today >= yesterday ? "+" : "−"}${Math.round(Math.abs(today - yesterday) / yesterday * 100)}% vs yesterday` : "first earnings this week",
-      sessions: todayLines.filter((l) => l.kind !== "adjustment" && l.kind !== "gift").length,
+      // A free call that continued paid has two lines (paid minutes, free minutes): one session.
+      sessions: new Set(todayLines.filter((l) => l.kind !== "adjustment" && l.kind !== "gift").map((l) => l.sessionRef)).size,
       emergencySessions: todayLines.filter((l) => l.kind === "emergency").length,
-      gifts: todayLines.reduce((s, l) => s + l.gifts, 0),
+      /** Your share of today's gifts. */
+      gifts: todayLines.filter((l) => l.kind === "gift").reduce((s, l) => s + valued(a, l, rates).amount, 0),
       schedule,
       earningsBars: days.map((d) => Math.round((d / best) * 100)),
       earningsFrom: istDayMonth(new Date(barDays[0] + "T00:00:00Z")),
@@ -227,10 +243,118 @@ portalRouter.get("/dashboard", async (req, res) => {
       })),
       reviews: reviews.map((r) => ({ stars: r.stars, when: istDayMonth(r.createdAt), text: r.text })),
       multiplierOptions: MULTIPLIER_OPTIONS.filter((m) => m <= maxMultiplier),
-      /** Welcome campaign: free calls taken today and how many are left. */
+      /** Welcome campaign: taking part, capacity per day or week, and how many are left. */
       freeCalls: await freeCallsView(a),
+      /** The astrologer's own per-minute price and the rules for changing it. */
+      pricing: priceView(a, await pricingPolicy(), now, await priceRequestState(a.id)),
+      /** The intro video on the public profile (managed on the Profile page), or null. */
+      introVideoUrl: a.introVideoUrl,
     },
   });
+});
+
+/**
+ * The astrologer's free calls: take part or not, and how many they take per day or per week
+ * (within the admin maximum). Each change is audited.
+ */
+portalRouter.patch("/free-calls", async (req, res) => {
+  const a = await me(req);
+  const input = z
+    .object({
+      enabled: z.boolean().optional(),
+      limit: z.number("Enter the number of free calls as a whole number.").optional(),
+      period: z.enum(["DAY", "WEEK"]).optional(),
+    })
+    .parse(req.body);
+  const policy = await welcomePolicy();
+  const data: { freeCallsEnabled?: boolean; freeCallsDailyLimit?: number; freeCallsLimitPeriod?: string } = {};
+  if (input.enabled !== undefined && input.enabled !== a.freeCallsEnabled) data.freeCallsEnabled = input.enabled;
+  if (input.limit !== undefined || input.period !== undefined) {
+    // Changing only one of the two keeps the other as it stands now.
+    const current = capacityOf(a, policy);
+    const period = input.period ?? current.period;
+    const limit = input.limit ?? current.limit;
+    const problem = capacityProblem(limit, period, policy);
+    if (problem) throw badRequest(problem);
+    if (limit !== a.freeCallsDailyLimit) data.freeCallsDailyLimit = limit;
+    if (period !== a.freeCallsLimitPeriod) data.freeCallsLimitPeriod = period;
+  }
+  if (Object.keys(data).length) {
+    await db.astrologer.update({ where: { id: a.id }, data });
+    const actor = req.auth ?? null;
+    if (data.freeCallsEnabled !== undefined) {
+      await audit(actor, "astrologer.free_calls.update", a.id, `${a.freeCallsEnabled ? "on" : "off"} → ${data.freeCallsEnabled ? "on" : "off"} · by the astrologer`);
+    }
+    if (data.freeCallsDailyLimit !== undefined || data.freeCallsLimitPeriod !== undefined) {
+      const label = (n: number | null, p: string) => (n === null ? "campaign default" : `${n} per ${periodName(p === "WEEK" ? "WEEK" : "DAY")}`);
+      const newLimit = data.freeCallsDailyLimit ?? a.freeCallsDailyLimit;
+      await audit(actor, "astrologer.free_calls.limit", a.id, `${label(a.freeCallsDailyLimit, a.freeCallsLimitPeriod)} → ${label(newLimit, data.freeCallsLimitPeriod ?? a.freeCallsLimitPeriod)} · by the astrologer`);
+    }
+  }
+  const fresh = await db.astrologer.findUniqueOrThrow({ where: { id: a.id } });
+  res.json({ freeCalls: await capacityView(fresh, policy) });
+});
+
+/**
+ * The astrologer sets their own chat/voice price (lib/pricing.ts): within pricing.min_rate–max_rate,
+ * once every pricing.change_cooldown_days, each increase at most pricing.max_increase_rupees.
+ * A decrease applies at once (PriceChange APPLIED) to consultations requested from now on;
+ * sessions already running keep their rate. An increase becomes a PENDING request that the
+ * Astrorize team approves or rejects (Astrologer lifecycle → Price requests); the price stays as
+ * it is until then. One open request at a time. Audited.
+ */
+portalRouter.patch("/price", async (req, res) => {
+  const a = await me(req);
+  const { price } = z.object({ price: z.number("Enter your price in whole rupees.") }).parse(req.body);
+  const policy = await pricingPolicy();
+  const now = new Date();
+  const result = await db.$transaction(async (tx) => {
+    // Two tabs (or a double click) at once: only the first counts; staff deciding a request wait too.
+    await lockKey(tx, `price:${a.id}`);
+    const fresh = await tx.astrologer.findUniqueOrThrow({ where: { id: a.id } });
+    const open = await tx.priceChange.findFirst({ where: { astrologerId: a.id, status: "PENDING" } });
+    if (open) {
+      return {
+        ok: false as const,
+        problem: { status: 409 as const, message: `Your increase to ${rupee(open.toPrice)}/min is waiting for approval. Withdraw it first if you want a different price.` },
+      };
+    }
+    const problem = priceProblem(fresh, price, policy, now);
+    if (problem) return { ok: false as const, problem };
+    if (price > fresh.price) {
+      await tx.priceChange.create({ data: { astrologerId: a.id, fromPrice: fresh.price, toPrice: price, status: "PENDING", requestedAt: now } });
+      return { ok: true as const, from: fresh.price, applied: false, astrologer: fresh };
+    }
+    const astrologer = await tx.astrologer.update({ where: { id: a.id }, data: { price, priceChangedAt: now } });
+    await tx.priceChange.create({ data: { astrologerId: a.id, fromPrice: fresh.price, toPrice: price, status: "APPLIED", requestedAt: now, decidedAt: now } });
+    return { ok: true as const, from: fresh.price, applied: true, astrologer };
+  });
+  if (!result.ok) throw result.problem.status === 409 ? conflict(result.problem.message) : badRequest(result.problem.message);
+  if (result.applied) {
+    await audit(req.auth ?? null, "astrologer.price.update", a.id, `${rupee(result.from)} → ${rupee(price)}/min (chat & voice) · decrease, live at once · by the astrologer`);
+  } else {
+    await audit(req.auth ?? null, "astrologer.price.request", a.id, `${rupee(result.from)} → ${rupee(price)}/min (chat & voice) · increase, waiting for approval · by the astrologer`);
+  }
+  res.json({ applied: result.applied, pricing: priceView(result.astrologer, policy, now, await priceRequestState(a.id)) });
+});
+
+/** The astrologer withdraws their open increase request (the price stays as it is; no cooldown starts). */
+portalRouter.post("/price/withdraw", async (req, res) => {
+  const a = await me(req);
+  const now = new Date();
+  const withdrawn = await db.$transaction(async (tx) => {
+    await lockKey(tx, `price:${a.id}`);
+    const open = await tx.priceChange.findFirst({ where: { astrologerId: a.id, status: "PENDING" } });
+    if (!open) return null;
+    return tx.priceChange.update({
+      where: { id: open.id },
+      data: { status: "WITHDRAWN", decidedAt: now, decidedById: req.auth?.user.id ?? null, decidedByName: a.name },
+    });
+  });
+  if (!withdrawn) throw conflict("There's no price request waiting any more — it may just have been decided. Reload to see the latest.");
+  await audit(req.auth ?? null, "astrologer.price.withdraw", a.id, `${rupee(withdrawn.fromPrice)} → ${rupee(withdrawn.toPrice)}/min request withdrawn · by the astrologer`);
+  const fresh = await db.astrologer.findUniqueOrThrow({ where: { id: a.id } });
+  res.json({ pricing: priceView(fresh, await pricingPolicy(), now, await priceRequestState(a.id)) });
 });
 
 /**
@@ -518,7 +642,8 @@ portalRouter.get("/consultations", async (req, res) => {
     const wallet = active.customerId ? await db.wallet.findUnique({ where: { userId: active.customerId } }) : null;
     // Seconds the session can still run (free time plus what the customer's held balance pays for).
     const cap = sessionCapSeconds(active, standardFree);
-    const free = active.billingMode === COMPLIMENTARY;
+    // A welcome free call or a free replacement call: both start with free time.
+    const free = active.billingMode === COMPLIMENTARY || active.billingMode === MAKE_GOOD;
     session = {
       id: active.id,
       alias: active.customerAlias,
@@ -526,13 +651,16 @@ portalRouter.get("/consultations", async (req, res) => {
       /** The session window to open: chat, voice, or video (Instant Call is a video call). */
       window: windowOf(active),
       instant: active.kind === "INSTANT",
-      /** A welcome free call: the first freeSeconds earn nothing; paid minutes after it earn as usual. */
+      /** A free call: the first freeSeconds are paid by Astrorize (monthly compensation); paid minutes after it earn as usual. */
       free,
+      /** A free replacement call (make-good on a complaint): its free minutes are not paid to you — you were paid for the original session. */
+      makeGood: active.billingMode === MAKE_GOOD,
       freeSeconds: free ? active.complimentarySeconds : 0,
       elapsed: `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`,
       elapsedSeconds: secs,
-      // Two minutes or less of what the balance pays for (not the 15-minute cap).
-      lowBalance: cap < MAX_SESSION_SECONDS && cap - secs <= 120,
+      // Two minutes or less of what the balance pays for (not the 15-minute cap; a free call's
+      // paid part is capped on its own, after the free time).
+      lowBalance: cap - (free ? active.complimentarySeconds : 0) < MAX_SESSION_SECONDS && cap - secs <= 120,
       hasWallet: !!wallet,
       profile: active.customer ? consultSummary(active.customer) : null,
     };
@@ -1071,62 +1199,80 @@ portalRouter.post("/messages/:threadId/read", async (req, res) => {
 
 // ── Earnings ──
 
-/** Half-month statement periods, newest first: 1–15 and 16–end of month (IST). */
-function periods(count: number) {
-  const now = new Date(istDateKey(new Date()) + "T00:00:00Z");
-  const out: { from: Date; to: Date; label: string }[] = [];
-  let y = now.getUTCFullYear();
-  let m = now.getUTCMonth();
-  let firstHalf = now.getUTCDate() <= 15;
-  for (let i = 0; i < count; i++) {
-    const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-    const from = new Date(Date.UTC(y, m, firstHalf ? 1 : 16));
-    const to = new Date(Date.UTC(y, m, firstHalf ? 15 : lastDay, 23, 59, 59));
-    const mon = from.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" }).slice(0, 3);
-    out.push({ from, to, label: `${from.getUTCDate()}–${to.getUTCDate()} ${mon} ${y}` });
-    if (firstHalf) {
-      m -= 1;
-      if (m < 0) {
-        m = 11;
-        y -= 1;
-      }
-    }
-    firstHalf = !firstHalf;
-  }
-  return out;
-}
-
 portalRouter.get("/earnings", async (req, res) => {
   const a = await me(req);
-  const list = periods(3);
-  const index = Math.min(2, Math.max(0, Number(req.query.period ?? 0) || 0));
+  const now = new Date();
+  const freeDays = await freeCallsCycleDays();
+  // Half-month statement periods (1–15, 16–end, IST): the running one, then the two before.
+  const current = cycleOf("EARNINGS", now, freeDays);
+  const list = [current, ...closedCycles("EARNINGS", now, freeDays, 2)];
+  const index = Math.min(list.length - 1, Math.max(0, Number(req.query.period ?? 0) || 0));
   const p = list[index]!;
-  const [lines, paused] = await Promise.all([
-    db.earningsLine.findMany({ where: { astrologerId: a.id, date: { gte: p.from, lte: p.to } }, orderBy: { date: "desc" } }),
-    getSetting<Record<string, boolean>>("payout.paused", {}),
+  const freeCycle = cycleOf("FREE_CALLS", now, freeDays);
+  const [lines, freeLines, paused, policy, tds] = await Promise.all([
+    db.earningsLine.findMany({ where: { astrologerId: a.id, date: { gte: p.start, lte: p.end } }, orderBy: { date: "desc" } }),
+    db.earningsLine.findMany({ where: { astrologerId: a.id, fundedBy: "PLATFORM", date: { gte: freeCycle.start, lte: freeCycle.end } }, orderBy: { date: "desc" } }),
+    // Finance's payout holds (routes/admin/payout-holds.ts): { reason, … }, or `true` on older ones.
+    getSetting<Record<string, { reason?: string } | true>>("payout.paused", {}),
+    sharePolicy(),
+    tdsPct(),
   ]);
-  // Next payout: the end of the current half-month.
-  const next = list[0]!.to;
   const rates = await sessionRates(a.id, lines);
+  const row = (l: EarningsLine) => {
+    const v = valued(a, l, rates);
+    return {
+      date: istDayMonth(l.date),
+      session: l.sessionRef,
+      kind: l.kind,
+      mode: l.mode,
+      minutes: l.minutes,
+      gifts: l.gifts,
+      gross: v.gross,
+      /** Percent you keep, fixed when the line was written; null on lines from before the split. */
+      sharePct: v.sharePct,
+      amount: v.amount,
+      legacy: v.legacy,
+      /** CUSTOMER (paid by the customer) | PLATFORM (free-call compensation, paid by Astrorize) */
+      fundedBy: l.fundedBy === "PLATFORM" ? "PLATFORM" : "CUSTOMER",
+      freeSeconds: l.freeSeconds,
+    };
+  };
+  const statement = lines.map(row);
+  // Customer-paid earnings (half-monthly batches); free-call compensation is paid on its own.
+  const paid = statement.filter((r) => r.fundedBy === "CUSTOMER");
+  const earned = paid.reduce((s, r) => s + r.amount, 0);
+  const free = freeLines.map(row);
+  const freeAmount = free.reduce((s, r) => s + r.amount, 0);
   res.json({
     earnings: {
-      periodLabel: `${p.label} · your share only`,
+      periodLabel: `${p.label} · ${index === 0 ? "running" : "closed"}`,
       periods: list.map((x) => x.label),
       periodIndex: index,
-      gross: lines.reduce((s, l) => s + lineAmount(a, l, rates), 0),
-      gifts: lines.reduce((s, l) => s + l.gifts, 0),
-      tdsRate: 0.05,
-      nextPayout: istDayMonth(next),
+      /** What customers paid for your sessions and gifts in the period. */
+      gross: paid.reduce((s, r) => s + r.gross, 0),
+      /** Your share of it. */
+      earned,
+      gifts: paid.filter((r) => r.kind === "gift").reduce((s, r) => s + r.amount, 0),
+      tdsRate: tds / 100,
+      // Refund adjustments can take a period below zero; TDS is never negative.
+      tds: tdsOn(Math.max(0, earned), tds),
+      nextPayout: istDayMonth(current.end),
       payoutPaused: !!paused[a.id],
-      statement: lines.map((l) => ({
-        date: istDayMonth(l.date),
-        session: l.sessionRef,
-        kind: l.kind,
-        mode: l.mode,
-        minutes: l.minutes,
-        gifts: l.gifts,
-        amount: lineAmount(a, l, rates),
-      })),
+      /** Why Finance paused them (null when no reason was recorded). */
+      payoutPauseReason: (typeof paused[a.id] === "object" && (paused[a.id] as { reason?: string }).reason) || null,
+      share: shareStatus(a, policy, now),
+      freeCalls: {
+        cycle: freeDays === 7 ? "weekly" : "monthly",
+        periodLabel: freeCycle.label,
+        calls: free.length,
+        minutes: free.reduce((s, r) => s + r.minutes, 0),
+        gross: free.reduce((s, r) => s + r.gross, 0),
+        amount: freeAmount,
+        tds: tdsOn(freeAmount, tds),
+        paidAfter: closesOn(freeCycle),
+        lines: free,
+      },
+      statement,
     },
   });
 });

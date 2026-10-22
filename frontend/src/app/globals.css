@@ -68,11 +68,10 @@
   --color-stone-700: #44403c;
   --color-stone-800: #292524;
 
-  /* Fonts: the CSS variables are created by next/font in layout.tsx */
-  /* Named directly (not via next/font's variable, which inserts an auto-generated
-     "Figtree Fallback") so symbols Figtree lacks, like → and ≠, fall back to Segoe UI
-     exactly as in the prototype. The Figtree file itself is still loaded by next/font. */
-  --font-sans: "Figtree", "Segoe UI", sans-serif;
+  /* Fonts: the CSS variables are created by next/font/local in layout.tsx (files in src/app/fonts).
+     Figtree's variable has no generated fallback, so symbols it lacks (→, ≠) fall back to Segoe UI
+     exactly as in the prototype. */
+  --font-sans: var(--font-figtree); /* already "figtree, Segoe UI, sans-serif" */
   --font-display: var(--font-cormorant), serif; /* big headings, logo */
   --font-name: var(--font-playfair), serif; /* astrologer names */
   --font-card: var(--font-inter), sans-serif; /* card details */

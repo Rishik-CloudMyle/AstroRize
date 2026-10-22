@@ -21,7 +21,7 @@ export function bannerFor(status: AccountStatus): Banner {
     return {
       icon: "⚠",
       title: "Account partially suspended",
-      body: "You cannot start new sessions or go live. Your profile and earnings remain readable, and you can respond to the open compliance notice.",
+      body: suspensionBody(status, "You cannot start new sessions or go live. Your profile and earnings remain readable, and you can respond to the open compliance notice."),
       bg: "#fff1f2",
       border: "#fecdd3",
       fg: "#be123c",
@@ -31,7 +31,7 @@ export function bannerFor(status: AccountStatus): Banner {
     return {
       icon: "⛔",
       title: "Account fully suspended",
-      body: "Everything is read-only except the compliance response path. Open the compliance console to answer the notice.",
+      body: suspensionBody(status, "Everything is read-only except the compliance response path. Open the compliance console to answer the notice."),
       bg: "#fff1f2",
       border: "#fecdd3",
       fg: "#be123c",
@@ -39,6 +39,13 @@ export function bannerFor(status: AccountStatus): Banner {
   }
   const stage = LIFECYCLE.find((l) => l.key === status.lifecycle) ?? LIFECYCLE[7];
   return { icon: stage.icon, title: stage.title, body: stageBody(status, stage.body), bg: stage.bg, border: stage.border, fg: stage.fg };
+}
+
+/** What a suspension means, preceded by why and since when Astrorize suspended the account. */
+function suspensionBody(status: AccountStatus, meaning: string): string {
+  const reason = status.suspensionReason?.trim();
+  const since = status.suspendedOn ? `Since ${status.suspendedOn}. ` : "";
+  return reason ? `${since}Reason: ${/[.!?]$/.test(reason) ? reason : `${reason}.`} ${meaning}` : `${since}${meaning}`;
 }
 
 /** The stage's text with the real details: when it was sent, HR's review time, HR's note. */

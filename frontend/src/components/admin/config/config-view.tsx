@@ -55,7 +55,6 @@ export default function ConfigView({
   const draft = pending ? pending.toValue : typedOk ? proposed.trim() : "—";
   const maker = pending?.draftedBy ?? actor;
   const stage = justApproved?.key === cfg.key ? "approved" : pending ? "submitted" : "draft";
-  const financeCo = cfg.domain === "finance" || cfg.domain === "marketing";
   // Compare people, not short names: two people in a department could share one.
   const isMaker = pending
     ? pending.draftedById
@@ -97,10 +96,8 @@ export default function ConfigView({
   };
 
   // ── handlers from the prototype (cfgSimulate / cfgSubmit / cfgApprove / cfgRollback), now via the API ──
-  const simulate = () => {
-    setSimulated(cfg.key);
-    say("Dry run complete — projected impact shown below.");
-  };
+  // Shows (or hides) what changing this key does, as described for the key.
+  const simulate = () => setSimulated(simulated === cfg.key ? null : cfg.key);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const local = valueProblem(proposed, cfg);
@@ -134,7 +131,17 @@ export default function ConfigView({
       setJustApproved({ key: cfg.key, version: res.detail.version });
     }
   };
+  const reject = async () => {
+    if (!pending) return;
+    const res = await run(
+      () => api.post<{ detail: ConfigDetail }>(`/admin/config/changes/${pending.id}/reject`),
+      isMaker ? "Your draft was withdrawn. The current value stays. Audited." : "Change rejected. The current value stays. Audited.",
+    );
+    if (res) setDetail(res.detail);
+  };
   const rollback = async () => {
+    // Takes effect at once (it restores a value a second person already approved), so ask first.
+    if (!window.confirm(`Roll ${cfg.key} back to the value before its latest approved change? It takes effect immediately.`)) return;
     const res = await run(
       () => api.post<{ detail: ConfigDetail }>(`/admin/config/${encodeURIComponent(cfg.key)}/rollback`),
       (r) => `Rolled back — v${r.detail.version} was created from the previous value. History is unchanged.`,
@@ -168,17 +175,15 @@ export default function ConfigView({
   const draftTone = approved
     ? { bg: "#ecfdf5", border: "#a7f3d0", fg: "#047857" }
     : { bg: "#fffbeb", border: "#fde68a", fg: "#92400e" };
-  const effective = pending?.effective ?? "On approval";
+  // An approved change applies the moment it is approved.
+  const effective = "On approval";
 
-  const inherited = { eff: "Inherited", state: "No override", bg: "#f7f4ee", fg: "#78716c" };
+  // Only platform-wide values exist today: no per-country, segment or user overrides.
   const scopeRows = [
     { level: "Global", value: cfg.current, eff: "Current", state: "Active", bg: "#ecfdf5", fg: "#047857" },
     ...(pending
-      ? [{ level: "Global", value: pending.toValue, eff: effective, state: "Scheduled", bg: "#eff6ff", fg: "#1e40af" }]
+      ? [{ level: "Global", value: pending.toValue, eff: effective, state: "Awaiting approval", bg: "#eff6ff", fg: "#1e40af" }]
       : []),
-    { level: "Country · IN", value: cfg.current, ...inherited },
-    { level: "Segment · HNI", value: cfg.current, ...inherited },
-    { level: "Object / User", value: cfg.current, ...inherited },
   ];
   const history = d?.history.length
     ? d.history.map((h) => ({
@@ -259,7 +264,7 @@ export default function ConfigView({
                     </span>
                   )}
                   {k.flagged && (
-                    <span className="flex-none text-[11px]" title="Dual control + step-up MFA">
+                    <span className="flex-none text-[11px]" title="Sensitive setting">
                       🔒
                     </span>
                   )}
@@ -372,15 +377,7 @@ export default function ConfigView({
             <div className="flex flex-wrap gap-[7px]">
               {cfg.flagged && (
                 <span className="inline-flex h-[26px] items-center gap-[5px] rounded-full bg-rose-50 px-[11px] text-[11px] font-extrabold text-rose-700">
-                  🔒 Dual control + step-up MFA
-                </span>
-              )}
-              {financeCo && (
-                <span
-                  className="inline-flex h-[26px] items-center gap-[5px] rounded-full bg-blue-50 px-[11px] text-[11px] font-extrabold text-blue-800"
-                  title="Finance co-approval applies above ₹10,00,000 exposure"
-                >
-                  ₹ Finance co-approval
+                  🔒 Sensitive setting
                 </span>
               )}
               <span className="inline-flex h-[26px] items-center rounded-full bg-amber-100 px-[11px] text-[11px] font-bold text-amber-800">
@@ -415,7 +412,7 @@ export default function ConfigView({
               <div className="text-[10.5px] font-bold tracking-[.08em] text-blue-800 uppercase">Effective at</div>
               <b className="mt-1 block text-[17px] text-blue-800">{effective}</b>
               <span className="text-[11px] text-blue-700">
-                {pending ? "Scheduled — both values shown on the timeline" : "A second person must approve first"}
+                {pending ? "Live as soon as a different person approves" : "A second person must approve first"}
               </span>
             </div>
             <div className="rounded-[14px] bg-cream p-3.5">
@@ -427,19 +424,27 @@ export default function ConfigView({
 
           {simulated === cfg.key && (
             <div className="mt-4 rounded-[14px] border border-blue-200 bg-blue-50 px-4 py-3.5">
-              <b className="text-[13px] text-blue-800">Dry-run preview</b>
+              <b className="text-[13px] text-blue-800">What changing it does</b>
               <p className="mt-[5px] mb-0 text-[12.5px] leading-[1.5] text-blue-900">{cfg.dryRun}</p>
             </div>
           )}
 
           <div className="mt-[18px] flex flex-wrap items-center gap-2.5">
-            <button type="button" onClick={simulate} className={ghostBtn}>
-              Simulate
+            <button type="button" onClick={simulate} aria-expanded={simulated === cfg.key} className={ghostBtn}>
+              {simulated === cfg.key ? "Hide impact" : "Show impact"}
             </button>
-            <button type="button" onClick={rollback} className={ghostBtn}>
-              Roll back to v{prevVersion}
-            </button>
+            {/* Only once a value has been changed through the console: there is nothing earlier before that. */}
+            {version > 1 && (
+              <button type="button" onClick={rollback} className={ghostBtn}>
+                Roll back to v{prevVersion}
+              </button>
+            )}
             <div className="ml-auto flex flex-wrap items-center gap-2.5">
+              {stage === "submitted" && (
+                <button type="button" onClick={reject} className={`${ghostBtn} text-rose-700`}>
+                  {isMaker ? "Withdraw draft" : "Reject"}
+                </button>
+              )}
               {stage === "submitted" && (
                 <button
                   type="button"
@@ -448,7 +453,7 @@ export default function ConfigView({
                   className="h-11 rounded-xl border-0 px-[22px] text-[13.5px] font-bold"
                   style={{ background: isMaker ? "#f5f5f4" : "#047857", color: isMaker ? "#78716c" : "#fff" }}
                 >
-                  {isMaker ? "Approve — blocked, you drafted this" : "Approve · step-up MFA"}
+                  {isMaker ? "Approve — blocked, you drafted this" : "Approve"}
                 </button>
               )}
               {approved && (
@@ -465,7 +470,7 @@ export default function ConfigView({
           <div className="flex flex-wrap items-baseline justify-between gap-2.5">
             <h2 className="m-0 text-[15px] font-bold">Scope resolution</h2>
             <span className="text-[11.5px] font-semibold text-[#78716c]">
-              global → country → segment → object → user · the narrowest override wins
+              one platform-wide value per setting · per-country or per-segment overrides aren&apos;t available
             </span>
           </div>
           <div className="overflow-x-auto mt-2.5">

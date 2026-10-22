@@ -151,14 +151,20 @@ configRouter.post("/config/changes/:id/approve", async (req, res) => {
   if (!change || change.status !== "SUBMITTED") throw notFound("No change waiting for approval.");
   if (change.draftedById === admin.user.id) throw forbidden("Blocked — you drafted this change. A different approver is required.");
   const k = await db.configKey.findUniqueOrThrow({ where: { key: change.key } });
+  // The draft was made against the value then in force; if that changed (e.g. a rollback), it must be redrafted.
+  if (Number(k.value) !== Number(change.fromValue)) {
+    throw conflict(`This draft changes ${change.fromValue}, but the setting is now ${k.value}. Reject it and draft the change again.`);
+  }
   const version = k.version + 1;
-  await db.$transaction([
-    db.configChange.update({
-      where: { id: change.id },
+  await db.$transaction(async (tx) => {
+    // Once only, even if two approvers click at the same moment.
+    const { count } = await tx.configChange.updateMany({
+      where: { id: change.id, status: "SUBMITTED" },
       data: { status: "APPROVED", version, approvedById: admin.user.id, approvedByName: actorName(admin) },
-    }),
-    db.configKey.update({ where: { key: k.key }, data: { value: change.toValue, version, updatedAt: new Date() } }),
-  ]);
+    });
+    if (!count) throw conflict("This change was just approved or rejected by someone else.");
+    await tx.configKey.update({ where: { key: k.key }, data: { value: change.toValue, version, updatedAt: new Date() } });
+  });
   await audit(admin, "config.change.approve", k.key, `${change.fromValue} → ${change.toValue} (v${version})`);
   res.json({ detail: await keyView(k.key) });
 });
@@ -168,7 +174,11 @@ configRouter.post("/config/changes/:id/reject", async (req, res) => {
   const admin = requireCapability(req, "config.write");
   const change = await db.configChange.findUnique({ where: { id: String(req.params.id) } });
   if (!change || change.status !== "SUBMITTED") throw notFound("No change waiting for approval.");
-  await db.configChange.update({ where: { id: change.id }, data: { status: "REJECTED", approvedById: admin.user.id, approvedByName: actorName(admin) } });
+  const { count } = await db.configChange.updateMany({
+    where: { id: change.id, status: "SUBMITTED" },
+    data: { status: "REJECTED", approvedById: admin.user.id, approvedByName: actorName(admin) },
+  });
+  if (!count) throw conflict("This change was just approved or rejected by someone else.");
   await audit(admin, "config.change.reject", change.key, `${change.fromValue} → ${change.toValue}`);
   res.json({ detail: await keyView(change.key) });
 });
@@ -181,6 +191,13 @@ configRouter.post("/config/:key/rollback", async (req, res) => {
   if (!k) throw notFound("Unknown config key.");
   const last = await db.configChange.findFirst({ where: { key: k.key, status: "APPROVED" }, orderBy: { createdAt: "desc" } });
   if (!last) throw conflict("There is no earlier version to roll back to.");
+  // A rollback undoes the latest approved change once; rolling back again would change nothing.
+  if (Number(last.fromValue) === Number(k.value)) {
+    throw conflict(`${k.key} is already at ${k.value}, the value before its latest approved change.`);
+  }
+  if (await db.configChange.findFirst({ where: { key: k.key, status: "SUBMITTED" } })) {
+    throw conflict("A change to this key is waiting for approval. Approve or reject it before rolling back.");
+  }
   const version = k.version + 1;
   await db.$transaction([
     db.configChange.create({

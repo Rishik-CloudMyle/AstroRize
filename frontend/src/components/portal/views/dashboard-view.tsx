@@ -9,6 +9,9 @@ import { blockedReason, isActive } from "@/lib/portal/status";
 import type { Dashboard, Presence, ScheduleItem } from "@/lib/portal/types";
 import Modal from "../modal";
 import BookingDialog from "./booking-dialog";
+import FreeCallsCard from "./free-calls-card";
+import IntroVideoCard from "./intro-video-card";
+import PriceCard from "./price-card";
 import { useAccount, useErrorToast, usePresence, useToast } from "../portal-provider";
 import { Panel } from "../ui";
 
@@ -79,11 +82,13 @@ export default function DashboardView({ data }: { data: Dashboard }) {
       value: String(data.sessions),
       delta:
         (data.emergencySessions > 0 ? `${data.emergencySessions} emergency` : "no emergency calls") +
-        // Welcome campaign: free calls left today (the free minutes earn nothing).
-        (data.freeCalls?.enabled ? ` · ${data.freeCalls.remaining} of ${data.freeCalls.limit} free calls left` : ""),
+        // Welcome campaign: free calls left today (Astrorize pays for the free minutes).
+        (data.freeCalls?.enabled
+          ? ` · ${data.freeCalls.remaining} of ${data.freeCalls.limit} free calls left ${data.freeCalls.period === "week" ? "this week" : "today"}`
+          : ""),
       deltaFg: data.emergencySessions > 0 ? "#c2410c" : "#78716c",
     },
-    { label: "Gifts", value: rupee(data.gifts), delta: "gifts received today", deltaFg: "#78716c" },
+    { label: "Gifts", value: rupee(data.gifts), delta: "your share of today's gifts", deltaFg: "#78716c" },
     { label: "Rating", value: ratingLabel(me.rating), delta: `${me.consults.toLocaleString("en-IN")} verified consults`, deltaFg: "#78716c" },
   ];
 
@@ -242,6 +247,12 @@ export default function DashboardView({ data }: { data: Dashboard }) {
             switched off during an active emergency session.
           </p>
         </Panel>
+      </div>
+
+      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(300px,100%),1fr))] items-start gap-4">
+        <PriceCard pricing={data.pricing} />
+        <FreeCallsCard freeCalls={data.freeCalls} />
+        <IntroVideoCard url={data.introVideoUrl} />
       </div>
 
       <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(280px,100%),1fr))] items-start gap-4">

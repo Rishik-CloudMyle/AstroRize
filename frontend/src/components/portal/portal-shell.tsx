@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { accountStateLabel } from "@/lib/portal/status";
 import type { Account } from "@/lib/portal/types";
 import LogoutButton from "../logout-button";
+import NotificationBell from "../notification-bell";
 import StatusBanner from "./status-banner";
 
 interface NavItem {
@@ -122,19 +123,22 @@ export default function PortalShell({ account, children }: { account: Account; c
           <Link href="/portal" onNavigate={close} className="text-ink hover:text-ink hover:no-underline">
             <Brand />
           </Link>
-          <button
-            type="button"
-            onClick={() => setMenuOpen((o) => !o)}
-            aria-expanded={menuOpen}
-            aria-controls="portal-menu"
-            aria-label={menuOpen ? "Close menu" : "Open menu"}
-            className="relative grid size-10 place-items-center rounded-xl border border-line bg-white text-lg text-stone-600"
-          >
-            {menuOpen ? "✕" : "☰"}
-            {!menuOpen && account.counts.consultations + account.counts.messages + account.counts.compliance > 0 && (
-              <span className="absolute -top-1 -right-1 size-2.5 rounded-full border-2 border-paper bg-urgent" />
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-expanded={menuOpen}
+              aria-controls="portal-menu"
+              aria-label={menuOpen ? "Close menu" : "Open menu"}
+              className="relative grid size-10 place-items-center rounded-xl border border-line bg-white text-lg text-stone-600"
+            >
+              {menuOpen ? "✕" : "☰"}
+              {!menuOpen && account.counts.consultations + account.counts.messages + account.counts.compliance > 0 && (
+                <span className="absolute -top-1 -right-1 size-2.5 rounded-full border-2 border-paper bg-urgent" />
+              )}
+            </button>
+          </div>
         </div>
         {menuOpen && (
           <>
@@ -155,10 +159,12 @@ export default function PortalShell({ account, children }: { account: Account; c
 
       <div className="flex-1 min-[900px]:grid min-[900px]:grid-cols-[238px_minmax(0,1fr)] min-[900px]:items-stretch">
         {/* Desktop sidebar */}
-        <aside className="hidden border-r border-line bg-[rgba(255,253,248,.88)] px-3.5 py-5 backdrop-blur-[18px] backdrop-saturate-[1.2] min-[900px]:block">
+        {/* Above the main column, so the notifications panel opening from it isn't covered. */}
+        <aside className="relative z-30 hidden border-r border-line bg-[rgba(255,253,248,.88)] px-3.5 py-5 backdrop-blur-[18px] backdrop-saturate-[1.2] min-[900px]:block">
           <div className="sticky top-5 flex flex-col gap-1">
-            <div className="px-2 pb-4">
+            <div className="flex items-center justify-between gap-2 pb-4 pl-2">
               <Brand />
+              <NotificationBell align="left" />
             </div>
             <div className="mb-3">
               <AccountCard account={account} />

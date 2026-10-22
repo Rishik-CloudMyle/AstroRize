@@ -11,7 +11,7 @@ import { periodLabel } from "@/lib/admin/view";
 const PERIODS = [30, 90, 180, 365, 730, 1095, 1460, 1825];
 
 /**
- * How long live-room chat and astrologer–customer messages are kept. A Super Admin changes it;
+ * How long live-room chat, consultation chat and astrologer–customer messages are kept. A Super Admin changes it;
  * the daily purge on the server then deletes anything older. Everyone else sees it read-only.
  */
 export default function RetentionForm({
@@ -48,7 +48,8 @@ export default function RetentionForm({
     <div className={`${PANEL} mt-4 p-5`}>
       <h2 className="mt-0 mb-1 text-[16px] font-bold">Retention for chat &amp; messages</h2>
       <p className="mt-0 mb-3.5 max-w-[72ch] text-[12.5px] leading-[1.55] text-[#78716c]">
-        Live-room chat and astrologer–customer messages older than this are deleted automatically by a daily purge.
+        Live-room chat, chat inside consultations and astrologer–customer messages older than this are deleted
+        automatically by a daily purge.
         Allowed: {periodLabel(retention.minDays)} to {periodLabel(retention.maxDays)}; the default is{" "}
         {periodLabel(retention.defaultDays)}.
       </p>

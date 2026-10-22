@@ -85,7 +85,7 @@ export default function SearchBox() {
         <div
           id={listId}
           role="listbox"
-          className="absolute top-[48px] right-0 z-50 w-[420px] overflow-hidden rounded-[14px] border border-line bg-paper p-1.5 shadow-[0_20px_44px_rgba(90,62,40,.18)]"
+          className="absolute top-[48px] left-0 z-50 w-[420px] max-w-[calc(100vw-32px)] overflow-hidden sm:right-0 sm:left-auto rounded-[14px] border border-line bg-paper p-1.5 shadow-[0_20px_44px_rgba(90,62,40,.18)]"
         >
           {hits.length === 0 ? (
             <p className="m-0 px-3 py-2.5 text-[12.5px] text-[#78716c]">Nothing matches “{query.trim()}”.</p>

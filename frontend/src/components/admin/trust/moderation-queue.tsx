@@ -7,7 +7,7 @@ import type { TrustData } from "@/lib/admin/types";
 
 export default function ModerationQueue({ data }: { data: TrustData }) {
   const { say } = useAdmin();
-  const { run } = useAction();
+  const { run, busy } = useAction();
   const [reasons, setReasons] = useState<Record<string, string>>({});
   // Kept reviews leave the API's queue; the card stays on screen with its "KEPT" chip until reload.
   const [kept, setKept] = useState<Record<string, boolean>>({});
@@ -30,7 +30,7 @@ export default function ModerationQueue({ data }: { data: TrustData }) {
     );
   };
   const undo = (id: string) => {
-    void run(() => api.post(`/admin/reviews/${id}/restore`), "Restored. The undo is itself audited.");
+    void run(() => api.post(`/admin/reviews/${id}/restore`), "Removal undone — the review is back in the queue. The undo is itself audited.");
   };
   const keep = async (id: string) => {
     const res = await run(
@@ -39,6 +39,14 @@ export default function ModerationQueue({ data }: { data: TrustData }) {
     );
     if (res) setKept((k) => ({ ...k, [id]: true }));
   };
+
+  if (queue.length === 0) {
+    return (
+      <p className="m-0 rounded-[14px] border border-dashed border-line px-4 py-5 text-center text-[13px] text-[#78716c]">
+        Nothing to moderate — no review is flagged right now.
+      </p>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -79,8 +87,9 @@ export default function ModerationQueue({ data }: { data: TrustData }) {
                     </span>
                     <button
                       type="button"
+                      disabled={busy}
                       onClick={() => undo(m.id)}
-                      className="h-[34px] rounded-[10px] border-0 bg-ink px-3.5 text-[12.5px] font-bold text-amber-300"
+                      className="h-[34px] rounded-[10px] border-0 bg-ink px-3.5 text-[12.5px] font-bold text-amber-300 disabled:opacity-50"
                     >
                       Undo
                     </button>
@@ -102,15 +111,17 @@ export default function ModerationQueue({ data }: { data: TrustData }) {
                     </select>
                     <button
                       type="button"
+                      disabled={busy}
                       onClick={() => remove(m.id)}
-                      className="h-[34px] rounded-[10px] border border-rose-200 bg-white px-3.5 text-[12.5px] font-bold text-rose-700"
+                      className="h-[34px] rounded-[10px] border border-rose-200 bg-white px-3.5 text-[12.5px] font-bold text-rose-700 disabled:opacity-50"
                     >
                       Remove
                     </button>
                     <button
                       type="button"
+                      disabled={busy}
                       onClick={() => void keep(m.id)}
-                      className="h-[34px] rounded-[10px] border border-line bg-white px-3.5 text-[12.5px] font-bold text-[#57534e]"
+                      className="h-[34px] rounded-[10px] border border-line bg-white px-3.5 text-[12.5px] font-bold text-[#57534e] disabled:opacity-50"
                     >
                       Keep
                     </button>

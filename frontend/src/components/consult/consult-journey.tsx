@@ -16,6 +16,8 @@ import { SessionWindow, windowKindOf } from "./session/session-window";
 import { staffConsultNote } from "./consult-gate";
 import ConsultSheet, { CHOICE_TITLE, quotedRateFor, type ConsultChoice, type RateChange } from "./consult-sheet";
 import InCallRecharge from "./in-call-recharge";
+import { offersChanged, useConsultDiscount } from "@/lib/offers";
+import { makeGoodChanged, useMakeGood } from "@/lib/makegood";
 
 type Step = "phone" | "otp" | "mode" | "connecting" | "waiting" | "session" | "settle" | "rate" | "outcome";
 
@@ -56,8 +58,10 @@ interface Placed {
   id: string;
   rate: number;
   held: number;
-  /** A welcome free call */
+  /** A welcome free call (or a free replacement call) */
   complimentary?: boolean;
+  /** A free replacement call (offered after a complaint) */
+  makeGood?: boolean;
 }
 /** The meter the API sets when the astrologer picks up (POST /consultations/:id/connect), kept current by the session poll. */
 interface Meter {
@@ -68,7 +72,7 @@ interface Meter {
 }
 
 /** Refusals that mean the free call can't be used here right now (lib/welcome.ts on the API). */
-const WELCOME_REFUSED = ["WEL_DISABLED", "WEL_ASTROLOGER_NOT_PARTICIPATING", "WEL_ASTROLOGER_UNAVAILABLE", "WEL_DAILY_LIMIT", "WEL_NOT_AVAILABLE", "WEL_MODALITY_DENIED"];
+const WELCOME_REFUSED = ["WEL_DISABLED", "WEL_ASTROLOGER_NOT_PARTICIPATING", "WEL_ASTROLOGER_UNAVAILABLE", "WEL_DAILY_LIMIT", "WEL_ASTROLOGER_BUSY", "WEL_NOT_AVAILABLE", "WEL_MODALITY_DENIED"];
 
 export default function ConsultJourney({
   astrologer,
@@ -96,7 +100,7 @@ export default function ConsultJourney({
   const [choice, setChoice] = useState<ConsultChoice | null>(resume ? (resume.kind === "instant" ? "instant" : resume.mode) : initialMode);
   const [connectStep, setConnectStep] = useState(resume?.status === "connecting" ? 2 : 0);
   const [placed, setPlaced] = useState<Placed | null>(
-    resume ? { id: resume.id, rate: resume.rate, held: resume.held, complimentary: resume.complimentary } : null,
+    resume ? { id: resume.id, rate: resume.rate, held: resume.held, complimentary: resume.complimentary, makeGood: resume.makeGood } : null,
   );
   const [meter, setMeter] = useState<Meter>(
     resume
@@ -125,11 +129,21 @@ export default function ConsultJourney({
 
   const balance = totalBalance(session);
   const welcome = usableWelcome(session);
+  // A free replacement call with this astrologer (offered on a complaint): Chat, Voice or Video, free
+  // for its minutes. It stands alone — never with the welcome free call or an offer's discount.
+  const makeGood = useMakeGood(fresh.id);
+  const useMakeGoodCall = !!makeGood && fresh.availability === "on" && !!mode;
   // This request uses the customer's welcome free call (Chat or Voice with a taking-part astrologer).
-  const useFree = !!welcome && fresh.freeCall && fresh.availability === "on" && !!mode && welcome.modes.includes(mode);
+  const useFree = !useMakeGoodCall && !!welcome && fresh.freeCall && fresh.availability === "on" && !!mode && welcome.modes.includes(mode);
+  // A claimed consultation offer: percent off paid Chat, Voice and Video (the API applies the same rule).
+  const discount = useConsultDiscount();
+  const discountPct = discount && mode && !useFree && !useMakeGoodCall ? discount.pct : 0;
   // Once placed, always the session's own rate; before that, the rate the sheet shows.
-  const rate = placed?.rate ?? (choice ? quotedRateFor(fresh, choice) : fresh.price);
+  const rate = placed?.rate ?? (choice ? quotedRateFor(fresh, choice, discountPct) : fresh.price);
   const held = placed?.held ?? 0;
+
+  // When the flow closes, re-read the customer's replacement calls (one may have been used, or given back).
+  useEffect(() => () => makeGoodChanged(), []);
 
   // Lock page scrolling behind the full-screen flow.
   useEffect(() => {
@@ -235,10 +249,14 @@ export default function ConsultJourney({
       return;
     }
     setStep("mode");
+    // The replacement call was used or expired meanwhile: re-read it so the sheet shows paid rates.
+    if (e instanceof ApiError && e.code === "MAKEGOOD_NOT_AVAILABLE") makeGoodChanged();
     if (e instanceof ApiError && e.code === "rate_changed" && typeof e.details.rate === "number" && choice) {
       // The price changed after the sheet showed it: nothing started; ask before going on at the new rate.
       setRateChange({ choice, from: quoted, to: e.details.rate });
       recheckAvailability();
+      // An offer may have been used up or expired meanwhile (or newly claimed): re-read it.
+      offersChanged();
       return;
     }
     if (e instanceof ApiError && WELCOME_REFUSED.includes(e.code)) {
@@ -257,8 +275,8 @@ export default function ConsultJourney({
   /** `quotedOverride`: the new rate the customer just agreed to after a price change. */
   async function beginConnect(quotedOverride?: number) {
     if (!choice || busy) return;
-    const quoted = quotedOverride ?? quotedRateFor(fresh, choice);
-    if (!useFree && balance < quoted * 5) return;
+    const quoted = quotedOverride ?? quotedRateFor(fresh, choice, discountPct);
+    if (!useFree && !useMakeGoodCall && balance < quoted * 5) return;
     setBusy(true);
     setError("");
     setRateChange(null);
@@ -288,7 +306,9 @@ export default function ConsultJourney({
         mode: choice.toUpperCase(),
         quotedRate: quoted,
         ...(useFree ? { welcome: true } : {}),
+        ...(useMakeGoodCall ? { makeGoodCreditId: makeGood.id } : {}),
       });
+      if (useMakeGoodCall) makeGoodChanged();
       setPlaced(consultation);
       void consultationActions.refresh();
       void sessionActions.refreshWallet().catch(() => {});
@@ -311,8 +331,10 @@ export default function ConsultJourney({
         complimentary: !!c.complimentary,
         reminderSeconds: c.complimentary ? (welcome?.reminderSeconds ?? 120) : 0,
       });
-      // A free call is used up once it connects: the wallet's free-call note goes.
+      // A free call counts once it connects: the wallet's free-call note updates.
       if (c.complimentary) void sessionActions.refreshWallet().catch(() => {});
+      // A claimed offer is used once the call connects.
+      if (discountPct > 0) offersChanged();
       setConnectStep(3);
       void consultationActions.refresh();
     } catch (e) {
@@ -320,6 +342,7 @@ export default function ConsultJourney({
       await api.post(`/consultations/${c.id}/end`).catch(() => {});
       void consultationActions.refresh();
       void sessionActions.refreshWallet().catch(() => {});
+      makeGoodChanged();
       setPlaced(null);
       setError(`${errorText(e)} You have not been charged.${c.complimentary ? " Your free call is still yours." : ""}`);
       setStep("mode");
@@ -397,7 +420,7 @@ export default function ConsultJourney({
     if (step === "waiting") {
       if (v.status === "active") {
         // Accepted: straight into the session.
-        setPlaced({ id: v.id, rate: v.rate, held: v.held, complimentary: v.complimentary });
+        setPlaced({ id: v.id, rate: v.rate, held: v.held, complimentary: v.complimentary, makeGood: v.makeGood });
         setMeter(nextMeter);
         startedAt.current = Date.now() - v.elapsedSeconds * 1000;
         setElapsed(v.elapsedSeconds);
@@ -549,6 +572,8 @@ export default function ConsultJourney({
         }}
         balance={balance}
         welcome={welcome}
+        makeGood={makeGood && fresh.availability === "on" ? makeGood : null}
+        discount={useMakeGoodCall ? null : discount}
         busy={busy}
         error={error}
         rateChange={rateChange}
@@ -581,7 +606,9 @@ export default function ConsultJourney({
           title={modeTitle}
           badges={
             meter.complimentary ? (
-              <span className="inline-flex h-7 items-center rounded-full bg-emerald-400/15 px-3 text-[12px] font-bold text-emerald-300">🎁 Free call</span>
+              <span className="inline-flex h-7 items-center rounded-full bg-emerald-400/15 px-3 text-[12px] font-bold text-emerald-300">
+                🎁 {placed?.makeGood ? "Free replacement call" : "Free call"}
+              </span>
             ) : null
           }
           clock={clock(elapsed)}
@@ -721,8 +748,8 @@ export default function ConsultJourney({
             <h1 className="mt-5 font-display text-[32px] font-semibold text-ink">Connecting you…</h1>
             <ol className="mt-[26px] flex flex-col gap-3 rounded-[18px] border border-line bg-white p-5 text-left">
               {[
-                useFree || placed?.complimentary ? "Checking your free call" : "Checking your balance",
-                useFree || placed?.complimentary
+                useFree || useMakeGoodCall || placed?.complimentary ? "Checking your free call" : "Checking your balance",
+                useFree || useMakeGoodCall || placed?.complimentary
                   ? held > 0
                     ? `Free call reserved · ${rupee(held)} held for after it`
                     : "Free call reserved — no balance needed"

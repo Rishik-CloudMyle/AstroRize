@@ -3,10 +3,11 @@ import { z } from "zod";
 import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
-import { istTime } from "../../lib/format.ts";
-import { hostedLiveRoom, viewerCount } from "../../lib/presence.ts";
-import { actorName, requireCapability, requirePage } from "../../lib/rbac.ts";
+import { istStamp, istTime } from "../../lib/format.ts";
+import { goOffline, hostedLiveRoom, viewerCount } from "../../lib/presence.ts";
+import { actorName, capabilitiesOf, requireCapability, requirePage } from "../../lib/rbac.ts";
 import { containsContactDetails } from "../../lib/safety.ts";
+import { notify } from "../../lib/notifications.ts";
 import { getSetting } from "../../lib/settings.ts";
 import type { LiveRoom, ObserverLease, Prisma } from "../../generated/prisma/client.ts";
 
@@ -289,4 +290,117 @@ monitoringRouter.post("/monitoring/:id/flag", async (req, res) => {
   if (!room) throw conflict("This live has ended, so it can't be flagged any more.");
   await audit(admin, "live.observer.flag", room.id, note ? `${reason} — ${note}` : reason);
   res.json({ ok: true });
+});
+
+// ── Account suspensions ──
+// Partial: no new consultations and no lives, but the profile stays on the website and customers
+// can still message them. Full: also hidden from the website and from messaging. A consultation
+// already in progress is allowed to finish. Suspending needs "astrologer.suspend"; lifting or
+// easing a suspension needs "astrologer.restore". The reason is kept in the audit entry and on the
+// astrologer (shown in their portal), and they get a notification.
+
+const SUSPENSION_LEVELS = ["none", "partial", "full"] as const;
+type SuspensionLevel = (typeof SUSPENSION_LEVELS)[number];
+const LEVEL_RANK: Record<SuspensionLevel, number> = { none: 0, partial: 1, full: 2 };
+const LEVEL_NAME: Record<SuspensionLevel, string> = { none: "not suspended", partial: "partially suspended", full: "fully suspended" };
+
+/** The reason written after " · " in a suspension audit entry. */
+const reasonOf = (diff: string) => diff.split(" · ").slice(1).join(" · ") || null;
+
+monitoringRouter.get("/suspensions", async (req, res) => {
+  const admin = requirePage(req, "compliance");
+  const caps = capabilitiesOf(admin.adminRole);
+  const list = await db.astrologer.findMany({
+    // Active astrologers, plus anyone still suspended whatever their stage (so it can be lifted).
+    where: { OR: [{ lifecycle: "active" }, { suspension: { not: "none" } }] },
+    select: { id: true, name: true, photo: true, lifecycle: true, suspension: true },
+    orderBy: { name: "asc" },
+  });
+  const suspended = list.filter((a) => a.suspension !== "none");
+  const entries = suspended.length
+    ? await db.auditLog.findMany({
+        where: { action: { in: ["astrologer.suspend", "astrologer.restore"] }, object: { in: suspended.map((a) => a.id) } },
+        orderBy: { at: "desc" },
+      })
+    : [];
+  res.json({
+    suspensions: {
+      suspended: suspended.map((a) => {
+        const last = entries.find((e) => e.object === a.id);
+        return {
+          id: a.id,
+          name: a.name,
+          photo: a.photo,
+          level: a.suspension,
+          since: last ? istStamp(last.at) : null,
+          by: last?.actorName ?? null,
+          reason: last ? reasonOf(last.diff) : null,
+        };
+      }),
+      // Active astrologers who can be suspended (the picker).
+      astrologers: list.filter((a) => a.lifecycle === "active" && a.suspension === "none").map((a) => ({ id: a.id, name: a.name })),
+      canSuspend: caps.includes("astrologer.suspend"),
+      canRestore: caps.includes("astrologer.restore"),
+    },
+  });
+});
+
+monitoringRouter.post("/suspensions/:id", async (req, res) => {
+  requirePage(req, "compliance");
+  const { level, reason } = z
+    .object({
+      level: z.enum(SUSPENSION_LEVELS, { error: "Choose partial, full or lift the suspension." }),
+      reason: z
+        .string({ error: "Write the reason (at least 10 characters)." })
+        .trim()
+        .min(10, "Write the reason (at least 10 characters).")
+        .max(300, "Keep the reason under 300 characters."),
+    })
+    .parse(req.body ?? {});
+  const a = await db.astrologer.findUnique({ where: { id: String(req.params.id) }, select: { id: true, name: true, lifecycle: true, suspension: true, presence: true, userId: true } });
+  if (!a) throw notFound("Astrologer not found.");
+  const from = (SUSPENSION_LEVELS as readonly string[]).includes(a.suspension) ? (a.suspension as SuspensionLevel) : "none";
+  if (from === level) throw conflict(`${a.name} is already ${LEVEL_NAME[level]}.`);
+  const stricter = LEVEL_RANK[level] > LEVEL_RANK[from];
+  // Suspending (or making it stricter) and lifting (or easing it) are separate permissions.
+  const admin = stricter
+    ? requireCapability(req, "astrologer.suspend", "Your role can't suspend astrologers.")
+    : requireCapability(req, "astrologer.restore", "Only a Super Admin can lift or ease a suspension.");
+  if (stricter && a.lifecycle !== "active") throw conflict(`${a.name} isn't an active astrologer, so there is nothing to suspend.`);
+  // Only if nobody changed it meanwhile.
+  // The reason is shown to the astrologer on their portal; `suspendedAt` is when this suspension
+  // started (kept when it is only made stricter or eased), and both are cleared when it is lifted.
+  const now = new Date();
+  const { count } = await db.astrologer.updateMany({
+    where: { id: a.id, suspension: a.suspension },
+    data:
+      level === "none"
+        ? { suspension: level, suspensionReason: null, suspendedAt: null }
+        : { suspension: level, suspensionReason: reason, ...(from === "none" ? { suspendedAt: now } : {}) },
+  });
+  if (!count) throw conflict("This astrologer's suspension just changed. Reload to see the latest.");
+  // A suspended astrologer goes offline at once (an open live ends; requests waiting for them time out).
+  await audit(admin, stricter ? "astrologer.suspend" : "astrologer.restore", a.id, `${from} → ${level} · ${reason}`);
+  if (a.userId) {
+    await notify(
+      a.userId,
+      level === "none"
+        ? { kind: "account.restored", title: "Your account suspension was lifted", body: `You can take consultations and go live again. Note from Astrorize: ${reason}`, href: "/portal" }
+        : {
+            kind: "account.suspended",
+            title: `Your account was ${LEVEL_NAME[level]}`,
+            body: `Reason: ${reason}${/[.!?]$/.test(reason) ? "" : "."} ${
+              level === "partial"
+                ? "You can't start new sessions or go live until it is lifted. Your profile and earnings stay readable."
+                : "Your profile is hidden from customers and you can't take sessions until it is lifted."
+            }`,
+            href: "/portal",
+          },
+    );
+  }
+  if (level !== "none" && a.presence !== "OFF") {
+    const { endedLive } = await goOffline(a.id);
+    await audit(null, "astrologer.presence.auto_off", a.id, `online → OFF · account suspended${endedLive ? ", live room ended" : ""}`);
+  }
+  res.json({ ok: true, level });
 });

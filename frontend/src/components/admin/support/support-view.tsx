@@ -2,13 +2,22 @@
 
 import { useState } from "react";
 import { useAction, useAdmin } from "@/components/admin/admin-provider";
+import ReasonDialog from "@/components/admin/reason-dialog";
 import SortSelect, { useUrlSort } from "@/components/admin/sort-select";
-import { EYEBROW, PANEL } from "@/components/admin/ui";
+import { BlockedAction, EYEBROW, PANEL } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
 import { sortRows, TICKET_SORTS } from "@/lib/admin/sort";
-import type { SupportCase, SupportData } from "@/lib/admin/types";
+import type { SupportCase, SupportData, Ticket } from "@/lib/admin/types";
+import AmountDialog from "./amount-dialog";
 
 type RefundStage = "none" | "proposed" | "initiated" | "rejected";
+
+/** The remedy on a queue row: "Refund proposed", "Free call given" … */
+function chipOf(t: Ticket): string {
+  if (t.resolution === "MAKE_GOOD") return "Free call given";
+  if (t.resolution === "REFUND") return "Refunded";
+  return t.refundState === "PROPOSED" ? "Proposed" : `Refund ${t.refundState.toLowerCase()}`;
+}
 
 function stageOf(c: SupportCase): RefundStage {
   if (c.refundState === "INITIATED") return "initiated";
@@ -32,6 +41,10 @@ export default function SupportView({
   const [ticketId, setTicketId] = useState(initialTicket);
   // The selected ticket's case file (GET /admin/support/:id): metering, evidence, refund.
   const [file, setFile] = useState<SupportCase>(initialCase);
+  // The reason dialog open for this ticket: rejecting the dispute, or declining its proposed remedy.
+  const [asking, setAsking] = useState<"reject" | "decline" | null>(null);
+  // The amount dialog open for this ticket: a refund amount, or the minutes of a free replacement call.
+  const [proposing, setProposing] = useState<"refund" | "makegood" | null>(null);
 
   const tkt = data.tickets.find((t) => t.id === ticketId) ?? data.tickets[0];
   const caseFile = file.id === tkt.id ? file : null;
@@ -44,6 +57,10 @@ export default function SupportView({
     : !!caseFile?.proposedBy && caseFile.proposedBy === session.actor;
   const approveBlocked = isSupport || isProposer;
   const billed = caseFile?.refund.billed ?? "—";
+  // What is proposed (or was granted) on this ticket: a refund or a free replacement call.
+  const makeGood = caseFile?.remedy === "MAKE_GOOD";
+  const remedyName = makeGood ? "free replacement call" : "refund";
+  const mg = caseFile?.makeGood;
 
   const loadCase = async (id: string) => {
     try {
@@ -63,27 +80,52 @@ export default function SupportView({
   const act = async (call: () => Promise<unknown>, done: string) => {
     if (await run(call, done)) await loadCase(tkt.id);
   };
-  const propose = () =>
-    act(
-      () => api.post(`/admin/support/${tkt.id}/refund/propose`),
-      `Refund of ${billed} proposed. Awaiting a second approver before money moves.`,
+  const propose = async (amount: number) => {
+    const res = await run(
+      () => api.post(`/admin/support/${tkt.id}/refund/propose`, { amount }),
+      `Refund of ₹${amount.toLocaleString("en-IN")} proposed. Awaiting a second approver before money moves.`,
     );
+    if (res) await loadCase(tkt.id);
+    return !!res;
+  };
+  const proposeMakeGood = async (minutes: number) => {
+    const res = await run(
+      () => api.post(`/admin/support/${tkt.id}/makegood/propose`, { minutes }),
+      `Free ${minutes}-minute replacement call proposed. Awaiting a second approver.`,
+    );
+    if (res) await loadCase(tkt.id);
+    return !!res;
+  };
   const approve = () =>
-    act(
-      () => api.post(`/admin/support/${tkt.id}/refund/approve`),
-      `REFUND_INITIATED by ${session.actor}. ${billed} returning to the customer's wallet.`,
+    makeGood
+      ? act(
+          () => api.post<{ validUntil: string }>(`/admin/support/${tkt.id}/makegood/approve`),
+          `Approved by ${session.actor}. The customer has been told about their free replacement call.`,
+        )
+      : act(
+          () => api.post<{ billed: string }>(`/admin/support/${tkt.id}/refund/approve`),
+          `REFUND_INITIATED by ${session.actor}. ${caseFile?.refund.amount ?? billed} returning to the customer's wallet.`,
+        );
+  const reject = async (reason: string) => {
+    const res = await run(
+      () => api.post<{ withdrawn: boolean }>(`/admin/support/${tkt.id}/reject`, { reason }),
+      (r) =>
+        r.withdrawn
+          ? `Rejected with reason. The proposed ${remedyName} was withdrawn, so it can't be approved.`
+          : "Rejected with reason. The ticket is resolved.",
     );
-  const reject = () => {
-    const reason = window.prompt("Reason for rejecting this dispute (the customer sees the category):");
-    if (reason === null) return;
-    if (reason.trim().length < 3) {
-      say("Write a reason of at least 3 characters.");
-      return;
-    }
-    void act(
-      () => api.post(`/admin/support/${tkt.id}/reject`, { reason: reason.trim() }),
-      "Rejected with reason. The customer sees the category and the reopen path.",
+    if (res) await loadCase(tkt.id);
+    return !!res;
+  };
+  const decline = async (reason: string) => {
+    const res = await run(
+      () => api.post(`/admin/support/${tkt.id}/refund/decline`, { reason }),
+      makeGood
+        ? "Free replacement call declined. Nothing was given; the ticket is back under investigation."
+        : "Refund declined. No money moved; the ticket is back under investigation.",
     );
+    if (res) await loadCase(tkt.id);
+    return !!res;
   };
 
   const settled = stage === "initiated" || stage === "rejected";
@@ -118,8 +160,8 @@ export default function SupportView({
                 <b className="mt-1 block text-[12.5px] text-ink">{t.subject}</b>
                 <span className="mt-px flex items-center gap-1.5 text-[11px] text-[#78716c]">
                   {t.state}
-                  {/* The refund state, unless the ticket state already says it (REFUND_PROPOSED …). */}
-                  {t.refundState !== "NONE" && !t.state.startsWith("REFUND_") && (
+                  {/* The remedy, unless the ticket state already says it (REFUND_PROPOSED …). */}
+                  {t.refundState !== "NONE" && !t.state.startsWith("REFUND_") && !t.state.startsWith("MAKEGOOD_") && (
                     <span
                       className="inline-flex h-[17px] items-center rounded-full px-1.5 text-[9.5px] font-extrabold"
                       style={
@@ -128,7 +170,7 @@ export default function SupportView({
                           : { background: "#ecfdf5", color: "#047857" }
                       }
                     >
-                      Refund {t.refundState.toLowerCase()}
+                      {chipOf(t)}
                     </span>
                   )}
                 </span>
@@ -192,42 +234,84 @@ export default function SupportView({
           </div>
 
           <div className="relative mt-[18px] rounded-2xl border border-amber-200 bg-amber-50 p-[18px]">
-            <h3 className="mt-0 mb-1 text-[15px] font-bold">Proposed refund</h3>
+            <h3 className="mt-0 mb-1 text-[15px] font-bold">
+              {stage === "proposed" || stage === "initiated" ? (makeGood ? "Free replacement call" : "Refund") : "Refund or free replacement call"}
+            </h3>
             <p className="mt-0 mb-3 text-[12px] text-amber-800">
-              Capped at the billed amount of {billed}. Refund returns to the wallet in the same bucket composition it
-              was spent from.
+              {makeGood
+                ? `Instead of money back: free minutes with ${mg?.astrologer ?? "the same astrologer"}. They keep their earnings from the original session and aren't paid for these minutes.`
+                : `A refund is capped at the billed amount of ${billed} and returns to the wallet in the same bucket composition it was spent from. The astrologer's share of it is taken back from their next payout${
+                    caseFile?.refund.astrologerSharePct != null ? ` (${caseFile.refund.astrologerSharePct}% share)` : ""
+                  }.`}
             </p>
-            <div className="flex flex-col gap-[7px]">
-              {(caseFile?.refund.buckets ?? []).map((b) => (
-                <div
-                  key={b.label}
-                  className="flex items-center justify-between gap-3 border-b py-[5px] text-[13.5px]"
-                  style={{
-                    color: b.total ? "#1c1917" : "#57534e",
-                    fontWeight: b.total ? 700 : 500,
-                    borderColor: b.total ? "transparent" : "#f3e9d8",
-                  }}
-                >
-                  <span>{b.label}</span>
-                  <b className="tabular-nums">{b.value}</b>
+            {!makeGood && (
+              <div className="flex flex-col gap-[7px]">
+                {(caseFile?.refund.buckets ?? []).map((b) => (
+                  <div
+                    key={b.label}
+                    className="flex items-center justify-between gap-3 border-b py-[5px] text-[13.5px]"
+                    style={{
+                      color: b.total ? "#1c1917" : "#57534e",
+                      fontWeight: b.total ? 700 : 500,
+                      borderColor: b.total ? "transparent" : "#f3e9d8",
+                    }}
+                  >
+                    <span>{b.label}</span>
+                    <b className="tabular-nums">{b.value}</b>
+                  </div>
+                ))}
+                {caseFile?.refund.amount && caseFile.refund.amount !== billed && (
+                  <div className="flex items-center justify-between gap-3 py-[5px] text-[13.5px] font-bold text-ink">
+                    <span>{stage === "initiated" ? "Refunded (partial)" : "Proposed refund (partial)"}</span>
+                    <b className="tabular-nums">{caseFile.refund.amount}</b>
+                  </div>
+                )}
+              </div>
+            )}
+            {makeGood && mg && (
+              <div className="flex flex-col gap-[7px] text-[13.5px] text-[#57534e]">
+                <div className="flex items-center justify-between gap-3 border-b border-[#f3e9d8] py-[5px]">
+                  <span>Free minutes with {mg.astrologer ?? "the astrologer"}</span>
+                  <b className="text-ink tabular-nums">{mg.minutes ?? "—"} min</b>
                 </div>
-              ))}
-            </div>
+                <div className="flex items-center justify-between gap-3 py-[5px]">
+                  <span>{mg.credit ? "Book by" : "Valid for"}</span>
+                  <b className="text-ink">{mg.credit ? mg.credit.validUntil : `${mg.validDays} days after approval`}</b>
+                </div>
+              </div>
+            )}
             <div className="mt-4 flex flex-wrap items-center gap-2.5">
-              <button
-                type="button"
-                onClick={reject}
-                className="h-[42px] rounded-[11px] border border-amber-200 bg-white px-4 text-[13px] font-bold text-amber-800"
-              >
-                Reject with reason
-              </button>
-              {stage === "none" && (
+              {!settled && (
                 <button
                   type="button"
-                  onClick={() => void propose()}
+                  onClick={() => setAsking("reject")}
+                  className="h-[42px] rounded-[11px] border border-amber-200 bg-white px-4 text-[13px] font-bold text-amber-800"
+                >
+                  Reject with reason
+                </button>
+              )}
+              {stage === "none" && caseFile?.refundBlocked && (
+                <BlockedAction className="h-[42px] px-4 text-[12.5px]">{caseFile.refundBlocked}</BlockedAction>
+              )}
+              {stage === "none" && !caseFile?.refundBlocked && (
+                <button
+                  type="button"
+                  onClick={() => setProposing("refund")}
                   className="h-[42px] rounded-[11px] border-0 bg-amber-500 px-[18px] text-[13px] font-bold text-ink"
                 >
                   Propose refund — needs a second approver
+                </button>
+              )}
+              {stage === "none" && caseFile?.makeGoodBlocked && caseFile.makeGoodBlocked !== caseFile.refundBlocked && (
+                <BlockedAction className="h-[42px] px-4 text-[12.5px]">{caseFile.makeGoodBlocked}</BlockedAction>
+              )}
+              {stage === "none" && caseFile && !caseFile.makeGoodBlocked && (
+                <button
+                  type="button"
+                  onClick={() => setProposing("makegood")}
+                  className="h-[42px] rounded-[11px] border border-amber-300 bg-white px-[18px] text-[13px] font-bold text-amber-900"
+                >
+                  Offer a free replacement call instead
                 </button>
               )}
               {stage === "proposed" && (
@@ -245,25 +329,100 @@ export default function SupportView({
                     ? `Approve — blocked for ${session.role === "support" ? "Support" : "your department"}`
                     : isProposer
                       ? "Approve — blocked, you proposed this"
-                      : "Approve refund · MFA"}
+                      : makeGood
+                        ? "Approve free replacement call"
+                        : "Approve refund"}
+                </button>
+              )}
+              {stage === "proposed" && !approveBlocked && (
+                <button
+                  type="button"
+                  onClick={() => setAsking("decline")}
+                  className="h-[42px] rounded-[11px] border border-line bg-white px-4 text-[13px] font-bold text-rose-700"
+                >
+                  Decline {remedyName}
                 </button>
               )}
               {settled && (
                 <span
-                  className="inline-flex h-[42px] items-center rounded-[11px] border px-4 text-[13px] font-bold"
+                  className="inline-flex min-h-[42px] items-center rounded-[11px] border px-4 py-2 text-[13px] font-bold"
                   style={{
                     background: ok ? "#ecfdf5" : "#fff1f2",
                     borderColor: ok ? "#a7f3d0" : "#fecdd3",
                     color: ok ? "#047857" : "#be123c",
                   }}
                 >
-                  {ok ? `✓ REFUND_INITIATED · ${billed}` : "✕ Rejected with reason"}
+                  {!ok
+                    ? "✕ Rejected with reason"
+                    : makeGood
+                      ? `✓ MAKE_GOOD · ${mg?.credit?.minutes ?? mg?.minutes ?? "—"} min free · ${
+                          mg?.credit?.used ? "used" : mg?.credit?.status === "EXPIRED" ? "expired unused" : `book by ${mg?.credit?.validUntil ?? "—"}`
+                        }`
+                      : `✓ REFUND_INITIATED · ${caseFile?.refund.amount ?? billed}`}
                 </span>
               )}
             </div>
+            {ok && !makeGood && caseFile?.refund.adjustment && (
+              <p className="mt-3 mb-0 text-[12.5px] text-[#57534e]">
+                <b className="text-rose-700">Refund adjustment:</b> {caseFile.refund.adjustment}.
+              </p>
+            )}
+            {(stage === "proposed" || ok) && caseFile?.proposedBy && (
+              <p className="mt-2 mb-0 text-[11.5px] text-[#78716c]">
+                Proposed by {caseFile.proposedBy}
+                {ok && caseFile.approvedBy ? ` · approved by ${caseFile.approvedBy}` : ""}
+              </p>
+            )}
           </div>
         </div>
       </div>
+      {asking && (
+        <ReasonDialog
+          title={asking === "reject" ? `Reject the dispute on ${tkt.id}` : `Decline the ${remedyName} on ${tkt.id}`}
+          subtitle={tkt.subject}
+          intro={
+            asking === "reject"
+              ? stage === "proposed"
+                ? `The ticket is resolved and the proposed ${makeGood ? "free replacement call" : `refund of ${caseFile?.refund.amount ?? billed}`} is withdrawn. The reason is kept in the audit log.`
+                : "The ticket is resolved without a refund. The reason is kept in the audit log."
+              : "Nothing is given. The ticket goes back under investigation, with your reason in the audit log."
+          }
+          confirm={asking === "reject" ? "Reject dispute" : `Decline ${remedyName}`}
+          danger
+          onClose={() => setAsking(null)}
+          onSubmit={asking === "reject" ? reject : decline}
+        />
+      )}
+      {proposing === "refund" && caseFile && (
+        <AmountDialog
+          title={`Propose a refund on ${tkt.id}`}
+          subtitle={`Session ${tkt.session} · billed ${billed}`}
+          intro="A second person (Finance or a Super Admin) approves it before any money moves. The full amount is suggested; enter less for a partial refund."
+          label="Refund amount"
+          unit="₹"
+          initial={caseFile.refund.billedValue}
+          min={1}
+          max={caseFile.refund.billedValue}
+          confirm="Propose refund"
+          onClose={() => setProposing(null)}
+          onSubmit={propose}
+        />
+      )}
+      {proposing === "makegood" && mg && (
+        <AmountDialog
+          title={`Offer a free replacement call on ${tkt.id}`}
+          subtitle={`With ${mg.astrologer ?? "the same astrologer"} · session ${tkt.session}`}
+          intro={`Instead of a refund, the customer gets free minutes with the same astrologer, to book within ${mg.validDays} days. The astrologer isn't paid for them. A second person approves it first.`}
+          label="Free minutes"
+          unit="min"
+          initial={mg.suggestedMinutes}
+          min={1}
+          max={mg.maxMinutes}
+          confirm="Propose free call"
+          onClose={() => setProposing(null)}
+          onSubmit={proposeMakeGood}
+        />
+      )}
     </div>
   );
 }

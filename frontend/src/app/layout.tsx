@@ -1,38 +1,56 @@
 import type { Metadata } from "next";
-import { Cormorant_Garamond, Figtree, Inter, JetBrains_Mono, Playfair_Display } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-// next/font downloads these at build time and serves them from our own site
-// (no request to Google from the visitor's browser). Each one exposes a CSS
-// variable that globals.css maps to a Tailwind class (font-sans, font-display…).
-const figtree = Figtree({
+// The site's fonts, stored in src/app/fonts and served from our own site: nothing is fetched from
+// Google, neither while building or running the dev server (a slow or blocked connection used to
+// stop the dev server with "Can't resolve …/font/google/font") nor from the visitor's browser.
+// Each is the Latin variable font from Google Fonts (all weights in one file, plus its italic).
+// Each exposes a CSS variable that globals.css maps to a Tailwind class (font-sans, font-display…).
+const figtree = localFont({
   variable: "--font-figtree",
-  subsets: ["latin"],
+  src: [
+    { path: "./fonts/Figtree-normal.woff2", weight: "300 900", style: "normal" },
+    { path: "./fonts/Figtree-italic.woff2", weight: "300 900", style: "italic" },
+  ],
+  // No generated "Figtree Fallback": symbols Figtree lacks (→, ≠) fall back to Segoe UI, as in the prototype.
+  adjustFontFallback: false,
+  fallback: ["Segoe UI", "sans-serif"],
 });
 
-const cormorant = Cormorant_Garamond({
+const cormorant = localFont({
   variable: "--font-cormorant",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-  style: ["normal", "italic"],
+  src: [
+    { path: "./fonts/CormorantGaramond-normal.woff2", weight: "300 700", style: "normal" },
+    { path: "./fonts/CormorantGaramond-italic.woff2", weight: "300 700", style: "italic" },
+  ],
+  adjustFontFallback: "Times New Roman",
 });
 
-const playfair = Playfair_Display({
+const playfair = localFont({
   variable: "--font-playfair",
-  subsets: ["latin"],
+  src: [
+    { path: "./fonts/PlayfairDisplay-normal.woff2", weight: "400 900", style: "normal" },
+    { path: "./fonts/PlayfairDisplay-italic.woff2", weight: "400 900", style: "italic" },
+  ],
+  adjustFontFallback: "Times New Roman",
 });
 
-const inter = Inter({
+const inter = localFont({
   variable: "--font-inter",
-  subsets: ["latin"],
+  src: [
+    { path: "./fonts/Inter-normal.woff2", weight: "100 900", style: "normal" },
+    { path: "./fonts/Inter-italic.woff2", weight: "100 900", style: "italic" },
+  ],
 });
 
 // Monospace for IDs, config keys and audit entries in the admin console.
-// Loaded as the variable font (all weights in one file). Listing separate weights
-// makes the dev server fail with "next/font/google queries have exactly one entry".
-const jetbrains = JetBrains_Mono({
+const jetbrains = localFont({
   variable: "--font-jetbrains",
-  subsets: ["latin"],
+  src: [
+    { path: "./fonts/JetBrainsMono-normal.woff2", weight: "100 800", style: "normal" },
+    { path: "./fonts/JetBrainsMono-italic.woff2", weight: "100 800", style: "italic" },
+  ],
 });
 
 export const metadata: Metadata = {

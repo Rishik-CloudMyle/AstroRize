@@ -20,6 +20,7 @@ export const NAV_LINKS = [
   { href: "/astrologers", label: "Astrologers" },
   { href: "/live", label: "Live", live: true },
   { href: "/free-tools", label: "Free tools" },
+  { href: "/offers", label: "Offers" },
   { href: "/wallet", label: "Wallet" },
   { href: "/terms", label: "T&C" },
 ];

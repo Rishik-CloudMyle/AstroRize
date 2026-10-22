@@ -41,6 +41,10 @@ export type SuspensionScope = "none" | "partial" | "full";
 export interface AccountStatus {
   lifecycle: LifecycleKey;
   suspension: SuspensionScope;
+  /** Why Astrorize suspended the account (null when not suspended or not recorded) */
+  suspensionReason?: string | null;
+  /** "22 Oct 2026": when the suspension started */
+  suspendedOn?: string | null;
   /** "8 Oct 2026": when the application first went to HR (null while it is a draft) */
   submittedOn?: string | null;
   /** HR's latest note: what they need (docs) or why it was not approved (rejected) */
@@ -126,17 +130,75 @@ export interface Dashboard {
   training: TrainingItem[];
   reviews: Review[];
   multiplierOptions: number[];
-  /** Welcome campaign: free calls taken today and how many are left */
+  /** Welcome campaign: taking part, capacity per day or week, and how many are left */
   freeCalls: FreeCalls;
+  /** Your own per-minute price and the rules for changing it */
+  pricing: Pricing;
+  /** Intro video on your public profile, or null */
+  introVideoUrl: string | null;
 }
 
-/** Welcome-campaign free calls for today (IST). */
+/** Welcome-campaign free calls (GET /portal/dashboard → freeCalls, PATCH /portal/free-calls). */
 export interface FreeCalls {
-  /** Taking part (set by Astrorize HR) and the campaign is on */
+  /** Taking free calls right now: the campaign is on and you take part */
   enabled: boolean;
+  /** Your own switch */
+  optedIn: boolean;
+  /** The campaign is switched on by Astrorize */
+  campaignOn: boolean;
+  /** Your own number, or null for the platform default (per day) */
+  ownLimit: number | null;
+  period: "day" | "week";
   limit: number;
-  today: number;
+  isDefault: boolean;
+  defaultLimit: number;
+  /** Connected this period (today, or this Monday–Sunday week, IST) */
+  used: number;
   remaining: number;
+  /** ISO time the count starts again */
+  resetsAt: string;
+  /** Most you may offer per day / per week */
+  maxPerDay: number;
+  maxPerWeek: number;
+  /** Length of each free call, in seconds */
+  freeSeconds: number;
+}
+
+/** Your price (GET /portal/dashboard → pricing, PATCH /portal/price). */
+export interface Pricing {
+  /** Chat and voice, ₹/min */
+  price: number;
+  /** Struck-through original price, or null */
+  was: number | null;
+  /** What customers pay per minute */
+  rates: { chat: number; voice: number; video: number; instant: number };
+  /** You can change it yourself (live profile with a price set) */
+  editable: boolean;
+  /** Range for your next change */
+  allowed: { min: number; max: number };
+  maxIncrease: number;
+  cooldownDays: number;
+  /** "22 Oct 2026", or null if you have never changed it */
+  changedAt: string | null;
+  /** While in the cooldown: the first day you can change it again */
+  nextChangeOn: string | null;
+  /** An increase waiting for the Astrorize team (customers still pay `price`), or null */
+  pending: PriceRequest | null;
+  /** The team's latest decision on an increase, or null */
+  lastDecision: PriceRequest | null;
+}
+
+/** One price change you asked for (PATCH /portal/price). */
+export interface PriceRequest {
+  id: string;
+  from: number;
+  to: number;
+  kind: "increase" | "decrease";
+  status: "PENDING" | "APPROVED" | "REJECTED" | "APPLIED" | "WITHDRAWN";
+  requestedOn: string;
+  decidedOn: string | null;
+  /** Why it was rejected */
+  reason: string | null;
 }
 
 // ── Application wizard ──
@@ -242,7 +304,7 @@ export interface IncomingRequest {
   mode: string;
   /** Instant Call / Emergency request (charged at the multiplier rate) */
   instant: boolean;
-  /** A customer's welcome free call: the free time earns nothing, paid minutes after it earn as usual */
+  /** A customer's free call: Astrorize pays for the free time (monthly compensation); paid minutes after it earn as usual */
   free: boolean;
   windowSecs: number;
   remainingSecs: number;
@@ -270,8 +332,10 @@ export interface ActiveSession {
   /** The session window to open: chat, voice, or video (Instant Call is a video call) */
   window: "chat" | "voice" | "video";
   instant: boolean;
-  /** A customer's welcome free call: its first freeSeconds earn nothing */
+  /** A customer's free call: its first freeSeconds are paid by Astrorize, not the customer */
   free: boolean;
+  /** A free replacement call (make-good on a complaint): its free minutes are not paid again */
+  makeGood?: boolean;
   freeSeconds: number;
   elapsed: string;
   elapsedSeconds: number;
@@ -509,23 +573,57 @@ export interface ThreadCustomerDetail {
 export interface StatementRow {
   date: string;
   session: string;
-  kind: "voice" | "chat" | "video" | "emergency" | "welcome" | "adjustment";
+  /** voice | chat | video | emergency | gift | free_call | welcome (before compensation) | adjustment */
+  kind: string;
   mode: string;
   minutes: number;
+  /** Gift price (gift lines) */
   gifts: number;
-  /** Your gross for the row (₹), worked out by the API from your rates */
+  /** What the line is worth before the split (₹): the customer's charge, the gift's price, or free minutes at your rate */
+  gross: number;
+  /** Percent you keep, fixed when the line was written; null on lines from before the split */
+  sharePct: number | null;
+  /** Your amount (₹) */
   amount: number;
+  /** Recorded before revenue sharing began: counts in full */
+  legacy: boolean;
+  /** CUSTOMER (paid by the customer) | PLATFORM (free-call compensation, paid by Astrorize) */
+  fundedBy: "CUSTOMER" | "PLATFORM";
+  /** Free seconds a compensation line pays for */
+  freeSeconds: number;
 }
 
 export interface Earnings {
   periodLabel: string;
   periods: string[];
   periodIndex: number;
+  /** What customers paid in the period (₹) */
   gross: number;
+  /** Your share of it (₹) */
+  earned: number;
+  /** Your share of gifts (₹), included in `earned` */
   gifts: number;
   tdsRate: number;
+  /** TDS on `earned` (₹) */
+  tds: number;
   nextPayout: string;
   payoutPaused: boolean;
+  /** Why Astrorize Finance paused your payouts, when a reason was recorded. */
+  payoutPauseReason: string | null;
+  /** Your share now and, while you are new, when and to what it changes */
+  share: { pct: number; nextPct: number | null; changesOn: string | null };
+  /** Free-call compensation in the running cycle (paid by Astrorize, separately) */
+  freeCalls: {
+    cycle: "monthly" | "weekly";
+    periodLabel: string;
+    calls: number;
+    minutes: number;
+    gross: number;
+    amount: number;
+    tds: number;
+    paidAfter: string;
+    lines: StatementRow[];
+  };
   statement: StatementRow[];
 }
 

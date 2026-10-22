@@ -15,6 +15,9 @@ import ProfileSection from "./profile-section";
 interface Denomination {
   amount: number;
   bonus: number;
+  /** Cashback a claimed offer adds to this amount (₹), and the offer's name. */
+  cashback: number;
+  cashbackFrom: string | null;
 }
 
 const CLOSED_KEY = "astrorize.accountClosed";
@@ -166,7 +169,9 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
     return () => clearTimeout(id);
   }, [highlight]);
 
-  // Recharge amounts, bonuses and GST come from the API; the balance is re-read so it is current.
+  // Recharge amounts, bonuses, claimed-offer cashback and GST come from the API; the balance is re-read so it is current.
+  // Read again after a payment (a claimed cashback offer may have been used up).
+  const [loads, setLoads] = useState(0);
   useEffect(() => {
     let cancelled = false;
     api
@@ -178,11 +183,11 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
         setDenom((d) => (res.denominations.some((x) => x.amount === d) ? d : (res.denominations[0]?.amount ?? 0)));
       })
       .catch((e) => !cancelled && setPayError(errorText(e)));
-    sessionActions.refreshWallet().catch(() => {});
+    if (loads === 0) sessionActions.refreshWallet().catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loads]);
 
   const gst = Math.round(denom * gstRate);
   const selected = denominations?.find((d) => d.amount === denom);
@@ -193,10 +198,15 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
     setPayError("");
     toast("Opening secure checkout… confirming your payment.");
     try {
-      await sessionActions.recharge(selected.amount);
+      const paid = await sessionActions.recharge(selected.amount);
       setPaidAmount(selected.amount);
       setPayStage("done");
-      toast(`Payment successful. Your wallet is credited the full ${rupee(selected.amount)} talk-time value — GST was charged on top.`);
+      toast(
+        `Payment successful. Your wallet is credited the full ${rupee(selected.amount)} talk-time value — GST was charged on top.${
+          paid.cashback > 0 ? ` Plus ${rupee(paid.cashback)} cashback from ${paid.cashbackFrom ?? "your offer"}.` : ""
+        }`,
+      );
+      if (selected.cashback > 0) setLoads((n) => n + 1);
     } catch (e) {
       setPayStage("idle");
       setPayError(errorText(e));
@@ -267,7 +277,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
           >
             + Add money
           </button>
-          <WelcomeBanner className="mt-4" />
+          <WelcomeBanner className="mt-4" showUsedUp />
         </div>
 
       <div className="order-last flex min-w-0 flex-col gap-[18px] lg:order-none lg:col-start-1 lg:row-start-2">
@@ -371,9 +381,9 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
                   className={`rounded-[14px] border px-1.5 py-3 text-center ${on ? "border-amber-600 bg-amber-50" : "border-line bg-white"}`}
                 >
                   <b className="block text-[15px] font-bold tabular-nums text-ink">{rupee(d.amount)}</b>
-                  {d.bonus > 0 && (
+                  {d.bonus + d.cashback > 0 && (
                     <span className="mt-[5px] inline-block rounded-full bg-emerald-50 px-[7px] py-0.5 text-[10px] font-extrabold text-emerald-700">
-                      +{rupee(d.bonus)}
+                      +{rupee(d.bonus + d.cashback)}
                     </span>
                   )}
                 </button>
@@ -386,6 +396,9 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
               { label: denominations ? `GST ${Math.round(gstRate * 100)}%` : "GST", value: rupee(gst) },
               { label: "Total payable", value: rupee(denom + gst), strong: true },
               { label: "Wallet credit", value: rupee(denom), strong: true, green: true },
+              ...(selected && selected.cashback > 0
+                ? [{ label: `Cashback · ${selected.cashbackFrom ?? "your offer"}`, value: `+${rupee(selected.cashback)}`, strong: true, green: true }]
+                : []),
             ].map((o) => (
               <div
                 key={o.label}
@@ -412,7 +425,11 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
           )}
           <p className="mt-2.5 text-[11.5px] leading-normal text-stone-500">
             GST is charged on top of your recharge. Your wallet is credited the full {rupee(denom)} talk-time value.
+            {selected && selected.cashback > 0 && " Cashback is promotional credit from an offer you claimed."}
           </p>
+          <Link href="/offers" className="mt-1.5 inline-block text-[12px] font-bold text-amber-700">
+            See offers
+          </Link>
         </div>
       </aside>
     </div>

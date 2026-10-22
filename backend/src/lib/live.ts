@@ -5,6 +5,7 @@ import { HttpError, badRequest, conflict, notFound } from "./errors.ts";
 import { rupee } from "./format.ts";
 import { CONTACT_BLOCKED_NOTICE, containsContactDetails } from "./safety.ts";
 import { getSetting } from "./settings.ts";
+import { sharePctFor, sharePolicy, writeEarnings } from "./earnings.ts";
 import type { ChatMessage, GiftSend, LiveRoom, User } from "../generated/prisma/client.ts";
 
 // Live room activity shared by the public room (routes/catalog.ts) and the astrologer's
@@ -134,10 +135,14 @@ export async function sendGift(roomId: string, user: Pick<User, "id" | "name" | 
 
   const gift = await db.gift.findUnique({ where: { id: giftId } });
   if (!gift || gift.state !== "ACTIVE" || gift.price <= 0) throw badRequest("This gift isn't available right now. Choose another one.");
+  const shares = await sharePolicy();
 
   try {
     const sent = await db.$transaction(async (tx) => {
-      const room = await tx.liveRoom.findFirst({ where: { id: roomId, isLive: true }, select: { id: true, astrologerId: true } });
+      const room = await tx.liveRoom.findFirst({
+        where: { id: roomId, isLive: true },
+        select: { id: true, astrologerId: true, astrologer: { select: { activatedAt: true, createdAt: true } } },
+      });
       if (!room) throw notFound("This live room has ended.");
       // One statement: concurrent gifts (or a consultation settling) can never overspend.
       const debited = await tx.$executeRaw`
@@ -152,9 +157,17 @@ export async function sendGift(roomId: string, user: Pick<User, "id" | "name" | 
       await tx.chatMessage.create({
         data: { roomId: room.id, author: user.name, text: `sent ${gift.icon} ${gift.name}`, userId: user.id, kind: "gift", photo: user.photoUrl },
       });
-      // ⚠ The astrologer's share of gift money is a client decision; the full price is recorded for now.
-      await tx.earningsLine.create({
-        data: { astrologerId: room.astrologerId, date: send.createdAt, sessionRef: ref, kind: "gift", mode: `Live gift · ${gift.name}`, minutes: 0, gifts: gift.price },
+      // Gifts follow the same split as consultations (client, Oct 2026): the astrologer keeps their share.
+      await writeEarnings(tx, {
+        astrologerId: room.astrologerId,
+        date: send.createdAt,
+        sessionRef: ref,
+        kind: "gift",
+        mode: `Live gift · ${gift.name}`,
+        minutes: 0,
+        gifts: gift.price,
+        gross: gift.price,
+        sharePct: sharePctFor(room.astrologer, send.createdAt, shares),
       });
       return send;
     });

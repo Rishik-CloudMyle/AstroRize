@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import type { Astrologer } from "@/lib/types";
+import { allowanceHeadline, allowanceRule, freeLength, freeLengthLong, resetDay } from "@/lib/free-calls";
 import { showsFreeCalls, usableWelcome, useSession } from "@/lib/session-store";
 
-// The welcome free call on the website: a "Free call" badge on astrologers who take free calls
-// and are available now, and a banner for a customer who still holds theirs. Both disappear once
-// it has been used. Numbers come from the API (the campaign's length, the astrologer's quota).
+// The welcome free calls on the website: a "Free call" badge on astrologers who take free calls
+// and are available now, and a banner for a customer who still has free calls to use. Both
+// disappear once they're used. Numbers come from the API (how many free calls, per what period,
+// how long each is, the astrologer's capacity).
 
 /** "Free call" on an astrologer who can take the customer's free call right now. */
 export function FreeCallBadge({ astrologer, className = "" }: { astrologer: Astrologer; className?: string }) {
@@ -15,20 +17,31 @@ export function FreeCallBadge({ astrologer, className = "" }: { astrologer: Astr
   const welcome = usableWelcome(session);
   return (
     <span
-      title="Your first call with an astrologer marked “Free call” is free (Chat or Voice)"
+      title="Customers' welcome free calls (Chat or Voice) work with astrologers marked “Free call”"
       className={`inline-flex h-[22px] items-center gap-1 whitespace-nowrap rounded-full bg-emerald-50 px-[9px] text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200 ${className}`}
     >
-      🎁 Free call{welcome ? ` · ${Math.round(welcome.freeSeconds / 60)} min` : ""}
+      🎁 Free call{welcome ? ` · ${freeLength(welcome.freeSeconds)}` : ""}
     </span>
   );
 }
 
-/** "1 free call · 5 min" for a signed-in customer who still holds their welcome free call. */
-export function WelcomeBanner({ className = "", showLink = true }: { className?: string; showLink?: boolean }) {
+/**
+ * "1 free call · 5 min" for a signed-in customer who still has free calls to use. With `showUsedUp`
+ * (the wallet page), a customer whose free calls renew sees when the next one comes.
+ */
+export function WelcomeBanner({ className = "", showLink = true, showUsedUp = false }: { className?: string; showLink?: boolean; showUsedUp?: boolean }) {
   const session = useSession();
   const welcome = usableWelcome(session);
-  if (!welcome) return null;
-  const mins = Math.round(welcome.freeSeconds / 60);
+  const held = session.loggedIn && session.role === "customer" ? session.wallet.welcome : null;
+  if (!welcome) {
+    if (!showUsedUp || !held || held.status !== "consumed" || !held.allowance.resetsAt) return null;
+    return (
+      <div role="status" className={`rounded-[20px] border border-line bg-white px-4 py-3.5 text-[13px] text-stone-600 sm:px-5 ${className}`}>
+        <b className="text-ink">You&apos;ve used your free calls for now.</b> Your next free call is available from {resetDay(held.allowance.resetsAt)}.
+      </div>
+    );
+  }
+  const rule = allowanceRule(welcome);
   return (
     <div
       role="status"
@@ -38,9 +51,10 @@ export function WelcomeBanner({ className = "", showLink = true }: { className?:
         🎁
       </span>
       <div className="min-w-0 flex-[1_1_220px]">
-        <b className="block text-[15px] text-emerald-900">1 free call · {mins} min</b>
+        <b className="block text-[15px] text-emerald-900">{allowanceHeadline(welcome)}</b>
         <span className="block text-[12.5px] leading-normal text-emerald-900/80">
-          Complimentary {mins} minutes of Chat or Voice with any astrologer marked “Free call”. Video and Instant Call stay paid.
+          Complimentary {freeLengthLong(welcome.freeSeconds)} of Chat or Voice with any astrologer marked “Free call”. Video and Instant Call stay paid.
+          {rule ? ` ${rule}.` : ""}
         </span>
       </div>
       {showLink && (

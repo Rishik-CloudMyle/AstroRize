@@ -8,6 +8,9 @@ import { sessionActions } from "@/lib/session-store";
 interface Denomination {
   amount: number;
   bonus: number;
+  /** Cashback a claimed offer adds (₹), and the offer's name. */
+  cashback: number;
+  cashbackFrom: string | null;
 }
 
 /**
@@ -141,6 +144,7 @@ export default function InCallRecharge({
                   <span className="block text-[11.5px] text-stone-500">
                     ≈ {Math.floor(d.amount / Math.max(1, rate))} min
                     {d.bonus > 0 && <span className="font-bold text-emerald-700"> · +{rupee(d.bonus)} bonus</span>}
+                    {d.cashback > 0 && <span className="font-bold text-emerald-700"> · +{rupee(d.cashback)} cashback</span>}
                   </span>
                 </button>
               );
@@ -151,6 +155,11 @@ export default function InCallRecharge({
         {selected && (
           <p className="mt-3 text-[12.5px] text-stone-500">
             {rupee(selected.amount)} talk time + {rupee(gst)} GST · you pay {rupee(selected.amount + gst)}
+            {selected.cashback > 0 && (
+              <span className="block font-semibold text-emerald-700">
+                +{rupee(selected.cashback)} cashback from {selected.cashbackFrom ?? "your offer"}
+              </span>
+            )}
           </p>
         )}
         {error && (

@@ -9,6 +9,7 @@ import type {
   AdminSession,
   Application,
   AuditEntry,
+  BatchKind,
   BatchState,
   Campaign,
   ConfigData,
@@ -23,6 +24,8 @@ import type {
   MarketingData,
   MonitoringData,
   OverviewData,
+  PrepareCandidate,
+  RunningCycle,
   PageKey,
   RbacData,
   RecordingData,
@@ -31,6 +34,7 @@ import type {
   StaffDepartment,
   SupportCase,
   SupportData,
+  SuspensionsData,
   TopAstrologer,
   TrendCard,
   TrustData,
@@ -393,10 +397,27 @@ interface RawFinance {
     trialBalance: string;
     walletsOut: number;
     walletsChecked: number;
+    splitMonth: string;
+    platformRevenue: string;
+    customerGross: string;
+    astrologerShare: string;
+    freeCallCost: string;
+    freeCallMinutes: number;
+    campaignMonth: string;
+    campaignCost: string;
+    campaignCashback: string;
+    campaignBonus: string;
+    campaignDiscount: string;
   };
   cycle: string;
+  tdsPct: number;
+  toPrepare: PrepareCandidate[];
+  running: RunningCycle[];
   batches: {
     id: string;
+    kind: BatchKind;
+    cycle: string;
+    lines: number;
     astrologers: number;
     gross: string;
     grossValue: number;
@@ -430,6 +451,24 @@ export async function getFinance(): Promise<FinanceData> {
         "#b45309",
       ),
       kpi(
+        `Platform share · ${k.splitMonth}`,
+        k.platformRevenue,
+        `of ${k.customerGross} customers paid · astrologers keep ${k.astrologerShare}`,
+        "#047857",
+      ),
+      kpi(
+        `Free-call cost · ${k.splitMonth}`,
+        k.freeCallCost,
+        `${k.freeCallMinutes} free ${k.freeCallMinutes === 1 ? "minute" : "minutes"} Astrorize pays astrologers for`,
+        "#78716c",
+      ),
+      kpi(
+        `Campaign cost · ${k.campaignMonth}`,
+        k.campaignCost,
+        `cashback ${k.campaignCashback} · bonus credit ${k.campaignBonus} · discounts ${k.campaignDiscount}`,
+        "#78716c",
+      ),
+      kpi(
         "Duplicate payments",
         String(k.duplicates),
         k.duplicates ? "same customer and amount within 10 min · 30 days" : "none in the last 30 days",
@@ -440,8 +479,14 @@ export async function getFinance(): Promise<FinanceData> {
         : kpi("Wallet trial balance", k.trialBalance, `in balance · ${k.walletsChecked} wallets match their ledger`, "#047857"),
     ],
     cycle: f.cycle,
+    tdsPct: f.tdsPct,
+    toPrepare: f.toPrepare,
+    running: f.running,
     batches: f.batches.map((b) => ({
       id: b.id,
+      kind: b.kind,
+      cycle: b.cycle,
+      lines: b.lines,
       astrologers: b.astrologers,
       gross: b.gross,
       grossValue: b.grossValue,
@@ -476,6 +521,7 @@ interface RawTicket {
   alias: string;
   session: string;
   refundState: "NONE" | "PROPOSED" | "INITIATED";
+  resolution: "REFUND" | "MAKE_GOOD" | null;
 }
 
 export async function getSupport(): Promise<SupportData> {
@@ -492,6 +538,7 @@ export async function getSupport(): Promise<SupportData> {
       alias: t.alias,
       session: t.session,
       refundState: t.refundState,
+      resolution: t.resolution ?? null,
     })),
   };
 }
@@ -557,6 +604,11 @@ export async function getMarketing(): Promise<MarketingData> {
 export async function getMonitoring(): Promise<MonitoringData> {
   const { monitoring } = await apiGet<{ monitoring: MonitoringData }>("/admin/monitoring");
   return monitoring;
+}
+
+export async function getSuspensions(): Promise<SuspensionsData> {
+  const { suspensions } = await apiGet<{ suspensions: SuspensionsData }>("/admin/suspensions");
+  return suspensions;
 }
 
 // ── Trust ──

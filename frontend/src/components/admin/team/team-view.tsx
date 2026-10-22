@@ -173,10 +173,10 @@ function PersonRow({ person, last }: { person: StaffMember; last: boolean }) {
         <form onSubmit={reset} noValidate className="mt-2 mb-1 rounded-xl border border-amber-200 bg-amber-50 p-3">
           <label className="block">
             <span className="text-[11.5px] font-bold text-amber-900">New temporary password for {person.name}</span>
-            <div className="mt-1.5 flex gap-2">
+            <div className="mt-1.5 flex flex-wrap gap-2">
               <PasswordInput
                 defaultVisible
-                wrapperClassName="min-w-0 flex-1"
+                wrapperClassName="min-w-0 basis-full sm:basis-0 sm:flex-1"
                 value={password}
                 autoComplete="new-password"
                 spellCheck={false}

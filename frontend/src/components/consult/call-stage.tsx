@@ -3,6 +3,7 @@
 import Image from "next/image";
 import type { Astrologer, Settlement } from "@/lib/types";
 import { clock, duration, rupee } from "@/lib/format";
+import { freeLength, freeLengthLong } from "@/lib/free-calls";
 
 // The customer's meter inside the session window (time, cost, free time, the reminders that
 // come with them) and the settlement after it. The numbers follow the API's own billing rules:
@@ -39,8 +40,9 @@ export function meterOf(m: MeterInput) {
   const left = Math.max(0, m.maxSeconds - m.elapsed);
   const billed = Math.ceil(Math.max(0, m.elapsed - m.freeSeconds) / 60);
   const cost = Math.min(billed * m.rate, m.held);
-  // Limited by the balance (not only the 15-minute cap): the call ends when it runs out.
-  const balanceLimited = m.maxSeconds < MAX_SESSION_SECONDS;
+  // Limited by the balance (not only the 15-minute cap): the call ends when it runs out. A free
+  // call's paid part (after its free time) has the 15-minute cap of its own.
+  const balanceLimited = m.maxSeconds - (m.complimentary ? m.freeSeconds : 0) < MAX_SESSION_SECONDS;
   // A free call that can't continue after its free time (nothing held to pay for more).
   const endsWithFree = m.complimentary && m.maxSeconds <= m.freeSeconds;
   const freeReminder = m.complimentary && inFree && freeLeft <= m.reminderSeconds;
@@ -129,23 +131,28 @@ export function SettlementView({
   onContinue: () => void;
 }) {
   const zero = s.total === 0;
-  const freeMins = Math.round(s.complimentarySeconds / 60);
+  const freeLabel = freeLengthLong(s.complimentarySeconds);
+  // Ended on its own (free time, balance or the paid cap used up) rather than by either side.
+  const ranOut = s.reason === "exhausted" || s.reason === "cap";
   const freeOnly = s.complimentary && s.billedMins === 0;
+  const callName = s.makeGood ? "free replacement call" : "free call";
   const title = freeOnly
-    ? s.reason === "exhausted"
-      ? "Your free call has ended"
-      : "Free call complete"
+    ? ranOut
+      ? `Your ${callName} has ended`
+      : s.makeGood
+        ? "Free replacement call complete"
+        : "Free call complete"
     : zero
       ? "You have not been charged"
       : s.reason === "exhausted"
         ? "Your balance ran out"
         : "Consultation complete";
   const lead = freeOnly
-    ? s.reason === "exhausted"
-      ? `Your ${freeMins} free minutes are up. Nothing was charged — we hope it helped.`
-      : "Nothing was charged — your free call was on us."
+    ? ranOut
+      ? `Your ${freeLabel} of free time is up. Nothing was charged — we hope it helped.`
+      : `Nothing was charged — your ${callName} was on us.`
     : s.complimentary
-      ? `Your first ${freeMins} minutes were free. Only the minutes after them are charged, in one debit now.`
+      ? `Your free time (${freeLabel}) cost nothing. Only the minutes after it are charged, in one debit now.`
       : zero
         ? "You ended within the free first minute, so there is nothing to bill. The hold on your balance has been released in full."
         : s.reason === "exhausted"
@@ -153,11 +160,18 @@ export function SettlementView({
           : "One debit, taken now that the session has ended. Your hold has been released.";
 
   const lines: { label: string; value: string; strong?: boolean; green?: boolean }[] = [{ label: "Connected time", value: duration(s.elapsed) }];
-  if (s.complimentary) lines.push({ label: `Free call · first ${freeMins} min`, value: "₹0", green: true });
+  if (s.complimentary)
+    lines.push({ label: `${s.makeGood ? "Free replacement call" : "Free call"} · first ${freeLength(s.complimentarySeconds)}`, value: "₹0", green: true });
   else lines.push({ label: "Free first minute", value: "not billed", green: true });
   if (!freeOnly) lines.push({ label: s.complimentary ? "Paid after the free time, rounded up" : "Billed, rounded up", value: `${s.billedMins} min` });
   if (!zero) {
-    lines.push({ label: "Rate, fixed when you started", value: `${rupee(s.rate)}/min` });
+    if (s.listRate && s.discountPct) {
+      // A claimed offer: the discounted rate, and what it saved.
+      lines.push({ label: `${s.discountPct}% off applied · instead of ${rupee(s.listRate)}/min`, value: `${rupee(s.rate)}/min`, green: true });
+      if (s.saved) lines.push({ label: "You saved", value: rupee(s.saved), green: true });
+    } else {
+      lines.push({ label: "Rate, fixed when you started", value: `${rupee(s.rate)}/min` });
+    }
     lines.push({ label: "Promotional balance used first", value: `−${rupee(s.promo)}`, green: true });
     lines.push({ label: "Service balance", value: `−${rupee(s.service)}` });
   }
@@ -185,7 +199,7 @@ export function SettlementView({
           </span>
           <div className="min-w-0 flex-1">
             <b className="block truncate text-[14px] text-ink">{astrologer.name}</b>
-            <span className="block text-[12px] text-stone-500">{s.complimentary ? "Welcome free call" : "Consultation"}</span>
+            <span className="block text-[12px] text-stone-500">{s.makeGood ? "Free replacement call" : s.complimentary ? "Welcome free call" : "Consultation"}</span>
           </div>
         </div>
         <div className="px-5 py-2">

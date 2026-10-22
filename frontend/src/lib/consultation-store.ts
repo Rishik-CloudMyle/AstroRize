@@ -23,6 +23,9 @@ export interface ConsultationView {
   mode: ConsultMode;
   /** Per-minute rate fixed when it was requested (₹) */
   rate: number;
+  /** The price before a claimed offer's discount (null = none), and the percent off */
+  listRate?: number | null;
+  discountPct?: number;
   /** Balance held for the session (₹); 0 until it connects */
   held: number;
   astrologer: Astrologer;
@@ -39,6 +42,8 @@ export interface ConsultationView {
   freeSeconds: number;
   /** A welcome free call (complimentary, then the same session continues at `rate`) */
   complimentary: boolean;
+  /** A free replacement call (offered after a complaint) rather than the welcome free call */
+  makeGood?: boolean;
   /** When to remind the customer, before the free time ends, to add money to continue (free calls) */
   reminderSeconds: number;
   /** Longest the session can run: free time plus what the held balance pays for, at most 15 minutes */

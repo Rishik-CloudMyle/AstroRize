@@ -25,7 +25,7 @@ export default async function ConfigPage({ searchParams }: PageProps<"/admin/con
     <div>
       <PageTitle
         title="Config console"
-        sub="Every operational setting lives here. Changes are drafted, approved by a second person and versioned. Scope: global → country → segment → object → user."
+        sub="Every operational setting lives here. Changes are drafted, approved by a second person and versioned. Each setting has one platform-wide value."
       />
       {/* Remount when the drill-down key changes so the selection follows the link. */}
       {key && <ConfigView key={asked ?? "all"} data={data} initialKey={key} initialDetail={detail} />}

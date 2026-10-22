@@ -11,6 +11,7 @@ import { sessionActions, totalBalance, useSession } from "@/lib/session-store";
 import { useAppUI } from "./app-provider";
 import { useLiveNow } from "./live-notifier";
 import { ConsultInProgressBar } from "./consult/consult-lock";
+import NotificationBell from "./notification-bell";
 
 export default function SiteHeader() {
   const session = useSession();
@@ -28,7 +29,7 @@ export default function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-paper">
-      <div className="mx-auto flex max-w-[1240px] items-center gap-4 px-4 py-3 sm:px-6 lg:gap-7">
+      <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-4 py-3 min-[380px]:gap-4 sm:px-6 lg:gap-7">
         <Link href="/" className="flex min-w-0 items-center gap-2.5 hover:no-underline">
           <Image
             src="/assets/brand/logo-mark.png"
@@ -38,7 +39,7 @@ export default function SiteHeader() {
             priority
             className="size-10 shrink-0 object-contain"
           />
-          <span className="font-display text-[25px] font-semibold leading-none tracking-[.01em] text-ink">Astrorize</span>
+          <span className="font-display text-[22px] font-semibold leading-none min-[380px]:text-[25px] tracking-[.01em] text-ink">Astrorize</span>
         </Link>
 
         <nav aria-label="Main" className="hidden flex-wrap items-center gap-1 lg:flex">
@@ -64,7 +65,7 @@ export default function SiteHeader() {
           )}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2.5">
+        <div className="ml-auto flex items-center gap-2 min-[380px]:gap-2.5">
           {session.loggedIn && session.role !== "customer" ? (
             // Astrologers and staff browsing the public site get a way back to their portal.
             <>
@@ -84,6 +85,7 @@ export default function SiteHeader() {
             </>
           ) : session.loggedIn ? (
             <>
+              <NotificationBell />
               <Link
                 href="/wallet#add-money"
                 aria-label={`Balance ${rupee(totalBalance(session))} — add money`}
@@ -95,10 +97,11 @@ export default function SiteHeader() {
                   +
                 </span>
               </Link>
+              {/* Hidden on the narrowest phones to make room for the bell; Wallet is in the menu there. */}
               <Link
                 href="/wallet"
                 aria-label="Your account"
-                className="grid size-[38px] place-items-center rounded-full border-2 border-gold bg-linear-160 from-amber-100 to-amber-300 text-[13px] font-extrabold text-amber-900 hover:no-underline"
+                className="hidden size-[38px] place-items-center min-[400px]:grid rounded-full border-2 border-gold bg-linear-160 from-amber-100 to-amber-300 text-[13px] font-extrabold text-amber-900 hover:no-underline"
               >
                 {session.user.initials}
               </Link>

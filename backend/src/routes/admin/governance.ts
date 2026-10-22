@@ -39,6 +39,7 @@ import {
   retentionPolicy,
 } from "../../lib/retention.ts";
 import { configNumber, putSetting } from "../../lib/settings.ts";
+import { zegoConfigured } from "../../lib/zego.ts";
 import type { Prisma } from "../../generated/prisma/client.ts";
 
 export const governanceRouter = Router();
@@ -130,8 +131,11 @@ governanceRouter.post("/reviews/:id/restore", async (req, res) => {
   const r = await db.review.findUnique({ where: { id: String(req.params.id) } });
   if (!r) throw notFound("Review not found.");
   if (r.status !== "SOFT_HIDDEN") throw conflict("Only a review inside its undo window can be restored.");
-  await db.review.update({ where: { id: r.id }, data: { status: "VISIBLE", hiddenAt: null, removedReason: null, flag: null } });
-  await audit(admin, "review.restore", r.id, "SOFT_HIDDEN → VISIBLE");
+  // Undo puts the review back as it was before the removal: a flagged one returns to the queue
+  // (still hidden from the website) for a keep-or-remove decision.
+  const back = r.flag ? "FLAGGED" : "VISIBLE";
+  await db.review.update({ where: { id: r.id }, data: { status: back, hiddenAt: null, removedReason: null } });
+  await audit(admin, "review.restore", r.id, `SOFT_HIDDEN → ${back}`);
   res.json({ ok: true });
 });
 
@@ -249,16 +253,18 @@ governanceRouter.post("/rbac/matrix/reset", async (req, res) => {
 
 // ── Audit log ──
 
-const LANES: Record<string, (action: string, breakGlass: boolean) => boolean> = {
-  all: () => true,
-  "break-glass": (_a, bg) => bg,
-  config: (a) => a.startsWith("config."),
-  money: (a) => a.startsWith("payout.") || a.startsWith("dispute.") || a.startsWith("wallet."),
-  access: (a) => a.startsWith("rbac.") || a.startsWith("staff.") || a.startsWith("live.observer"),
+const starts = (...prefixes: string[]): Prisma.AuditLogWhereInput => ({ OR: prefixes.map((p) => ({ action: { startsWith: p } })) });
+/** Audit lanes, as database filters (so a lane or a search reaches past the latest entries). */
+const LANES: Record<string, Prisma.AuditLogWhereInput> = {
+  all: {},
+  "break-glass": { breakGlass: true },
+  config: starts("config."),
+  money: starts("payout.", "dispute.", "wallet."),
+  access: starts("rbac.", "staff.", "live.observer"),
 };
 
 /**
- * Sort orders for the audit list. The list is capped (latest 500 read, 200 shown), so the
+ * Sort orders for the audit list. The list is capped (200 shown), so the
  * order is applied in the query: "Oldest" must reach the first entries, not reverse the newest.
  * Ties fall back to time (newest first), then id, so the order is stable between loads.
  */
@@ -271,16 +277,14 @@ const AUDIT_SORTS: Record<string, Prisma.AuditLogOrderByWithRelationInput[]> = {
 
 governanceRouter.get("/audit", async (req, res) => {
   requirePage(req, "audit");
-  const lane = typeof req.query.lane === "string" && LANES[req.query.lane] ? req.query.lane : "all";
-  const q = typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
-  const sort = typeof req.query.sort === "string" && AUDIT_SORTS[req.query.sort] ? req.query.sort : "newest";
-  const rows = await db.auditLog.findMany({ orderBy: AUDIT_SORTS[sort]!, take: 500 });
+  const lane = typeof req.query.lane === "string" && Object.hasOwn(LANES, req.query.lane) ? req.query.lane : "all";
+  const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 80) : "";
+  const sort = typeof req.query.sort === "string" && Object.hasOwn(AUDIT_SORTS, req.query.sort) ? req.query.sort : "newest";
+  const text = { contains: q, mode: "insensitive" as const };
+  const search: Prisma.AuditLogWhereInput = q ? { OR: [{ actorName: text }, { action: text }, { object: text }, { diff: text }] } : {};
+  const rows = await db.auditLog.findMany({ where: { AND: [LANES[lane]!, search] }, orderBy: AUDIT_SORTS[sort]!, take: 200 });
   res.json({
-    entries: rows
-      .filter((r) => LANES[lane]!(r.action, r.breakGlass))
-      .filter((r) => !q || [r.actorName, r.action, r.object, r.diff].some((v) => v.toLowerCase().includes(q)))
-      .slice(0, 200)
-      .map((r) => ({ ts: istStamp(r.at), actor: r.actorName, action: r.action, object: r.object, diff: r.diff, corr: r.correlation, breakGlass: r.breakGlass })),
+    entries: rows.map((r) => ({ ts: istStamp(r.at), actor: r.actorName, action: r.action, object: r.object, diff: r.diff, corr: r.correlation, breakGlass: r.breakGlass })),
   });
 });
 
@@ -299,26 +303,32 @@ governanceRouter.get("/audit/export", async (req, res) => {
 });
 
 // ── Recording & retention ──
-// Nothing is recorded from calls or video: no calling or streaming provider is connected. What is
-// stored today is written conversation — live-room chat and astrologer–customer messages — kept
-// for the retention period below and purged daily (lib/retention.ts).
+// Nothing is recorded from calls or video: voice and video go through the media provider (ZEGO)
+// and are never saved. What is stored is written conversation — live-room chat, astrologer–customer
+// messages and the chat inside consultations — kept for the retention period below and purged
+// daily (lib/retention.ts).
 
 governanceRouter.get("/recording", async (req, res) => {
   const admin = requirePage(req, "recording");
-  const [policy, purge, liveChat, messages, conversations, oldestChat, oldestMessage] = await Promise.all([
+  const [policy, purge, liveChat, messages, conversations, consultChat, oldestChat, oldestMessage, oldestConsult] = await Promise.all([
     retentionPolicy(),
     lastPurge(),
     db.chatMessage.count(),
     db.message.count(),
     db.messageThread.count(),
+    db.consultMessage.count(),
     db.chatMessage.findFirst({ orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
     db.message.findFirst({ orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
+    db.consultMessage.findFirst({ orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
   ]);
-  const oldest = [oldestChat?.createdAt, oldestMessage?.createdAt].filter((d): d is Date => !!d).sort((x, y) => x.getTime() - y.getTime())[0];
+  const oldest = [oldestChat?.createdAt, oldestMessage?.createdAt, oldestConsult?.createdAt]
+    .filter((d): d is Date => !!d)
+    .sort((x, y) => x.getTime() - y.getTime())[0];
   res.json({
     recording: {
-      provider: { connected: false },
-      stored: { liveChat, messages, conversations, oldest: oldest ? istStamp(oldest) : null },
+      // Whether voice and video run at all (ZEGO keys set). Either way nothing is recorded.
+      media: { connected: zegoConfigured() },
+      stored: { liveChat, messages, conversations, consultChat, oldest: oldest ? istStamp(oldest) : null },
       retention: {
         days: policy.days,
         defaultDays: RETENTION_DEFAULT_DAYS,

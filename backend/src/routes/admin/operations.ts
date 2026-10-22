@@ -5,13 +5,16 @@ import { audit } from "../../lib/audit.ts";
 import { RATE_MAX, RATE_MIN, STAGE_LIFECYCLE, answersFor, draftValues, requestedRate, setNote } from "../../lib/application.ts";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { instantRate, rateFor } from "../../lib/billing.ts";
-import { ageLabel, istDate, istStamp, rupee } from "../../lib/format.ts";
-import { requireCapability, requirePage } from "../../lib/rbac.ts";
+import { ageLabel, istDate, istDateKey, istStamp, rupee } from "../../lib/format.ts";
+import { AUDIENCES, CAMPAIGN_KINDS, announceCampaign, appliedPct, floorCap, isLegacy, isOpen, offerLimits, offerProblem, offerSummary } from "../../lib/campaigns.ts";
+import { actorName, capabilitiesOf, requireCapability, requirePage } from "../../lib/rbac.ts";
+import { lockKey } from "../../lib/consultations.ts";
+import { approvalProblem, priceChangeView, pricingPolicy } from "../../lib/pricing.ts";
 import { removeGalleryPhoto } from "../../lib/gallery.ts";
 import { deleteMedia } from "../../lib/media.ts";
 import { configNumber } from "../../lib/settings.ts";
-import { dailyLimitOf, freeCallsToday, welcomePolicy } from "../../lib/welcome.ts";
-import type { Applicant, Prisma } from "../../generated/prisma/client.ts";
+import { capacityProblem, capacityView, periodName, welcomePolicy } from "../../lib/welcome.ts";
+import type { Applicant, Campaign, Prisma } from "../../generated/prisma/client.ts";
 
 export const operationsRouter = Router();
 
@@ -62,7 +65,7 @@ operationsRouter.get("/lifecycle", async (req, res) => {
   const now = new Date();
   const slaDays = await configNumber("hr.application.review_sla_days", 5);
   const [list, nextVersion] = await Promise.all([db.applicant.findMany({ orderBy: { submittedAt: "asc" } }), nextPriceVersion()]);
-  const negotiating = list.find((a) => a.negotiation);
+  const negotiating = list.find((a) => a.negotiation && a.state === "Negotiation");
   const neg = negotiating?.negotiation as Negotiation | undefined;
   const count = (state: string) => list.filter((a) => a.state === state).length;
   res.json({
@@ -130,9 +133,6 @@ operationsRouter.get("/lifecycle/astrologers", async (req, res) => {
   });
 });
 
-/** Highest daily free-call limit HR may set for one astrologer. */
-const FREE_CALLS_MAX_DAILY = 50;
-
 /** One astrologer's full record for the lifecycle popup. */
 operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
   requirePage(req, "hr");
@@ -148,14 +148,15 @@ operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
     },
   });
   if (!a) throw notFound("Astrologer not found.");
-  const [month, last, reviews, notices, policy, freeToday] = await Promise.all([
+  const [month, last, reviews, notices, freeCalls, priceChanges] = await Promise.all([
     db.consultation.aggregate({ where: { astrologerId: a.id, status: "ENDED", connectedAt: { gte: since } }, _count: { _all: true }, _sum: { total: true, billedMinutes: true } }),
     db.consultation.findFirst({ where: { astrologerId: a.id, status: "ENDED" }, orderBy: { endedAt: "desc" }, select: { endedAt: true } }),
     db.review.count({ where: { astrologerId: a.id, status: "VISIBLE" } }),
     db.complianceNotice.count({ where: { astrologerId: a.id, status: { not: "DECIDED" } } }),
-    welcomePolicy(),
-    freeCallsToday(a.id),
+    welcomePolicy().then((policy) => capacityView(a, policy, now)),
+    db.priceChange.findMany({ where: { astrologerId: a.id }, orderBy: { requestedAt: "desc" }, take: 8 }),
   ]);
+  const pendingChange = priceChanges.find((c) => c.status === "PENDING");
   res.json({
     astrologer: {
       id: a.id,
@@ -178,12 +179,20 @@ operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
       ratings: a.ratingDistribution.reduce((s, n) => s + n, 0),
       reviews,
       price: {
+        /** Chat & voice ₹/min as a number. */
+        value: a.price,
         chat: rupee(a.price),
         voice: rupee(a.price),
         video: rupee(rateFor(a.price, "VIDEO")),
         instant: rupee(instantRate(a.price, a.instantMultiplier)),
         multiplier: a.instantMultiplier,
         was: a.was ? rupee(a.was) : null,
+        /** When the astrologer last changed their own price in the portal (null = never). */
+        changedAt: a.priceChangedAt ? istDate(a.priceChangedAt) : null,
+        /** An increase waiting for approval (decided on the Price requests tab), or null. */
+        pending: pendingChange ? priceChangeView(pendingChange) : null,
+        /** Recent changes and requests, newest first (none for changes made before approvals existed). */
+        history: priceChanges.filter((c) => c.status !== "PENDING").slice(0, 6).map(priceChangeView),
       },
       month: { consultations: month._count._all, minutes: month._sum.billedMinutes ?? 0, billed: rupee(month._sum.total ?? 0) },
       lastConsultation: last?.endedAt ? istDate(last.endedAt) : null,
@@ -196,55 +205,54 @@ operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
       introVideoUrl: a.introVideoUrl,
       gallery: a.gallery,
       // Welcome campaign: whether customers can use their free call with this astrologer.
-      freeCalls: {
-        enabled: a.freeCallsEnabled,
-        /** Their own daily limit, or null to use the campaign default. */
-        dailyLimit: a.freeCallsDailyLimit,
-        defaultLimit: policy.dailyLimitDefault,
-        effectiveLimit: dailyLimitOf(a, policy),
-        today: freeToday,
-        campaignOn: policy.enabled,
-        maxLimit: FREE_CALLS_MAX_DAILY,
-      },
+      // (The astrologer sets their own capacity in the portal; HR can change it here too.)
+      freeCalls,
     },
   });
 });
 
 /**
  * Welcome campaign settings for one astrologer (HR): take part in free calls or not, and their
- * own daily limit (null = the campaign default). Each change is audited.
+ * own capacity per day or per week (null = the campaign's daily default) within the admin
+ * maximum (Config welcome.astrologer_max_per_day / _per_week) — the same rules as the portal,
+ * where the astrologer sets it themselves. Each change is audited.
  */
 operationsRouter.patch("/lifecycle/astrologers/:id/free-calls", async (req, res) => {
   const admin = requirePage(req, "hr");
   const input = z
     .object({
       enabled: z.boolean().optional(),
-      dailyLimit: z
-        .number("Enter the daily limit as a whole number.")
-        .int("Enter the daily limit as a whole number.")
-        .min(0, "The daily limit can't be negative.")
-        .max(FREE_CALLS_MAX_DAILY, `The daily limit can be at most ${FREE_CALLS_MAX_DAILY}.`)
-        .nullable()
-        .optional(),
+      dailyLimit: z.number("Enter the limit as a whole number.").nullable().optional(),
+      period: z.enum(["DAY", "WEEK"]).optional(),
     })
     .parse(req.body);
   const a = await db.astrologer.findUnique({ where: { id: String(req.params.id) } });
   if (!a) throw notFound("Astrologer not found.");
+  const policy = await welcomePolicy();
+  const period = input.period ?? (a.freeCallsLimitPeriod === "WEEK" ? "WEEK" : "DAY");
+  const limit = input.dailyLimit === undefined ? a.freeCallsDailyLimit : input.dailyLimit;
+  if (limit !== null && (input.dailyLimit !== undefined || input.period !== undefined)) {
+    const problem = capacityProblem(limit, period, policy);
+    if (problem) throw badRequest(problem);
+  }
   const data: Prisma.AstrologerUpdateInput = {};
   if (input.enabled !== undefined && input.enabled !== a.freeCallsEnabled) data.freeCallsEnabled = input.enabled;
-  if (input.dailyLimit !== undefined && input.dailyLimit !== a.freeCallsDailyLimit) data.freeCallsDailyLimit = input.dailyLimit;
+  if (limit !== a.freeCallsDailyLimit) data.freeCallsDailyLimit = limit;
+  // The campaign default is per day.
+  const newPeriod = limit === null ? "DAY" : period;
+  if (newPeriod !== a.freeCallsLimitPeriod) data.freeCallsLimitPeriod = newPeriod;
   if (Object.keys(data).length) {
     await db.astrologer.update({ where: { id: a.id }, data });
-    const limitLabel = (n: number | null) => (n === null ? "campaign default" : String(n));
+    const limitLabel = (n: number | null, p: string) => (n === null ? "campaign default" : `${n} per ${periodName(p === "WEEK" ? "WEEK" : "DAY")}`);
     if (data.freeCallsEnabled !== undefined) {
       await audit(admin, "astrologer.free_calls.update", a.id, `${a.freeCallsEnabled ? "on" : "off"} → ${input.enabled ? "on" : "off"}`);
     }
-    if (data.freeCallsDailyLimit !== undefined) {
-      await audit(admin, "astrologer.free_calls.limit", a.id, `${limitLabel(a.freeCallsDailyLimit)} → ${limitLabel(input.dailyLimit ?? null)} per day`);
+    if (data.freeCallsDailyLimit !== undefined || data.freeCallsLimitPeriod !== undefined) {
+      await audit(admin, "astrologer.free_calls.limit", a.id, `${limitLabel(a.freeCallsDailyLimit, a.freeCallsLimitPeriod)} → ${limitLabel(limit, newPeriod)}`);
     }
   }
-  const fresh = await db.astrologer.findUniqueOrThrow({ where: { id: a.id }, select: { freeCallsEnabled: true, freeCallsDailyLimit: true } });
-  res.json({ freeCalls: { enabled: fresh.freeCallsEnabled, dailyLimit: fresh.freeCallsDailyLimit } });
+  const fresh = await db.astrologer.findUniqueOrThrow({ where: { id: a.id } });
+  res.json({ freeCalls: { ...(await capacityView(fresh, policy)), dailyLimit: fresh.freeCallsDailyLimit } });
 });
 
 /**
@@ -273,6 +281,96 @@ operationsRouter.post("/lifecycle/astrologers/:id/media/remove", async (req, res
   }
   const fresh = await db.astrologer.findUniqueOrThrow({ where: { id: a.id }, select: { introVideoUrl: true, gallery: true } });
   res.json(fresh);
+});
+
+// ── Price requests: astrologers' increases waiting for approval (decreases apply at once) ──
+
+/** The queue (oldest first) with each astrologer's recent changes, and the last 30 days' decisions. */
+operationsRouter.get("/lifecycle/price-requests", async (req, res) => {
+  const admin = requirePage(req, "hr");
+  const now = new Date();
+  const since = new Date(now.getTime() - 30 * 86400000);
+  const [policy, pending, recent] = await Promise.all([
+    pricingPolicy(),
+    db.priceChange.findMany({
+      where: { status: "PENDING" },
+      orderBy: { requestedAt: "asc" },
+      include: { astrologer: { select: { id: true, name: true, photo: true, slug: true, price: true, lifecycle: true, priceChangedAt: true } } },
+    }),
+    db.priceChange.findMany({
+      where: { status: { not: "PENDING" }, OR: [{ decidedAt: { gte: since } }, { requestedAt: { gte: since } }] },
+      orderBy: { requestedAt: "desc" },
+      take: 50,
+      include: { astrologer: { select: { id: true, name: true, photo: true } } },
+    }),
+  ]);
+  const ids = [...new Set(pending.map((p) => p.astrologerId))];
+  const history = ids.length
+    ? await db.priceChange.findMany({ where: { astrologerId: { in: ids }, status: { not: "PENDING" } }, orderBy: { requestedAt: "desc" }, take: 200 })
+    : [];
+  res.json({
+    canDecide: capabilitiesOf(admin.adminRole).includes("price.approve"),
+    maxIncrease: policy.maxIncrease,
+    pending: pending.map((p) => ({
+      ...priceChangeView(p),
+      astrologer: { id: p.astrologer.id, name: p.astrologer.name, photo: p.astrologer.photo, slug: p.astrologer.slug, price: p.astrologer.price },
+      /** How long it has waited: "4 min", "6h", "2d". */
+      waiting: ageLabel(p.requestedAt, now, "long"),
+      /** Last changed (decrease applied or increase approved), or null. */
+      lastChangedOn: p.astrologer.priceChangedAt ? istDate(p.astrologer.priceChangedAt) : null,
+      /** Why it can't be approved as things stand (e.g. the price moved), or null. */
+      problem: approvalProblem(p.astrologer, p.toPrice, policy),
+      history: history.filter((h) => h.astrologerId === p.astrologerId).slice(0, 5).map(priceChangeView),
+    })),
+    recent: recent.map((c) => ({ ...priceChangeView(c), astrologer: { id: c.astrologer.id, name: c.astrologer.name, photo: c.astrologer.photo } })),
+  });
+});
+
+/**
+ * Approve or reject an increase (price.approve on the lifecycle page). Approving re-checks it
+ * against the price in force now and applies it to new consultations (running ones keep their
+ * rate); the cooldown starts from here. Rejecting needs a reason, which the astrologer sees.
+ * Serialised per astrologer, so a double click or two staff can't both decide it. Audited.
+ */
+operationsRouter.post("/lifecycle/price-requests/:id/:action", async (req, res) => {
+  requirePage(req, "hr");
+  const admin = requireCapability(req, "price.approve", "Your role can see price requests but not decide them.");
+  const action = z.enum(["approve", "reject"]).parse(req.params.action);
+  const { reason } = z
+    .object({ reason: z.string().trim().max(300, "Keep the reason under 300 characters.").optional() })
+    .parse(req.body ?? {});
+  if (action === "reject" && (!reason || reason.length < 3)) throw badRequest("Give the astrologer a short reason for rejecting it.");
+  const found = await db.priceChange.findUnique({ where: { id: String(req.params.id) }, select: { astrologerId: true } });
+  if (!found) throw notFound("Price request not found.");
+  const policy = await pricingPolicy();
+  const now = new Date();
+  const result = await db.$transaction(async (tx) => {
+    await lockKey(tx, `price:${found.astrologerId}`);
+    const change = await tx.priceChange.findUniqueOrThrow({ where: { id: String(req.params.id) } });
+    if (change.status !== "PENDING") {
+      const by = change.decidedByName ? ` by ${change.decidedByName}` : "";
+      return { ok: false as const, message: `This request was already ${change.status.toLowerCase()}${by}. Reload to see the latest.` };
+    }
+    const a = await tx.astrologer.findUniqueOrThrow({ where: { id: change.astrologerId } });
+    const decided = { decidedAt: now, decidedById: admin.user.id, decidedByName: actorName(admin) };
+    if (action === "reject") {
+      await tx.priceChange.update({ where: { id: change.id }, data: { ...decided, status: "REJECTED", reason } });
+      return { ok: true as const, change, a, current: a.price };
+    }
+    const problem = approvalProblem(a, change.toPrice, policy);
+    if (problem) return { ok: false as const, message: problem };
+    await tx.astrologer.update({ where: { id: a.id }, data: { price: change.toPrice, priceChangedAt: now } });
+    await tx.priceChange.update({ where: { id: change.id }, data: { ...decided, status: "APPROVED" } });
+    return { ok: true as const, change, a, current: a.price };
+  });
+  if (!result.ok) throw conflict(result.message);
+  const { change, a, current } = result;
+  if (action === "approve") {
+    await audit(admin, "price.change.approve", a.id, `${rupee(current)} → ${rupee(change.toPrice)}/min (chat & voice) · ${a.name}'s request of ${istDate(change.requestedAt)}`);
+  } else {
+    await audit(admin, "price.change.reject", a.id, `${rupee(change.fromPrice)} → ${rupee(change.toPrice)}/min refused · ${a.name} · ${reason}`);
+  }
+  res.json({ ok: true, status: action === "approve" ? "APPROVED" : "REJECTED", name: a.name, from: current, to: change.toPrice });
 });
 
 /** One application with its negotiation and the audit trail of every action taken on it. */
@@ -377,12 +475,12 @@ operationsRouter.post("/applicants/:id/:action", async (req, res) => {
       diff = `${a.state} → Interview`;
       break;
     case "accept-rates":
-      if (!neg) throw conflict("There is no rate proposal on this application.");
+      if (!neg || a.state !== "Negotiation") throw conflict(neg ? `Rates can only be accepted at the Negotiation stage. This application is at ${a.state}.` : "There is no rate proposal on this application.");
       data = { state: "Pricing" };
       diff = `Negotiation → Pricing · ${neg.rows.map((r) => `${r.mode} ${rupee(r.proposed)}`).join(", ")}`;
       break;
     case "counter":
-      if (!neg) throw conflict("There is no rate proposal on this application.");
+      if (!neg || a.state !== "Negotiation") throw conflict(neg ? `Counter-offers can only be made at the Negotiation stage. This application is at ${a.state}.` : "There is no rate proposal on this application.");
       if (neg.round >= neg.maxRounds) throw conflict("Round cap reached — no further counter-offers are permitted.");
       data = { negotiation: { ...neg, round: neg.round + 1 } };
       diff = `round ${neg.round} → ${neg.round + 1}`;
@@ -396,8 +494,13 @@ operationsRouter.post("/applicants/:id/:action", async (req, res) => {
       const astro = await db.$transaction(async (tx) => {
         const { count } = await tx.applicant.deleteMany({ where: { id: a.id, version } });
         if (!count) throw staleApplicant();
-        // Listed publicly from now on; offline until the astrologer goes online themselves.
-        return tx.astrologer.update({ where: { id: astrologerId }, data: { lifecycle: "active", price: rate, was: null, presence: "OFF" } });
+        // Listed publicly from now on; offline until the astrologer goes online themselves. The first
+        // activation starts the new-astrologer earnings share period (lib/earnings.ts).
+        const before = await tx.astrologer.findUniqueOrThrow({ where: { id: astrologerId }, select: { activatedAt: true } });
+        return tx.astrologer.update({
+          where: { id: astrologerId },
+          data: { lifecycle: "active", price: rate, was: null, presence: "OFF", activatedAt: before.activatedAt ?? new Date() },
+        });
       });
       await audit(admin, "application.activate", a.id, `${a.state} → ACTIVE · ${astro.id} · ${rupee(rate)}/min`);
       return res.json({ ok: true, removed: true, astrologer: { id: astro.id, slug: astro.slug, price: astro.price } });
@@ -430,32 +533,177 @@ operationsRouter.post("/pricing/versions", async (req, res) => {
 
 // ── Marketing ──
 
-const RIBBON = ["DRAFT", "SUBMITTED", "REVIEW", "APPROVED", "SCHEDULED", "ACTIVE", "EXPIRED"];
+/** The states a campaign really moves through (Marketing drafts and submits; an Admin approves, which activates it). */
+const CAMPAIGN_FLOW = ["DRAFT", "SUBMITTED", "ACTIVE", "EXPIRED"] as const;
+const flowState = (state: string) => (state === "UNDER_REVIEW" ? "SUBMITTED" : state);
+
+/** A calendar day in IST, as the console's date inputs send it: "2026-10-22". */
+const dayKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-10-22.");
+const optionalInt = (min: number, max: number) => z.number().int().min(min).max(max).nullable().optional();
+
+const campaignInput = z.object({
+  kind: z.enum(CAMPAIGN_KINDS),
+  name: z.string().trim().min(3, "Give the campaign a name of at least 3 characters.").max(80),
+  description: z.string().trim().max(300).optional().default(""),
+  percent: optionalInt(1, 100),
+  flatAmount: optionalInt(1, 100000),
+  minRecharge: optionalInt(0, 1000000),
+  maxBenefit: optionalInt(1, 1000000),
+  startsOn: dayKey.nullable().optional(),
+  endsOn: dayKey.nullable().optional(),
+  claimValidDays: z.number().int().min(1).max(90).optional().default(7),
+  usesPerCustomer: z.number().int().min(1).max(10).optional().default(1),
+  audience: z.enum(AUDIENCES).optional().default("ALL"),
+});
+
+/** Outcome promises astrology can't make (as in the copy check and the portal bio check). */
+const CLAIM_WORDS = /\bguarantee(?:d|s)?\b|\bdefinitely\b|\bcures?\b|\bmiracles?\b|\bassured\b|\bnever fails?\b/i;
+
+/** The fields a campaign stores, checked for its kind. */
+async function campaignFields(body: unknown) {
+  const v = campaignInput.parse(body);
+  const limits = await offerLimits();
+  if (CLAIM_WORDS.test(`${v.name} ${v.description}`)) {
+    throw badRequest("The name or description promises an outcome (e.g. “guaranteed”). Rewrite it — check it with the Trust content check.");
+  }
+  const startsAt = v.startsOn ? new Date(`${v.startsOn}T00:00:00+05:30`) : null;
+  // The end date is included: the offer runs until midnight IST at the end of that day.
+  const endsAt = v.endsOn ? new Date(`${v.endsOn}T23:59:59.999+05:30`) : null;
+  if (startsAt && endsAt && startsAt > endsAt) throw badRequest("The end date is before the start date.");
+  if (endsAt && endsAt <= new Date()) throw badRequest("The end date has already passed.");
+  const common = { kind: v.kind, name: v.name, description: v.description, startsAt, endsAt, audience: v.audience, claimValidDays: v.claimValidDays };
+  if (v.kind === "BONUS_CREDIT") {
+    if (!v.flatAmount) throw badRequest("Set the bonus credit amount (₹).");
+    if (v.flatAmount > limits.bonusMax) throw badRequest(`A bonus credit can be at most ${rupee(limits.bonusMax)} (marketing.bonus_credit.max).`);
+    // Credited once, when claimed.
+    return { ...common, percent: null, flatAmount: v.flatAmount, minRecharge: null, maxBenefit: null, usesPerCustomer: 1 };
+  }
+  if (!v.percent) throw badRequest(v.kind === "CONSULT_DISCOUNT" ? "Set the discount percent." : "Set the cashback percent.");
+  if (v.percent > limits.maxPct) throw badRequest(`The percent can be at most ${limits.maxPct}% (marketing.campaign.max_discount_pct).`);
+  if (limits.floorMode === "reject" && v.percent > floorCap(limits)) {
+    throw badRequest(`The ${limits.floorPct}% cashback floor allows at most ${floorCap(limits)}% (wallet.cashback.floor_pct; Finance's floor mode is "reject").`);
+  }
+  if (v.kind === "CONSULT_DISCOUNT") {
+    return { ...common, percent: v.percent, flatAmount: null, minRecharge: null, maxBenefit: null, usesPerCustomer: v.usesPerCustomer };
+  }
+  return { ...common, percent: v.percent, flatAmount: null, minRecharge: v.minRecharge || null, maxBenefit: v.maxBenefit ?? null, usesPerCustomer: v.usesPerCustomer };
+}
+
+/** "Cashback 10% · min ₹500 · max ₹100 · 22 Oct–31 Oct · claim valid 7 days × 1 · all customers" (audit diff). */
+function campaignDiff(c: Campaign) {
+  return [
+    c.kind,
+    c.percent != null ? `${c.percent}%` : null,
+    c.flatAmount != null ? rupee(c.flatAmount) : null,
+    c.minRecharge ? `min ${rupee(c.minRecharge)}` : null,
+    c.maxBenefit ? `max ${rupee(c.maxBenefit)}` : null,
+    `${c.startsAt ? istDate(c.startsAt) : "on approval"}–${c.endsAt ? istDate(c.endsAt) : "until ended"}`,
+    c.kind === "BONUS_CREDIT" ? null : `claim valid ${c.claimValidDays}d × ${c.usesPerCustomer}`,
+    c.audience === "NEW" ? "new customers" : "all customers",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+const istDay = (d: Date | null) => (d ? istDateKey(d) : null);
+
+/** The next free number after the highest campaign id (CMP-16 → CMP-17), so ids never collide. */
+async function nextCampaign() {
+  const all = await db.campaign.findMany({ select: { id: true, rank: true } });
+  const next = Math.max(0, ...all.map((x) => Number(/^CMP-(\d+)$/.exec(x.id)?.[1] ?? 0))) + 1;
+  return { id: `CMP-${next}`, rank: Math.max(0, ...all.map((x) => x.rank)) + 1 };
+}
 
 operationsRouter.get("/marketing", async (req, res) => {
   requirePage(req, "marketing");
-  const [campaigns, gifts, cap] = await Promise.all([
+  const now = new Date();
+  const [campaigns, gifts, cap, limits, claimCounts] = await Promise.all([
     db.campaign.findMany({ orderBy: { rank: "asc" } }),
     db.gift.findMany({ orderBy: { rank: "asc" } }),
     configNumber("marketing.gift.max_value", 5100),
+    offerLimits(),
+    db.campaignClaim.groupBy({ by: ["campaignId", "status"], _count: { _all: true } }),
   ]);
-  const active = campaigns.find((c) => c.state === "ACTIVE");
+  const claimsOf = (id: string, status?: string) =>
+    claimCounts.filter((g) => g.campaignId === id && (!status || g.status === status)).reduce((s, g) => s + g._count._all, 0);
+  const active = campaigns.filter((c) => c.state === "ACTIVE");
   res.json({
     marketing: {
-      ribbon: RIBBON,
-      activeIndex: 5,
-      ribbonCampaign: active ? `${active.id} · ${active.name}` : "",
-      campaigns: campaigns.map((c) => ({ id: c.id, name: c.name, denoms: c.denoms, cashback: c.cashback, state: c.state })),
+      // How many campaigns are at each step of the flow.
+      flow: CAMPAIGN_FLOW.map((state) => ({ state, count: campaigns.filter((c) => flowState(c.state) === state).length })),
+      activeCampaigns: active.map((c) => `${c.id} · ${c.name}`),
+      campaigns: campaigns.map((c) => {
+        const legacy = isLegacy(c);
+        return {
+          id: c.id,
+          name: c.name,
+          denoms: c.denoms,
+          cashback: c.cashback,
+          state: c.state,
+          kind: c.kind,
+          /** Made before offers existed: listed only, never claimable. */
+          legacy,
+          summary: offerSummary(c),
+          description: c.description,
+          percent: c.percent,
+          /** The percent that applies after the cashback floor (lower than `percent` when clamped). */
+          appliedPct: c.percent == null ? null : appliedPct(c.percent, limits),
+          flatAmount: c.flatAmount,
+          minRecharge: c.minRecharge,
+          maxBenefit: c.maxBenefit,
+          startsOn: istDay(c.startsAt),
+          endsOn: istDay(c.endsAt),
+          dates: legacy ? "" : `${c.startsAt ? istDate(c.startsAt) : "From approval"} – ${c.endsAt ? istDate(c.endsAt) : "until ended"}`,
+          claimValidDays: c.claimValidDays,
+          usesPerCustomer: c.usesPerCustomer,
+          audience: c.audience,
+          /** Live and claimable now (ACTIVE, inside its dates). */
+          open: isOpen(c, now),
+          claims: claimsOf(c.id),
+          used: claimsOf(c.id, "USED"),
+        };
+      }),
       gifts: gifts.map((g) => ({ id: g.id, icon: g.icon, name: g.name, price: rupee(g.price), state: g.price >= cap && g.state === "ACTIVE" ? "AT CAP" : g.state })),
       giftCap: rupee(cap),
+      maxDiscountPct: limits.maxPct,
+      floorPct: limits.floorPct,
+      floorMode: limits.floorMode,
+      floorCapPct: floorCap(limits),
+      bonusMax: limits.bonusMax,
     },
   });
 });
 
+/** Marketing drafts a campaign (an Admin approves it later). */
+operationsRouter.post("/campaigns", async (req, res) => {
+  requirePage(req, "marketing");
+  const admin = requireCapability(req, "campaign.submit");
+  const data = await campaignFields(req.body);
+  const { id, rank } = await nextCampaign();
+  const c = await db.campaign.create({ data: { id, rank, state: "DRAFT", ...data } });
+  await audit(admin, "campaign.create", c.id, `→ DRAFT · ${c.name} · ${campaignDiff(c)}`);
+  res.status(201).json({ id: c.id });
+});
+
+/** Edits a draft (once submitted, it is read-only). */
+operationsRouter.patch("/campaigns/:id", async (req, res) => {
+  requirePage(req, "marketing");
+  const admin = requireCapability(req, "campaign.submit");
+  const c = await db.campaign.findUnique({ where: { id: String(req.params.id) } });
+  if (!c) throw notFound("Campaign not found.");
+  if (c.state !== "DRAFT") throw conflict(`${c.id} is ${c.state.toLowerCase()} — only drafts can be edited.`);
+  const data = await campaignFields(req.body);
+  const { count } = await db.campaign.updateMany({ where: { id: c.id, state: "DRAFT" }, data });
+  if (!count) throw conflict(`${c.id} was just submitted by someone else.`);
+  const after = await db.campaign.findUniqueOrThrow({ where: { id: c.id } });
+  await audit(admin, "campaign.edit", c.id, `${campaignDiff(c)} → ${campaignDiff(after)}`);
+  res.json({ ok: true });
+});
+
 operationsRouter.post("/campaigns/:id/:action", async (req, res) => {
   requirePage(req, "marketing");
-  const action = z.enum(["submit", "duplicate", "approve"]).parse(req.params.action);
-  // Marketing builds and submits; only an Admin approves and activates.
+  const action = z.enum(["submit", "duplicate", "approve", "expire"]).parse(req.params.action);
+  // Marketing builds, submits and can end a campaign; only an Admin approves and activates.
   const admin =
     action === "approve"
       ? requireCapability(req, "campaign.approve", "Only an Admin can approve and activate campaigns.")
@@ -464,16 +712,57 @@ operationsRouter.post("/campaigns/:id/:action", async (req, res) => {
   if (!c) throw notFound("Campaign not found.");
   if (action === "submit") {
     if (c.state !== "DRAFT") throw conflict(`${c.id} is ${c.state.toLowerCase()} — only drafts can be submitted.`);
-    await db.campaign.update({ where: { id: c.id }, data: { state: "SUBMITTED" } });
-    await audit(admin, "campaign.submit", c.id, "DRAFT → SUBMITTED");
+    const problem = offerProblem(c, await offerLimits());
+    if (problem) throw badRequest(problem);
+    const { count } = await db.campaign.updateMany({ where: { id: c.id, state: "DRAFT" }, data: { state: "SUBMITTED" } });
+    if (!count) throw conflict(`${c.id} was just submitted by someone else.`);
+    await audit(admin, "campaign.submit", c.id, `DRAFT → SUBMITTED · ${campaignDiff(c)}`);
   } else if (action === "approve") {
     if (c.state !== "SUBMITTED" && c.state !== "UNDER_REVIEW") throw conflict(`${c.id} isn't waiting for approval.`);
-    await db.campaign.update({ where: { id: c.id }, data: { state: "ACTIVE" } });
-    await audit(admin, "campaign.approve", c.id, `${c.state} → ACTIVE`);
+    // The limits may have been lowered since it was submitted.
+    const problem = offerProblem(c, await offerLimits());
+    if (problem) throw badRequest(problem);
+    const { count } = await db.campaign.updateMany({ where: { id: c.id, state: c.state }, data: { state: "ACTIVE" } });
+    if (!count) throw conflict(`${c.id} was just approved by someone else.`);
+    await audit(admin, "campaign.approve", c.id, `${c.state} → ACTIVE · ${campaignDiff(c)}`);
+    // Customers it is for are told now (or when its start date comes — the minute sweep).
+    const told = await announceCampaign({ ...c, state: "ACTIVE" }).catch((e: unknown) => {
+      console.error("Campaign announcement failed (the sweep retries):", e);
+      return 0;
+    });
+    return res.json({ ok: true, notified: told });
+  } else if (action === "expire") {
+    if (c.state === "EXPIRED") throw conflict(`${c.id} has already ended.`);
+    // Ending it by hand stops it at once: claims not yet used stop applying too.
+    const claims = await db.$transaction(async (tx) => {
+      const { count } = await tx.campaign.updateMany({ where: { id: c.id, state: c.state }, data: { state: "EXPIRED" } });
+      if (!count) throw conflict(`${c.id} was just changed by someone else.`);
+      return (await tx.campaignClaim.updateMany({ where: { campaignId: c.id, status: "ACTIVE" }, data: { status: "EXPIRED" } })).count;
+    });
+    await audit(admin, "campaign.expire", c.id, `${c.state} → EXPIRED${claims ? ` · ${claims} unused ${claims === 1 ? "claim" : "claims"} ended` : ""}`);
+    return res.json({ ok: true, claimsEnded: claims });
   } else {
-    const count = await db.campaign.count();
-    const id = `CMP-${12 + count + 1}`;
-    await db.campaign.create({ data: { id, name: `${c.name} (copy)`, denoms: c.denoms, cashback: c.cashback, state: "DRAFT", rank: count } });
+    const { id, rank } = await nextCampaign();
+    // Everything but the dates (and any approval) is copied.
+    await db.campaign.create({
+      data: {
+        id,
+        rank,
+        state: "DRAFT",
+        name: `${c.name} (copy)`.slice(0, 80),
+        denoms: c.denoms,
+        cashback: c.cashback,
+        kind: c.kind,
+        description: c.description,
+        percent: c.percent,
+        flatAmount: c.flatAmount,
+        minRecharge: c.minRecharge,
+        maxBenefit: c.maxBenefit,
+        claimValidDays: c.claimValidDays,
+        usesPerCustomer: c.usesPerCustomer,
+        audience: c.audience,
+      },
+    });
     await audit(admin, "campaign.duplicate", c.id, `→ ${id} DRAFT`);
     return res.status(201).json({ id });
   }
