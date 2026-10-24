@@ -155,7 +155,11 @@ export default function IntroVideoEditor({
           type="button"
           onClick={() => input.current?.click()}
           disabled={busy}
-          className={`h-10 rounded-[10px] px-4 text-[13px] font-bold disabled:opacity-60 ${url ? "border border-line bg-white" : "bg-[linear-gradient(90deg,#ffd233,#ff8c1a)] text-cta-ink"}`}
+          className={`h-10 rounded-[10px] px-4 text-[13px] font-bold disabled:opacity-60 max-lg:h-app-hit max-lg:flex-1 max-lg:rounded-app-btn max-lg:text-[15px] ${
+            url
+              ? "border border-line bg-white max-lg:border-app-line max-lg:bg-transparent"
+              : "bg-[linear-gradient(90deg,#ffd233,#ff8c1a)] text-cta-ink max-lg:bg-none max-lg:bg-app-primary max-lg:text-app-on-primary"
+          }`}
         >
           {progress !== null ? `Uploading… ${progress}%` : url ? "Replace video" : "Upload intro video"}
         </button>
@@ -164,7 +168,7 @@ export default function IntroVideoEditor({
             type="button"
             onClick={() => setConfirmRemove(true)}
             disabled={busy}
-            className="h-10 rounded-[10px] px-3 text-[13px] font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+            className="h-10 rounded-[10px] px-3 text-[13px] font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60 max-lg:h-app-hit max-lg:rounded-app-btn max-lg:bg-app-error-bg max-lg:px-4 max-lg:text-[15px]"
           >
             Remove
           </button>
@@ -183,15 +187,15 @@ export default function IntroVideoEditor({
 
       {confirmRemove && (
         <Modal onClose={() => setConfirmRemove(false)} labelledBy="remove-video-title">
-          <h2 id="remove-video-title" className="m-0 font-display text-[26px] font-semibold text-ink">
+          <h2 id="remove-video-title" className="m-0 font-display text-[26px] font-semibold text-ink max-lg:font-sans max-lg:text-[18px] max-lg:font-bold">
             Remove your intro video?
           </h2>
           <p className="mt-2 text-[13.5px] leading-normal text-stone-600">It disappears from your public profile straight away. You can upload a new one any time.</p>
-          <div className="mt-5 flex flex-wrap justify-end gap-2.5">
-            <button type="button" onClick={() => setConfirmRemove(false)} className="h-11 rounded-xl border border-line bg-white px-5 text-[14px] font-bold text-ink">
+          <div className="mt-5 flex flex-wrap justify-end gap-2.5 max-lg:flex-nowrap">
+            <button type="button" onClick={() => setConfirmRemove(false)} className="h-11 rounded-xl border border-line bg-white px-5 text-[14px] font-bold text-ink max-lg:flex-1 max-lg:rounded-app-btn max-lg:bg-transparent max-lg:px-3 max-lg:text-[15px]">
               Keep it
             </button>
-            <button type="button" onClick={() => void remove()} disabled={removing} className="h-11 rounded-xl bg-rose-700 px-5 text-[14px] font-bold text-white">
+            <button type="button" onClick={() => void remove()} disabled={removing} className="h-11 rounded-xl bg-rose-700 px-5 text-[14px] font-bold text-white max-lg:flex-1 max-lg:rounded-app-btn max-lg:px-3 max-lg:text-[15px]">
               Remove video
             </button>
           </div>

@@ -67,7 +67,7 @@ export function LiveGiftsPanel({ feed }: { feed: LiveFeed | null }) {
   return (
     <Panel className="p-[18px]">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="m-0 text-[15px] font-bold">Gifts this live</h2>
+        <h2 className="m-0 text-[15px] font-bold max-lg:text-[16px]">Gifts this live</h2>
         <span className="text-xs text-stone-500">{feed ? `${feed.giftsCount} received` : "—"}</span>
       </div>
       <b className="mt-1.5 block text-[22px] tabular-nums">{rupee(feed?.giftsTotal ?? 0)}</b>

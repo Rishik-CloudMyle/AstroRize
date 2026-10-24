@@ -17,6 +17,7 @@ import {
   type Form,
   type Profile,
 } from "../account/profile-form";
+import { APP_CTA } from "../account/app-look";
 
 // "Your profile" on Wallet & account: the mobile app's "A little about you" and
 // "Birth details" screens. Shared only with an astrologer whose live consult queue
@@ -108,11 +109,13 @@ export default function ProfileSection() {
     }
   }
 
-  const shell = "relative scroll-mt-24 rounded-[22px] border border-line bg-paper p-4 sm:p-[22px]";
+  // Phones/tablets: it is the whole "Profile" screen, so no box around it.
+  const shell =
+    "relative scroll-mt-24 rounded-[22px] border border-line bg-paper p-4 sm:p-[22px] max-lg:rounded-none max-lg:border-0 max-lg:bg-transparent max-lg:p-0!";
   const heading = (
     <>
-      <h2 className="mb-1 text-[17px] font-bold">Your profile</h2>
-      <p className="mb-4 text-[13px] text-stone-500">
+      <h2 className="mb-1 text-[17px] font-bold max-lg:sr-only">Your profile</h2>
+      <p className="mb-4 text-[13px] text-stone-500 max-lg:mb-3 max-lg:text-[12px] max-lg:text-app-ink-2">
         Only an astrologer whose live consult queue you join sees this, to prepare for your consult.
       </p>
     </>
@@ -136,7 +139,7 @@ export default function ProfileSection() {
             </button>
           </div>
         ) : (
-          <div className="h-40 rounded-2xl bg-cream" />
+          <div className="h-40 rounded-2xl bg-cream max-lg:animate-pulse max-lg:rounded-app-card max-lg:bg-app-line/60" />
         )}
       </section>
     );
@@ -173,7 +176,7 @@ export default function ProfileSection() {
             />
           ) : (
             <>
-              <dl className="m-0 grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+              <dl className="m-0 grid grid-cols-1 gap-x-6 sm:grid-cols-2 max-lg:rounded-app-card max-lg:border max-lg:border-app-line max-lg:bg-app-surface max-lg:px-3 max-lg:shadow-app-card max-lg:sm:grid-cols-1">
                 {(
                   [
                     ["Name", fullName || null],
@@ -187,7 +190,10 @@ export default function ProfileSection() {
                   ] as [string, string | null][]
                 ).map(([label, value]) => (
                   // Same shape for every field: a fixed label column with the value right beside it.
-                  <div key={label} className="grid grid-cols-[104px_minmax(0,1fr)] items-baseline gap-3 border-b border-line-soft py-[10px]">
+                  <div
+                    key={label}
+                    className="grid grid-cols-[104px_minmax(0,1fr)] items-baseline gap-3 border-b border-line-soft py-[10px] max-lg:border-app-line max-lg:last:border-b-0"
+                  >
                     <dt className="text-[12.5px] text-stone-500">{label}</dt>
                     <dd className={`m-0 min-w-0 text-[13.5px] [overflow-wrap:anywhere] ${value ? "font-semibold text-ink" : "text-stone-400"}`}>
                       {value ?? "Not added"}
@@ -195,11 +201,11 @@ export default function ProfileSection() {
                   </div>
                 ))}
               </dl>
-              <div className="mt-4 flex flex-wrap items-center gap-3">
+              <div className="mt-4 flex flex-wrap items-center gap-3 max-lg:flex-col max-lg:items-stretch max-lg:text-center">
                 <button
                   type="button"
                   onClick={startEditing}
-                  className="h-10 rounded-full border border-line bg-white px-5 text-[13.5px] font-bold text-ink"
+                  className={`h-10 rounded-full border border-line bg-white px-5 text-[13.5px] font-bold text-ink ${APP_CTA} max-lg:border-0 max-lg:text-[15px]`}
                 >
                   {fullName ? "Edit profile" : "Add your details"}
                 </button>

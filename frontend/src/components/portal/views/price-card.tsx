@@ -7,7 +7,7 @@ import { discountLabel, rupee } from "@/lib/portal/format";
 import type { Pricing } from "@/lib/portal/types";
 import Modal from "../modal";
 import { useAccount, useErrorToast, useToast } from "../portal-provider";
-import { Panel } from "../ui";
+import { M_INPUT, M_LABEL, M_PRIMARY, M_SECONDARY, Panel } from "../ui";
 
 /**
  * "Your price": the astrologer's own chat/voice price, what customers pay for each way of
@@ -107,7 +107,7 @@ export default function PriceCard({ pricing: p }: { pricing: Pricing }) {
         their rate.
       </p>
 
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-[14px] border border-amber-200 bg-amber-50 px-3.5 py-3">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-[14px] border border-amber-200 bg-amber-50 px-3.5 py-3 max-lg:rounded-app-card max-lg:border-app-tint-3 max-lg:bg-app-tint max-lg:p-3">
         <span className="text-xs font-semibold text-amber-800">Chat &amp; voice</span>
         {discount && p.was && <span className="text-[13px] text-stone-400 line-through tabular-nums">{rupee(p.was)}</span>}
         <b className="text-[22px] text-amber-800 tabular-nums">{p.price > 0 ? `${rupee(p.price)}/min` : "Not set yet"}</b>
@@ -119,8 +119,8 @@ export default function PriceCard({ pricing: p }: { pricing: Pricing }) {
       {p.price > 0 && (
         <dl className="mt-3 grid grid-cols-2 gap-2 min-[480px]:grid-cols-4">
           {rows.map(([label, rate]) => (
-            <div key={label} className="rounded-xl border border-line bg-white px-3 py-2">
-              <dt className="text-[11px] font-semibold text-stone-500">{label}</dt>
+            <div key={label} className="rounded-xl border border-line bg-white px-3 py-2 max-lg:rounded-app-btn max-lg:border-app-line max-lg:bg-app-surface">
+              <dt className="text-[11px] font-semibold text-stone-500 max-lg:text-[12px] max-lg:font-normal max-lg:text-app-ink-3">{label}</dt>
               <dd className="m-0 text-[14.5px] font-bold text-ink tabular-nums">{rupee(rate)}</dd>
             </div>
           ))}
@@ -139,7 +139,7 @@ export default function PriceCard({ pricing: p }: { pricing: Pricing }) {
             type="button"
             onClick={withdraw}
             disabled={withdrawing}
-            className="mt-2.5 h-10 rounded-xl border border-amber-300 bg-white px-4 text-[13px] font-bold text-amber-900 disabled:opacity-60"
+            className="mt-2.5 h-10 rounded-xl border border-amber-300 bg-white px-4 text-[13px] font-bold text-amber-900 disabled:opacity-60 max-lg:min-h-app-hit max-lg:w-full max-lg:rounded-app-btn max-lg:text-[15px]"
           >
             {withdrawing ? "Withdrawing…" : "Withdraw request"}
           </button>
@@ -179,10 +179,10 @@ export default function PriceCard({ pricing: p }: { pricing: Pricing }) {
             review();
           }}
         >
-          <label htmlFor="new-price" className="mb-1.5 block text-xs font-semibold text-stone-600">
+          <label htmlFor="new-price" className={`mb-1.5 block text-xs font-semibold text-stone-600 ${M_LABEL}`}>
             New chat &amp; voice price (₹/min)
           </label>
-          <div className="flex gap-2">
+          <div className="flex gap-2 max-lg:flex-col">
             <input
               id="new-price"
               type="number"
@@ -198,9 +198,9 @@ export default function PriceCard({ pricing: p }: { pricing: Pricing }) {
               }}
               aria-describedby="price-rules"
               aria-invalid={!!problem}
-              className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-white px-3.5 text-[14px] text-ink tabular-nums outline-none focus:border-amber-500"
+              className={`h-11 min-w-0 flex-1 rounded-xl border border-line bg-white px-3.5 text-[14px] text-ink tabular-nums outline-none focus:border-amber-500 ${M_INPUT} max-lg:flex-none`}
             />
-            <button type="submit" disabled={!canChange} className="h-11 shrink-0 rounded-xl bg-ink px-4 text-sm font-bold text-white disabled:opacity-60">
+            <button type="submit" disabled={!canChange} className={`h-11 shrink-0 rounded-xl bg-ink px-4 text-sm font-bold text-white disabled:opacity-60 ${M_PRIMARY}`}>
               Review change
             </button>
           </div>
@@ -243,10 +243,10 @@ export default function PriceCard({ pricing: p }: { pricing: Pricing }) {
               : `You can't change it again for ${p.cooldownDays} days.`}
           </p>
           <div className="mt-5 flex gap-2.5">
-            <button type="button" onClick={() => setConfirm(null)} disabled={busy} className="h-11 flex-1 rounded-xl border border-line bg-white text-sm font-bold">
+            <button type="button" onClick={() => setConfirm(null)} disabled={busy} className={`h-11 flex-1 rounded-xl border border-line bg-white text-sm font-bold ${M_SECONDARY}`}>
               Cancel
             </button>
-            <button type="button" onClick={save} disabled={busy} className="h-11 flex-1 rounded-xl bg-amber-500 text-sm font-bold text-ink disabled:opacity-60">
+            <button type="button" onClick={save} disabled={busy} className={`h-11 flex-1 rounded-xl bg-amber-500 text-sm font-bold text-ink disabled:opacity-60 ${M_PRIMARY}`}>
               {busy ? "Saving…" : raising ? "Send for approval" : "Confirm price"}
             </button>
           </div>

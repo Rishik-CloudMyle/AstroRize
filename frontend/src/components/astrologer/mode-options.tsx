@@ -4,6 +4,7 @@ import type { Astrologer } from "@/lib/types";
 import { useAppUI } from "../app-provider";
 import { blockedHint, useConsultGate } from "../consult/consult-gate";
 import type { ConsultChoice } from "../consult/consult-sheet";
+import { useBelowDesktop } from "../directory/use-current-astrologers";
 import { useFreshAstrologer } from "./use-fresh-astrologer";
 import ModeIcon from "@/components/ui/mode-icon";
 
@@ -23,7 +24,9 @@ const MODES: { key: ConsultChoice; label: string }[] = [
 export default function ModeOptions({ astrologer: initial }: { astrologer: Astrologer }) {
   const { startConsult, openInstantCall } = useAppUI();
   // Kept current while the page is open, so the options follow the astrologer's availability.
-  const a = useFreshAstrologer(initial);
+  // (Only on desktop, where this card shows; phones and tablets render the app's card instead.)
+  const below = useBelowDesktop();
+  const a = useFreshAstrologer(initial, !below);
   const gate = useConsultGate(a);
   const blocked = gate.kind !== "ok";
   const [state, fg] =

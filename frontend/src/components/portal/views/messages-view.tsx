@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api/client";
 import { byNameMatch } from "@/lib/format";
@@ -9,6 +9,8 @@ import { MAX_MESSAGE_LENGTH, MAX_SUPPORT_MESSAGE_LENGTH, MESSAGE_POLL_MS, messag
 import type { ChatMessage, CustomerThread, TeamMessage, Thread, ThreadCustomerDetail } from "@/lib/portal/types";
 import { useErrorToast, usePortalState, useToast } from "../portal-provider";
 import { PageHeader, Panel } from "../ui";
+import { IconBack, IconSearch } from "../../mobile/icons";
+import { HideTabBar } from "../../mobile/tab-bar";
 import { Avatar, PersonProfileDialog } from "./live-queue-people";
 import { ATTACH_LIMITS, AttachButton, AttachmentChip, MessageMedia, uploadFile, useAttachment } from "../../messages/message-media";
 
@@ -32,6 +34,29 @@ function TeamAvatar({ size }: { size: number }) {
   );
 }
 
+// Phones/tablets (< 1024px): a conversation is a full-screen screen (the customer messenger's look).
+const THREAD_SCREEN =
+  "max-lg:fixed max-lg:inset-0 max-lg:z-[95] max-lg:gap-0 max-lg:rounded-none max-lg:border-0 max-lg:bg-app-bg max-lg:p-0! max-lg:shadow-none! max-lg:transform-none! max-lg:[backdrop-filter:none]";
+const BUBBLE = "max-lg:max-w-[82%] max-lg:rounded-[14px] max-lg:px-3 max-lg:py-2.5";
+const BUBBLE_ME = "max-lg:border-transparent max-lg:bg-app-tint-2";
+const BUBBLE_THEM = "max-lg:border-app-line max-lg:bg-app-surface";
+const COMPOSER =
+  "max-lg:border-t max-lg:border-app-line max-lg:bg-app-elev max-lg:px-4 max-lg:pt-2 max-lg:pb-[calc(12px+env(safe-area-inset-bottom))]";
+
+const PHONE_QUERY = "(max-width: 1023px)";
+const subscribePhone = (cb: () => void) => {
+  const mq = window.matchMedia(PHONE_QUERY);
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+};
+/** True below 1024px, where the list and a conversation are separate screens. */
+const usePhoneLayout = () =>
+  useSyncExternalStore(
+    subscribePhone,
+    () => window.matchMedia(PHONE_QUERY).matches,
+    () => false,
+  );
+
 export default function MessagesView({ threads: initialThreads }: { threads: Thread[] }) {
   const toast = useToast();
   const showError = useErrorToast();
@@ -44,6 +69,11 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
   const [progress, setProgress] = useState<number | null>(null);
   const attach = useAttachment();
   const [profileOf, setProfileOf] = useState<string | null>(null);
+  // Phones/tablets (< 1024px): the list, or one conversation full screen (desktop shows both).
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const phone = usePhoneLayout();
+  // What's actually on screen: on a phone nothing is until a conversation is opened.
+  const showing = !phone || mobileOpen;
   const closeProfile = useCallback(() => setProfileOf(null), []);
   const threadPanel = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -75,7 +105,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
 
   // A conversation on screen counts as read: tell the API (it's saved, so it stays read after a
   // restart or on another device), then refresh the nav badge.
-  const unreadId = thread && thread.unread > 0 ? thread.id : null;
+  const unreadId = showing && thread && thread.unread > 0 ? thread.id : null;
   const unreadKind = thread?.kind;
   useEffect(() => {
     if (!unreadId) return;
@@ -99,7 +129,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
   useEffect(() => {
     const el = list.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [thread?.id, lastId]);
+  }, [thread?.id, lastId, mobileOpen]);
 
   // A photo has its size now: keep the newest message in view if the reader was already near it.
   const keepAtBottom = useCallback(() => {
@@ -114,10 +144,8 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
       attach.setError("");
     }
     setSelectedId(id);
-    // On a phone the conversation sits below the list: bring it into view.
-    if (window.matchMedia("(max-width: 899px)").matches) {
-      requestAnimationFrame(() => threadPanel.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
-    }
+    // Below 1024px the conversation opens full screen over the list.
+    setMobileOpen(true);
   };
 
   const send = async () => {
@@ -201,7 +229,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
     return (
       <div>
         <PageHeader title="Messages" subtitle="Text, photos and short videos. Contact details are never delivered." />
-        <Panel className="mt-5 p-5">
+        <Panel className="mt-5 p-5 max-lg:mt-3.5">
           <b className="text-[15px]">No messages yet</b>
           <p className="mt-1 text-[12.5px] leading-[1.5] text-stone-500">
             Customers can message you here, and so can the Astrorize team. New messages appear on their own.
@@ -236,27 +264,31 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
   return (
     <div>
       <PageHeader title="Messages" subtitle="Text, photos and short videos. Contact details are never delivered." />
-      <div className="mt-5 grid items-stretch gap-4 min-[900px]:min-h-[480px] min-[900px]:grid-cols-[280px_minmax(0,1fr)]">
-        <Panel className="min-w-0 p-3.5">
-          <div className="flex h-[38px] items-center gap-2 rounded-full border border-line bg-white px-[13px]">
-            <span className="text-stone-400" aria-hidden="true">
+      <HideTabBar when={mobileOpen} />
+      <div className="mt-5 grid items-stretch gap-4 min-[900px]:min-h-[480px] min-[900px]:grid-cols-[280px_minmax(0,1fr)] max-lg:mt-3.5 max-lg:block">
+        <Panel className="min-w-0 p-3.5" mobile="plain">
+          <div className="flex h-[38px] items-center gap-2 rounded-full border border-line bg-white px-[13px] max-lg:h-11 max-lg:border-app-line max-lg:bg-app-surface max-lg:px-3 max-lg:text-app-ink-3 max-lg:focus-within:border-app-selected">
+            <span className="text-stone-400 max-lg:hidden" aria-hidden="true">
               ⌕
             </span>
+            <IconSearch className="size-4 shrink-0 lg:hidden" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by name or message"
               aria-label="Search conversations"
-              className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none"
+              className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none max-lg:text-[16px]"
             />
           </div>
-          <div className="mt-3 flex flex-col gap-1.5">
+          <div className="mt-3 flex flex-col gap-1.5 max-lg:gap-2">
             {visible.map((t) => {
               const on = t.id === thread.id;
               return (
                 <div
                   key={t.id}
-                  className={`flex items-center gap-2.5 rounded-xl border px-2.5 py-2 ${on ? "border-amber-300 bg-amber-100" : "border-line bg-white"}`}
+                  className={`flex items-center gap-2.5 rounded-xl border px-2.5 py-2 max-lg:min-h-[64px] max-lg:gap-3 max-lg:rounded-app-card max-lg:border-app-line max-lg:bg-app-surface max-lg:p-3 max-lg:shadow-app-card ${
+                    on ? "border-amber-300 bg-amber-100" : "border-line bg-white"
+                  }`}
                 >
                   {t.kind === "team" ? (
                     <TeamAvatar size={38} />
@@ -282,16 +314,16 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
                     className="min-w-0 flex-1 py-0.5 text-left"
                   >
                     <span className="flex items-baseline gap-2">
-                      <b className="min-w-0 flex-1 truncate text-[13px] text-ink">{nameOf(t)}</b>
-                      {t.lastAt && <span className="shrink-0 text-[10.5px] text-stone-500">{messageTime(t.lastAt)}</span>}
+                      <b className="min-w-0 flex-1 truncate text-[13px] text-ink max-lg:text-[14px]">{nameOf(t)}</b>
+                      {t.lastAt && <span className="shrink-0 text-[10.5px] text-stone-500 max-lg:text-[11.5px] max-lg:text-app-ink-3">{messageTime(t.lastAt)}</span>}
                     </span>
                     {t.kind === "team" && t.subject && <span className="block truncate text-[11px] text-stone-500">{t.subject}</span>}
                     <span className="mt-0.5 flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate text-[11.5px] text-stone-500">
+                      <span className="min-w-0 flex-1 truncate text-[11.5px] text-stone-500 max-lg:text-[12px] max-lg:text-app-ink-3">
                         {t.kind === "team" && t.lastFromMe ? "You: " : ""}
                         {t.preview || "No messages yet"}
                       </span>
-                      {needsAttention(t) && !on && (
+                      {needsAttention(t) && (!on || !showing) && (
                         <span
                           className="size-2 shrink-0 rounded-full bg-urgent"
                           role="img"
@@ -307,8 +339,22 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
           </div>
         </Panel>
 
-        <Panel className="relative flex min-w-0 flex-col p-4 sm:p-5">
-          <div ref={threadPanel} className="flex scroll-mt-20 items-center gap-2.5 border-b border-line-soft pb-3.5">
+        <Panel
+          mobile="none"
+          className={`relative flex min-w-0 flex-col p-4 sm:p-5 ${THREAD_SCREEN} ${mobileOpen ? "" : "max-lg:hidden"}`}
+        >
+          <div
+            ref={threadPanel}
+            className="flex scroll-mt-20 items-center gap-2.5 border-b border-line-soft pb-3.5 max-lg:gap-2 max-lg:border-app-line max-lg:bg-app-elev max-lg:py-2 max-lg:pr-4 max-lg:pl-2"
+          >
+            <button
+              type="button"
+              onClick={() => setMobileOpen(false)}
+              aria-label="Back to all messages"
+              className="grid size-app-hit shrink-0 place-items-center rounded-[10px] text-app-ink focus-visible:outline-2 focus-visible:outline-app-selected lg:hidden [&>svg]:size-6"
+            >
+              <IconBack />
+            </button>
             {customer ? (
               <button
                 type="button"
@@ -326,13 +372,17 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
                 type="button"
                 onClick={report}
                 disabled={busy}
-                className="ml-auto h-[34px] shrink-0 rounded-[10px] border border-line bg-white px-[13px] text-[12.5px] font-bold text-stone-600"
+                className="ml-auto h-[34px] shrink-0 rounded-[10px] border border-line bg-white px-[13px] text-[12.5px] font-bold text-stone-600 max-lg:h-9 max-lg:rounded-app-btn max-lg:border-app-line max-lg:bg-transparent max-lg:text-[13px] max-lg:text-app-ink"
               >
                 Report
               </button>
             )}
           </div>
-          <div ref={list} className="flex max-h-[60vh] flex-1 flex-col gap-2.5 overflow-y-auto py-4 min-[900px]:max-h-[520px]" aria-live="polite">
+          <div
+            ref={list}
+            className="flex max-h-[60vh] flex-1 flex-col gap-2.5 overflow-y-auto py-4 min-[900px]:max-h-[520px] max-lg:max-h-none! max-lg:min-h-0 max-lg:px-4 max-lg:overscroll-contain"
+            aria-live="polite"
+          >
             {thread.kind === "team" && (
               <p className="mx-auto max-w-[46ch] rounded-full bg-cream px-3.5 py-1.5 text-center text-[11.5px] leading-normal text-stone-500">
                 A conversation with the Astrorize team. Customers can&apos;t see it.
@@ -342,10 +392,10 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
               ? thread.messages.map((m) => (
                   <div
                     key={m.id}
-                    className={`max-w-[85%] border px-3.5 py-[9px] text-[13.5px] leading-[1.5] break-words whitespace-pre-wrap text-ink sm:max-w-[66%] ${
+                    className={`max-w-[85%] border px-3.5 py-[9px] text-[13.5px] leading-[1.5] break-words whitespace-pre-wrap text-ink sm:max-w-[66%] ${BUBBLE} ${
                       m.from === "me"
-                        ? "self-end rounded-[14px_14px_4px_14px] border-amber-200 bg-amber-100"
-                        : "self-start rounded-[14px_14px_14px_4px] border-line bg-white"
+                        ? `self-end rounded-[14px_14px_4px_14px] border-amber-200 bg-amber-100 ${BUBBLE_ME}`
+                        : `self-start rounded-[14px_14px_14px_4px] border-line bg-white ${BUBBLE_THEM}`
                     }`}
                   >
                     {m.author && <span className="mb-0.5 block text-[11px] font-bold text-plum">{m.author}</span>}
@@ -364,10 +414,10 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
                   ) : (
                     <div
                       key={m.id}
-                      className={`max-w-[85%] border px-3.5 py-[9px] text-[13.5px] leading-[1.5] break-words whitespace-pre-wrap text-ink sm:max-w-[66%] ${
+                      className={`max-w-[85%] border px-3.5 py-[9px] text-[13.5px] leading-[1.5] break-words whitespace-pre-wrap text-ink sm:max-w-[66%] ${BUBBLE} ${
                         m.from === "me"
-                          ? "self-end rounded-[14px_14px_4px_14px] border-amber-200 bg-amber-100"
-                          : "self-start rounded-[14px_14px_14px_4px] border-line bg-white"
+                          ? `self-end rounded-[14px_14px_4px_14px] border-amber-200 bg-amber-100 ${BUBBLE_ME}`
+                          : `self-start rounded-[14px_14px_14px_4px] border-line bg-white ${BUBBLE_THEM}`
                       }`}
                     >
                       {m.attachment && <MessageMedia attachment={m.attachment} onLoad={keepAtBottom} />}
@@ -378,6 +428,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
                 )}
           </div>
           <form
+            className={COMPOSER}
             onSubmit={(e) => {
               e.preventDefault();
               send();
@@ -389,25 +440,32 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
               </p>
             )}
             {thread.kind === "customer" && attach.file && <AttachmentChip file={attach.file} progress={progress} onRemove={attach.clear} />}
-            <div className="flex gap-2.5">
-              {thread.kind === "customer" && <AttachButton onPick={(f) => void attach.pick(f)} disabled={busy || attach.preparing} size={46} />}
+            <div className="flex gap-2.5 max-lg:items-center max-lg:gap-2">
+              {thread.kind === "customer" && (
+                <AttachButton
+                  onPick={(f) => void attach.pick(f)}
+                  disabled={busy || attach.preparing}
+                  size={46}
+                  className="max-lg:size-11! max-lg:rounded-app-btn max-lg:border-app-line max-lg:bg-app-surface max-lg:text-app-ink"
+                />
+              )}
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 maxLength={thread.kind === "team" ? MAX_SUPPORT_MESSAGE_LENGTH : MAX_MESSAGE_LENGTH}
                 placeholder={thread.kind === "team" ? "Reply to the Astrorize team…" : attach.file ? "Add a caption (optional)" : "Type a message…"}
                 aria-label={thread.kind === "team" ? "Reply to the Astrorize team" : attach.file ? "Caption" : "Message"}
-                className="h-[46px] min-w-0 flex-1 rounded-xl border border-line bg-white px-3.5 text-sm text-ink outline-none"
+                className="h-[46px] min-w-0 flex-1 rounded-xl border border-line bg-white px-3.5 text-sm text-ink outline-none max-lg:h-11 max-lg:rounded-app-input max-lg:border-app-line max-lg:bg-app-surface max-lg:px-3 max-lg:text-[16px] max-lg:focus:border-app-selected"
               />
               <button
                 type="submit"
                 disabled={busy || attach.preparing}
-                className="h-[46px] shrink-0 rounded-xl bg-amber-500 px-[18px] text-sm font-bold text-ink disabled:opacity-60 sm:px-[22px]"
+                className="h-[46px] shrink-0 rounded-xl bg-amber-500 px-[18px] text-sm font-bold text-ink disabled:opacity-60 sm:px-[22px] max-lg:h-11 max-lg:rounded-app-btn max-lg:bg-app-primary max-lg:px-4! max-lg:text-[15px]"
               >
                 {attach.preparing ? "Preparing…" : busy && progress !== null ? "Sending…" : "Send"}
               </button>
             </div>
-            {thread.kind === "customer" && <p className="mt-1.5 px-1 text-[11px] leading-normal text-stone-500">{ATTACH_LIMITS}</p>}
+            {thread.kind === "customer" && <p className="mt-1.5 px-1 text-[11px] leading-normal text-stone-500 max-lg:text-app-ink-3">{ATTACH_LIMITS}</p>}
           </form>
         </Panel>
       </div>

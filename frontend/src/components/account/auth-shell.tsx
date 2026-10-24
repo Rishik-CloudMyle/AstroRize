@@ -35,7 +35,16 @@ export default function AuthShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto grid max-w-[1240px] items-start gap-8 px-4 pt-6 pb-16 sm:px-6 sm:pt-10 lg:grid-cols-[minmax(0,1fr)_480px] lg:gap-12">
+    // Phones/tablets: the app's full-screen sign-in (logo, then the form straight on the page, no card).
+    <div className="mx-auto grid max-w-[1240px] items-start gap-8 px-4 pt-6 pb-16 sm:px-6 sm:pt-10 lg:grid-cols-[minmax(0,1fr)_480px] lg:gap-12 max-lg:gap-0 max-lg:px-4! max-lg:pt-5! max-lg:pb-10">
+      <Image
+        src="/assets/brand/logo-mark.png"
+        alt=""
+        width={88}
+        height={88}
+        priority
+        className="mx-auto mb-3 size-[88px] object-contain lg:hidden"
+      />
       <aside className="relative top-24 hidden min-h-[560px] lg:sticky overflow-hidden rounded-[22px] border border-line lg:block">
         <Image src="/assets/spotlight/spotlight-welcome.jpg" alt="" fill priority sizes="(min-width: 1240px) 700px, 50vw" className="object-cover" />
         <div className="absolute inset-0 bg-linear-to-t from-[rgba(28,25,23,.78)] via-[rgba(28,25,23,.25)] to-transparent" />
@@ -54,7 +63,7 @@ export default function AuthShell({
           </ul>
         </div>
       </aside>
-      <div className="mx-auto w-full max-w-[480px] rounded-[22px] border border-line bg-paper p-5 shadow-[0_16px_40px_rgba(11,31,51,.08)] sm:p-[26px]">
+      <div className="mx-auto w-full max-w-[480px] rounded-[22px] border border-line bg-paper p-5 shadow-[0_16px_40px_rgba(11,31,51,.08)] sm:p-[26px] max-lg:rounded-none max-lg:border-0 max-lg:bg-transparent max-lg:p-0! max-lg:shadow-none">
         {children}
       </div>
     </div>

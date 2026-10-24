@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Breadcrumbs from "@/components/breadcrumbs";
 import KundliExample from "@/components/tools/kundli-example";
 import ToolHubCard from "@/components/tools/tool-hub-card";
+import ToolsHubMobile from "@/components/tools/tools-hub-mobile";
 import { TOOL_BENEFITS, getTool, getTools } from "@/lib/tools";
 
 export const metadata: Metadata = {
@@ -15,7 +16,12 @@ export default async function FreeToolsPage() {
   const [tools, kundli] = await Promise.all([getTools(), getTool("kundli")]);
 
   return (
-    <div className="mx-auto max-w-[1240px] px-4 pb-16 pt-8 sm:px-6">
+    <div className="mx-auto max-w-[1240px] px-4 pb-16 pt-8 sm:px-6 max-lg:p-0! max-lg:pb-8!">
+      {/* Phones and tablets: the app's "All Tools" screen. */}
+      <div className="lg:hidden">
+        <ToolsHubMobile tools={tools} />
+      </div>
+      <div className="max-lg:hidden">
       <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Free tools" }]} />
       <h1 className="font-display text-[38px] font-semibold leading-tight text-ink sm:text-[42px]">Free tools</h1>
       <p className="mt-1.5 max-w-[62ch] text-[14.5px] leading-normal text-stone-600">
@@ -37,12 +43,13 @@ export default async function FreeToolsPage() {
         ))}
       </ul>
       <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-[repeat(auto-fit,minmax(230px,1fr))] sm:gap-4">
-        {tools.map((t) => (
-          <ToolHubCard key={t.id} tool={t} benefit={TOOL_BENEFITS[t.id]} />
+        {tools.map((t, i) => (
+          <ToolHubCard key={t.id} tool={t} benefit={TOOL_BENEFITS[t.id]} priority={i === 0} />
         ))}
       </div>
+      </div>
 
-      {kundli && <KundliExample tool={kundli} />}
+      <div className="max-lg:px-4">{kundli && <KundliExample tool={kundli} />}</div>
     </div>
   );
 }

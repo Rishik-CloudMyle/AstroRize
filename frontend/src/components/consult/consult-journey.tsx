@@ -11,13 +11,14 @@ import { consultationActions, rememberMinimised, type ConsultationView } from "@
 import { sessionActions, totalBalance, usableWelcome, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 import { recheckAvailability, useFreshAstrologer } from "../astrologer/use-fresh-astrologer";
-import { MeterAlerts, MeterChips, SettlementView, endNoteOf, meterOf, type MeterInput } from "./call-stage";
+import { MeterAlerts, MeterChips, RateCard, SettlementSummary, SettlementView, endNoteOf, meterOf, type MeterInput } from "./call-stage";
 import { SessionWindow, windowKindOf } from "./session/session-window";
 import { staffConsultNote } from "./consult-gate";
 import ConsultSheet, { CHOICE_TITLE, quotedRateFor, type ConsultChoice, type RateChange } from "./consult-sheet";
 import InCallRecharge from "./in-call-recharge";
 import { offersChanged, useConsultDiscount } from "@/lib/offers";
 import { makeGoodChanged, useMakeGood } from "@/lib/makegood";
+import { appButtonClass } from "../mobile/button";
 
 type Step = "phone" | "otp" | "mode" | "connecting" | "waiting" | "session" | "settle" | "rate" | "outcome";
 
@@ -32,6 +33,9 @@ const STEP_LABEL: Record<Step, string> = {
   rate: "Rate your consultation",
   outcome: "Not connected",
 };
+
+/** Steps that are the app's own full screens below 1024px (no dark title bar there). */
+const APP_STEPS: Step[] = ["connecting", "waiting", "settle", "rate", "outcome"];
 
 /** How often the waiting screen and the session check in with the API. */
 const POLL_MS = 3000;
@@ -505,6 +509,19 @@ export default function ConsultJourney({
 
   const sessionMode = live?.view.mode ?? resume?.mode ?? mode ?? "chat";
   const modeTitle = instant ? CHOICE_TITLE.instant : CHOICE_TITLE[sessionMode];
+  const appStep = APP_STEPS.includes(step);
+  /** The four steps of connecting (the desktop lists them; the app shows the current one). */
+  const freeCall = useFree || useMakeGoodCall || !!placed?.complimentary;
+  const connectLabels = [
+    freeCall ? "Checking your free call" : "Checking your balance",
+    freeCall
+      ? held > 0
+        ? `Free call reserved · ${rupee(held)} held for after it`
+        : "Free call reserved — no balance needed"
+      : `Placing a hold on ${rupee(placed ? held : balance)}`,
+    `Ringing ${astrologer.name}`,
+    "Connected",
+  ];
 
   /** Paid during the call: re-read the session so its new length shows straight away. */
   async function rechargedInCall(amount: number) {
@@ -604,9 +621,10 @@ export default function ConsultJourney({
           active
           peer={{ name: astrologer.name, photo: astrologer.photo, initials: astrologer.name.slice(0, 1) }}
           title={modeTitle}
+          appLook
           badges={
             meter.complimentary ? (
-              <span className="inline-flex h-7 items-center rounded-full bg-emerald-400/15 px-3 text-[12px] font-bold text-emerald-300">
+              <span className="inline-flex h-7 items-center rounded-full bg-emerald-400/15 px-3 text-[12px] font-bold text-emerald-300 max-lg:h-6 max-lg:bg-app-success-bg max-lg:px-2.5 max-lg:text-[11px] max-lg:text-app-success">
                 🎁 {placed?.makeGood ? "Free replacement call" : "Free call"}
               </span>
             ) : null
@@ -628,8 +646,8 @@ export default function ConsultJourney({
   }
 
   return (
-    <div className="fixed inset-0 z-[150] overflow-auto bg-cream" role="dialog" aria-modal="true" aria-label={`Consultation with ${astrologer.name}`}>
-      <div className="sticky top-0 z-[5] flex flex-wrap items-center gap-3.5 bg-ink px-4 py-3 text-line sm:px-6">
+    <div className="fixed inset-0 z-[150] overflow-auto bg-cream max-lg:bg-app-bg" role="dialog" aria-modal="true" aria-label={`Consultation with ${astrologer.name}`}>
+      <div className={`sticky top-0 z-[5] flex flex-wrap items-center gap-3.5 bg-ink px-4 py-3 text-line sm:px-6 ${appStep ? "max-lg:hidden" : ""}`}>
         <FlowPortrait astrologer={astrologer} size={34} />
         <div className="min-w-0 flex-1">
           <b className="block truncate text-sm text-paper">{astrologer.name}</b>
@@ -661,7 +679,7 @@ export default function ConsultJourney({
         </div>
       </div>
 
-      <div className="mx-auto max-w-[520px] px-4 pb-14 pt-9 sm:px-6">
+      <div className={`mx-auto max-w-[520px] px-4 pb-14 pt-9 sm:px-6 ${appStep ? "max-lg:max-w-none max-lg:p-0 max-lg:sm:px-0" : ""}`}>
         {step === "phone" && (
           <div>
             <h1 className="font-display text-[32px] font-semibold leading-tight text-ink sm:text-4xl">
@@ -740,23 +758,36 @@ export default function ConsultJourney({
         )}
 
         {step === "connecting" && (
-          <div className="pt-5 text-center">
+          // The app's "Ringing" screen: the astrologer, where it stands, and Cancel.
+          <div className="flex min-h-dvh flex-col items-center justify-center px-6 py-8 text-center lg:hidden">
+            <span className="relative grid size-24 place-items-center">
+              <span className="az-pulse-ring absolute -inset-2.5 rounded-full border-2 border-amber-400" aria-hidden="true" />
+              <FlowPortrait astrologer={astrologer} size={96} />
+            </span>
+            <h1 className="mt-5 mb-1.5 font-display text-[28px] font-semibold text-app-ink" aria-live="polite">
+              {connectStep >= 3 ? "Connected" : connectStep === 2 ? "Ringing" : "Connecting"}
+            </h1>
+            <p className="m-0 max-w-[36ch] text-[12px] leading-[1.45] text-app-ink-2">
+              {useFree || useMakeGoodCall || placed?.complimentary
+                ? `${modeTitle} · ${placed?.makeGood || useMakeGoodCall ? "free replacement call" : "free call"} with ${astrologer.name}. The free time is not billed.`
+                : `${modeTitle} · pay per minute with ${astrologer.name}. You will not be charged until you are connected.`}
+            </p>
+            <p className="m-0 mt-2 text-[12px] text-app-ink-3">{connectLabels[Math.min(connectStep, 3)]}</p>
+            <button type="button" onClick={headerAction} className={`${appButtonClass({ variant: "secondary", block: true })} mt-7 max-w-[280px]`}>
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {step === "connecting" && (
+          <div className="pt-5 text-center max-lg:hidden">
             <span className="relative inline-grid size-[110px] place-items-center">
               <span className="az-pulse-ring absolute inset-0 rounded-full border-2 border-amber-400" />
               <FlowPortrait astrologer={astrologer} size={96} />
             </span>
             <h1 className="mt-5 font-display text-[32px] font-semibold text-ink">Connecting you…</h1>
             <ol className="mt-[26px] flex flex-col gap-3 rounded-[18px] border border-line bg-white p-5 text-left">
-              {[
-                useFree || useMakeGoodCall || placed?.complimentary ? "Checking your free call" : "Checking your balance",
-                useFree || useMakeGoodCall || placed?.complimentary
-                  ? held > 0
-                    ? `Free call reserved · ${rupee(held)} held for after it`
-                    : "Free call reserved — no balance needed"
-                  : `Placing a hold on ${rupee(placed ? held : balance)}`,
-                `Ringing ${astrologer.name}`,
-                "Connected",
-              ].map(
+              {connectLabels.map(
                 (label, i) => (
                   <li key={label} className="flex items-center gap-3">
                     <span
@@ -785,22 +816,22 @@ export default function ConsultJourney({
         )}
 
         {step === "waiting" && (
-          <div className="pt-2 text-center">
-            <span className="inline-flex h-[26px] items-center gap-[7px] rounded-full bg-blue-50 px-[11px] text-[11.5px] font-extrabold text-blue-700">
+          <div className="pt-2 text-center max-lg:px-4 max-lg:pt-[calc(env(safe-area-inset-top)+28px)] max-lg:pb-8">
+            <span className="inline-flex h-[26px] items-center gap-[7px] rounded-full bg-blue-50 px-[11px] text-[11.5px] font-extrabold text-blue-700 max-lg:bg-app-info-bg max-lg:text-app-info">
               ⚡ Instant Call · {rupee(rate)}/min
             </span>
             <span className="relative mx-auto mt-6 grid size-[118px] place-items-center">
               <span className="az-pulse-ring absolute inset-0 rounded-full border-2 border-amber-400" />
               <FlowPortrait astrologer={astrologer} size={104} />
             </span>
-            <h1 className="mt-5 font-display text-[30px] font-semibold leading-tight text-ink sm:text-[32px]">
+            <h1 className="mt-5 font-display text-[30px] font-semibold leading-tight text-ink sm:text-[32px] max-lg:text-[26px] max-lg:text-app-ink max-lg:sm:text-[26px]">
               Waiting for {astrologer.name} to accept…
             </h1>
-            <p className="mt-2 text-[14px] leading-[1.55] text-stone-600">
+            <p className="mt-2 text-[14px] leading-[1.55] text-stone-600 max-lg:text-[13px] max-lg:text-app-ink-2">
               You&apos;ll go straight into the call as soon as they accept. Stay on this page, or minimise it and keep browsing.
             </p>
 
-            <div className="mt-6 rounded-[18px] border border-line bg-white p-5" aria-live="polite">
+            <div className="mt-6 rounded-[18px] border border-line bg-white p-5 max-lg:rounded-app-card max-lg:border-app-line max-lg:bg-app-surface max-lg:p-4" aria-live="polite">
               {secsToAccept !== null ? (
                 <>
                   <div className="text-[11.5px] font-bold uppercase tracking-[.08em] text-stone-500">Time left to accept</div>
@@ -829,7 +860,7 @@ export default function ConsultJourney({
               )}
             </div>
 
-            <div className="mt-3.5 rounded-[14px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-[13px] leading-[1.55] text-emerald-800">
+            <div className="mt-3.5 rounded-[14px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-[13px] leading-[1.55] text-emerald-800 max-lg:rounded-app-btn max-lg:bg-app-success-bg max-lg:text-[12.5px] max-lg:text-app-success">
               Nothing is charged while you wait. Billing starts only once the call connects, and the first minute is free.
             </div>
 
@@ -837,15 +868,48 @@ export default function ConsultJourney({
               type="button"
               onClick={() => void cancelRequest()}
               disabled={ending}
-              className="mt-5 min-h-[52px] w-full rounded-[14px] border border-line bg-white text-[15px] font-bold text-ink disabled:opacity-60"
+              className="mt-5 min-h-[52px] w-full rounded-[14px] border border-line bg-white text-[15px] font-bold text-ink disabled:opacity-60 max-lg:min-h-app-hit max-lg:rounded-app-btn max-lg:border-app-line max-lg:bg-transparent max-lg:text-app-ink"
             >
               {ending ? "Cancelling…" : "Cancel request"}
+            </button>
+            {/* Below 1024px the title bar (with Minimise) is hidden on this screen. */}
+            <button
+              type="button"
+              onClick={() => {
+                rememberMinimised(consultationId);
+                onClose();
+              }}
+              className={`${appButtonClass({ variant: "ghost", block: true })} mt-1 lg:hidden`}
+            >
+              Minimise and keep browsing
             </button>
           </div>
         )}
 
+        {(step === "settle" || step === "rate") && settlement && (
+          // Below 1024px: the app's Summary (with the rating card over it at the rating step).
+          <div className="lg:hidden">
+            <SettlementSummary
+              s={settlement}
+              astrologer={astrologer}
+              mode={modeTitle}
+              endedByAstrologer={endedByAstrologer}
+              balance={balance}
+              onRate={() => setStep("rate")}
+              onClose={headerAction}
+            />
+          </div>
+        )}
         {step === "settle" && settlement && (
-          <SettlementView s={settlement} astrologer={astrologer} endedByAstrologer={endedByAstrologer} onContinue={() => setStep("rate")} />
+          <div className="max-lg:hidden">
+            <SettlementView s={settlement} astrologer={astrologer} endedByAstrologer={endedByAstrologer} onContinue={() => setStep("rate")} />
+          </div>
+        )}
+        {step === "settle" && !settlement && (
+          <div className="flex min-h-dvh flex-col items-center justify-center px-6 text-center lg:hidden" role="status">
+            <span className="size-7 animate-spin rounded-full border-[3px] border-app-line border-t-app-selected" aria-hidden="true" />
+            <h1 className="mt-4 text-[18px] font-bold text-app-ink">Preparing your summary…</h1>
+          </div>
         )}
 
         {step === "outcome" && (
@@ -860,7 +924,23 @@ export default function ConsultJourney({
         )}
 
         {step === "rate" && (
-          <div className="text-center">
+          <div className="lg:hidden">
+            <RateCard
+              astrologer={astrologer}
+              mode={modeTitle}
+              stars={stars}
+              review={review}
+              busy={busy}
+              error={error}
+              onStars={setStars}
+              onReview={setReview}
+              onSubmit={() => void submitRating()}
+              onLater={headerAction}
+            />
+          </div>
+        )}
+        {step === "rate" && (
+          <div className="text-center max-lg:hidden">
             <span className="mx-auto mt-2 block w-fit">
               <FlowPortrait astrologer={astrologer} size={84} />
             </span>
@@ -936,29 +1016,33 @@ function OutcomeView({ astrologer, status, onClose }: { astrologer: Astrologer; 
         ? "The 3-minute window to accept ran out before they picked up."
         : "The request closed before the call connected.";
   return (
-    <div className="text-center">
+    <div className="text-center max-lg:px-4 max-lg:pb-8">
+      {/* Below 1024px: the app's title bar for this screen. */}
+      <div className="-mx-4 mb-7 flex min-h-[52px] items-center bg-app-elev px-4 pt-[env(safe-area-inset-top)] text-left lg:hidden">
+        <b className="text-[16px] font-bold text-app-ink">Not connected</b>
+      </div>
       <span className="mx-auto mt-2 block w-fit opacity-80 grayscale">
         <FlowPortrait astrologer={astrologer} size={84} />
       </span>
-      <h1 className="mt-4 font-display text-[30px] font-semibold leading-tight text-ink sm:text-[32px]">{title}</h1>
-      <p className="mt-2 text-sm leading-[1.55] text-stone-600">{lead}</p>
-      <div className="mt-[18px] flex items-start gap-3 rounded-2xl border-2 border-emerald-700 bg-emerald-50 px-[17px] py-[15px] text-left">
-        <span className="text-base">₹</span>
-        <div className="text-[13.5px] leading-[1.55] text-emerald-800">
+      <h1 className="mt-4 font-display text-[30px] font-semibold leading-tight text-ink sm:text-[32px] max-lg:text-[26px] max-lg:text-app-ink max-lg:sm:text-[26px]">{title}</h1>
+      <p className="mt-2 text-sm leading-[1.55] text-stone-600 max-lg:text-[13px] max-lg:text-app-ink-2">{lead}</p>
+      <div className="mt-[18px] flex items-start gap-3 rounded-2xl border-2 border-emerald-700 bg-emerald-50 px-[17px] py-[15px] text-left max-lg:rounded-app-btn max-lg:border max-lg:border-emerald-200 max-lg:bg-app-success-bg max-lg:px-3.5 max-lg:py-3">
+        <span className="text-base max-lg:text-app-success">₹</span>
+        <div className="text-[13.5px] leading-[1.55] text-emerald-800 max-lg:text-[12.5px] max-lg:text-app-success">
           <b>You have not been charged.</b> Nothing was held from your balance. You can start a new consultation now.
         </div>
       </div>
       <Link
         href="/astrologers"
         onClick={onClose}
-        className="az-cta mt-5 flex min-h-[54px] w-full items-center justify-center rounded-[14px] text-base font-bold hover:text-cta-ink hover:no-underline"
+        className="az-cta mt-5 flex min-h-[54px] w-full items-center justify-center rounded-[14px] text-base font-bold hover:text-cta-ink hover:no-underline max-lg:min-h-app-hit max-lg:rounded-app-btn max-lg:bg-none max-lg:bg-app-primary max-lg:text-[15px] max-lg:text-app-on-primary max-lg:shadow-none"
       >
         Try another astrologer
       </Link>
       <button
         type="button"
         onClick={onClose}
-        className="mt-2.5 min-h-[50px] w-full rounded-[14px] border border-line bg-white text-[15px] font-bold text-ink"
+        className="mt-2.5 min-h-[50px] w-full rounded-[14px] border border-line bg-white text-[15px] font-bold text-ink max-lg:mt-2 max-lg:min-h-app-hit max-lg:rounded-app-btn max-lg:border-app-line max-lg:bg-transparent max-lg:text-app-ink"
       >
         Close
       </button>

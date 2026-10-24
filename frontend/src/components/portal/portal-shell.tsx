@@ -3,10 +3,16 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { accountStateLabel } from "@/lib/portal/status";
 import type { Account } from "@/lib/portal/types";
 import LogoutButton from "../logout-button";
+import { appButtonClass } from "../mobile/button";
+import { AppHeader } from "../mobile/app-header";
+import { IconCalendar, IconClock, IconDashboard, IconDoc, IconLive, IconMessage, IconMore, IconRupee, IconShield, IconUser } from "../mobile/icons";
+import ListRow, { ListRows } from "../mobile/list-row";
+import TabBar from "../mobile/tab-bar";
+import Modal from "./modal";
 import NotificationBell from "../notification-bell";
 import StatusBanner from "./status-banner";
 
@@ -99,68 +105,131 @@ function NavList({ items, pathname, onNavigate }: { items: NavItem[]; pathname: 
   );
 }
 
+/** Portal places that live under "More" on the phone/tablet tab bar. */
+const MORE: { href: string; label: string; icon: React.ReactNode; count?: (a: Account) => number }[] = [
+  { href: "/portal/availability", label: "Availability", icon: <IconCalendar /> },
+  { href: "/portal/earnings", label: "Earnings", icon: <IconRupee /> },
+  { href: "/portal/profile", label: "Profile", icon: <IconUser /> },
+  { href: "/portal/compliance", label: "Compliance", icon: <IconShield />, count: (a) => a.counts.compliance },
+  { href: "/portal/application", label: "Application", icon: <IconDoc /> },
+];
+
+/**
+ * Phones and tablets (< 1024px): the bottom tab bar — Dashboard · Consultations · Live · Messages ·
+ * More. "More" opens a sheet with the rest of the portal and Log out.
+ */
+function PortalTabBar({ account, pathname }: { account: Account; pathname: string }) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  // Close the sheet whenever the page changes.
+  const [lastPath, setLastPath] = useState(pathname);
+  if (pathname !== lastPath) {
+    setLastPath(pathname);
+    setMoreOpen(false);
+  }
+  const at = (href: string) => pathname === href || pathname.startsWith(href + "/");
+  const c = account.counts;
+  const moreCount = MORE.reduce((n, m) => n + (m.count?.(account) ?? 0), 0);
+
+  return (
+    <>
+      <TabBar
+        label="Portal"
+        items={[
+          { href: "/portal", label: "Dashboard", icon: <IconDashboard />, active: pathname === "/portal" },
+          {
+            href: "/portal/consultations",
+            label: "Consultations",
+            icon: <IconClock />,
+            active: at("/portal/consultations"),
+            badge: c.consultations,
+            badgeLabel: `${c.consultations} need attention`,
+          },
+          { href: "/portal/live", label: "Live", icon: <IconLive />, active: at("/portal/live") },
+          {
+            href: "/portal/messages",
+            label: "Messages",
+            icon: <IconMessage />,
+            active: at("/portal/messages"),
+            badge: c.messages,
+            badgeLabel: `${c.messages} unread`,
+          },
+          {
+            label: "More",
+            icon: <IconMore />,
+            active: MORE.some((m) => at(m.href)),
+            onClick: () => setMoreOpen(true),
+            expanded: moreOpen,
+            badge: moreCount,
+            badgeLabel: `${moreCount} need attention`,
+          },
+        ]}
+      />
+      {moreOpen && (
+        <Modal onClose={() => setMoreOpen(false)} labelledBy="portal-more-title">
+          <h2 id="portal-more-title" className="m-0 mb-3 text-[18px] font-bold text-app-ink">
+            More
+          </h2>
+          <div className="mb-3">
+            <AccountCard account={account} onNavigate={() => setMoreOpen(false)} />
+          </div>
+          <ListRows>
+            {MORE.map((m) => {
+              const n = m.count?.(account) ?? 0;
+              return (
+                <ListRow
+                  key={m.href}
+                  href={m.href}
+                  onNavigate={() => setMoreOpen(false)}
+                  icon={m.icon}
+                  title={m.label}
+                  trailing={
+                    n > 0 ? (
+                      <span className="grid h-5 min-w-5 place-items-center rounded-full bg-app-urgent px-1.5 text-[10.5px] font-bold text-white">
+                        {n}
+                        <span className="sr-only"> need attention</span>
+                      </span>
+                    ) : at(m.href) ? (
+                      <span className="text-[11px] font-bold text-app-active">Current</span>
+                    ) : undefined
+                  }
+                />
+              );
+            })}
+          </ListRows>
+          <LogoutButton className={`${appButtonClass({ variant: "secondary", block: true })} mt-4`} />
+        </Modal>
+      )}
+    </>
+  );
+}
+
 export default function PortalShell({ account, children }: { account: Account; children: React.ReactNode }) {
   const pathname = usePathname();
   const items = navItems(account);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const close = () => setMenuOpen(false);
-
-  // Escape closes the phone menu.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [menuOpen]);
 
   return (
     <div className="flex min-h-screen flex-col bg-cream">
-      {/* Phone / small tablet: compact top bar with a menu button */}
-      <header className="sticky top-0 z-50 border-b border-line bg-[rgba(255,253,248,.92)] backdrop-blur-[18px] backdrop-saturate-[1.2] min-[900px]:hidden">
-        <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
-          <Link href="/portal" onNavigate={close} className="text-ink hover:text-ink hover:no-underline">
-            <Brand />
-          </Link>
-          <div className="flex items-center gap-2">
-            <NotificationBell />
-            <button
-              type="button"
-              onClick={() => setMenuOpen((o) => !o)}
-              aria-expanded={menuOpen}
-              aria-controls="portal-menu"
-              aria-label={menuOpen ? "Close menu" : "Open menu"}
-              className="relative grid size-10 place-items-center rounded-xl border border-line bg-white text-lg text-stone-600"
-            >
-              {menuOpen ? "✕" : "☰"}
-              {!menuOpen && account.counts.consultations + account.counts.messages + account.counts.compliance > 0 && (
-                <span className="absolute -top-1 -right-1 size-2.5 rounded-full border-2 border-paper bg-urgent" />
-              )}
-            </button>
-          </div>
-        </div>
-        {menuOpen && (
+      {/* Phones and tablets (< 1024px): the mobile app look — app header on top, tab bar at the bottom. */}
+      <AppHeader
+        href="/portal"
+        kicker="Astrologer portal"
+        actions={
           <>
-            <div className="fixed inset-0 top-[61px] z-0 bg-[rgba(28,25,23,.35)]" onClick={close} aria-hidden="true" />
-            <div
-              id="portal-menu"
-              className="absolute inset-x-0 top-full z-10 max-h-[calc(100dvh-61px)] overflow-y-auto border-b border-line bg-paper px-3.5 pt-3 pb-4 shadow-[0_16px_40px_rgba(90,62,40,.18)]"
-            >
-              <div className="mb-3">
-                <AccountCard account={account} onNavigate={close} />
-              </div>
-              <NavList items={items} pathname={pathname} onNavigate={close} />
-              <LogoutButton className="mt-3 h-10 w-full rounded-xl border border-line bg-white text-[13px] font-bold text-stone-600" />
-            </div>
+            <NotificationBell variant="app" />
+            <Link
+              href="/portal/profile"
+              aria-label={`Your profile (${account.astrologer.name})`}
+              className="size-app-hit shrink-0 rounded-full border-2 border-gold bg-app-tint-2 bg-cover bg-center"
+              style={{ backgroundImage: `url("${account.astrologer.photo}")` }}
+            />
           </>
-        )}
-      </header>
+        }
+      />
 
-      <div className="flex-1 min-[900px]:grid min-[900px]:grid-cols-[238px_minmax(0,1fr)] min-[900px]:items-stretch">
+      <div className="flex-1 lg:grid lg:grid-cols-[238px_minmax(0,1fr)] lg:items-stretch">
         {/* Desktop sidebar */}
         {/* Above the main column, so the notifications panel opening from it isn't covered. */}
-        <aside className="relative z-30 hidden border-r border-line bg-[rgba(255,253,248,.88)] px-3.5 py-5 backdrop-blur-[18px] backdrop-saturate-[1.2] min-[900px]:block">
+        <aside className="relative z-30 hidden border-r border-line bg-[rgba(255,253,248,.88)] px-3.5 py-5 backdrop-blur-[18px] backdrop-saturate-[1.2] lg:block">
           <div className="sticky top-5 flex flex-col gap-1">
             <div className="flex items-center justify-between gap-2 pb-4 pl-2">
               <Brand />
@@ -177,11 +246,13 @@ export default function PortalShell({ account, children }: { account: Account; c
           </div>
         </aside>
 
-        <main className="min-w-0 px-3.5 pt-6 pb-14 min-[900px]:px-7">
+        <main className="min-w-0 px-4 pt-3 pb-6 lg:px-7 lg:pt-6 lg:pb-14">
           <StatusBanner status={account.status} />
           {children}
         </main>
       </div>
+
+      <PortalTabBar account={account} pathname={pathname} />
     </div>
   );
 }

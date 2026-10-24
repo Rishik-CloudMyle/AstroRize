@@ -8,7 +8,8 @@ import { countdown, rupee } from "@/lib/portal/format";
 import type { ConsultCustomer, ConsultPersonDetail, Consultations, Settlement } from "@/lib/portal/types";
 import Modal from "../modal";
 import { useAccount, useErrorToast, useToast } from "../portal-provider";
-import { PageHeader, Panel } from "../ui";
+import { M_PRIMARY, M_SECONDARY, PageHeader, Panel } from "../ui";
+import { HideTabBar } from "../../mobile/tab-bar";
 import { Avatar, PersonProfileDialog } from "./live-queue-people";
 import { SessionWindow } from "@/components/consult/session/session-window";
 
@@ -202,7 +203,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
           type="button"
           onClick={() => reject(detailWaiting.id)}
           disabled={busy || expired}
-          className="h-11 flex-1 rounded-xl border border-orange-200 bg-white text-sm font-bold text-orange-800 disabled:opacity-50"
+          className="h-11 flex-1 rounded-xl border border-orange-200 bg-white text-sm font-bold text-orange-800 disabled:opacity-50 max-lg:rounded-app-btn max-lg:text-[15px]"
         >
           Decline
         </button>
@@ -212,7 +213,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
         onClick={() => accept(detailWaiting.id)}
         disabled={busy || inSession}
         title={inSession ? BUSY_HINT : undefined}
-        className="h-11 flex-1 rounded-xl bg-urgent text-sm font-bold text-white disabled:opacity-50"
+        className="h-11 flex-1 rounded-xl bg-urgent text-sm font-bold text-white disabled:opacity-50 max-lg:rounded-app-btn max-lg:text-[15px]"
       >
         Accept
       </button>
@@ -227,7 +228,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
       />
 
       {data.freeCalls.enabled && (
-        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 max-lg:mt-3.5 max-lg:rounded-app-card max-lg:p-3">
           <FreeBadge />
           <b className="text-[13.5px] text-emerald-900 tabular-nums">
             {data.freeCalls.remaining} of {data.freeCalls.limit} free calls left {data.freeCalls.period === "week" ? "this week" : "today"}
@@ -239,7 +240,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
       )}
 
       {inc ? (
-        <div className="relative mt-5 rounded-[20px] border-2 border-urgent bg-orange-50 p-4 min-[420px]:p-5">
+        <div className="relative mt-5 rounded-[20px] border-2 border-urgent bg-orange-50 p-4 min-[420px]:p-5 max-lg:mt-3.5 max-lg:rounded-app-card max-lg:p-3!">
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-urgent px-[11px] text-[11px] font-extrabold tracking-[.06em] text-white">
               {inc.instant ? "⚡ INSTANT CALL" : "● NEW REQUEST"}
@@ -258,7 +259,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
           <button
             type="button"
             onClick={() => setDetailId(inc.id)}
-            className="mt-3.5 flex w-full items-center gap-3 rounded-2xl border border-orange-200 bg-white/70 p-3 text-left hover:bg-white"
+            className="mt-3.5 flex w-full items-center gap-3 rounded-2xl border border-orange-200 bg-white/70 p-3 text-left hover:bg-white max-lg:mt-3 max-lg:rounded-app-btn max-lg:bg-app-surface"
           >
             <Avatar photoUrl={inc.profile?.photoUrl ?? null} initials={inc.profile?.initials ?? "?"} size={52} />
             <span className="min-w-0 flex-1">
@@ -284,7 +285,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                 type="button"
                 onClick={() => reject(inc.id)}
                 disabled={busy || expired}
-                className="h-[46px] flex-1 rounded-xl border border-orange-200 bg-white px-5 text-[14.5px] font-bold text-orange-800 disabled:opacity-50"
+                className="h-[46px] flex-1 rounded-xl border border-orange-200 bg-white px-5 text-[14.5px] font-bold text-orange-800 disabled:opacity-50 max-lg:h-app-hit max-lg:rounded-app-btn max-lg:text-[15px]"
               >
                 Decline
               </button>
@@ -293,7 +294,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                 onClick={() => accept(inc.id)}
                 disabled={busy || expired || inSession}
                 title={inSession ? BUSY_HINT : undefined}
-                className="h-[46px] flex-1 rounded-xl bg-urgent px-[26px] text-[14.5px] font-bold text-white disabled:opacity-50"
+                className="h-[46px] flex-1 rounded-xl bg-urgent px-[26px] text-[14.5px] font-bold text-white disabled:opacity-50 max-lg:h-app-hit max-lg:rounded-app-btn max-lg:text-[15px]"
               >
                 Accept
               </button>
@@ -310,7 +311,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
           </p>
         </div>
       ) : (
-        <Panel className="mt-5 p-5">
+        <Panel className="mt-5 p-5 max-lg:mt-3.5">
           <b className="text-[15px]">No incoming requests</b>
           <p className="mt-1 text-[12.5px] leading-[1.5] text-stone-500">
             New requests appear here as they arrive. You have 3 minutes to accept each one.
@@ -318,9 +319,9 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
         </Panel>
       )}
 
-      <Panel className="relative mt-4 p-4 min-[420px]:p-5">
+      <Panel className="relative mt-4 p-4 min-[420px]:p-5 max-lg:mt-3">
         <div className="flex flex-wrap items-center justify-between gap-2.5">
-          <h2 className="m-0 text-[17px] font-bold">Incoming</h2>
+          <h2 className="m-0 text-[17px] font-bold max-lg:text-[16px]">Incoming</h2>
           <span className="inline-flex h-6 items-center rounded-full bg-amber-100 px-2.5 text-xs font-bold text-amber-800">
             {data.queue.length} waiting · max {data.queueMax}
           </span>
@@ -338,7 +339,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
               return (
                 <li
                   key={q.id}
-                  className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border px-3 py-2.5 ${q.instant ? "border-orange-300 bg-orange-50/70" : "border-line bg-white"}`}
+                  className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border px-3 py-2.5 max-lg:rounded-app-card max-lg:p-3 ${q.instant ? "border-orange-300 bg-orange-50/70" : "border-line bg-white"}`}
                 >
                   <button
                     type="button"
@@ -359,16 +360,16 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                       </span>
                     </span>
                   </button>
-                  <div className="ml-auto flex shrink-0 items-center gap-2">
+                  <div className="ml-auto flex shrink-0 items-center gap-2 max-lg:ml-0 max-lg:w-full max-lg:flex-wrap">
                     {head && (
-                      <span className="inline-flex h-7 items-center rounded-full bg-amber-500 px-2.5 text-[11.5px] font-extrabold text-ink tabular-nums">
+                      <span className="inline-flex h-7 items-center rounded-full bg-amber-500 px-2.5 text-[11.5px] font-extrabold text-ink tabular-nums max-lg:w-full max-lg:justify-center max-lg:bg-app-tint-2 max-lg:text-app-active">
                         {expired ? "Timing out…" : `Next up · ${countdown(remaining)}`}
                       </span>
                     )}
                     <button
                       type="button"
                       onClick={() => setDetailId(q.id)}
-                      className="h-8 rounded-[10px] border border-line bg-white px-3 text-[12.5px] font-bold text-amber-800"
+                      className={`h-8 rounded-[10px] border border-line bg-white px-3 text-[12.5px] font-bold text-amber-800 ${M_SECONDARY} max-lg:flex-1 max-lg:text-[13px]`}
                     >
                       Details
                     </button>
@@ -377,7 +378,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                       onClick={() => accept(q.id)}
                       disabled={busy || inSession || (head && expired)}
                       title={inSession ? BUSY_HINT : undefined}
-                      className="h-8 rounded-[10px] bg-urgent px-3 text-[12.5px] font-bold text-white disabled:opacity-45"
+                      className="h-8 rounded-[10px] bg-urgent px-3 text-[12.5px] font-bold text-white disabled:opacity-45 max-lg:min-h-app-hit max-lg:flex-1 max-lg:rounded-app-btn max-lg:text-[13px]"
                     >
                       Accept
                     </button>
@@ -389,8 +390,8 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
         )}
       </Panel>
 
-      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(300px,100%),1fr))] items-start gap-4">
-        <div className="rounded-[20px] bg-ink p-5 text-line">
+      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(300px,100%),1fr))] items-start gap-4 max-lg:mt-3 max-lg:gap-3">
+        <div className="rounded-[20px] bg-ink p-5 text-line max-lg:rounded-app-card max-lg:p-4">
           {session ? (
             <>
               <div className="flex items-center gap-3">
@@ -419,14 +420,14 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                 <button
                   type="button"
                   onClick={() => setWindowFor(session.id)}
-                  className="h-[42px] rounded-xl bg-amber-400 px-[15px] text-[13.5px] font-bold text-ink"
+                  className={`h-[42px] rounded-xl bg-amber-400 px-[15px] text-[13.5px] font-bold text-ink ${M_PRIMARY} max-lg:flex-1`}
                 >
                   Open session window
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmEnd(true)}
-                  className="h-[42px] rounded-xl border border-urgent bg-urgent px-[15px] text-[13.5px] font-bold text-white"
+                  className="h-[42px] rounded-xl border border-urgent bg-urgent px-[15px] text-[13.5px] font-bold text-white max-lg:min-h-app-hit max-lg:flex-1 max-lg:rounded-app-btn max-lg:text-[15px]"
                 >
                   End session
                 </button>
@@ -464,6 +465,9 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
           </div>
         </Panel>
       </div>
+
+      {/* Phones/tablets: the session window is full screen, so the tab bar steps aside while it's open. */}
+      <HideTabBar when={!!session && windowFor === session.id} />
 
       {/* The session's own window (chat, voice or video), over the whole portal. */}
       {session &&
@@ -523,7 +527,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
               <button
                 type="button"
                 onClick={() => setConfirmEnd(false)}
-                className="h-11 flex-1 rounded-xl border border-line bg-white text-sm font-bold"
+                className={`h-11 flex-1 rounded-xl border border-line bg-white text-sm font-bold ${M_SECONDARY}`}
               >
                 Keep going
               </button>
@@ -531,7 +535,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                 type="button"
                 onClick={() => endSession(session.id)}
                 disabled={busy}
-                className="h-11 flex-1 rounded-xl bg-urgent text-sm font-bold text-white disabled:opacity-60"
+                className="h-11 flex-1 rounded-xl bg-urgent text-sm font-bold text-white disabled:opacity-60 max-lg:rounded-app-btn max-lg:text-[15px]"
               >
                 End session
               </button>

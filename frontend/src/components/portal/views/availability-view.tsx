@@ -6,7 +6,8 @@ import { api } from "@/lib/api/client";
 import type { Availability, Slot, SlotState } from "@/lib/portal/types";
 import Modal from "../modal";
 import { useErrorToast, useToast } from "../portal-provider";
-import { PageHeader, Panel } from "../ui";
+import { ChipRow, Chip } from "../../mobile/chips";
+import { M_INPUT, M_LABEL, M_PRIMARY, M_SECONDARY, PageHeader, Panel } from "../ui";
 import BookingDialog from "./booking-dialog";
 
 const CELL: Record<SlotState | "unset", { bg: string; border: string; fg: string; label: string }> = {
@@ -35,7 +36,7 @@ function slotProblem(slots: Slot[], day: string, start: string, end: string): st
   return null;
 }
 
-const fieldClass = "h-12 w-full rounded-xl border bg-white text-[15px] text-ink outline-none";
+const fieldClass = `h-12 w-full rounded-xl border bg-white text-[15px] text-ink outline-none ${M_INPUT}`;
 
 export default function AvailabilityView({ data }: { data: Availability }) {
   const router = useRouter();
@@ -124,13 +125,16 @@ export default function AvailabilityView({ data }: { data: Availability }) {
         <button
           type="button"
           onClick={() => setFormOpen(true)}
-          className="az-cta h-11 rounded-full px-5 text-sm font-bold"
+          className={`az-cta h-11 rounded-full px-5 text-sm font-bold max-lg:w-full max-lg:bg-none max-lg:shadow-none ${M_PRIMARY}`}
         >
           ＋ Add slot
         </button>
       </PageHeader>
 
-      <Panel className="mt-5 overflow-x-auto p-5">
+      {/* Phones/tablets: one day at a time — pick a day, then its hours as rows. */}
+      <MobileAgenda days={data.days} today={data.today} hours={data.hours} slots={slots} onClick={clickCell} />
+
+      <Panel className="mt-5 overflow-x-auto p-5 max-lg:hidden">
         <div className="grid min-w-[640px] grid-cols-[56px_repeat(7,minmax(74px,1fr))] gap-1">
           <div />
           {data.days.map((d) => {
@@ -153,7 +157,7 @@ export default function AvailabilityView({ data }: { data: Availability }) {
         </div>
       </Panel>
 
-      <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
+      <div className="mt-3.5 flex flex-wrap items-center gap-2.5 max-lg:hidden">
         {LEGEND.map((l) => (
           <span key={l.label} className="inline-flex items-center gap-[7px] text-[12.5px] font-semibold text-stone-600">
             <span className="size-3.5 rounded-[4px] border" style={{ background: l.bg, borderColor: l.border }} />
@@ -163,22 +167,22 @@ export default function AvailabilityView({ data }: { data: Availability }) {
       </div>
 
       {formOpen && (
-        <div ref={formRef} className="scroll-mb-4">
-          <Panel warm className="mt-[18px] max-w-[520px] p-[22px]">
+        <div ref={formRef} className="scroll-mb-4 max-lg:scroll-mb-[calc(var(--app-tabbar-space)+16px)]">
+          <Panel warm className="mt-[18px] max-w-[520px] p-[22px] max-lg:mt-3.5 max-lg:max-w-none">
             <div className="flex items-center justify-between">
-              <h2 className="m-0 text-[17px] font-bold">New slot</h2>
+              <h2 className="m-0 text-[17px] font-bold max-lg:text-[16px]">New slot</h2>
               <button
                 type="button"
                 onClick={() => setFormOpen(false)}
                 aria-label="Close"
-                className="size-[30px] rounded-[9px] bg-cream text-[15px] text-stone-600"
+                className="size-[30px] rounded-[9px] bg-cream text-[15px] text-stone-600 max-lg:size-app-hit max-lg:rounded-full max-lg:bg-app-bg"
               >
                 ✕
               </button>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-3 min-[420px]:grid-cols-3">
               <div>
-                <label htmlFor="slot-day" className="mb-1.5 block text-xs font-semibold text-stone-600">
+                <label htmlFor="slot-day" className={`mb-1.5 block text-xs font-semibold text-stone-600 ${M_LABEL}`}>
                   Day
                 </label>
                 <select id="slot-day" value={day} onChange={(e) => setDay(e.target.value)} className={`${fieldClass} border-line px-3`}>
@@ -188,7 +192,7 @@ export default function AvailabilityView({ data }: { data: Availability }) {
                 </select>
               </div>
               <div>
-                <label htmlFor="slot-start" className="mb-1.5 block text-xs font-semibold text-stone-600">
+                <label htmlFor="slot-start" className={`mb-1.5 block text-xs font-semibold text-stone-600 ${M_LABEL}`}>
                   Start (IST)
                 </label>
                 <input
@@ -201,7 +205,7 @@ export default function AvailabilityView({ data }: { data: Availability }) {
                 />
               </div>
               <div>
-                <label htmlFor="slot-end" className="mb-1.5 block text-xs font-semibold text-stone-600">
+                <label htmlFor="slot-end" className={`mb-1.5 block text-xs font-semibold text-stone-600 ${M_LABEL}`}>
                   End (IST)
                 </label>
                 <input
@@ -230,7 +234,7 @@ export default function AvailabilityView({ data }: { data: Availability }) {
               <button
                 type="button"
                 onClick={() => setFormOpen(false)}
-                className="h-11 flex-1 rounded-xl border border-line bg-white text-sm font-bold"
+                className={`h-11 flex-1 rounded-xl border border-line bg-white text-sm font-bold ${M_SECONDARY}`}
               >
                 Cancel
               </button>
@@ -238,7 +242,7 @@ export default function AvailabilityView({ data }: { data: Availability }) {
                 type="button"
                 onClick={save}
                 disabled={busy}
-                className="h-11 flex-1 rounded-xl text-sm font-bold"
+                className="h-11 flex-1 rounded-xl text-sm font-bold max-lg:rounded-app-btn max-lg:text-[15px]"
                 style={{ background: valid ? "#f59e0b" : "#fde68a", color: valid ? "#1c1917" : "#78350f" }}
               >
                 Save slot
@@ -308,7 +312,7 @@ function SlotConfirm({
         </div>
       )}
       <div className="mt-5 flex gap-2.5">
-        <button type="button" onClick={onClose} className="h-11 flex-1 rounded-xl border border-line bg-white text-sm font-bold">
+        <button type="button" onClick={onClose} className={`h-11 flex-1 rounded-xl border border-line bg-white text-sm font-bold ${M_SECONDARY}`}>
           {problem ? "Close" : reopening ? "Not now" : "Keep it open"}
         </button>
         {!problem && (
@@ -316,13 +320,104 @@ function SlotConfirm({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className={`h-11 flex-1 rounded-xl text-sm font-bold ${reopening ? "bg-amber-500 text-ink" : "bg-rose-700 text-white"} disabled:opacity-60`}
+            className={`h-11 flex-1 rounded-xl text-sm font-bold ${reopening ? `bg-amber-500 text-ink ${M_PRIMARY}` : "bg-rose-700 text-white max-lg:rounded-app-btn max-lg:text-[15px]"} disabled:opacity-60`}
           >
             {reopening ? "Open this slot again" : "Cancel slot"}
           </button>
         )}
       </div>
     </Modal>
+  );
+}
+
+/** The slot covering `hour` on `day` (a live slot wins over a cancelled one kept for the audit trail). */
+function slotAt(slots: Slot[], day: string, hour: string): Slot | undefined {
+  return (
+    slots.find((x) => x.day === day && x.state !== "cancelled" && x.start <= hour && hour < x.end) ??
+    slots.find((x) => x.day === day && x.start <= hour && hour < x.end)
+  );
+}
+
+/** Phones and tablets (< 1024px): the week as day chips and the chosen day's hours as rows. */
+function MobileAgenda({
+  days,
+  today,
+  hours,
+  slots,
+  onClick,
+}: {
+  days: string[];
+  today: string;
+  hours: string[];
+  slots: Slot[];
+  onClick: (day: string, hour: string) => void;
+}) {
+  const [picked, setPicked] = useState(days.includes(today) ? today : days[0]);
+  const day = days.includes(picked) ? picked : days[0];
+  const count = (d: string) => slots.filter((x) => x.day === d && x.state !== "cancelled").length;
+  // Keep the chosen day's chip in view (today can be at the end of the week).
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const row = rowRef.current?.firstElementChild;
+    const chip = row?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (!row || !chip || !row.clientWidth) return; // hidden on desktop
+    const r = row.getBoundingClientRect();
+    const c = chip.getBoundingClientRect();
+    row.scrollLeft += c.left - r.left - (r.width - c.width) / 2;
+  }, [day]);
+  return (
+    <div className="mt-3.5 lg:hidden">
+      <div ref={rowRef}>
+      <ChipRow label="Day">
+        {days.map((d) => {
+          const n = count(d);
+          return (
+            <Chip key={d} on={d === day} onClick={() => setPicked(d)} count={n || undefined}>
+              {d === today ? `Today · ${d}` : d}
+              {n > 0 && <span className="sr-only">, {n} slot{n === 1 ? "" : "s"}</span>}
+            </Chip>
+          );
+        })}
+      </ChipRow>
+      </div>
+      <ul className="mt-3 flex flex-col gap-2" aria-label={`${day} hours`}>
+        {hours.map((hour) => {
+          const slot = slotAt(slots, day, hour);
+          const c = CELL[slot ? slot.state : "unset"];
+          const who = slot?.state === "booked" ? (slot.customerName ?? null) : null;
+          const label = !slot
+            ? "Add a slot"
+            : slot.state === "booked"
+              ? who
+                ? `Booked · ${who}`
+                : "Booked"
+              : slot.state === "cancelled"
+                ? "Cancelled — tap to open again"
+                : `Open · ${slot.start}–${slot.end}`;
+          return (
+            <li key={hour}>
+              <button
+                type="button"
+                onClick={() => onClick(day, hour)}
+                aria-label={`${day} ${hour}: ${c.label || "no slot — add one"}${who ? ` · ${who}` : ""}`}
+                className="flex min-h-app-hit w-full items-center gap-3 rounded-app-card border border-app-line bg-app-surface p-2 pl-3 text-left shadow-app-card active:bg-app-elev"
+              >
+                <b className="w-12 shrink-0 text-[13.333px] text-app-ink tabular-nums">{hour}</b>
+                <span
+                  className={`flex min-h-9 min-w-0 flex-1 items-center rounded-[10px] border px-3 text-[13px] font-semibold ${slot ? "" : "border-dashed text-app-ink-3"}`}
+                  style={slot ? { background: c.bg, borderColor: c.border, color: c.fg } : { borderColor: "#e7e0d6" }}
+                >
+                  <span className="truncate">{label}</span>
+                </span>
+                <span aria-hidden="true" className="shrink-0 pr-1 text-[12px] text-app-ink-3">
+                  ›
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

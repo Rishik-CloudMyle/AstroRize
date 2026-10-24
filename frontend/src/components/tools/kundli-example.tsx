@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import { getKundli, listKundlis, type SavedChart } from "@/lib/astro";
 import type { Tool } from "@/lib/types";
+import { APP_CTA } from "../account/app-look";
 import KundliLocked, { useKundliAccess } from "./kundli-locked";
 import { ToolMedallion } from "./tool-icons";
 import { GoldHairline, panelClass, panelPad } from "./tool-ui";
@@ -18,13 +19,13 @@ export default function KundliExample({ tool }: { tool: Tool }) {
 
   if (access !== "customer") {
     return (
-      <section className={`mt-9 ${panelClass} ${panelPad}`}>
+      <section className={`mt-9 max-lg:mt-[22px] ${panelClass} ${panelPad}`}>
         <GoldHairline />
         <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[.1em] text-amber-900">
           <ToolMedallion id="kundli" size="sm" />
           Free with an account
         </div>
-        <h2 className="mt-1 font-display text-[28px] font-semibold text-ink">Your Kundli</h2>
+        <h2 className="mt-1 font-display text-[28px] font-semibold text-ink max-lg:text-[24px]">Your Kundli</h2>
         <div className="mt-5">
           <KundliLocked access={access} />
         </div>
@@ -68,13 +69,13 @@ function LatestKundli({ tool }: { tool: Tool }) {
   }
 
   return (
-    <section className={`mt-9 ${panelClass} ${panelPad}`} aria-busy={state.kind === "loading"}>
+    <section className={`mt-9 max-lg:mt-[22px] ${panelClass} ${panelPad}`} aria-busy={state.kind === "loading"}>
       <GoldHairline />
       <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[.1em] text-amber-900">
         <ToolMedallion id="kundli" size="sm" />
         Free with your account
       </div>
-      <h2 className="mt-1 font-display text-[28px] font-semibold text-ink">Your Kundli</h2>
+      <h2 className="mt-1 font-display text-[28px] font-semibold text-ink max-lg:text-[24px]">Your Kundli</h2>
       {state.kind === "loading" ? (
         <div className="mt-4 h-24 animate-pulse rounded-2xl bg-line-soft" />
       ) : (
@@ -86,7 +87,7 @@ function LatestKundli({ tool }: { tool: Tool }) {
           </p>
           <Link
             href="/free-tools/kundli"
-            className="az-cta inline-flex h-11 items-center rounded-full px-5 text-sm font-bold hover:text-cta-ink hover:no-underline"
+            className={`az-cta inline-flex h-11 items-center rounded-full px-5 text-sm font-bold hover:text-cta-ink hover:no-underline ${APP_CTA} max-lg:justify-center max-lg:text-[15px]`}
           >
             Make my Kundli →
           </Link>

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Portrait, RecognitionBadge, VerifiedTick } from "@/components/astrologer/parts";
+import AppProfile from "@/components/astrologer/app-profile";
 import IntroVideo, { IntroVideoPlaceholder } from "@/components/astrologer/intro-video";
 import ProfileGallery from "@/components/astrologer/profile-gallery";
 import ProfileActions from "@/components/astrologer/profile-actions";
@@ -20,6 +21,7 @@ export async function generateMetadata(props: PageProps<"/astrologer/[slug]">): 
 
 export default async function AstrologerPage(props: PageProps<"/astrologer/[slug]">) {
   const { slug } = await props.params;
+  const { reviews } = await props.searchParams;
   const a = await getAstrologer(slug);
 
   const totalRatings = a.ratingDistribution.reduce((x, y) => x + y, 0);
@@ -27,7 +29,12 @@ export default async function AstrologerPage(props: PageProps<"/astrologer/[slug
   const journey = trustJourney(a);
 
   return (
-    <div className="mx-auto max-w-[1240px] px-4 pb-16 pt-8 sm:px-6">
+    <>
+    {/* Phones and tablets: the app's profile (and its Reviews screen with ?reviews=1). */}
+    <div className="lg:hidden">
+      <AppProfile astrologer={a} showReviews={reviews === "1"} />
+    </div>
+    <div className="mx-auto max-w-[1240px] px-4 pb-16 pt-8 sm:px-6 max-lg:hidden">
       <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Astrologers", href: "/astrologers" }, { label: a.name }]} className="mb-3.5" />
 
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-7">
@@ -156,5 +163,6 @@ export default async function AstrologerPage(props: PageProps<"/astrologer/[slug
         <ProfileActions astrologer={a} />
       </div>
     </div>
+    </>
   );
 }

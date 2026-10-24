@@ -99,6 +99,7 @@ export function ConsultChat({
   peerName,
   dense = false,
   disabledNote,
+  appLook = false,
 }: {
   chat: ConsultChatState;
   peerName: string;
@@ -106,7 +107,11 @@ export function ConsultChat({
   dense?: boolean;
   /** Why sending is off, when the session isn't in progress. */
   disabledNote?: string;
+  /** Below 1024px, the customer app's light chat (see SessionWindow). */
+  appLook?: boolean;
 }) {
+  /** Classes that apply only with the app look (they are all max-lg: ones). */
+  const L = (cls: string) => (appLook ? cls : "");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -132,13 +137,14 @@ export function ConsultChat({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div ref={listRef} className={`min-h-0 flex-1 overflow-y-auto ${dense ? "px-3 py-3" : "px-4 py-4 sm:px-6"}`} aria-live="polite" aria-label="Messages">
-        {!chat.loaded && !chat.failed && <p className="py-6 text-center text-[13px] text-stone-400">Loading messages…</p>}
+      <div ref={listRef} className={`min-h-0 flex-1 overflow-y-auto ${dense ? "px-3 py-3" : "px-4 py-4 sm:px-6"} ${L("max-lg:px-4 max-lg:pt-2.5 max-lg:sm:px-4")}`} aria-live="polite" aria-label="Messages">
+        {appLook && !dense && <p className="mb-2 text-[12px] text-app-ink-2 lg:hidden">Never share your number, OTP, or payment details.</p>}
+        {!chat.loaded && !chat.failed && <p className={`py-6 text-center text-[13px] text-stone-400 ${L("max-lg:text-app-ink-3")}`}>Loading messages…</p>}
         {chat.failed && !chat.loaded && (
-          <p className="py-6 text-center text-[13px] text-rose-300">Couldn&apos;t load messages. Retrying…</p>
+          <p className={`py-6 text-center text-[13px] text-rose-300 ${L("max-lg:text-app-error")}`}>Couldn&apos;t load messages. Retrying…</p>
         )}
         {chat.loaded && count === 0 && (
-          <p className="mx-auto max-w-[34ch] py-8 text-center text-[13px] leading-[1.55] text-stone-400">
+          <p className={`mx-auto max-w-[34ch] py-8 text-center text-[13px] leading-[1.55] text-stone-400 ${L("max-lg:text-app-ink-2")}`}>
             {chat.open ? `Say hello to ${peerName}. Messages stay on Astrorize — phone numbers and other contact details can't be shared.` : "No messages in this consultation."}
           </p>
         )}
@@ -146,7 +152,7 @@ export function ConsultChat({
           {chat.lines.map((l) => {
             if (l.from === "blocked" || l.from === "system") {
               return (
-                <li key={l.id} role={l.from === "blocked" ? "alert" : undefined} className="mx-auto max-w-[44ch] rounded-xl border border-amber-300/40 bg-amber-300/10 px-3 py-2 text-center text-[12.5px] leading-normal text-amber-200">
+                <li key={l.id} role={l.from === "blocked" ? "alert" : undefined} className={`mx-auto max-w-[44ch] rounded-xl border border-amber-300/40 bg-amber-300/10 px-3 py-2 text-center text-[12.5px] leading-normal text-amber-200 ${L("max-lg:border-app-tint-3 max-lg:bg-app-tint max-lg:text-app-active")}`}>
                   {l.from === "blocked" && <b className="block text-[12px] uppercase tracking-[.06em]">Not sent</b>}
                   {l.text}
                 </li>
@@ -158,11 +164,15 @@ export function ConsultChat({
                 <div
                   className={`max-w-[82%] rounded-2xl px-3.5 py-2 ${dense ? "text-[13.5px]" : "text-[14.5px]"} leading-[1.45] ${
                     mine ? "rounded-br-md bg-amber-400 text-ink" : "rounded-bl-md bg-white/10 text-paper"
-                  }`}
+                  } ${L(
+                    `max-lg:rounded-[14px] max-lg:px-3 max-lg:py-2.5 max-lg:text-[14px] max-lg:text-app-ink ${mine ? "max-lg:bg-app-tint-2" : "max-lg:border max-lg:border-app-line max-lg:bg-app-surface"}`,
+                  )}`}
                 >
                   <span className="sr-only">{mine ? "You" : peerName}: </span>
                   <span className="whitespace-pre-wrap break-words">{l.text}</span>
-                  <span className={`mt-0.5 block text-right text-[10.5px] ${mine ? "text-ink/60" : "text-stone-400"}`}>{timeOf(l.at)}</span>
+                  <span className={`mt-0.5 block text-right text-[10.5px] ${mine ? "text-ink/60" : "text-stone-400"} ${L("max-lg:text-left max-lg:text-[12px] max-lg:text-app-ink-3")}`}>
+                    {timeOf(l.at)}
+                  </span>
                 </div>
               </li>
             );
@@ -174,15 +184,17 @@ export function ConsultChat({
           e.preventDefault();
           void submit();
         }}
-        className={`border-t border-white/10 ${dense ? "p-2.5" : "p-3 sm:px-6"}`}
+        className={`border-t border-white/10 ${dense ? "p-2.5" : "p-3 sm:px-6"} ${L(
+          `max-lg:border-app-line max-lg:bg-app-elev max-lg:px-4 max-lg:pt-2 max-lg:sm:px-4 ${dense ? "max-lg:pb-[max(12px,env(safe-area-inset-bottom))]" : "max-lg:pb-[max(16px,env(safe-area-inset-bottom))]"}`,
+        )}`}
       >
         {error && (
-          <p role="alert" className="mb-2 text-[12.5px] font-semibold text-rose-300">
+          <p role="alert" className={`mb-2 text-[12.5px] font-semibold text-rose-300 ${L("max-lg:text-app-error")}`}>
             {error}
           </p>
         )}
         {chat.open ? (
-          <div className="flex items-end gap-2">
+          <div className={`flex items-end gap-2 ${L("max-lg:items-center")}`}>
             <label className="sr-only" htmlFor={`consult-msg-${dense ? "d" : "f"}`}>
               Message {peerName}
             </label>
@@ -199,18 +211,20 @@ export function ConsultChat({
                 }
               }}
               placeholder={`Message ${peerName}`}
-              className="max-h-32 min-h-11 min-w-0 flex-1 resize-none rounded-xl border border-white/15 bg-white/5 px-3.5 py-2.5 text-[14.5px] text-paper outline-none placeholder:text-stone-500 focus:border-amber-300"
+              className={`max-h-32 min-h-11 min-w-0 flex-1 resize-none rounded-xl border border-white/15 bg-white/5 px-3.5 py-2.5 text-[14.5px] text-paper outline-none placeholder:text-stone-500 focus:border-amber-300 ${L(
+                "max-lg:rounded-app-input max-lg:border-app-line max-lg:bg-app-surface max-lg:px-3 max-lg:text-[14px] max-lg:text-app-ink max-lg:placeholder:text-app-ink-3 max-lg:focus:border-app-selected",
+              )}`}
             />
             <button
               type="submit"
               disabled={!draft.trim() || sending}
-              className="h-11 shrink-0 rounded-xl bg-amber-400 px-4 text-[14px] font-bold text-ink disabled:opacity-50"
+              className={`h-11 shrink-0 rounded-xl bg-amber-400 px-4 text-[14px] font-bold text-ink disabled:opacity-50 ${L("max-lg:rounded-app-btn max-lg:bg-app-primary max-lg:text-[15px]")}`}
             >
               {sending ? "…" : "Send"}
             </button>
           </div>
         ) : (
-          <p className="py-1 text-center text-[12.5px] text-stone-400">{disabledNote ?? "This consultation has ended — messages can no longer be sent."}</p>
+          <p className={`py-1 text-center text-[12.5px] text-stone-400 ${L("max-lg:text-app-ink-3")}`}>{disabledNote ?? "This consultation has ended — messages can no longer be sent."}</p>
         )}
       </form>
     </div>

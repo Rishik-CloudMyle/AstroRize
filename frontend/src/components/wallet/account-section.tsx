@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
 import { rupee } from "@/lib/format";
 import { sessionActions } from "@/lib/session-store";
+import AppButton from "../mobile/button";
 import Modal, { CloseButton } from "../ui/modal";
 import PasswordInput from "../ui/password-input";
 
@@ -37,10 +38,45 @@ const errorText = (e: unknown) =>
 const FIELD =
   "min-h-[50px] w-full rounded-xl border border-line bg-white px-3 text-base text-ink outline-none focus:border-amber-500";
 
-export default function AccountSection({ onClosed }: { onClosed: (closed: Closed) => void }) {
+export default function AccountSection({
+  onClosed,
+  variant = "cards",
+}: {
+  onClosed: (closed: Closed) => void;
+  /** "cards" = the desktop boxes; "app" = the phone/tablet Settings screen's buttons. */
+  variant?: "cards" | "app";
+}) {
   const [open, setOpen] = useState<"deactivate" | "delete" | null>(null);
   // Stable, so the dialog doesn't re-focus itself (Modal's effect depends on it) on every render.
   const close = useCallback(() => setOpen(null), []);
+
+  const dialogs = (
+    <>
+      {open === "deactivate" && <DeactivateDialog onClose={close} onDone={() => onClosed({ kind: "paused" })} />}
+      {open === "delete" && <DeleteDialog onClose={close} onDone={(r) => onClosed({ kind: "deleted", ...r })} />}
+    </>
+  );
+
+  if (variant === "app") {
+    return (
+      <>
+        <p className="mt-0 mb-2 text-[12px] leading-[1.45] text-app-ink-2">
+          Deactivate to take a break — you&apos;re logged out everywhere and your balance stays safe; log in again any time.
+        </p>
+        <AppButton variant="secondary" block onClick={() => setOpen("deactivate")}>
+          Deactivate account
+        </AppButton>
+        <p className="mt-3.5 mb-2 text-[12px] leading-[1.45] text-app-ink-2">
+          Deleting is permanent. Your service balance is refunded to your original payment method; promotional credit
+          can&apos;t be refunded. Not available while a dispute is open or a legal hold applies.
+        </p>
+        <AppButton variant="danger" block onClick={() => setOpen("delete")}>
+          Delete account
+        </AppButton>
+        {dialogs}
+      </>
+    );
+  }
 
   return (
     <>
@@ -76,8 +112,7 @@ export default function AccountSection({ onClosed }: { onClosed: (closed: Closed
         </div>
       </div>
 
-      {open === "deactivate" && <DeactivateDialog onClose={close} onDone={() => onClosed({ kind: "paused" })} />}
-      {open === "delete" && <DeleteDialog onClose={close} onDone={(r) => onClosed({ kind: "deleted", ...r })} />}
+      {dialogs}
     </>
   );
 }

@@ -3,11 +3,18 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api/client";
 import type { Astrologer } from "@/lib/types";
+import { freeLengthLong } from "@/lib/free-calls";
+import { usableWelcome, useSession } from "@/lib/session-store";
 import { languageLine, ratingLabel, rupee, skillLine } from "@/lib/format";
 import { AvailabilityBadge, DiscountBadge, IntroBadge, Portrait, RecognitionBadge, VerifiedTick, WasPrice } from "../astrologer/parts";
 import { FreeCallBadge, WelcomeBanner } from "../consult/free-call";
+import AppAstroCard from "../astrologer/app-astro-card";
+import { Chip, ChipRow } from "../mobile/chips";
+import EmptyState from "../mobile/empty-state";
+import { IconFilter } from "../mobile/icons";
+import { AppPageTitle } from "../mobile/page-title";
+import SearchPill from "../mobile/search-pill";
 import FilterPanel from "./filter-panel";
 import {
   CATEGORIES,
@@ -23,17 +30,23 @@ import {
   type FilterState,
   type SortKey,
 } from "./filters";
-
-/** How often the list re-reads who is available while the page is open. */
-const REFRESH_MS = 30_000;
+import { useCurrentAstrologers } from "./use-current-astrologers";
 
 export default function DirectoryView({ astrologers: initial }: { astrologers: Astrologer[] }) {
   const astrologers = useCurrentAstrologers(initial);
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  // Category the Filters panel is open on, or null when closed.
-  const [panelCategory, setPanelCategory] = useState<string | null>(null);
+  const session = useSession();
+  // Category the Filters panel is open on, or null when closed. A link may open it straight away
+  // (?panel=<category>, from the Home chips); the search field may arrive focused (?focus=search).
+  const [panelCategory, setPanelCategory] = useState<string | null>(() => {
+    const id = params.get("panel");
+    return id && CATEGORIES.some((c) => c.id === id) ? id : null;
+  });
+  const [focusSearch] = useState(() => params.get("focus") === "search");
+  // The phone/tablet search field (the desktop one keeps its own value).
+  const [appQuery, setAppQuery] = useState(() => params.get("q") ?? "");
 
   const state = readState(new URLSearchParams(params.toString()), astrologers);
   const query = params.get("q") ?? "";
@@ -42,6 +55,9 @@ export default function DirectoryView({ astrologers: initial }: { astrologers: A
 
   function update(changes: Record<string, string | null>) {
     const next = new URLSearchParams(params.toString());
+    // One-off instructions from the arriving link never stay in the address.
+    next.delete("panel");
+    next.delete("focus");
     for (const [key, value] of Object.entries(changes)) {
       if (value) next.set(key, value);
       else next.delete(key);
@@ -49,6 +65,13 @@ export default function DirectoryView({ astrologers: initial }: { astrologers: A
     const qs = next.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
+
+  // Those two are one-off instructions: drop them from the address once read.
+  useEffect(() => {
+    if (params.has("panel") || params.has("focus")) update({});
+    // Only on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function apply(nextState: FilterState) {
     update(stateToParams(nextState));
@@ -74,8 +97,13 @@ export default function DirectoryView({ astrologers: initial }: { astrologers: A
   const chipOn = "border-amber-600 bg-amber-50 text-amber-800";
   const chipOff = "border-[#ecd9b6] bg-paper text-ink hover:border-amber-500";
 
+  // The customer's free call view (the app's "Complimentary" list): free-call astrologers only.
+  const welcome = usableWelcome(session);
+  const freeView = !!welcome && state.filters.availability.includes("Free call");
+
   return (
-    <div className="mt-[26px] min-w-0">
+    <>
+    <div className="mt-[26px] min-w-0 max-lg:hidden">
       <WelcomeBanner className="mb-4" showLink={!state.filters.availability.includes("Free call")} />
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex h-11 min-w-[220px] flex-1 items-center gap-2 rounded-full border border-line bg-white px-4 focus-within:border-amber-500">
@@ -170,6 +198,89 @@ export default function DirectoryView({ astrologers: initial }: { astrologers: A
         </div>
       )}
 
+    </div>
+
+    {/* Phone and tablet: the app's Consult screen. */}
+    <div className="bg-app-bg px-4 pt-1 pb-4 lg:hidden">
+      <AppPageTitle className="mb-3">Consult</AppPageTitle>
+      <SearchPill
+        value={appQuery}
+        onValueChange={(v) => {
+          setAppQuery(v);
+          update({ q: v || null });
+        }}
+        autoFocus={focusSearch}
+        placeholder="Search astrologers"
+        label="Search astrologers by name, skill or language"
+      />
+      <ChipRow label="Filters" className="mt-3">
+        <Chip on={anyActive} icon={<IconFilter />} count={activeCount} onClick={() => setPanelCategory(CATEGORIES[0].id)}>
+          Filter
+        </Chip>
+        {CATEGORIES.filter((c) => c.id !== "orders").map((c) => (
+          <Chip key={c.id} on={categoryCount(c, state) > 0} count={categoryCount(c, state)} onClick={() => setPanelCategory(c.id)}>
+            {c.label}
+          </Chip>
+        ))}
+      </ChipRow>
+
+      {welcome &&
+        (freeView ? (
+          <p className="mt-3 text-[13px] leading-[1.45] text-app-ink-2">
+            {freeLengthLong(welcome.freeSeconds)} complimentary. Chat or Voice only — paid rates apply if you continue. A call that
+            doesn&apos;t connect keeps your free call.
+          </p>
+        ) : (
+          <button
+            type="button"
+            onClick={() => update({ availability: [...state.filters.availability.filter((o) => o !== "Free call"), "Free call"].join(",") })}
+            className="mt-3 flex min-h-app-hit w-full items-center gap-2.5 rounded-app-card border border-[#a7f3d0] bg-app-success-bg px-3 py-2 text-left"
+          >
+            <span aria-hidden="true" className="text-[18px]">🎁</span>
+            <span className="min-w-0 flex-1">
+              <b className="block text-[13px] text-app-success">Your free call · {freeLengthLong(welcome.freeSeconds)}</b>
+              <span className="block text-[12px] text-app-ink-2">Chat or Voice with astrologers marked “Free call”</span>
+            </span>
+            <span className="shrink-0 text-[12px] font-bold text-app-success">Show them ›</span>
+          </button>
+        ))}
+
+      {(anyActive || query.trim()) && (
+        <div className="mt-3 flex items-center justify-between gap-3 text-[12px] text-app-ink-3">
+          <span aria-live="polite">{countLabel}</span>
+          {anyActive && (
+            <button type="button" onClick={clearAll} className="min-h-8 px-1 font-bold text-app-accent">
+              Clear all
+            </button>
+          )}
+        </div>
+      )}
+
+      {results.length === 0 ? (
+        <EmptyState
+          className="mt-3"
+          title="No astrologers match your current filters."
+          body={query.trim() ? "Try another name, skill or language." : undefined}
+          action={
+            anyActive ? (
+              <button type="button" onClick={clearAll} className="min-h-app-hit rounded-app-btn border border-app-line px-4 text-[15px] font-bold text-app-ink">
+                Clear Filters
+              </button>
+            ) : undefined
+          }
+        />
+      ) : (
+        <>
+          <div className="mt-3 flex flex-col gap-2.5">
+            {results.map((a) => (
+              <AppAstroCard key={a.id} astrologer={a} welcome={freeView && a.freeCall} />
+            ))}
+          </div>
+          <p className="mt-[18px] text-center text-[12px] text-app-ink-3">You&apos;ve reached the end</p>
+        </>
+      )}
+    </div>
+
       {panelCategory && (
         <FilterPanel
           astrologers={astrologers}
@@ -179,39 +290,8 @@ export default function DirectoryView({ astrologers: initial }: { astrologers: A
           onClose={() => setPanelCategory(null)}
         />
       )}
-    </div>
+    </>
   );
-}
-
-/** The list, with availability kept current (every 30 s while visible, and on focus). */
-function useCurrentAstrologers(initial: Astrologer[]): Astrologer[] {
-  const [state, setState] = useState({ from: initial, list: initial });
-  if (state.from !== initial) setState({ from: initial, list: initial });
-  useEffect(() => {
-    let cancelled = false;
-    const refresh = async () => {
-      if (document.hidden) return;
-      try {
-        const { astrologers } = await api.get<{ astrologers: Astrologer[] }>("/astrologers");
-        if (!cancelled) setState((s) => ({ ...s, list: astrologers }));
-      } catch {
-        // Keep what we have; the next tick retries.
-      }
-    };
-    const onVisible = () => {
-      if (!document.hidden) void refresh();
-    };
-    const id = setInterval(refresh, REFRESH_MS);
-    window.addEventListener("focus", onVisible);
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-      window.removeEventListener("focus", onVisible);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, []);
-  return state.list;
 }
 
 /** "rating, high to low" for the count line. */

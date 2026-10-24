@@ -32,6 +32,21 @@ import {
 import type { GrahaKey } from "./constants.ts";
 
 export const norm360 = (deg: number) => ((deg % 360) + 360) % 360;
+
+/**
+ * Years we treat as fully reliable (the chart reviewer's range). test/astro.test.ts checks positions
+ * against JPL for 1950–2040 and the ayanamsa for 1900–2050; the planets (VSOP87) stay good for
+ * millennia, but ΔT — the Earth-rotation correction that fixes the lagna and the Moon for a clock
+ * time — is known from telescope records only since the 1600s and is pure extrapolation for the far
+ * future. Results outside the range carry outsideTestedRange: true and the website shows a warning.
+ */
+export const TESTED_YEARS = { from: 1700, to: 2200 } as const;
+/** `date` is "YYYY-MM-DD". */
+export const outsideTestedRange = (date: string) => {
+  const year = Number(date.slice(0, 4));
+  return year < TESTED_YEARS.from || year > TESTED_YEARS.to;
+};
+
 const RAD = Math.PI / 180;
 
 /** Julian centuries of Terrestrial Time since J2000.0. */

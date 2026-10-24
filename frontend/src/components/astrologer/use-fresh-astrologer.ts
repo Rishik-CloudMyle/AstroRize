@@ -16,14 +16,18 @@ export function recheckAvailability() {
   if (typeof window !== "undefined") window.dispatchEvent(new Event(RECHECK_EVENT));
 }
 
-/** The astrologer, kept current: checked on open, every 20 s while visible, and on focus. */
-export function useFreshAstrologer(initial: Astrologer): Astrologer {
+/**
+ * The astrologer, kept current: checked on open, every 20 s while visible, and on focus.
+ * `enabled: false` keeps the server's copy without checking (a layout hidden at this width).
+ */
+export function useFreshAstrologer(initial: Astrologer, enabled = true): Astrologer {
   const [state, setState] = useState({ from: initial, value: initial });
   // New server data (another profile, or a refresh) replaces what we had.
   if (state.from !== initial) setState({ from: initial, value: initial });
   const slug = initial.slug;
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     let inFlight = false;
     const check = async () => {
@@ -56,7 +60,7 @@ export function useFreshAstrologer(initial: Astrologer): Astrologer {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener(RECHECK_EVENT, onVisible);
     };
-  }, [slug]);
+  }, [slug, enabled]);
 
   return state.value;
 }

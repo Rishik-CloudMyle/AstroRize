@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { readResponse } from "@/lib/api/errors";
+import { APP_CTA, APP_INPUT, APP_LABEL, APP_SECONDARY } from "./app-look";
 
 // The customer's "A little about you" + "Birth details" form, shared by Wallet & account
 // (edit profile) and sign-up. Same rules as PUT /api/me/profile.
@@ -180,8 +181,8 @@ function formatTime(value: string): string {
 }
 
 export const inputClass = (error?: string) =>
-  `mt-1.5 h-12 w-full min-w-0 rounded-xl border bg-white px-3.5 text-[15px] text-ink outline-none focus:border-amber-500 ${
-    error ? "border-rose-400" : "border-line"
+  `mt-1.5 h-12 w-full min-w-0 rounded-xl border bg-white px-3.5 text-[15px] text-ink outline-none focus:border-amber-500 ${APP_INPUT} ${
+    error ? "border-rose-400" : "border-line max-lg:border-app-line"
   }`;
 
 export function FieldError({ id, error }: { id: string; error?: string }) {
@@ -230,7 +231,7 @@ export function ProfileForm({
     { help, format, ...opts }: Partial<React.InputHTMLAttributes<HTMLInputElement>> & { help?: string; format?: (v: string) => string } = {},
   ) => (
     <div>
-      <label htmlFor={`pf-${key}`} className="text-xs font-semibold text-stone-600">
+      <label htmlFor={`pf-${key}`} className={`text-xs font-semibold text-stone-600 ${APP_LABEL}`}>
         {label}
       </label>
       <input
@@ -257,7 +258,7 @@ export function ProfileForm({
   return (
     <form onSubmit={onSubmit} noValidate>
       <h3 className="m-0 font-display text-[24px] font-semibold text-ink">A little about you</h3>
-      <p className="mt-0.5 mb-3 text-[12.5px] text-stone-500">First name is enough. Skip the rest — paid consults stay available.</p>
+      <p className="mt-0.5 mb-3 text-[12.5px] text-stone-500 max-lg:text-[12px] max-lg:text-app-ink-2">First name is enough. Skip the rest — paid consults stay available.</p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {text("firstName", "First name", { autoComplete: "given-name", maxLength: 60, required: true })}
         {text("lastName", "Last name (optional)", { autoComplete: "family-name", maxLength: 60 })}
@@ -272,7 +273,7 @@ export function ProfileForm({
         </div>
       </div>
       <div className="mt-3.5">
-        <span id="pf-gender-label" className="text-xs font-semibold text-stone-600">
+        <span id="pf-gender-label" className={`text-xs font-semibold text-stone-600 ${APP_LABEL}`}>
           Gender (optional)
         </span>
         <div role="radiogroup" aria-labelledby="pf-gender-label" className="mt-1.5 flex flex-wrap gap-2">
@@ -286,8 +287,10 @@ export function ProfileForm({
                 aria-checked={on}
                 // Tapping the chosen option again clears it (gender is optional).
                 onClick={() => set("gender", on ? null : g)}
-                className={`h-10 rounded-full border px-4 text-[13.5px] font-semibold ${
-                  on ? "border-amber-500 bg-amber-500 text-ink" : "border-line bg-white text-ink"
+                className={`h-10 rounded-full border px-4 text-[13.5px] font-semibold max-lg:px-3 max-lg:text-[13px] ${
+                  on
+                    ? "border-amber-500 bg-amber-500 text-ink max-lg:border-app-primary max-lg:bg-app-primary"
+                    : "border-line bg-white text-ink max-lg:border-app-line max-lg:bg-app-surface"
                 }`}
               >
                 {g}
@@ -298,7 +301,7 @@ export function ProfileForm({
       </div>
 
       <h3 className="mt-6 mb-0 font-display text-[24px] font-semibold text-ink">Birth details</h3>
-      <p className="mt-0.5 mb-3 text-[12.5px] text-stone-500">
+      <p className="mt-0.5 mb-3 text-[12.5px] text-stone-500 max-lg:text-[12px] max-lg:text-app-ink-2">
         Used for Kundli and matchmaking. Skip if you prefer to add this later — paid consults stay available.
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -323,15 +326,15 @@ export function ProfileForm({
           {formError}
         </p>
       )}
-      <div className="mt-4 flex flex-wrap gap-2.5">
-        <button type="submit" disabled={saving} className="az-cta h-12 min-w-[140px] rounded-full px-7 text-[15px] font-bold">
+      <div className="mt-4 flex flex-wrap gap-2.5 max-lg:flex-col max-lg:gap-2">
+        <button type="submit" disabled={saving} className={`az-cta h-12 min-w-[140px] rounded-full px-7 text-[15px] font-bold ${APP_CTA}`}>
           {saving ? "Saving…" : submitLabel}
         </button>
         <button
           type="button"
           onClick={onCancel}
           disabled={saving}
-          className="h-12 rounded-full border border-line bg-white px-6 text-[14.5px] font-bold text-ink"
+          className={`h-12 rounded-full border border-line bg-white px-6 text-[14.5px] font-bold text-ink ${APP_SECONDARY}`}
         >
           {cancelLabel}
         </button>
@@ -410,7 +413,7 @@ export function PhotoPicker({
         onClick={() => fileInput.current?.click()}
         disabled={busy}
         aria-label={photoUrl ? "Change your photo" : "Add a photo"}
-        className="relative grid size-[88px] place-items-center overflow-hidden rounded-full border-2 border-gold bg-amber-100 text-[30px] font-bold text-amber-800"
+        className="relative grid size-[88px] place-items-center overflow-hidden rounded-full border-2 border-gold bg-amber-100 text-[30px] font-bold text-amber-800 max-lg:border-0 max-lg:bg-app-tint-2 max-lg:text-app-active"
       >
         {src ? <Image src={src} alt="" fill unoptimized sizes="88px" className="object-cover" /> : initials || "+"}
         {busy && <span className="absolute inset-0 grid place-items-center bg-[rgba(28,25,23,.45)] text-xs font-bold text-white">Saving</span>}

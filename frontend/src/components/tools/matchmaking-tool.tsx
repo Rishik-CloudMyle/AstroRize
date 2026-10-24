@@ -2,7 +2,18 @@
 
 import { useRef, useState } from "react";
 import { ApiError } from "@/lib/api/client";
-import { matchCharts, ordinal, type Match, type MatchPersonResult, type Place } from "@/lib/astro";
+import {
+  DATE_LIMIT_MESSAGE,
+  DATE_RANGE_NOTE,
+  MAX_DATE,
+  MIN_DATE,
+  matchCharts,
+  ordinal,
+  outsideTestedRange,
+  type Match,
+  type MatchPersonResult,
+  type Place,
+} from "@/lib/astro";
 import type { Tool } from "@/lib/types";
 import BirthPlaceInput from "./birth-place-input";
 import { RashiGlyph } from "./tool-icons";
@@ -56,7 +67,7 @@ export default function MatchmakingTool({ tool }: { tool: Tool }) {
     ] as const) {
       if (!p.name.trim()) return `Enter ${who}'s name.`;
       if (!p.date) return `Enter ${who}'s date of birth.`;
-      if (p.date < "1800-01-01" || p.date > "2200-12-31") return "Dates from 1800 to 2200 are supported.";
+      if (p.date < MIN_DATE || p.date > MAX_DATE) return DATE_LIMIT_MESSAGE;
       if (!place) return `Choose ${who}'s place of birth from the list (press Search to find it).`;
     }
     return null;
@@ -156,8 +167,8 @@ function PersonFields({
         <input value={value.name} onChange={set("name")} maxLength={80} className={inputClass} />
       </Field>
       <div className="grid gap-3.5 min-[400px]:grid-cols-2">
-        <Field label="Date of birth">
-          <input type="date" min="1800-01-01" max="2200-12-31" value={value.date} onChange={set("date")} className={inputClass} />
+        <Field label="Date of birth" hint={value.date && outsideTestedRange(value.date) ? <span className="text-orange-800">{DATE_RANGE_NOTE}</span> : undefined}>
+          <input type="date" min={MIN_DATE} max={MAX_DATE} value={value.date} onChange={set("date")} className={inputClass} />
         </Field>
         <Field label="Time of birth (optional)">
           <input type="time" value={value.time} onChange={set("time")} className={inputClass} />
@@ -332,6 +343,10 @@ function MoonCard({ person, who }: { person: MatchPersonResult; who: string }) {
         Moon in <b className="text-ink">{person.moonSign.name}</b> ({person.moonSign.sanskrit}) · {person.nakshatra.name} pada{" "}
         {person.nakshatra.pada}
       </p>
+      {person.timeAssumed && (
+        <p className="mt-1.5 text-[12.5px] font-semibold text-amber-900">Birth time not given — 12:00 noon (local time) assumed.</p>
+      )}
+      {person.outsideTestedRange && <p className="mt-1.5 text-[12.5px] text-orange-800">{DATE_RANGE_NOTE}</p>}
       {person.uncertain && (
         <p className="mt-1.5 text-[12.5px] text-orange-800">The Moon changed sign or nakshatra that day — add the birth time for an exact result.</p>
       )}

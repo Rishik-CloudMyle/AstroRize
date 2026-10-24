@@ -54,7 +54,7 @@ export default function LivePrivateHost({ p, onEnded }: { p: LiveHostPrivate; on
   }
 
   return (
-    <section aria-labelledby="private-host-title" className="overflow-hidden rounded-[20px] bg-ink text-paper">
+    <section aria-labelledby="private-host-title" className="overflow-hidden rounded-[20px] bg-ink text-paper max-lg:rounded-app-card">
       <div className="flex flex-wrap items-center gap-3 border-b border-white/10 px-4 py-3.5">
         <Avatar photoUrl={p.profile?.photoUrl ?? null} initials={p.profile?.initials ?? "•"} size={44} />
         <div className="min-w-0 flex-1">
@@ -74,11 +74,11 @@ export default function LivePrivateHost({ p, onEnded }: { p: LiveHostPrivate; on
         </div>
         <div className="flex gap-2">
           {active && windowShut && (
-            <button type="button" onClick={() => setWindowShut(false)} className="h-10 rounded-xl bg-amber-400 px-4 text-[13.5px] font-bold text-ink">
+            <button type="button" onClick={() => setWindowShut(false)} className="h-10 rounded-xl bg-amber-400 px-4 text-[13.5px] font-bold text-ink max-lg:h-app-hit max-lg:rounded-app-btn">
               {p.mode === "chat" ? "Open chat" : "Open call"}
             </button>
           )}
-          <button type="button" onClick={() => void end()} disabled={busy} className="h-10 rounded-xl bg-urgent px-4 text-[13.5px] font-bold text-white">
+          <button type="button" onClick={() => void end()} disabled={busy} className="h-10 rounded-xl bg-urgent px-4 text-[13.5px] font-bold text-white max-lg:h-app-hit max-lg:rounded-app-btn">
             {busy ? "Ending…" : active ? "End" : "Cancel"}
           </button>
         </div>

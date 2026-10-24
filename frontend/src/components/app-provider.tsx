@@ -176,7 +176,7 @@ export default function AppProvider({ children }: { children: React.ReactNode })
       {toastMessage && (
         <div
           role="status"
-          className="az-toast fixed bottom-7 left-1/2 z-[400] flex w-[calc(100%-32px)] max-w-[620px] -translate-x-1/2 items-start gap-[11px] rounded-[14px] bg-ink px-[18px] py-3.5 text-line shadow-[0_16px_40px_rgba(11,31,51,.3)]"
+          className="az-toast fixed bottom-7 left-1/2 z-[400] max-lg:bottom-[calc(20px+var(--app-tabbar-space))] flex w-[calc(100%-32px)] max-w-[620px] -translate-x-1/2 items-start gap-[11px] rounded-[14px] bg-ink px-[18px] py-3.5 text-line shadow-[0_16px_40px_rgba(11,31,51,.3)]"
         >
           <span className="text-sm text-amber-300">✓</span>
           <span className="text-[13.5px] leading-normal">{toastMessage}</span>

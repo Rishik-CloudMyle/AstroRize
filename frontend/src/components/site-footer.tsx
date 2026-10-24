@@ -2,9 +2,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { COMPANY, FOOTER_COLUMNS } from "@/lib/mock/site";
 
+// Desktop only (≥ 1024px). The app look has no footer: on phones and tablets the same links and
+// company line are on the Profile hub (/me, components/account/profile-hub.tsx).
 export default function SiteFooter() {
   return (
-    <footer className="mt-auto bg-ink text-[#d6cbb8]">
+    <footer className="mt-auto bg-ink text-[#d6cbb8] max-lg:hidden">
       <div className="mx-auto grid max-w-[1240px] grid-cols-2 gap-8 px-4 pb-7 pt-11 sm:px-6 md:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))]">
         <div className="col-span-2 min-w-0 md:col-span-1">
           <div className="flex items-center gap-2.5">

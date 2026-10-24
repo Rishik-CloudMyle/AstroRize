@@ -40,7 +40,7 @@ export default function LiveQueuePeople({ queue }: { queue: LiveQueuePerson[] })
   return (
     <Panel className="p-[18px]">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="m-0 text-[15px] font-bold">People in your queue</h2>
+        <h2 className="m-0 text-[15px] font-bold max-lg:text-[16px]">People in your queue</h2>
         <span className="text-xs text-stone-500">{queue.length} waiting</span>
       </div>
       <p className="mt-1 text-xs text-stone-500">Only you can see these profiles. Use them to prepare; don&apos;t save or share them.</p>
@@ -57,7 +57,7 @@ export default function LiveQueuePeople({ queue }: { queue: LiveQueuePerson[] })
               `waiting ${p.waiting}`,
             ];
             return (
-              <li key={p.id} className="flex items-center gap-3 rounded-xl border border-line bg-white px-3 py-2.5">
+              <li key={p.id} className="flex items-center gap-3 rounded-xl border border-line bg-white px-3 py-2.5 max-lg:rounded-app-btn">
                 <Avatar photoUrl={p.profile?.photoUrl ?? null} initials={p.profile?.initials ?? "?"} size={40} />
                 <div className="min-w-0 flex-1">
                   <b className="block truncate text-[13.5px] text-ink">{name}</b>
@@ -67,7 +67,7 @@ export default function LiveQueuePeople({ queue }: { queue: LiveQueuePerson[] })
                   type="button"
                   onClick={() => setOpenId(p.id)}
                   aria-label={`See more about ${name}`}
-                  className="h-[30px] shrink-0 rounded-[9px] border border-line bg-white px-[11px] text-xs font-bold text-amber-800"
+                  className="h-[30px] shrink-0 rounded-[9px] border border-line bg-white px-[11px] text-xs font-bold text-amber-800 max-lg:h-9 max-lg:rounded-app-btn max-lg:text-[13px]"
                 >
                   See more
                 </button>
@@ -237,7 +237,7 @@ export function PersonProfileDialog({
         )}
 
         <div className="mt-4 flex shrink-0 gap-2.5">
-          <button type="button" onClick={onClose} className="h-11 flex-1 rounded-xl border border-line bg-white text-sm font-bold">
+          <button type="button" onClick={onClose} className="h-11 flex-1 rounded-xl border border-line bg-white text-sm font-bold max-lg:rounded-app-btn max-lg:bg-transparent max-lg:text-[15px]">
             Close
           </button>
           {person && actions}

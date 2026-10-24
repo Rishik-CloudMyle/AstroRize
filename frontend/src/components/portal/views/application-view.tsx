@@ -8,7 +8,8 @@ import { BIO_WORD_LIMIT, hasClaimWarning, wordCount } from "@/lib/portal/bio";
 import { LIFECYCLE } from "@/lib/portal/lifecycle";
 import type { ApplicationDraft, ApplicationMissing, WizardField } from "@/lib/portal/types";
 import { useAccount, useErrorToast, usePortalState, useToast } from "../portal-provider";
-import { PageHeader, Panel } from "../ui";
+import { Chip, ChipRow } from "../../mobile/chips";
+import { M_LABEL, M_PRIMARY, M_SECONDARY, PageHeader, Panel } from "../ui";
 
 function chipColors(chip: string): { bg: string; fg: string } {
   if (chip === "Rejected" || chip === "Required" || / to finish$/.test(chip)) return { bg: "#fff1f2", fg: "#be123c" };
@@ -170,14 +171,14 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
         }
       >
         {editable && (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex h-7 items-center rounded-full bg-emerald-50 px-3 text-xs font-bold text-emerald-700">
+          <div className="flex flex-wrap items-center gap-2 max-lg:w-full">
+            <span className="inline-flex h-7 items-center rounded-full bg-emerald-50 px-3 text-xs font-bold text-emerald-700 max-lg:h-6 max-lg:text-[11px]">
               {savedLabel}
             </span>
             <button
               type="button"
               onClick={saveNow}
-              className="h-[38px] rounded-xl border border-line bg-white px-[15px] text-[13.5px] font-bold"
+              className={`h-[38px] rounded-xl border border-line bg-white px-[15px] text-[13.5px] font-bold ${M_SECONDARY} max-lg:ml-auto max-lg:min-h-9 max-lg:text-[13px]`}
             >
               Save &amp; resume later
             </button>
@@ -187,7 +188,10 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
 
       {!editable && <SentNotice lifecycle={status.lifecycle} submittedOn={data.submittedOn} note={data.note} />}
 
-      <div className="mt-5 grid grid-cols-4 gap-x-[3px] gap-y-2.5 min-[480px]:flex min-[480px]:flex-wrap min-[480px]:gap-[3px]">
+      {/* Phones and tablets: the steps as a scrolling chip row, the current one kept in view. */}
+      <StepChips labels={steps.map((s, i) => `${i + 1}. ${s.short}`)} current={idx} onPick={goTo} />
+
+      <div className="mt-5 grid grid-cols-4 gap-x-[3px] gap-y-2.5 min-[480px]:flex min-[480px]:flex-wrap min-[480px]:gap-[3px] max-lg:hidden!">
         {steps.map((s, i) => {
           const bar = i < idx ? "#f59e0b" : i === idx ? "#d97706" : "#e7e0d6";
           const fg = i === idx ? "#92400e" : i < idx ? "#57534e" : "#a8a29e";
@@ -211,14 +215,14 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
         })}
       </div>
 
-      <Panel className="mt-[22px] p-[18px] sm:p-6">
+      <Panel className="mt-[22px] p-[18px] sm:p-6 max-lg:mt-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="m-0 text-[20px] font-bold">{current.title}</h2>
+          <h2 className="m-0 text-[20px] font-bold max-lg:text-[16px]">{current.title}</h2>
           <span className="text-[12.5px] text-stone-500">
             Step {idx + 1} of {steps.length}
           </span>
         </div>
-        <p className="mt-1.5 mb-5 max-w-[72ch] text-[13.5px] leading-[1.55] text-stone-600">{current.blurb}</p>
+        <p className="mt-1.5 mb-5 max-w-[72ch] text-[13.5px] leading-[1.55] text-stone-600 max-lg:mb-4 max-lg:text-[13px] max-lg:text-app-ink-2">{current.blurb}</p>
 
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(260px,100%),1fr))] gap-3.5">
           {fields.map((f, i) => {
@@ -235,10 +239,10 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
               const ticked = value === "yes";
               return (
                 <div key={key}>
-                  <span className="mb-1.5 block text-xs font-semibold text-stone-600">{f.label}</span>
+                  <span className={`mb-1.5 block text-xs font-semibold text-stone-600 ${M_LABEL}`}>{f.label}</span>
                   <label
                     htmlFor={inputId}
-                    className="flex min-h-[50px] items-center gap-2.5 rounded-xl border px-3.5"
+                    className="flex min-h-[50px] items-center gap-2.5 rounded-xl border px-3.5 max-lg:min-h-[52px] max-lg:rounded-app-input max-lg:px-4"
                     style={{ background: ticked ? "#ecfdf5" : "#fff", borderColor: ticked ? "#a7f3d0" : "#e7e0d6" }}
                   >
                     <input
@@ -259,11 +263,11 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
             }
             return (
               <div key={key}>
-                <label htmlFor={typable ? inputId : undefined} className="mb-1.5 block text-xs font-semibold text-stone-600">
+                <label htmlFor={typable ? inputId : undefined} className={`mb-1.5 block text-xs font-semibold text-stone-600 ${M_LABEL}`}>
                   {f.label}
                 </label>
                 <div
-                  className="flex min-h-[50px] items-center gap-2.5 rounded-xl border px-3.5"
+                  className="flex min-h-[50px] items-center gap-2.5 rounded-xl border px-3.5 max-lg:min-h-[52px] max-lg:rounded-app-input max-lg:px-4 max-lg:focus-within:border-app-selected!"
                   style={{ background: bg, borderColor: border }}
                 >
                   {typable ? (
@@ -272,7 +276,7 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
                       value={value}
                       placeholder={f.placeholder}
                       onChange={(e) => edit(key, e.target.value)}
-                      className="min-w-0 flex-1 bg-transparent py-[13px] text-[14.5px] text-ink outline-none"
+                      className="min-w-0 flex-1 bg-transparent py-[13px] text-[14.5px] text-ink outline-none max-lg:text-[16px]"
                     />
                   ) : (
                     <span className="min-w-0 flex-1 truncate text-[14.5px]" style={{ color: fg }}>
@@ -294,7 +298,7 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
         </div>
 
         {idx === last && editable && missing.length > 0 && (
-          <div className="mt-[18px] rounded-[14px] border border-rose-200 bg-rose-50 px-[15px] py-[13px]" role="alert">
+          <div className="mt-[18px] rounded-[14px] border border-rose-200 bg-rose-50 px-[15px] py-[13px] max-lg:rounded-app-btn max-lg:p-3" role="alert">
             <b className="block text-[13.5px] text-rose-800">Finish these before you submit</b>
             <ul className="m-0 mt-2 flex list-none flex-col gap-1.5 p-0">
               {missing.map((m) => (
@@ -312,16 +316,16 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
           </div>
         )}
 
-        <div className="mt-[18px] rounded-[14px] border border-blue-200 bg-blue-50 px-[15px] py-[13px] text-[13px] leading-[1.5] text-blue-800">
+        <div className="mt-[18px] rounded-[14px] border border-blue-200 bg-blue-50 px-[15px] py-[13px] text-[13px] leading-[1.5] text-blue-800 max-lg:rounded-app-btn max-lg:p-3 max-lg:text-[12.5px]">
           {current.note}
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-2.5">
+        <div className="mt-5 flex flex-wrap gap-2.5 max-lg:flex-nowrap">
           <button
             type="button"
             onClick={() => goTo(Math.max(0, idx - 1))}
             disabled={idx === 0}
-            className="h-[46px] rounded-xl border border-line bg-white px-5 text-[14.5px] font-bold text-ink disabled:opacity-50"
+            className={`h-[46px] rounded-xl border border-line bg-white px-5 text-[14.5px] font-bold text-ink disabled:opacity-50 ${M_SECONDARY} max-lg:flex-1`}
           >
             Back
           </button>
@@ -330,7 +334,7 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
               type="button"
               onClick={next}
               disabled={sending}
-              className="az-cta h-[46px] rounded-xl px-[26px] text-[14.5px] font-bold disabled:opacity-60"
+              className={`az-cta h-[46px] rounded-xl px-[26px] text-[14.5px] font-bold disabled:opacity-60 max-lg:flex-[2] max-lg:bg-none max-lg:px-3 max-lg:shadow-none ${M_PRIMARY}`}
             >
               {idx < last ? "Next" : sending ? "Sending…" : resubmit ? "Send updated application" : "Submit application"}
             </button>
@@ -338,7 +342,7 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
         </div>
       </Panel>
 
-      <Panel warm className="mt-4 p-[22px]">
+      <Panel warm className="mt-4 p-[22px] max-lg:mt-3">
         <h2 className="m-0 mb-1 text-base font-bold">After you submit</h2>
         <p className="mb-3.5 text-[12.5px] text-stone-500">
           The banner at the top of the portal always shows which of these stages your account is in.
@@ -350,8 +354,10 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
               <li
                 key={l.key}
                 aria-current={on ? "step" : undefined}
-                className={`inline-flex h-[34px] items-center rounded-full border px-[13px] text-[12.5px] font-bold ${
-                  on ? "border-ink bg-ink text-amber-300" : "border-line bg-white text-stone-600"
+                className={`inline-flex h-[34px] items-center rounded-full border px-[13px] text-[12.5px] font-bold max-lg:text-[12px] ${
+                  on
+                    ? "border-ink bg-ink text-amber-300 max-lg:border-app-selected max-lg:bg-app-tint max-lg:text-app-active"
+                    : "border-line bg-white text-stone-600 max-lg:border-app-line-gold max-lg:text-app-ink"
                 }`}
               >
                 {l.label}
@@ -360,6 +366,33 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
           })}
         </ul>
       </Panel>
+    </div>
+  );
+}
+
+/** Phones and tablets: the wizard's steps as a scrolling chip row, the current one kept in view. */
+function StepChips({ labels, current, onPick }: { labels: string[]; current: number; onPick: (i: number) => void }) {
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const row = wrap.current?.firstElementChild;
+    const chip = row?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (!row || !chip || !row.clientWidth) return; // hidden on desktop
+    const r = row.getBoundingClientRect();
+    const c = chip.getBoundingClientRect();
+    row.scrollLeft += c.left - r.left - (r.width - c.width) / 2;
+  }, [current]);
+  return (
+    <div ref={wrap} className="mt-3.5 lg:hidden">
+      <ChipRow label="Application steps">
+        {labels.map((l, i) => (
+          <Chip key={l} on={i === current} onClick={() => onPick(i)}>
+            {l}
+          </Chip>
+        ))}
+      </ChipRow>
+      <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-app-line" aria-hidden="true">
+        <span className="block h-full rounded-full bg-app-primary" style={{ width: `${((current + 1) / labels.length) * 100}%` }} />
+      </div>
     </div>
   );
 }

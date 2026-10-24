@@ -12,6 +12,11 @@ import { useCallMedia, type CallMedia } from "./use-call-media";
 //   video → a video call (Video and Instant Call), with a messages drawer
 // Full screen on phones; a centred stage on larger screens. Billing numbers are passed in by
 // whoever opens it (the customer's meter, or the astrologer's clock).
+//
+// `appLook` (the customer's side): below 1024px the window takes the customer mobile app's screens —
+// a light Chat screen with the meter under its title bar, a light Voice screen with the big timer,
+// and a full-bleed Video screen with the timer over the picture. The caller's badges, chips and
+// alerts must then read on a light background below 1024px. Desktop is the same either way.
 
 export type WindowKind = "chat" | "voice" | "video";
 
@@ -39,6 +44,9 @@ export interface Peer {
   initials: string;
 }
 
+/** Which look the window has below 1024px: the dark stage, or the app's light/dark call screens. */
+type Look = "stage" | "light" | "dark";
+
 export function SessionWindow({
   base,
   kind,
@@ -53,6 +61,7 @@ export function SessionWindow({
   onEnd,
   onMinimise,
   endNote,
+  appLook = false,
 }: {
   /** API path of this consultation for this side, e.g. "/consultations/ID" or "/portal/consultations/ID". */
   base: string;
@@ -74,6 +83,8 @@ export function SessionWindow({
   onMinimise?: () => void;
   /** What ending now costs, shown where the devices couldn't be used. */
   endNote?: string;
+  /** Below 1024px, the customer app's screens (see the note at the top). */
+  appLook?: boolean;
 }) {
   const media = useCallMedia({ base, wants: WANTS[kind], active });
   // With no voice/video yet, the conversation is the chat: open it straight away on a call.
@@ -89,6 +100,11 @@ export function SessionWindow({
   const chatVisible = kind === "chat" || drawer;
   const [speaker, setSpeaker] = useState<Speaker>({ off: false, volume: 1 });
   const chat = useConsultChat(base, true, chatVisible);
+  const look: Look = !appLook ? "stage" : kind === "video" ? "dark" : "light";
+  /** Classes that apply only with the app look (they are all max-lg: ones). */
+  const L = (cls: string) => (appLook ? cls : "");
+  /** …only on the app's light screens (Chat, Voice). */
+  const LL = (cls: string) => (look === "light" ? cls : "");
 
   // Escape closes the drawer first; the window itself stays (ending is always a deliberate tap).
   useEffect(() => {
@@ -107,37 +123,74 @@ export function SessionWindow({
     };
   }, []);
 
-  const notice = media.notConfigured ? (
-    <div role="status" className="mx-3 mt-2 rounded-xl border border-amber-300/40 bg-amber-300/10 px-3.5 py-2.5 text-[13px] leading-normal text-amber-100 sm:mx-auto sm:w-full sm:max-w-[720px]">
-      <b>{kind === "video" ? "Video" : "Voice"} isn&apos;t connected on Astrorize yet</b> — use the chat here. The timer and billing work as usual.
+  // On the app's Voice and Video screens the notices and alerts sit under the timer (below 1024px).
+  const callScreen = appLook && kind !== "chat";
+  const noticeBox = `mx-3 mt-2 rounded-xl border px-3.5 py-2.5 text-[13px] sm:mx-auto sm:w-full sm:max-w-[720px] ${L("max-lg:mx-4 max-lg:sm:w-auto")}`;
+  const renderNotice = (where: string) => {
+    const box = `${noticeBox} ${where}`;
+    return media.notConfigured ? (
+    <div role="status" className={`${box} border-amber-300/40 bg-amber-300/10 leading-normal text-amber-100 ${LL("max-lg:border-app-tint-3 max-lg:bg-app-tint max-lg:text-app-ink-2")}`}>
+      <b className={LL("max-lg:text-app-ink")}>{kind === "video" ? "Video" : "Voice"} isn&apos;t connected on Astrorize yet</b> — use the chat here. The timer and billing work as usual.
       {kind !== "chat" && !drawer && (
-        <button type="button" onClick={() => setDrawer(true)} className="ml-1.5 font-bold text-amber-300 underline">
+        <button type="button" onClick={() => setDrawer(true)} className={`ml-1.5 font-bold text-amber-300 underline ${LL("max-lg:text-app-accent")}`}>
           Open chat
         </button>
       )}
     </div>
   ) : media.offline || media.link === "reconnecting" ? (
-    <div role="status" className="mx-3 mt-2 rounded-xl border border-amber-300/40 bg-amber-300/10 px-3.5 py-2.5 text-[13px] text-amber-100 sm:mx-auto sm:w-full sm:max-w-[720px]">
-      <b>Reconnecting…</b> Your internet connection dropped. Stay on this screen.
+    <div role="status" className={`${box} border-amber-300/40 bg-amber-300/10 text-amber-100 ${LL("max-lg:border-app-tint-3 max-lg:bg-app-tint max-lg:text-app-ink-2")}`}>
+      <b className={LL("max-lg:text-app-ink")}>Reconnecting…</b> Your internet connection dropped. Stay on this screen.
     </div>
   ) : media.answerFailed ? (
-    <div role="alert" className="mx-3 mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-rose-300/40 bg-rose-400/10 px-3.5 py-2.5 text-[13px] text-rose-100 sm:mx-auto sm:w-full sm:max-w-[720px]">
+    <div role="alert" className={`${box} flex flex-wrap items-center gap-2 border-rose-300/40 bg-rose-400/10 text-rose-100 ${LL("max-lg:border-rose-200 max-lg:bg-app-error-bg max-lg:text-app-error")}`}>
       <span className="flex-1">Couldn&apos;t set up the call. Check your connection.</span>
-      <button type="button" onClick={() => void media.reloadAnswer()} className="rounded-lg bg-white/15 px-3 py-1.5 font-bold">
+      <button type="button" onClick={() => void media.reloadAnswer()} className={`rounded-lg bg-white/15 px-3 py-1.5 font-bold ${LL("max-lg:bg-app-surface")}`}>
         Try again
       </button>
     </div>
   ) : null;
+  };
+
+  // The app's call screens (Voice, Video): Minimise and Messages on top, then the big timer.
+  const callHead =
+    appLook && kind !== "chat" ? (
+      <CallHead
+        dark={kind === "video"}
+        title={title}
+        clock={clock}
+        meter={
+          <>
+            {badges}
+            {chips}
+          </>
+        }
+        onMinimise={onMinimise}
+        drawer={drawer}
+        unread={chat.unread}
+        onToggleDrawer={() => setDrawer((d) => !d)}
+      >
+        {renderNotice("lg:hidden")}
+        {alerts && <div className="mx-4 mt-2 text-left lg:hidden">{alerts}</div>}
+      </CallHead>
+    ) : null;
 
   return (
     <div
-      className="fixed inset-0 z-[150] flex flex-col bg-[radial-gradient(120%_90%_at_50%_0%,#3b2a5e_0%,#1f1630_45%,#120d1c_100%)] text-line"
+      className={`fixed inset-0 z-[150] flex flex-col bg-[radial-gradient(120%_90%_at_50%_0%,#3b2a5e_0%,#1f1630_45%,#120d1c_100%)] text-line ${
+        look === "dark"
+          ? "max-lg:bg-none max-lg:bg-[#1c1917]"
+          : look === "light"
+            ? kind === "voice"
+              ? "max-lg:bg-[linear-gradient(180deg,#efe7f4_0%,#f7f4ee_42%,#f7f4ee_100%)] max-lg:text-app-ink"
+              : "max-lg:bg-none max-lg:bg-app-bg max-lg:text-app-ink"
+            : ""
+      }`}
       role="dialog"
       aria-modal="true"
       aria-label={`${title} with ${peer.name}`}
     >
       {/* Header: who, how long, and the way out */}
-      <header className="flex items-center gap-3 border-b border-white/10 px-3 py-2.5 sm:px-5">
+      <header className={`flex items-center gap-3 border-b border-white/10 px-3 py-2.5 sm:px-5 ${L("max-lg:hidden")}`}>
         <Avatar peer={peer} size={38} />
         <div className="min-w-0 flex-1">
           <b className="block truncate text-[14.5px] text-paper">{peer.name}</b>
@@ -166,46 +219,110 @@ export function SessionWindow({
         </button>
       </header>
 
-      <div className="flex flex-wrap items-center justify-center gap-1.5 px-3 pt-2 sm:gap-2">
+      {/* The app's Chat screen: title bar with End, then who and the meter (the clock on the right). */}
+      {appLook && kind === "chat" && (
+        <div className="shrink-0 bg-app-elev pt-[env(safe-area-inset-top)] lg:hidden">
+          <div className="flex min-h-[52px] items-center justify-between gap-2 px-4 py-2">
+            <b className="text-[16px] font-bold text-app-ink">{title}</b>
+            <div className="flex items-center gap-2">
+              {onMinimise && (
+                <button
+                  type="button"
+                  onClick={onMinimise}
+                  title="Keep this running and browse the site"
+                  className="min-h-9 rounded-app-btn border border-app-line px-3 text-[13px] font-bold text-app-ink-2"
+                >
+                  Minimise
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onEnd}
+                disabled={ending}
+                className="min-h-9 rounded-app-btn bg-app-error-bg px-4 text-[15px] font-bold text-app-error disabled:opacity-60"
+              >
+                {ending ? "Ending…" : "End"}
+              </button>
+            </div>
+          </div>
+          <div className="flex items-start justify-between gap-3 border-b border-app-line px-4 pt-1 pb-2.5">
+            <div className="min-w-0">
+              <b className="block truncate text-[16px] font-bold text-app-ink">{peer.name}</b>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {badges}
+                {chips}
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <b className="block text-[18px] font-bold tracking-[.02em] text-app-ink tabular-nums" aria-label="Session time">
+                {clock}
+              </b>
+              <span className="flex items-center justify-end gap-1 text-[11px] font-semibold text-app-success">
+                <span className="az-live-dot size-1.5 rounded-full bg-app-success" aria-hidden="true" />
+                Active
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className={`flex flex-wrap items-center justify-center gap-1.5 px-3 pt-2 sm:gap-2 ${L("max-lg:hidden")}`}>
         {badges}
         {chips}
       </div>
-      {notice}
-      {alerts && <div className="mx-3 mt-2 sm:mx-auto sm:w-full sm:max-w-[720px]">{alerts}</div>}
+      {renderNotice(callScreen ? "max-lg:hidden" : "")}
+      {alerts && <div className={`mx-3 mt-2 sm:mx-auto sm:w-full sm:max-w-[720px] ${L("max-lg:mx-4 max-lg:sm:w-auto")} ${callScreen ? "max-lg:hidden" : ""}`}>{alerts}</div>}
 
       <div className="relative flex min-h-0 flex-1">
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {kind === "chat" ? (
             <div className="mx-auto flex h-full min-h-0 w-full max-w-[760px] flex-col">
-              <ConsultChat chat={chat} peerName={peer.name} />
+              <ConsultChat chat={chat} peerName={peer.name} appLook={appLook} />
             </div>
           ) : kind === "voice" ? (
-            <VoiceStage media={media} peer={peer} clock={clock} endNote={endNote} speaker={speaker} />
+            <VoiceStage media={media} peer={peer} title={title} clock={clock} endNote={endNote} speaker={speaker} head={callHead} />
           ) : (
-            <VideoStage media={media} peer={peer} endNote={endNote} speaker={speaker} />
+            <VideoStage media={media} peer={peer} title={title} endNote={endNote} speaker={speaker} head={callHead} />
           )}
         </main>
 
         {kind !== "chat" && drawer && (
           <aside
             aria-label="Messages"
-            className="absolute inset-x-0 bottom-0 z-10 flex h-[72%] flex-col rounded-t-[22px] border-t border-white/15 bg-[#1a1328] shadow-[0_-20px_40px_rgba(0,0,0,.4)] lg:static lg:h-auto lg:w-[360px] lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none"
+            className={`absolute inset-x-0 bottom-0 z-10 flex h-[72%] flex-col rounded-t-[22px] border-t border-white/15 bg-[#1a1328] shadow-[0_-20px_40px_rgba(0,0,0,.4)] lg:static lg:h-auto lg:w-[360px] lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none ${L(
+              "max-lg:rounded-t-app-modal max-lg:border-app-line max-lg:bg-app-elev max-lg:shadow-app-modal",
+            )}`}
           >
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
-              <b className="text-[14px] text-paper">Messages</b>
-              <button type="button" onClick={() => setDrawer(false)} className="h-8 rounded-full px-3 text-[13px] font-bold text-stone-300 hover:bg-white/10">
+            <div className={`flex items-center justify-between border-b border-white/10 px-4 py-2.5 ${L("max-lg:border-app-line")}`}>
+              <b className={`text-[14px] text-paper ${L("max-lg:text-[16px] max-lg:text-app-ink")}`}>Messages</b>
+              <button
+                type="button"
+                onClick={() => setDrawer(false)}
+                className={`h-8 rounded-full px-3 text-[13px] font-bold text-stone-300 hover:bg-white/10 ${L("max-lg:text-app-accent max-lg:hover:bg-app-tint")}`}
+              >
                 Close
               </button>
             </div>
             <div className="min-h-0 flex-1">
-              <ConsultChat chat={chat} peerName={peer.name} dense />
+              <ConsultChat chat={chat} peerName={peer.name} dense appLook={appLook} />
             </div>
           </aside>
         )}
       </div>
 
       {kind !== "chat" && (
-        <Controls media={media} kind={kind} speaker={speaker} setSpeaker={setSpeaker} drawer={drawer} unread={chat.unread} onToggleDrawer={() => setDrawer((d) => !d)} onEnd={onEnd} ending={ending} />
+        <Controls
+          media={media}
+          kind={kind}
+          look={look}
+          speaker={speaker}
+          setSpeaker={setSpeaker}
+          drawer={drawer}
+          unread={chat.unread}
+          onToggleDrawer={() => setDrawer((d) => !d)}
+          onEnd={onEnd}
+          ending={ending}
+        />
       )}
     </div>
   );
@@ -223,6 +340,83 @@ function Avatar({ peer, size }: { peer: Peer; size: number }) {
         <b>{peer.initials}</b>
       )}
     </span>
+  );
+}
+
+/**
+ * The top of the app's Voice and Video screens (below 1024px): Minimise and Messages, then
+ * "Active session", the big timer and the meter (badges and chips).
+ */
+function CallHead({
+  dark,
+  title,
+  clock,
+  meter,
+  onMinimise,
+  drawer,
+  unread,
+  onToggleDrawer,
+  children,
+}: {
+  dark: boolean;
+  title: string;
+  clock: string;
+  meter: ReactNode;
+  onMinimise?: () => void;
+  drawer: boolean;
+  unread: number;
+  onToggleDrawer: () => void;
+  /** Notices and alerts, under the meter. */
+  children?: ReactNode;
+}) {
+  const pill = dark
+    ? "border-white/20 bg-black/25 text-[#f8f4ec]"
+    : "border-app-line bg-app-surface text-app-ink-2";
+  return (
+    <div className="lg:hidden">
+      <div className="flex items-center justify-between gap-2 px-4 pt-[max(10px,env(safe-area-inset-top))]">
+        {onMinimise ? (
+          <button
+            type="button"
+            onClick={onMinimise}
+            title="Keep this running and browse the site"
+            className={`min-h-9 rounded-app-chip border px-3.5 text-[13px] font-bold ${pill}`}
+          >
+            Minimise
+          </button>
+        ) : (
+          <span />
+        )}
+        <button
+          type="button"
+          onClick={onToggleDrawer}
+          aria-pressed={drawer}
+          aria-label={drawer ? "Hide messages" : unread > 0 ? `Messages, ${unread} new` : "Messages"}
+          className={`relative grid size-11 place-items-center rounded-app-btn border ${pill}`}
+        >
+          <ChatIcon />
+          {unread > 0 && (
+            <span aria-hidden="true" className="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-app-urgent px-1 text-[10px] leading-none font-bold text-white">
+              {unread > 9 ? "9+" : unread}
+            </span>
+          )}
+        </button>
+      </div>
+      <div className="mt-2 px-4 text-center">
+        <div className={`inline-flex items-center gap-2 text-[12px] font-bold tracking-[.08em] uppercase ${dark ? "text-emerald-300" : "text-app-success"}`}>
+          <span className={`az-live-dot size-2 rounded-full ${dark ? "bg-emerald-300" : "bg-app-success"}`} aria-hidden="true" />
+          Active session · {title}
+        </div>
+        <div
+          className={`mt-1 font-semibold leading-[1.05] tracking-[.04em] tabular-nums ${dark ? "text-[44px] text-[#fffdf8]" : "text-[52px] text-app-ink"}`}
+          aria-label="Session time"
+        >
+          {clock}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-1">{meter}</div>
+      </div>
+      {children}
+    </div>
   );
 }
 
@@ -281,40 +475,42 @@ const PROBLEM_TEXT: Record<string, { title: string; body: string }> = {
 };
 
 /** Before the browser prompt, and when it was refused: why we ask, and how to fix it. */
-function DevicesCard({ media, video, peerName, endNote }: { media: CallMedia; video: boolean; peerName: string; endNote?: string }) {
+function DevicesCard({ media, video, peerName, endNote, light }: { media: CallMedia; video: boolean; peerName: string; endNote?: string; light: boolean }) {
   const p = media.permission;
   const problem = p !== "idle" && p !== "asking" && p !== "granted" ? PROBLEM_TEXT[p] : null;
   const what = video ? "camera and microphone" : "microphone";
+  /** Light card on the app's Voice screen below 1024px. */
+  const LT = (cls: string) => (light ? cls : "");
+  const button = `mt-4 h-11 w-full rounded-xl bg-amber-400 text-[14.5px] font-bold text-ink ${LT("max-lg:rounded-app-btn max-lg:bg-app-primary max-lg:text-[15px]")}`;
   return (
-    <div className="mx-auto w-full max-w-[420px] rounded-[22px] border border-white/15 bg-white/[.06] p-5 text-center">
-      <span className="mx-auto grid size-12 place-items-center rounded-full bg-amber-400/15 text-amber-200" aria-hidden="true">
+    <div
+      className={`mx-auto w-full max-w-[420px] rounded-[22px] border border-white/15 bg-white/[.06] p-5 text-center ${LT(
+        "max-lg:rounded-app-card max-lg:border-app-line max-lg:bg-app-surface max-lg:shadow-app-card",
+      )}`}
+    >
+      <span className={`mx-auto grid size-12 place-items-center rounded-full bg-amber-400/15 text-amber-200 ${LT("max-lg:bg-app-tint-2 max-lg:text-app-accent")}`} aria-hidden="true">
         {video ? <CamIcon /> : <MicIcon />}
       </span>
       {problem ? (
         <>
-          <b className="mt-3 block text-[16px] text-paper">{problem.title}</b>
-          <p className="mt-1.5 text-[13.5px] leading-[1.55] text-stone-300">{problem.body}</p>
-          {endNote && <p className="mt-2 text-[12.5px] leading-normal text-stone-400">{endNote}</p>}
-          <button type="button" onClick={() => void media.allow()} className="mt-4 h-11 w-full rounded-xl bg-amber-400 text-[14.5px] font-bold text-ink">
+          <b className={`mt-3 block text-[16px] text-paper ${LT("max-lg:text-app-ink")}`}>{problem.title}</b>
+          <p className={`mt-1.5 text-[13.5px] leading-[1.55] text-stone-300 ${LT("max-lg:text-[13px] max-lg:text-app-ink-2")}`}>{problem.body}</p>
+          {endNote && <p className={`mt-2 text-[12.5px] leading-normal text-stone-400 ${LT("max-lg:text-[12px] max-lg:text-app-ink-3")}`}>{endNote}</p>}
+          <button type="button" onClick={() => void media.allow()} className={button}>
             Try again
           </button>
         </>
       ) : (
         <>
-          <b className="mt-3 block text-[16px] text-paper">Turn on your {what}</b>
-          <p className="mt-1.5 text-[13.5px] leading-[1.55] text-stone-300">
+          <b className={`mt-3 block text-[16px] text-paper ${LT("max-lg:text-app-ink")}`}>Turn on your {what}</b>
+          <p className={`mt-1.5 text-[13.5px] leading-[1.55] text-stone-300 ${LT("max-lg:text-[13px] max-lg:text-app-ink-2")}`}>
             {media.notConfigured
               ? `Check how you look before ${peerName} can see you. Video isn't connected on Astrorize yet, so this preview stays on your device — nothing is sent.`
               : video
                 ? `This is a video consultation: ${peerName} will see and hear you. Your browser will ask — choose Allow.`
                 : `So ${peerName} can hear you. Only the microphone is used — your camera is never turned on for a voice call.`}
           </p>
-          <button
-            type="button"
-            onClick={() => void media.allow()}
-            disabled={p === "asking"}
-            className="mt-4 h-11 w-full rounded-xl bg-amber-400 text-[14.5px] font-bold text-ink disabled:opacity-60"
-          >
+          <button type="button" onClick={() => void media.allow()} disabled={p === "asking"} className={`${button} disabled:opacity-60`}>
             {p === "asking" ? "Waiting for your browser…" : media.notConfigured ? "Check my camera" : `Allow ${what}`}
           </button>
         </>
@@ -323,17 +519,38 @@ function DevicesCard({ media, video, peerName, endNote }: { media: CallMedia; vi
   );
 }
 
-function VoiceStage({ media, peer, clock, endNote, speaker }: { media: CallMedia; peer: Peer; clock: string; endNote?: string; speaker: Speaker }) {
+function VoiceStage({
+  media,
+  peer,
+  title,
+  clock,
+  endNote,
+  speaker,
+  head,
+}: {
+  media: CallMedia;
+  peer: Peer;
+  title: string;
+  clock: string;
+  endNote?: string;
+  speaker: Speaker;
+  /** The app look's top (below 1024px): Minimise, Messages, the big timer. */
+  head: ReactNode;
+}) {
   const peerHere = !!media.remote;
   const speaking = peerHere && media.levels.peer > 8;
   const needDevices = media.available && media.permission !== "granted";
+  const app = !!head;
   return (
-    <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 overflow-y-auto px-4 py-6 text-center">
+    <div className={`flex h-full min-h-0 flex-col items-center justify-center gap-4 overflow-y-auto px-4 py-6 text-center ${app ? "max-lg:justify-start max-lg:gap-0 max-lg:px-0 max-lg:pt-0 max-lg:pb-2" : ""}`}>
+      {head && <div className="w-full shrink-0 lg:hidden">{head}</div>}
       {needDevices ? (
-        <DevicesCard media={media} video={false} peerName={peer.name} endNote={endNote} />
+        <div className={app ? "w-full max-lg:my-auto max-lg:px-4 max-lg:py-4" : "w-full"}>
+          <DevicesCard media={media} video={false} peerName={peer.name} endNote={endNote} light={app} />
+        </div>
       ) : (
         <>
-          <div className="relative grid size-[184px] place-items-center">
+          <div className={`relative grid size-[184px] place-items-center ${app ? "max-lg:hidden" : ""}`}>
             <span
               aria-hidden="true"
               className={`absolute inset-0 rounded-full bg-amber-300/20 transition-transform duration-200 motion-reduce:transition-none ${speaking ? "scale-100 motion-safe:animate-[azHalo_1.6s_ease-in-out_infinite]" : "scale-75"}`}
@@ -341,7 +558,7 @@ function VoiceStage({ media, peer, clock, endNote, speaker }: { media: CallMedia
             <span aria-hidden="true" className={`absolute inset-4 rounded-full border-2 ${speaking ? "border-amber-300" : "border-white/15"}`} />
             <Avatar peer={peer} size={132} />
           </div>
-          <div>
+          <div className={app ? "max-lg:hidden" : ""}>
             <b className="block font-name text-[22px] text-paper">{peer.name}</b>
             <span className="mt-1 block text-[13px] text-stone-400" aria-live="polite">
               {linkLabel(media, peer.name, peerHere)}
@@ -351,6 +568,24 @@ function VoiceStage({ media, peer, clock, endNote, speaker }: { media: CallMedia
               {clock}
             </div>
           </div>
+          {/* The app's Voice screen: the person, under the timer. */}
+          {app && (
+            <div className="flex flex-1 flex-col items-center justify-center px-5 pt-6 lg:hidden">
+              <span
+                className={`grid size-20 place-items-center rounded-full bg-[linear-gradient(165deg,#5b3d8f,#f59e0b)] p-0.5 ${speaking ? "motion-safe:animate-[azHalo_1.6s_ease-in-out_infinite]" : ""}`}
+              >
+                <Avatar peer={peer} size={76} />
+              </span>
+              <b className="mt-2.5 block text-[16px] font-bold text-app-ink">{peer.name}</b>
+              <span className="mt-1 block text-[13px] text-app-ink-2" aria-live="polite">
+                {title} · {linkLabel(media, peer.name, peerHere)}
+                {speaking && " · speaking"}
+              </span>
+              <span className="mt-2.5 block text-[12px] text-app-ink-3">
+                {media.micMuted ? "Microphone off" : "Microphone on"} · {speaker.off ? "Speaker off" : "Speaker on"}
+              </span>
+            </div>
+          )}
           {media.link === "failed" && <FailedLine media={media} />}
           <RemoteAudio stream={media.remote} muted={speaker.off} volume={speaker.volume} />
         </>
@@ -370,12 +605,28 @@ function FailedLine({ media }: { media: CallMedia }) {
   );
 }
 
-function VideoStage({ media, peer, endNote, speaker }: { media: CallMedia; peer: Peer; endNote?: string; speaker: Speaker }) {
+function VideoStage({
+  media,
+  peer,
+  title,
+  endNote,
+  speaker,
+  head,
+}: {
+  media: CallMedia;
+  peer: Peer;
+  title: string;
+  endNote?: string;
+  speaker: Speaker;
+  /** The app look's top (below 1024px), laid over the picture. */
+  head: ReactNode;
+}) {
   const remoteRef = useRef<HTMLVideoElement>(null);
   const localRef = useRef<HTMLVideoElement>(null);
   const [blocked, setBlocked] = useState(false);
   const peerHere = !!media.remote;
   const showPeerVideo = peerHere && !media.remoteCameraOff;
+  const app = !!head;
 
   useEffect(() => {
     const el = remoteRef.current;
@@ -397,14 +648,22 @@ function VideoStage({ media, peer, endNote, speaker }: { media: CallMedia; peer:
   const needDevices = media.permission !== "granted";
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col p-0 sm:p-4">
-      <div className="relative mx-auto flex h-full min-h-0 w-full max-w-[1100px] flex-col overflow-hidden bg-black/40 sm:rounded-[24px] sm:border sm:border-white/10">
+    <div className={`relative flex h-full min-h-0 flex-col p-0 sm:p-4 ${app ? "max-lg:sm:p-0" : ""}`}>
+      <div
+        className={`relative mx-auto flex h-full min-h-0 w-full max-w-[1100px] flex-col overflow-hidden bg-black/40 sm:rounded-[24px] sm:border sm:border-white/10 ${
+          app ? "max-lg:bg-transparent max-lg:sm:rounded-none max-lg:sm:border-0" : ""
+        }`}
+      >
         {/* The other side, large */}
         <video ref={remoteRef} autoPlay playsInline className={`absolute inset-0 size-full object-cover ${showPeerVideo ? "" : "invisible"}`} />
         {!showPeerVideo && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-y-auto px-4 py-6 text-center">
+          <div
+            className={`absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-y-auto px-4 py-6 text-center ${
+              app ? "max-lg:pt-[calc(env(safe-area-inset-top)+190px)] max-lg:pb-[130px]" : ""
+            }`}
+          >
             {needDevices && media.captureAllowed ? (
-              <DevicesCard media={media} video peerName={peer.name} endNote={endNote} />
+              <DevicesCard media={media} video peerName={peer.name} endNote={endNote} light={false} />
             ) : (
               <>
                 <Avatar peer={peer} size={112} />
@@ -417,11 +676,25 @@ function VideoStage({ media, peer, endNote, speaker }: { media: CallMedia; peer:
             )}
           </div>
         )}
+        {/* The app's Video screen: the timer and who it is, over the top of the picture. */}
+        {head && (
+          <div className="absolute inset-x-0 top-0 z-[3] bg-[linear-gradient(180deg,rgba(12,11,9,.62)_0%,rgba(12,11,9,0)_100%)] pb-6 text-[#f8f4ec] lg:hidden">
+            {head}
+            {showPeerVideo && (
+              <div className="mt-2 px-4 text-center">
+                <b className="block text-[16px] font-bold text-[#fffdf8]">{peer.name}</b>
+                <span className="text-[13px] text-[#d6d3d1]">
+                  {title} · {linkLabel(media, peer.name, peerHere)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
         {blocked && (
           <button
             type="button"
             onClick={() => remoteRef.current?.play().then(() => setBlocked(false), () => {})}
-            className="absolute left-1/2 top-4 z-[2] -translate-x-1/2 rounded-full bg-amber-400 px-4 py-2 text-[13.5px] font-bold text-ink"
+            className={`absolute left-1/2 top-4 z-[2] -translate-x-1/2 rounded-full bg-amber-400 px-4 py-2 text-[13.5px] font-bold text-ink ${app ? "max-lg:top-auto max-lg:bottom-[140px] max-lg:z-[4]" : ""}`}
           >
             Tap to turn on sound
           </button>
@@ -429,7 +702,11 @@ function VideoStage({ media, peer, endNote, speaker }: { media: CallMedia; peer:
 
         {/* Me, small and mirrored */}
         {media.preview && (
-          <div className="absolute bottom-3 right-3 z-[2] aspect-[3/4] w-[96px] overflow-hidden rounded-2xl border-2 border-white/30 bg-stone-900 shadow-lg sm:w-[150px] sm:aspect-video">
+          <div
+            className={`absolute bottom-3 right-3 z-[2] aspect-[3/4] w-[96px] overflow-hidden rounded-2xl border-2 border-white/30 bg-stone-900 shadow-lg sm:w-[150px] sm:aspect-video ${
+              app ? "max-lg:bottom-[calc(env(safe-area-inset-bottom)+124px)] max-lg:z-[4] max-lg:rounded-xl max-lg:border max-lg:border-white/35 max-lg:sm:aspect-[3/4] max-lg:sm:w-[120px]" : ""
+            }`}
+          >
             <video ref={localRef} autoPlay playsInline muted className={`size-full -scale-x-100 object-cover ${media.cameraOff ? "invisible" : ""}`} />
             {media.cameraOff && <span className="absolute inset-0 grid place-items-center text-[11.5px] font-bold text-stone-300">Camera off</span>}
             <span className="absolute left-1.5 top-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-bold text-white">
@@ -445,6 +722,7 @@ function VideoStage({ media, peer, endNote, speaker }: { media: CallMedia; peer:
 function Controls({
   media,
   kind,
+  look,
   speaker,
   setSpeaker,
   drawer,
@@ -455,6 +733,7 @@ function Controls({
 }: {
   media: CallMedia;
   kind: WindowKind;
+  look: Look;
   speaker: Speaker;
   setSpeaker: (update: (s: Speaker) => Speaker) => void;
   drawer: boolean;
@@ -465,22 +744,33 @@ function Controls({
 }) {
   const hasLocal = !!media.preview;
   const voice = kind === "voice";
+  const app = look !== "stage";
   return (
-    <div className="flex flex-wrap items-center justify-center gap-2.5 border-t border-white/10 px-3 py-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:gap-3.5">
-      <RoundButton label={media.micMuted ? "Unmute microphone" : "Mute microphone"} pressed={media.micMuted} disabled={!hasLocal} onClick={media.toggleMic}>
+    <div
+      className={`flex flex-wrap items-center justify-center gap-2.5 border-t border-white/10 px-3 py-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:gap-3.5 ${
+        look === "light"
+          ? "max-lg:flex-nowrap max-lg:gap-[18px] max-lg:border-0 max-lg:px-4 max-lg:pt-4 max-lg:pb-[max(24px,env(safe-area-inset-bottom))] max-lg:sm:gap-[18px]"
+          : look === "dark"
+            ? "max-lg:absolute max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-[4] max-lg:flex-nowrap max-lg:gap-2.5 max-lg:border-0 max-lg:bg-[linear-gradient(0deg,rgba(12,11,9,.72)_0%,rgba(12,11,9,0)_100%)] max-lg:px-3 max-lg:pt-6 max-lg:pb-[max(24px,env(safe-area-inset-bottom))] max-lg:sm:gap-4"
+            : ""
+      }`}
+    >
+      <RoundButton look={look} short={media.micMuted ? "Unmute" : "Mute"} label={media.micMuted ? "Unmute microphone" : "Mute microphone"} pressed={media.micMuted} disabled={!hasLocal} onClick={media.toggleMic}>
         {media.micMuted ? <MicOffIcon /> : <MicIcon />}
       </RoundButton>
       {!voice && (
-        <RoundButton label={media.cameraOff ? "Turn camera on" : "Turn camera off"} pressed={media.cameraOff} disabled={!hasLocal} onClick={media.toggleCamera}>
+        <RoundButton look={look} short={media.cameraOff ? "Off" : "Camera"} label={media.cameraOff ? "Turn camera on" : "Turn camera off"} pressed={media.cameraOff} disabled={!hasLocal} onClick={media.toggleCamera}>
           {media.cameraOff ? <CamOffIcon /> : <CamIcon />}
         </RoundButton>
       )}
       {!voice && media.canSwitchCamera && (
-        <RoundButton label="Switch camera" disabled={!hasLocal} onClick={() => void media.switchCamera()}>
+        <RoundButton look={look} short="Flip" label="Switch camera" disabled={!hasLocal} onClick={() => void media.switchCamera()}>
           <SwitchIcon />
         </RoundButton>
       )}
       <RoundButton
+        look={look}
+        short="Speaker"
         label={speaker.off ? "Turn speaker on" : "Turn speaker off"}
         pressed={speaker.off}
         disabled={!media.remote}
@@ -488,7 +778,7 @@ function Controls({
       >
         {speaker.off ? <SpeakerOffIcon /> : <SpeakerIcon />}
       </RoundButton>
-      <label className={`${media.remote ? "md:flex" : ""} hidden items-center gap-2 text-[12px] text-stone-400`}>
+      <label className={`${media.remote ? "md:flex" : ""} hidden items-center gap-2 text-[12px] text-stone-400 ${app ? "max-lg:hidden" : ""}`}>
         <span className="sr-only">Volume</span>
         <input
           type="range"
@@ -502,19 +792,29 @@ function Controls({
           aria-label="Volume"
         />
       </label>
-      <RoundButton label={drawer ? "Hide messages" : "Messages"} pressed={drawer} onClick={onToggleDrawer} badge={unread}>
-        <ChatIcon />
-      </RoundButton>
+      {/* With the app look, Messages sits at the top of the screen below 1024px. */}
+      <span className={app ? "contents max-lg:hidden" : "contents"}>
+        <RoundButton look="stage" label={drawer ? "Hide messages" : "Messages"} pressed={drawer} onClick={onToggleDrawer} badge={unread}>
+          <ChatIcon />
+        </RoundButton>
+      </span>
       <button
         type="button"
         onClick={onEnd}
         disabled={ending}
         aria-label="End consultation"
-        className="grid size-14 place-items-center rounded-full bg-rose-600 text-white shadow-[0_10px_24px_rgba(190,18,60,.35)] hover:bg-rose-700 disabled:opacity-60"
+        className={`grid size-14 place-items-center rounded-full bg-rose-600 text-white shadow-[0_10px_24px_rgba(190,18,60,.35)] hover:bg-rose-700 disabled:opacity-60 ${
+          app ? "max-lg:flex max-lg:size-16 max-lg:shrink-0 max-lg:flex-col max-lg:gap-0.5 max-lg:bg-app-error max-lg:shadow-none max-lg:min-[380px]:size-[72px]" : ""
+        }`}
       >
-        <svg viewBox="0 0 24 24" className="size-6 rotate-[135deg]" fill="currentColor" aria-hidden="true">
+        <svg viewBox="0 0 24 24" className={`size-6 rotate-[135deg] ${app ? "max-lg:size-[26px]" : ""}`} fill="currentColor" aria-hidden="true">
           <path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z" />
         </svg>
+        {app && (
+          <span aria-hidden="true" className="text-[10px] font-bold lg:hidden">
+            {ending ? "Ending…" : "End"}
+          </span>
+        )}
       </button>
     </div>
   );
@@ -522,6 +822,8 @@ function Controls({
 
 function RoundButton({
   label,
+  short,
+  look = "stage",
   pressed,
   disabled,
   onClick,
@@ -529,12 +831,21 @@ function RoundButton({
   children,
 }: {
   label: string;
+  /** The word under the icon on the app's call screens (below 1024px). */
+  short?: string;
+  look?: Look;
   pressed?: boolean;
   disabled?: boolean;
   onClick: () => void;
   badge?: number;
   children: ReactNode;
 }) {
+  const app =
+    look === "light"
+      ? `max-lg:flex max-lg:size-16 max-lg:shrink-0 max-lg:flex-col max-lg:gap-0.5 max-lg:border-0 ${pressed ? "max-lg:bg-app-tint-2 max-lg:text-app-active" : "max-lg:bg-app-surface max-lg:text-app-ink max-lg:shadow-app-card"}`
+      : look === "dark"
+        ? `max-lg:flex max-lg:size-14 max-lg:shrink-0 max-lg:flex-col max-lg:gap-0.5 max-lg:border-0 max-lg:min-[400px]:size-16 ${pressed ? "max-lg:bg-amber-500/30 max-lg:text-amber-200" : "max-lg:bg-white/12 max-lg:text-[#f8f4ec]"}`
+        : "";
   return (
     <button
       type="button"
@@ -545,9 +856,14 @@ function RoundButton({
       title={label}
       className={`relative grid size-12 place-items-center rounded-full border transition-colors disabled:opacity-40 ${
         pressed ? "border-white bg-white text-ink" : "border-white/15 bg-white/10 text-paper hover:bg-white/20"
-      }`}
+      } ${app}`}
     >
       {children}
+      {short && look !== "stage" && (
+        <span aria-hidden="true" className="text-[10px] font-bold tracking-[.02em] lg:hidden">
+          {short}
+        </span>
+      )}
       {badge > 0 && (
         <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-amber-400 px-1 text-[11px] font-extrabold text-ink">
           {badge > 9 ? "9+" : badge}

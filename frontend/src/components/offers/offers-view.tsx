@@ -6,6 +6,7 @@ import { ApiError, api } from "@/lib/api/client";
 import { rupee } from "@/lib/format";
 import { offersChanged, type Offer } from "@/lib/offers";
 import { sessionActions, useHydrated, useSession } from "@/lib/session-store";
+import { APP_CARD, APP_CTA } from "../account/app-look";
 import { useAppUI } from "../app-provider";
 
 const KIND: Record<Offer["kind"], { label: string; icon: string; applies: string }> = {
@@ -108,9 +109,9 @@ export default function OffersView() {
 
   if (!hydrated || (!offers && !error)) {
     return (
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 lg:grid-cols-3 max-lg:gap-2.5" aria-busy="true">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="h-[300px] animate-pulse rounded-[22px] border border-line bg-paper" />
+          <div key={i} className={`h-[300px] animate-pulse rounded-[22px] border border-line bg-paper max-lg:h-[220px] ${APP_CARD}`} />
         ))}
       </div>
     );
@@ -118,9 +119,9 @@ export default function OffersView() {
 
   if (error && !offers) {
     return (
-      <div className="mx-auto max-w-[520px] rounded-3xl border border-line bg-paper px-6 py-10 text-center">
-        <p className="text-sm text-stone-600">{error}</p>
-        <button type="button" onClick={() => void load()} className="az-cta mt-5 h-11 rounded-full px-6 text-sm font-bold">
+      <div className={`mx-auto max-w-[520px] rounded-3xl border border-line bg-paper px-6 py-10 text-center max-lg:px-4 max-lg:py-7 ${APP_CARD}`}>
+        <p className="text-sm text-stone-600 max-lg:text-app-ink-2">{error}</p>
+        <button type="button" onClick={() => void load()} className={`az-cta mt-5 h-11 rounded-full px-6 text-sm font-bold ${APP_CTA}`}>
           Try again
         </button>
       </div>
@@ -131,19 +132,22 @@ export default function OffersView() {
 
   if (!offers?.length) {
     return (
-      <div className="mx-auto max-w-[560px] rounded-3xl border border-line bg-paper px-6 py-10 text-center">
-        <div className="mx-auto grid size-14 place-items-center rounded-full bg-amber-100 text-2xl" aria-hidden="true">
+      <div className={`mx-auto max-w-[560px] rounded-3xl border border-line bg-paper px-6 py-10 text-center max-lg:px-4 max-lg:py-7 ${APP_CARD}`}>
+        <div
+          className="mx-auto grid size-14 place-items-center rounded-full bg-amber-100 text-2xl max-lg:size-12 max-lg:bg-app-tint-2 max-lg:text-xl max-lg:text-app-accent"
+          aria-hidden="true"
+        >
           ✦
         </div>
-        <h2 className="mt-4 font-display text-[28px] font-semibold text-ink">No offers right now</h2>
-        <p className="mx-auto mt-2 max-w-[44ch] text-sm leading-normal text-stone-600">
+        <h2 className="mt-4 font-display text-[28px] font-semibold text-ink max-lg:mt-2.5 max-lg:font-sans max-lg:text-[14px]">No offers right now</h2>
+        <p className="mx-auto mt-2 max-w-[44ch] text-sm leading-normal text-stone-600 max-lg:mt-1 max-lg:text-[13px] max-lg:text-app-ink-2">
           {session.loggedIn && !staff
             ? "We'll tell you in your notifications as soon as there's a new one."
             : "New offers appear here. Log in and we'll tell you in your notifications when there's one."}
         </p>
         <Link
           href="/astrologers"
-          className="az-cta mt-6 inline-flex h-12 items-center rounded-full px-8 text-[15px] font-bold hover:text-cta-ink hover:no-underline"
+          className={`az-cta mt-6 inline-flex h-12 items-center rounded-full px-8 text-[15px] font-bold hover:text-cta-ink hover:no-underline ${APP_CTA} max-lg:mt-4 max-lg:justify-center`}
         >
           Consult an astrologer
         </Link>
@@ -154,12 +158,12 @@ export default function OffersView() {
   return (
     <>
       {staff && (
-        <p className="mb-4 rounded-2xl border border-line bg-paper px-4 py-3 text-[13px] text-stone-600">
+        <p className={`mb-4 rounded-2xl border border-line bg-paper px-4 py-3 text-[13px] text-stone-600 max-lg:mb-3 max-lg:text-[12.5px] ${APP_CARD}`}>
           You&apos;re signed in with {session.role === "astrologer" ? "an astrologer" : "a staff"} account. Offers are claimed by
           customer accounts.
         </p>
       )}
-      <ul className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <ul className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 lg:grid-cols-3 max-lg:gap-2.5">
         {offers.map((o) => {
           const k = KIND[o.kind];
           const claimed = o.claim?.status === "ACTIVE";
@@ -167,21 +171,26 @@ export default function OffersView() {
             <li
               key={o.id}
               id={o.id}
-              className={`flex min-w-0 scroll-mt-28 flex-col rounded-[22px] border bg-card p-5 shadow-[0_12px_28px_rgba(90,62,40,.07)] ${claimed ? "border-emerald-300" : "border-line-warm"}`}
+              // Phones/tablets: the app's offer card (soft gold "money hero", like Add money's platform offer).
+              className={`flex min-w-0 scroll-mt-28 flex-col rounded-[22px] border bg-card p-5 shadow-[0_12px_28px_rgba(90,62,40,.07)] max-lg:rounded-app-card max-lg:bg-[linear-gradient(160deg,#fffbeb,#fdf3dc)] max-lg:p-4 max-lg:shadow-app-card ${claimed ? "border-emerald-300" : "border-line-warm max-lg:border-app-tint-3"}`}
             >
               <div className="flex items-center gap-2.5">
                 <span
                   aria-hidden="true"
-                  className="grid size-9 shrink-0 place-items-center rounded-xl bg-amber-100 text-[15px] font-extrabold text-amber-800"
+                  className="grid size-9 shrink-0 place-items-center rounded-xl bg-amber-100 text-[15px] font-extrabold text-amber-800 max-lg:size-8 max-lg:rounded-full max-lg:bg-app-tint-2 max-lg:text-app-active"
                 >
                   {k.icon}
                 </span>
-                <span className="min-w-0 text-[11.5px] font-bold uppercase tracking-[.08em] text-amber-800">{k.label}</span>
+                <span className="min-w-0 text-[11.5px] font-bold uppercase tracking-[.08em] text-amber-800 max-lg:text-[11px] max-lg:text-app-accent">
+                  {k.label}
+                </span>
               </div>
-              <div className="mt-3 font-display text-[34px] font-semibold leading-none text-ink">{headline(o)}</div>
-              <h2 className="mt-2 break-words text-[16px] font-bold text-ink">{o.name}</h2>
-              {o.description && <p className="mt-1 break-words text-[13.5px] leading-normal text-stone-600">{o.description}</p>}
-              <ul className="mt-3 flex flex-1 flex-col gap-1 text-[12.5px] leading-snug text-stone-500">
+              <div className="mt-3 font-display text-[34px] font-semibold leading-none text-ink max-lg:mt-2.5 max-lg:text-[30px]">{headline(o)}</div>
+              <h2 className="mt-2 break-words text-[16px] font-bold text-ink max-lg:mt-1.5 max-lg:text-[15px]">{o.name}</h2>
+              {o.description && (
+                <p className="mt-1 break-words text-[13.5px] leading-normal text-stone-600 max-lg:text-[13px] max-lg:text-app-ink-2">{o.description}</p>
+              )}
+              <ul className="mt-3 flex flex-1 flex-col gap-1 text-[12.5px] leading-snug text-stone-500 max-lg:mt-2 max-lg:text-[12px] max-lg:text-app-ink-2">
                 {terms(o).map((t) => (
                   <li key={t} className="flex gap-1.5">
                     <span aria-hidden="true" className="text-amber-600">
@@ -191,7 +200,7 @@ export default function OffersView() {
                   </li>
                 ))}
               </ul>
-              <div className="mt-4">
+              <div className="mt-4 max-lg:mt-3.5">
                 <OfferAction
                   offer={o}
                   loggedIn={session.loggedIn}
@@ -231,12 +240,12 @@ function OfferAction({
   if (c?.status === "ACTIVE") {
     const where = o.kind === "CONSULT_DISCOUNT" ? "consultation" : "recharge";
     return (
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-[13px] leading-normal text-emerald-900">
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-[13px] leading-normal text-emerald-900 max-lg:rounded-app-btn max-lg:text-[12.5px]">
         <b className="block text-emerald-800">✓ Claimed</b>
         Applies automatically at your next {where} until {c.expires}
         {c.usesLeft > 1 ? ` · ${c.usesLeft} uses left` : ""}.{" "}
         <Link
-          href={o.kind === "CONSULT_DISCOUNT" ? "/astrologers?availability=Available" : "/wallet#add-money"}
+          href={o.kind === "CONSULT_DISCOUNT" ? "/astrologers?availability=Available" : "/wallet?view=add#add-money"}
           className="font-bold text-emerald-800 underline"
         >
           {o.kind === "CONSULT_DISCOUNT" ? "Find an astrologer" : "Recharge now"}
@@ -256,7 +265,11 @@ function OfferAction({
   }
   if (!loggedIn) {
     return (
-      <button type="button" onClick={onLogin} className="h-12 w-full rounded-full border border-ink bg-ink text-[14.5px] font-bold text-amber-300">
+      <button
+        type="button"
+        onClick={onLogin}
+        className={`h-12 w-full rounded-full border border-ink bg-ink text-[14.5px] font-bold text-amber-300 ${APP_CTA} max-lg:border-0 max-lg:text-[15px]`}
+      >
         Log in to claim
       </button>
     );
@@ -274,7 +287,7 @@ function OfferAction({
       type="button"
       onClick={onClaim}
       disabled={disabled}
-      className="az-cta h-12 w-full rounded-full text-[15px] font-bold shadow-[0_6px_16px_rgba(255,140,26,.28)] disabled:opacity-60"
+      className={`az-cta h-12 w-full rounded-full text-[15px] font-bold shadow-[0_6px_16px_rgba(255,140,26,.28)] disabled:opacity-60 ${APP_CTA}`}
     >
       {busy ? "Claiming…" : "Claim offer"}
     </button>

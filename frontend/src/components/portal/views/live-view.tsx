@@ -8,7 +8,8 @@ import { rupee } from "@/lib/portal/format";
 import type { LiveRequest, LiveRoom, Presence } from "@/lib/portal/types";
 import Modal from "../modal";
 import { useErrorToast, usePresence, useToast } from "../portal-provider";
-import { PageHeader, Panel } from "../ui";
+import { M_INPUT, M_PRIMARY, M_SECONDARY, PageHeader, Panel } from "../ui";
+import { HideTabBar } from "../../mobile/tab-bar";
 import { GiftStack } from "../../live/gift-burst";
 import { LiveFeedOverlay, plannedLabel } from "../../live/live-feed";
 import { LiveGiftsPanel, useLiveFeed } from "./live-activity";
@@ -36,7 +37,7 @@ export default function LiveView({ data }: { data: LiveRoom | null }) {
     return (
       <div>
         <PageHeader title="Live controls" subtitle="One room per astrologer. No Fixed Session or Emergency consults from a live room." />
-        <Panel className="mt-5 p-5">
+        <Panel className="mt-5 p-5 max-lg:mt-3.5">
           <b className="text-[15px]">You don&apos;t have a live room yet</b>
           <p className="mt-1 text-[12.5px] leading-[1.5] text-stone-500">
             Once our team sets up your room, its controls, consult queue and polls appear here.
@@ -204,7 +205,10 @@ function LiveConsole({ data }: { data: LiveRoom }) {
     <div>
       <PageHeader title="Live controls" subtitle="One room per astrologer. No Fixed Session or Emergency consults from a live room." />
 
-      <div className="mt-5 grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+      {/* Phones/tablets: while you're live the console is a full-screen task, so the tab bar steps aside. */}
+      <HideTabBar when={live} />
+
+      <div className="mt-5 grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] max-lg:mt-3.5 max-lg:gap-3">
         <div className="min-w-0">
           {!live && (
             <Panel warm className="p-5">
@@ -212,11 +216,11 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                 <span className="inline-flex h-[26px] items-center rounded-full bg-stone-200 px-[11px] text-[11px] font-extrabold text-stone-600">○ NOT LIVE</span>
                 <span className="text-[12.5px] text-stone-500">Customers see your room only while you&apos;re live.</span>
               </div>
-              <h2 className="m-0 mt-4 mb-3 text-base font-bold">About this live</h2>
+              <h2 className="m-0 mt-4 mb-3 text-base font-bold max-lg:mt-3">About this live</h2>
               <LiveDetailsForm idPrefix="go-live" initial={details} categories={data.categories} languages={data.languages} busy={busy} onSubmit={goLive}>
                 {presence === "off" ? (
                   <>
-                    <button type="button" onClick={goOnline} disabled={busy} className="h-11 rounded-xl bg-amber-500 px-5 text-[14px] font-bold text-ink">
+                    <button type="button" onClick={goOnline} disabled={busy} className={`h-11 rounded-xl bg-amber-500 px-5 text-[14px] font-bold text-ink ${M_PRIMARY} max-lg:w-full`}>
                       Go online
                     </button>
                     <span className="text-[12.5px] text-stone-500">You&apos;re offline. Go online first, then go live.</span>
@@ -224,7 +228,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                 ) : presence === "busy" ? (
                   <p className="text-[12.5px] font-semibold text-stone-600">You&apos;re in a consultation. Finish it, then go live.</p>
                 ) : (
-                  <button type="submit" disabled={busy} className="h-11 rounded-xl bg-urgent px-6 text-[14px] font-bold text-white">
+                  <button type="submit" disabled={busy} className="h-11 rounded-xl bg-urgent px-6 text-[14px] font-bold text-white max-lg:w-full max-lg:rounded-app-btn max-lg:text-[15px]">
                     ● Go live
                   </button>
                 )}
@@ -232,7 +236,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
             </Panel>
           )}
           {live && (
-          <div className="relative aspect-[4/5] overflow-hidden rounded-[20px] bg-ink sm:aspect-video">
+          <div className="relative aspect-[4/5] overflow-hidden rounded-[20px] bg-ink sm:aspect-video max-lg:rounded-app-card">
             {/* Your self-view (what the room sees when live video is connected), or your room's photo. */}
             <Image src={data.image} alt="" fill sizes="(min-width: 900px) 60vw, 100vw" className={`object-cover ${broadcast.local ? "opacity-0" : ""}`} priority />
             <video
@@ -278,7 +282,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                     type="button"
                     onClick={() => void broadcast.allow()}
                     disabled={broadcast.permission === "asking"}
-                    className="mt-3 h-10 rounded-xl bg-amber-400 px-4 text-[13.5px] font-bold text-ink"
+                    className={`mt-3 h-10 rounded-xl bg-amber-400 px-4 text-[13.5px] font-bold text-ink ${M_PRIMARY}`}
                   >
                     {broadcast.permission === "asking" ? "Waiting for your browser…" : "Turn on camera & microphone"}
                   </button>
@@ -296,7 +300,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                   type="button"
                   aria-pressed={h.pressed}
                   onClick={h.click}
-                  className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[rgba(255,255,255,.2)] px-3 text-[13.5px] font-bold sm:px-4"
+                  className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[rgba(255,255,255,.2)] px-3 text-[13.5px] font-bold sm:px-4 max-lg:h-app-hit max-lg:rounded-app-btn"
                   style={{ background: h.bg, color: h.fg }}
                 >
                   {"video" in h && <ModeIcon mode="video" size={17} className={h.pressed ? "" : "opacity-80"} />}
@@ -307,7 +311,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                 type="button"
                 onClick={() => setConfirmEnd(true)}
                 disabled={busy}
-                className="ml-auto h-10 rounded-xl bg-urgent px-5 text-[13.5px] font-bold text-white"
+                className="ml-auto h-10 rounded-xl bg-urgent px-5 text-[13.5px] font-bold text-white max-lg:h-app-hit max-lg:rounded-app-btn max-lg:text-[15px]"
               >
                 End live
               </button>
@@ -329,7 +333,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
           )}
 
           {live && (
-            <Panel className="mt-4 p-5">
+            <Panel className="mt-4 p-5 max-lg:mt-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <h2 className="m-0 text-base font-bold [overflow-wrap:anywhere]">{data.title || data.topic}</h2>
@@ -340,7 +344,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                     {plannedLabel(data.durationMins) && <span className="rounded-full bg-cream px-2.5 py-1">About {plannedLabel(data.durationMins)} planned</span>}
                   </div>
                 </div>
-                <button type="button" onClick={() => setEditing(true)} className="h-9 rounded-[10px] border border-line bg-white px-3.5 text-[12.5px] font-bold">
+                <button type="button" onClick={() => setEditing(true)} className={`h-9 rounded-[10px] border border-line bg-white px-3.5 text-[12.5px] font-bold ${M_SECONDARY} max-lg:w-full`}>
                   Edit details
                 </button>
               </div>
@@ -348,7 +352,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
             </Panel>
           )}
 
-          <Panel className="relative mt-4 p-5">
+          <Panel className="relative mt-4 p-5 max-lg:mt-3">
             <h2 className="m-0 mb-3 text-base font-bold">Rates for this live</h2>
             <div className="flex flex-wrap items-end gap-6">
               <div>
@@ -373,11 +377,11 @@ function LiveConsole({ data }: { data: LiveRoom }) {
           )}
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 max-lg:gap-3">
           {live && (
           <Panel className="p-[18px]">
             <div className="flex items-center justify-between">
-              <h2 className="m-0 text-[15px] font-bold">Consult queue</h2>
+              <h2 className="m-0 text-[15px] font-bold max-lg:text-[16px]">Consult queue</h2>
               <span className="text-xs text-stone-500">{data.waiting} waiting</span>
             </div>
             <div className="mt-3 flex flex-col gap-[9px]">
@@ -385,7 +389,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
               {data.requests.map((q, i) => (
                 <div
                   key={q.id}
-                  className={`flex items-center gap-[9px] rounded-xl border px-3 py-2.5 ${
+                  className={`flex items-center gap-[9px] rounded-xl border px-3 py-2.5 max-lg:flex-wrap max-lg:rounded-app-btn ${
                     i === 0 ? "border-amber-200 bg-amber-50" : "border-line bg-white"
                   }`}
                 >
@@ -402,7 +406,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                         type="button"
                         onClick={() => decide(q, "decline")}
                         disabled={busy}
-                        className="h-[30px] rounded-[9px] border border-line bg-white px-[11px] text-xs font-bold"
+                        className={`h-[30px] rounded-[9px] border border-line bg-white px-[11px] text-xs font-bold ${M_SECONDARY} max-lg:flex-1 max-lg:text-[13px]`}
                       >
                         Reject
                       </button>
@@ -412,7 +416,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                           onClick={() => decide(q, "accept")}
                           disabled={busy || !!priv}
                           title={priv ? "Finish the private consultation in progress first." : undefined}
-                          className="h-[30px] rounded-[9px] bg-amber-500 px-[11px] text-xs font-bold text-ink disabled:opacity-50"
+                          className={`h-[30px] rounded-[9px] bg-amber-500 px-[11px] text-xs font-bold text-ink disabled:opacity-50 ${M_PRIMARY} max-lg:flex-1 max-lg:text-[13px]`}
                         >
                           Accept
                         </button>
@@ -436,14 +440,14 @@ function LiveConsole({ data }: { data: LiveRoom }) {
 
           {live && (
           <Panel className="p-[18px]">
-            <h2 className="m-0 mb-3 text-[15px] font-bold">Moderation</h2>
+            <h2 className="m-0 mb-3 text-[15px] font-bold max-lg:text-[16px]">Moderation</h2>
             <div className="flex flex-wrap gap-[7px]">
               {MOD_ACTIONS.map((label) => (
                 <button
                   key={label}
                   type="button"
                   onClick={() => toast(modMessage(label))}
-                  className="h-8 rounded-full border border-line bg-white px-3 text-[12.5px] font-bold text-stone-600"
+                  className="h-8 rounded-full border border-line bg-white px-3 text-[12.5px] font-bold text-stone-600 max-lg:h-[34px] max-lg:border-app-line-gold max-lg:text-[12px] max-lg:text-app-ink"
                 >
                   {label}
                 </button>
@@ -456,7 +460,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
           )}
 
           <Panel className="p-[18px]">
-            <h2 className="m-0 mb-1 text-[15px] font-bold">Launch a poll</h2>
+            <h2 className="m-0 mb-1 text-[15px] font-bold max-lg:text-[16px]">Launch a poll</h2>
             <p className="mb-3 text-xs text-stone-500">Up to six options. Single vote, no changes.</p>
             <div className="flex flex-col gap-[7px]">
               <input
@@ -465,7 +469,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                 aria-label="Poll question"
                 placeholder="Ask the room a question"
                 maxLength={140}
-                className="h-[42px] min-w-0 rounded-[11px] border border-line bg-white px-3 text-[13.5px] text-ink outline-none"
+                className={`h-[42px] min-w-0 rounded-[11px] border border-line bg-white px-3 text-[13.5px] text-ink outline-none ${M_INPUT} max-lg:h-11`}
               />
               {options.map((o, i) => (
                 <input
@@ -475,14 +479,14 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                   aria-label={`Option ${i + 1}`}
                   placeholder={`Option ${i + 1}`}
                   maxLength={80}
-                  className="h-[38px] min-w-0 rounded-[11px] border border-line bg-white px-3 text-[13px] text-stone-600 outline-none"
+                  className={`h-[38px] min-w-0 rounded-[11px] border border-line bg-white px-3 text-[13px] text-stone-600 outline-none ${M_INPUT} max-lg:h-11`}
                 />
               ))}
               {options.length < MAX_POLL_OPTIONS && (
                 <button
                   type="button"
                   onClick={() => setOptions([...options, ""])}
-                  className="flex h-[38px] items-center rounded-[11px] border border-line bg-white px-3 text-left text-[13px] text-stone-600"
+                  className="flex h-[38px] items-center rounded-[11px] border border-line bg-white px-3 text-left text-[13px] text-stone-600 max-lg:h-11 max-lg:rounded-app-input max-lg:border-dashed max-lg:font-semibold max-lg:text-app-accent"
                 >
                   ＋ Add option (max {MAX_POLL_OPTIONS})
                 </button>
@@ -492,7 +496,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
               type="button"
               onClick={launchPoll}
               disabled={busy}
-              className="mt-3 h-[42px] w-full rounded-xl bg-amber-500 text-[13.5px] font-bold text-ink"
+              className={`mt-3 h-[42px] w-full rounded-xl bg-amber-500 text-[13.5px] font-bold text-ink ${M_PRIMARY}`}
             >
               Launch poll
             </button>
@@ -502,15 +506,15 @@ function LiveConsole({ data }: { data: LiveRoom }) {
 
       {editing && live && (
         <Modal onClose={() => setEditing(false)} labelledBy="edit-live-heading" maxWidth={560}>
-          <h2 id="edit-live-heading" className="m-0 mb-1 font-display text-[26px] font-semibold text-ink">
+          <h2 id="edit-live-heading" className="m-0 mb-1 font-display text-[26px] font-semibold text-ink max-lg:font-sans max-lg:text-[18px] max-lg:font-bold">
             Edit live details
           </h2>
           <p className="mb-4 text-[13px] text-stone-600">Your live keeps going. Viewers see the new details within a few seconds.</p>
           <LiveDetailsForm idPrefix="edit-live" initial={details} categories={data.categories} languages={data.languages} busy={busy} onSubmit={saveDetails}>
-            <button type="button" onClick={() => setEditing(false)} className="ml-auto h-11 rounded-xl border border-line bg-white px-5 text-[14px] font-bold text-ink">
+            <button type="button" onClick={() => setEditing(false)} className={`ml-auto h-11 rounded-xl border border-line bg-white px-5 text-[14px] font-bold text-ink ${M_SECONDARY} max-lg:ml-0 max-lg:flex-1`}>
               Cancel
             </button>
-            <button type="submit" disabled={busy} className="h-11 rounded-xl bg-amber-500 px-5 text-[14px] font-bold text-ink">
+            <button type="submit" disabled={busy} className={`h-11 rounded-xl bg-amber-500 px-5 text-[14px] font-bold text-ink ${M_PRIMARY} max-lg:flex-1`}>
               Save changes
             </button>
           </LiveDetailsForm>
@@ -519,7 +523,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
 
       {confirmEnd && (
         <Modal onClose={() => setConfirmEnd(false)} labelledBy="end-live-title">
-          <h2 id="end-live-title" className="m-0 font-display text-[26px] font-semibold text-ink">
+          <h2 id="end-live-title" className="m-0 font-display text-[26px] font-semibold text-ink max-lg:font-sans max-lg:text-[18px] max-lg:font-bold">
             End this live?
           </h2>
           <p className="mt-2 text-[13.5px] leading-normal text-stone-600">
@@ -530,10 +534,10 @@ function LiveConsole({ data }: { data: LiveRoom }) {
               : ""}
           </p>
           <div className="mt-5 flex flex-wrap justify-end gap-2.5">
-            <button type="button" onClick={() => setConfirmEnd(false)} className="h-11 rounded-xl border border-line bg-white px-5 text-[14px] font-bold text-ink">
+            <button type="button" onClick={() => setConfirmEnd(false)} className={`h-11 rounded-xl border border-line bg-white px-5 text-[14px] font-bold text-ink ${M_SECONDARY} max-lg:flex-1`}>
               Keep going
             </button>
-            <button type="button" onClick={endLive} disabled={busy} className="h-11 rounded-xl bg-urgent px-5 text-[14px] font-bold text-white">
+            <button type="button" onClick={endLive} disabled={busy} className="h-11 rounded-xl bg-urgent px-5 text-[14px] font-bold text-white max-lg:flex-1 max-lg:rounded-app-btn max-lg:text-[15px]">
               End live
             </button>
           </div>

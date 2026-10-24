@@ -166,7 +166,7 @@ function Overlay({
 
   return (
     <>
-      <div className="absolute inset-x-3.5 top-[46px] z-[2] flex flex-wrap items-center gap-2 rounded-2xl border border-amber-300/40 bg-[rgba(28,25,23,.88)] px-3 py-2">
+      <div className="absolute inset-x-3.5 top-[46px] z-[2] flex flex-wrap items-center gap-2 rounded-2xl border border-amber-300/40 bg-[rgba(28,25,23,.88)] px-3 py-2 max-lg:inset-x-3 max-lg:top-[calc(max(6px,env(safe-area-inset-top))+60px)]">
         <span className="inline-flex h-6 items-center rounded-full bg-amber-300 px-2.5 text-[11px] font-extrabold text-ink">🔒 {title}</span>
         <b className="tabular-nums text-[14px] text-paper" aria-label="Call time">
           {clock(elapsed)}
@@ -194,7 +194,12 @@ function Overlay({
             active
             peer={{ name: host.name, photo: host.photo, initials: host.name.slice(0, 1) }}
             title={WINDOW_TITLE[c.window] ?? title}
-            badges={<span className="inline-flex h-7 items-center rounded-full bg-amber-300/20 px-3 text-[12px] font-bold text-amber-200">🔒 Private · from the live</span>}
+            appLook
+            badges={
+              <span className="inline-flex h-7 items-center rounded-full bg-amber-300/20 px-3 text-[12px] font-bold text-amber-200 max-lg:h-6 max-lg:bg-app-tint-2 max-lg:px-2.5 max-lg:text-[11px] max-lg:text-app-active">
+                🔒 Private · from the live
+              </span>
+            }
             clock={clock(elapsed)}
             chips={<MeterChips m={meter} instant={false} />}
             ending={busy}

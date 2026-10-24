@@ -117,7 +117,7 @@ export default function FilterPanel({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex bg-[rgba(28,25,23,.45)] sm:items-center sm:justify-center sm:p-6"
+      className="fixed inset-0 z-[100] flex bg-[rgba(28,25,23,.45)] max-lg:items-end lg:items-center lg:justify-center lg:p-6"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -127,7 +127,7 @@ export default function FilterPanel({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex h-dvh w-full flex-col overflow-hidden bg-paper shadow-[0_16px_40px_rgba(11,31,51,.18)] sm:h-[min(640px,calc(100dvh-48px))] sm:max-w-[720px] sm:rounded-[20px]"
+        className="flex h-dvh w-full flex-col overflow-hidden bg-paper shadow-[0_16px_40px_rgba(11,31,51,.18)] lg:h-[min(640px,calc(100dvh-48px))] lg:max-w-[720px] lg:rounded-[20px] max-lg:h-[calc(100dvh-56px)] max-lg:rounded-t-app-modal max-lg:bg-app-elev"
       >
         <div className="grid min-h-[56px] grid-cols-[40px_1fr_auto] items-center gap-2 border-b border-line px-3 py-2">
           <button
@@ -252,12 +252,12 @@ export default function FilterPanel({
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-line bg-paper px-3.5 pb-4 pt-2.5 sm:px-5">
+        <div className="shrink-0 border-t border-line bg-paper px-3.5 pb-4 pt-2.5 sm:px-5 max-lg:bg-app-elev max-lg:pb-[calc(16px+var(--app-safe-bottom))]">
           <button
             type="button"
             disabled={matchCount === 0}
             onClick={() => onApply(draft)}
-            className="h-12 w-full rounded-[14px] bg-amber-500 text-[15px] font-bold text-ink transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-500"
+            className="h-12 w-full rounded-[14px] max-lg:rounded-app-btn bg-amber-500 text-[15px] font-bold text-ink transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-500"
           >
             {matchCount === 0 ? "No matches" : "Apply"}
           </button>

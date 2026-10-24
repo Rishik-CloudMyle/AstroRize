@@ -12,7 +12,7 @@ export default function IntroVideoCard({ url }: { url: string | null }) {
     <Panel className="p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="m-0 text-base font-bold">Intro video</h2>
-        <Link href="/portal/profile" className="text-[12.5px] font-bold text-amber-700">
+        <Link href="/portal/profile" className="text-[12.5px] font-bold text-amber-700 max-lg:text-[13px] max-lg:font-semibold max-lg:text-app-accent">
           {url ? "Manage ›" : "Add one ›"}
         </Link>
       </div>

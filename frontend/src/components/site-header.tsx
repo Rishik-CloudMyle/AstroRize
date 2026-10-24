@@ -3,11 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
 import { NAV_LINKS } from "@/lib/mock/site";
 import { homeFor } from "@/lib/auth";
 import { rupee } from "@/lib/format";
-import { sessionActions, totalBalance, useSession } from "@/lib/session-store";
+import { totalBalance, useSession } from "@/lib/session-store";
 import { useAppUI } from "./app-provider";
 import { useLiveNow } from "./live-notifier";
 import { ConsultInProgressBar } from "./consult/consult-lock";
@@ -19,16 +18,10 @@ export default function SiteHeader() {
   const pathname = usePathname();
   // The "Live" dot shows (and pulses) only while someone is actually live.
   const someoneLive = (useLiveNow()?.liveRooms ?? 0) > 0;
-  const [menuOpen, setMenuOpen] = useState(false);
-  // Close the mobile menu whenever the page changes.
-  const [lastPath, setLastPath] = useState(pathname);
-  if (pathname !== lastPath) {
-    setLastPath(pathname);
-    setMenuOpen(false);
-  }
 
   return (
-    <header className="sticky top-0 z-50 border-b border-line bg-paper">
+    // Desktop only (≥ 1024px). Phones and tablets get the app header and tab bar (components/mobile/site-app-shell.tsx).
+    <header className="sticky top-0 z-50 border-b border-line bg-paper max-lg:hidden">
       <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-4 py-3 min-[380px]:gap-4 sm:px-6 lg:gap-7">
         <Link href="/" className="flex min-w-0 items-center gap-2.5 hover:no-underline">
           <Image
@@ -130,99 +123,11 @@ export default function SiteHeader() {
               </Link>
             </>
           )}
-
-          <button
-            type="button"
-            onClick={() => setMenuOpen((open) => !open)}
-            aria-expanded={menuOpen}
-            aria-controls="mobile-menu"
-            aria-label={menuOpen ? "Close menu" : "Open menu"}
-            className="grid size-[38px] place-items-center rounded-xl border border-line text-ink lg:hidden"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-              {menuOpen ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
-            </svg>
-          </button>
         </div>
       </div>
 
       {/* A consultation is open: the way back to it, on every page. */}
       <ConsultInProgressBar />
-
-      {menuOpen && (
-        <nav id="mobile-menu" aria-label="Main" className="border-t border-line px-4 pb-4 pt-2 sm:px-6 lg:hidden">
-          {NAV_LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              onClick={() => setMenuOpen(false)}
-              className="flex items-center gap-2 rounded-[10px] px-3 py-3 text-[15px] font-semibold text-stone-600 hover:bg-amber-100 hover:text-amber-800 hover:no-underline"
-            >
-              {link.live && someoneLive && <span aria-hidden="true" className="az-live-dot size-[7px] rounded-full bg-urgent" />}
-              {link.label}
-            </Link>
-          ))}
-          {session.loggedIn && session.role === "customer" && (
-            <Link
-              href="/messages"
-              onClick={() => setMenuOpen(false)}
-              className="flex items-center gap-2 rounded-[10px] px-3 py-3 text-[15px] font-semibold text-stone-600 hover:bg-amber-100 hover:text-amber-800 hover:no-underline"
-            >
-              Messages
-            </Link>
-          )}
-          <div className="mt-3 flex flex-col gap-2.5">
-            {session.loggedIn && session.role !== "customer" && (
-              <Link
-                href={homeFor(session.role)}
-                onClick={() => setMenuOpen(false)}
-                className="az-cta flex h-11 items-center justify-center rounded-full text-sm font-bold hover:text-cta-ink hover:no-underline sm:hidden"
-              >
-                {session.role === "astrologer" ? "Astrologer portal" : "Admin console"}
-              </Link>
-            )}
-            {session.loggedIn ? (
-              <button
-                type="button"
-                onClick={() => {
-                  sessionActions.logOut();
-                  setMenuOpen(false);
-                }}
-                className="h-11 rounded-xl border border-line text-sm font-bold text-ink"
-              >
-                Log out
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    openLogin();
-                  }}
-                  className="h-11 rounded-xl border border-line text-sm font-bold text-ink sm:hidden"
-                >
-                  Log in
-                </button>
-                <Link
-                  href="/signup"
-                  onClick={() => setMenuOpen(false)}
-                  className="flex h-11 items-center justify-center rounded-xl border border-ink bg-ink text-sm font-bold text-amber-300 hover:text-amber-200 hover:no-underline sm:hidden"
-                >
-                  Sign up
-                </Link>
-                <Link
-                  href="/astrologers"
-                  onClick={() => setMenuOpen(false)}
-                  className="az-cta flex h-11 items-center justify-center rounded-full text-sm font-bold hover:text-cta-ink hover:no-underline sm:hidden"
-                >
-                  Consult an astrologer
-                </Link>
-              </>
-            )}
-          </div>
-        </nav>
-      )}
     </header>
   );
 }

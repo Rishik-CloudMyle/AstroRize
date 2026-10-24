@@ -240,32 +240,48 @@ export function DailyTool({ tool }: { tool: Tool }) {
   );
 }
 
+/** "12:00 noon India time on Saturday, 24 Oct 2026" for the instant the positions were read. */
+function positionsLabel(iso: string): string {
+  const d = new Date(iso);
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
+  const date = d.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "short", year: "numeric" });
+  return `${parts === "12:00" ? "12:00 noon" : parts} India time on ${date}`;
+}
+
 /** The honest "what this is based on" line, plus where the planets are. */
 function Basis({ h }: { h: Horoscope }) {
   return (
-    <details className="group mt-6 rounded-2xl border border-line-warm bg-[#fbf6ea] px-4 py-3">
-      <summary className="flex cursor-pointer list-none items-start gap-2 text-[13px] font-semibold leading-snug text-stone-700 [&::-webkit-details-marker]:hidden">
-        <span aria-hidden="true" className="text-[15px] leading-[1.1] text-amber-700 transition-transform group-open:rotate-90">
-          ›
-        </span>
-        <span>
-          {h.basis} <span className="whitespace-nowrap font-bold text-amber-800">See the planets</span>
-        </span>
-      </summary>
-      <div className="mt-3 overflow-x-auto">
-        <ul className="grid gap-x-6 gap-y-1.5 text-[13px] text-stone-600 min-[480px]:grid-cols-2 lg:grid-cols-3">
-          {h.transits.map((t) => (
-            <li key={t.graha}>
-              <b className="text-ink">{t.name}</b> in {t.sign.name}
-              {t.retrograde && t.graha !== "rahu" && t.graha !== "ketu" ? " (R)" : ""} — your {ordinal(t.house)} house
-            </li>
-          ))}
-        </ul>
-        <p className="mt-2.5 text-[12px] text-stone-500">
-          {h.period === "weekly" ? "Positions on Monday at 6:00 am India time" : "Positions at noon India time"}, sidereal (Lahiri). Houses are counted
-          from your Moon sign.
+    <>
+      {h.positionsAt && (
+        <p className="mt-6 text-[12.5px] font-semibold text-stone-600">
+          Based on planetary positions at {positionsLabel(h.positionsAt)}
+          {h.period === "weekly" ? "; the Moon each day at noon" : ""}.
         </p>
-      </div>
-    </details>
+      )}
+        <details className={`group ${h.positionsAt ? "mt-2" : "mt-6"} rounded-2xl border border-line-warm bg-[#fbf6ea] px-4 py-3`}>
+        <summary className="flex cursor-pointer list-none items-start gap-2 text-[13px] font-semibold leading-snug text-stone-700 [&::-webkit-details-marker]:hidden">
+          <span aria-hidden="true" className="text-[15px] leading-[1.1] text-amber-700 transition-transform group-open:rotate-90">
+            ›
+          </span>
+          <span>
+            {h.basis} <span className="whitespace-nowrap font-bold text-amber-800">See the planets</span>
+          </span>
+        </summary>
+        <div className="mt-3 overflow-x-auto">
+          <ul className="grid gap-x-6 gap-y-1.5 text-[13px] text-stone-600 min-[480px]:grid-cols-2 lg:grid-cols-3">
+            {h.transits.map((t) => (
+              <li key={t.graha}>
+                <b className="text-ink">{t.name}</b> in {t.sign.name}
+                {t.retrograde && t.graha !== "rahu" && t.graha !== "ketu" ? " (R)" : ""} — your {ordinal(t.house)} house
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2.5 text-[12px] text-stone-500">
+            {h.period === "weekly" ? "Positions on Monday at 6:00 am India time" : "Positions at noon India time"}, sidereal (Lahiri). Houses are counted
+            from your Moon sign.
+          </p>
+        </div>
+      </details>
+    </>
   );
 }

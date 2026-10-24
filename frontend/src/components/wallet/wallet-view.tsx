@@ -1,24 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ApiError, api } from "@/lib/api/client";
 import { homeFor } from "@/lib/auth";
 import { rupee, signedRupee } from "@/lib/format";
 import { DATA_RIGHTS } from "@/lib/mock/wallet";
 import { sessionActions, totalBalance, useHydrated, useSession } from "@/lib/session-store";
+import { useIsDesktop } from "@/lib/use-desktop";
 import { useAppUI } from "../app-provider";
 import { WelcomeBanner } from "../consult/free-call";
+import AppButton from "../mobile/button";
+import AppCard from "../mobile/app-card";
+import EmptyState from "../mobile/empty-state";
+import { IconWallet } from "../mobile/icons";
+import { AppTopbar } from "../mobile/page-title";
+import { Skeleton } from "../mobile/skeleton";
 import AccountSection, { ClosedNotice, type Closed } from "./account-section";
 import ProfileSection from "./profile-section";
-
-interface Denomination {
-  amount: number;
-  bonus: number;
-  /** Cashback a claimed offer adds to this amount (₹), and the offer's name. */
-  cashback: number;
-  cashbackFrom: string | null;
-}
+import MobileWallet, { type Denomination } from "./wallet-mobile";
 
 const CLOSED_KEY = "astrorize.accountClosed";
 
@@ -51,6 +51,8 @@ export default function WalletView() {
   const hydrated = useHydrated();
   const session = useSession();
   const { openLogin } = useAppUI();
+  // Phones and tablets get the app-look screens (wallet-mobile.tsx); desktop keeps this layout.
+  const desktop = useIsDesktop();
   // After "Deactivate" or "Delete my account": the note that replaces the wallet. A deletion's
   // refund reference is kept for this tab, so a refresh doesn't lose it.
   const [closed, setClosedState] = useState<Closed | null>(readClosed);
@@ -71,7 +73,68 @@ export default function WalletView() {
   }
 
   if (!hydrated || !session.ready) {
-    return <div className="h-80 rounded-[22px] border border-line bg-paper" aria-busy="true" />;
+    return (
+      <>
+        <div className="h-80 rounded-[22px] border border-line bg-paper max-lg:hidden" aria-busy="true" />
+        <div className="lg:hidden" aria-busy="true">
+          <AppTopbar title="Wallet" />
+          <div className="px-4 pt-3">
+            <Skeleton rounded="card" className="h-[190px] w-full" />
+            <Skeleton rounded="card" className="mt-3.5 h-app-hit w-full" />
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (!desktop) {
+    if (closed) {
+      return (
+        <div className="px-4 pt-4 pb-8">
+          <ClosedNotice
+            closed={closed}
+            onLogin={() => {
+              setClosed(null);
+              openLogin();
+            }}
+          />
+        </div>
+      );
+    }
+    if (!session.loggedIn || session.role !== "customer") {
+      const customer = !session.loggedIn;
+      return (
+        <>
+          <AppTopbar title="Wallet" />
+          <div className="px-4 pt-3 pb-8">
+            <AppCard padding="lg">
+              <EmptyState
+                icon={<IconWallet />}
+                title={customer ? "Log in to see your wallet" : "Wallets are for customer accounts"}
+                body={
+                  customer
+                    ? "Your balance and transactions are private to your account. New here? Logging in with your mobile number creates your account."
+                    : session.role === "astrologer"
+                      ? "Your earnings and availability are in your astrologer portal."
+                      : "Your tools are in the admin console."
+                }
+                action={
+                  customer ? (
+                    <AppButton onClick={() => openLogin()} className="min-w-[160px]">
+                      Log in
+                    </AppButton>
+                  ) : (
+                    <AppButton href={homeFor(session.role)}>
+                      {session.role === "astrologer" ? "Open my portal" : "Open the admin console"}
+                    </AppButton>
+                  )
+                }
+              />
+            </AppCard>
+          </div>
+        </>
+      );
+    }
   }
 
   if (closed) {
@@ -131,6 +194,7 @@ export default function WalletView() {
 }
 
 function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
+  const desktop = useIsDesktop();
   const session = useSession();
   const { toast } = useAppUI();
   const { wallet } = session;
@@ -230,6 +294,24 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
     setDenom(amount);
     setPayError("");
     if (payStage === "done") setPayStage("idle");
+  }
+
+  if (!desktop) {
+    return (
+      <Suspense fallback={null}>
+        <MobileWallet
+          denominations={denominations}
+          gstRate={gstRate}
+          denom={denom}
+          onPick={pick}
+          loadError={payError}
+          onPaid={(usedOffer) => usedOffer && setLoads((n) => n + 1)}
+          onClosed={onClosed}
+          onDataRight={(r) => void requestDataRight(r)}
+          requesting={requesting}
+        />
+      </Suspense>
+    );
   }
 
   const payLabel =

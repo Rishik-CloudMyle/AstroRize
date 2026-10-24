@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import type { Tool } from "@/lib/types";
 import { NUMBER_MEANINGS, TAROT_CARDS } from "@/lib/tools";
+import { APP_CTA } from "../account/app-look";
 import { DailyTool, HoroscopeTool } from "./horoscope-tool";
 import KundliTool from "./kundli-tool";
 import MatchmakingTool from "./matchmaking-tool";
@@ -171,7 +172,7 @@ function TarotTool({ tool }: { tool: Tool }) {
         title="Hold your question in mind"
         intro="Take a breath, think of one specific question, then draw. Three cards from the 22 of the Major Arcana, shuffled fresh each time: what led here, where you are, and what comes next."
       >
-        <button type="button" onClick={pull} className="az-cta mt-6 h-12 w-full rounded-full px-7 text-[15px] font-bold sm:w-auto">
+        <button type="button" onClick={pull} className={`az-cta mt-6 h-12 w-full rounded-full px-7 text-[15px] font-bold sm:w-auto ${APP_CTA}`}>
           {draw ? "Draw again" : "Draw three cards"}
         </button>
       </Panel>

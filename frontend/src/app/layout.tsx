@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 
@@ -61,6 +61,14 @@ export const metadata: Metadata = {
   description:
     "Consult verified astrologers by chat, voice or video. Pay by the minute, first 60 seconds free, masked calls and one charge after the session ends.",
   icons: { icon: "/assets/brand/logo-mark.png" },
+};
+
+// "cover" lets the phone/tablet app look (< 1024px) reach under the iPhone home indicator; the app
+// header and bottom tab bar pad themselves with env(safe-area-inset-*) so nothing sits beneath it.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 // The root layout wraps every page: the public website (app/(site)), the astrologer

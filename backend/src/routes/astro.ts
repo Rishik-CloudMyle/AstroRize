@@ -11,7 +11,12 @@ import { RASHIS } from "../lib/astro/constants.ts";
 import type { DashaPeriod } from "../lib/astro/dasha.ts";
 import { getAstroEngine } from "../lib/astro/engine.ts";
 import { getPlace, searchPlaces, suggestPlaces } from "../lib/astro/geo.ts";
+import { outsideTestedRange } from "../lib/astro/ephemeris.ts";
 import type { Kundli } from "../lib/astro/kundli.ts";
+import { bhavaChalit, computeVargas } from "../lib/astro/vargas.ts";
+import { computeAshtakavarga } from "../lib/astro/ashtakvarga.ts";
+import { computeKp, kpRulingPlanets } from "../lib/astro/kp.ts";
+import { computeShadbala } from "../lib/astro/shadbala.ts";
 import { isValidTimeZone, localDateString, parseDate, parseTime, timezoneAt } from "../lib/astro/time.ts";
 import { requireRole } from "../middleware/auth.ts";
 
@@ -20,13 +25,16 @@ const engine = () => getAstroEngine();
 
 // ── Input shapes ──
 
-const MIN_DATE = "1800-01-01";
-const MAX_DATE = "2200-12-31";
+// Accepted dates. Results outside 1700–2200 (TESTED_YEARS in lib/astro/ephemeris.ts) are still
+// calculated but flagged outsideTestedRange, and the website warns that they may be less accurate.
+// Before 1600 the proleptic Gregorian calendar and ΔT get too uncertain to be useful.
+const MIN_DATE = "1600-01-01";
+const MAX_DATE = "2500-12-31";
 
 const dateField = z
   .string()
   .refine((s) => parseDate(s) !== null, "Enter a valid date (YYYY-MM-DD).")
-  .refine((s) => s >= MIN_DATE && s <= MAX_DATE, "Dates from 1800 to 2200 are supported.");
+  .refine((s) => s >= MIN_DATE && s <= MAX_DATE, "Dates from 1600 to 2500 are supported.");
 const timeField = z.string().refine((s) => parseTime(s) !== null, "Enter a valid time (HH:MM, 24-hour).");
 const tzField = z.string().max(64).refine(isValidTimeZone, "Unknown time zone.");
 
@@ -137,8 +145,32 @@ interface StoredKundliInput {
   node: "mean" | "true";
 }
 
+/**
+ * Charts saved before divisional charts existed lack vargas / bhavaChalit / outsideTestedRange; they
+ * are worked out here from the stored longitudes and bhavas (pure, no recalculation of positions),
+ * so old charts open with every view.
+ */
+function withDerived(stored: Kundli): Kundli {
+  if (stored.vargas && stored.bhavaChalit && stored.outsideTestedRange !== undefined && stored.ashtakavarga && stored.kp && stored.shadbala) return stored;
+  return {
+    ...stored,
+    vargas: stored.vargas ?? computeVargas(stored.lagna.longitude, stored.grahas),
+    bhavaChalit: stored.bhavaChalit ?? bhavaChalit(stored.bhavas, stored.grahas),
+    outsideTestedRange: stored.outsideTestedRange ?? outsideTestedRange(stored.birth.date),
+    // Ashtakavarga, KP and Shadbala: from the stored lagna, graha longitudes/speeds and birth instant/place.
+    ashtakavarga: stored.ashtakavarga ?? computeAshtakavarga(stored.lagna.sign.index, stored.grahas),
+    kp: stored.kp ?? computeKp(stored.birth, stored.grahas),
+    shadbala:
+      stored.shadbala ??
+      computeShadbala({ birth: stored.birth, lagnaLongitude: stored.lagna.longitude, madhya: stored.bhavas.madhya, grahas: stored.grahas }),
+  };
+}
+
 function chartView(c: { id: string; label: string; engine: string; createdAt: Date; input: unknown; result: unknown }) {
-  const kundli = c.result as unknown as Kundli;
+  // completeKundli fills fields added since the chart was saved (panchang/avakhada at birth,
+  // dignity, varga degrees, yogini, doshas) from the stored data; the row itself is never rewritten.
+  const kundli = withDerived(engine().completeKundli(c.result as unknown as Kundli));
+  const now = new Date();
   return {
     id: c.id,
     name: c.label,
@@ -146,7 +178,10 @@ function chartView(c: { id: string; label: string; engine: string; createdAt: Da
     engine: c.engine,
     input: c.input as StoredKundliInput,
     kundli,
-    currentDasha: engine().currentDasha(kundli.dasha.mahadashas, new Date()),
+    currentDasha: engine().currentDasha(kundli.dasha.mahadashas, now),
+    // Worked out on every read: today's transits, Sade Sati status, running Yogini dasha; readings.
+    today: engine().kundliToday(kundli, now),
+    reading: engine().kundliReading(kundli),
   };
 }
 
@@ -288,7 +323,8 @@ astroRouter.get("/panchang", async (req, res) => {
   const panchang = memoised(key, () =>
     calculate("panchang", () => engine().panchang({ date, latitude: place.latitude, longitude: place.longitude, timezone: place.timezone })),
   );
-  res.json({ place, panchang });
+  // defaultPlace: no place was given, so New Delhi is shown (the website says so and asks for a city).
+  res.json({ place, defaultPlace: place === DEFAULT_PLACE, panchang });
 });
 
 // ── Horoscope (public) ──
@@ -322,7 +358,28 @@ astroRouter.get("/transit", async (req, res) => {
     .object({ at: z.iso.datetime({ offset: true, error: "Give the time as an ISO date-time, e.g. 2026-10-16T06:00:00+05:30." }).optional(), node: z.enum(["mean", "true"]).optional() })
     .parse(req.query);
   const at = q.at ? new Date(q.at) : new Date();
-  const year = at.getUTCFullYear();
-  if (year < 1800 || year > 2200) throw badRequest("Dates from 1800 to 2200 are supported.");
+  const day = at.toISOString().slice(0, 10);
+  if (day < MIN_DATE || day > MAX_DATE) throw badRequest("Dates from 1600 to 2500 are supported.");
   res.json({ transit: calculate("transit", () => engine().transit(at, q.node)) });
+});
+
+// ── KP ruling planets at a moment (public) ──
+// KP judges a question by the ruling planets at the time of judgement (usually now) at the
+// astrologer's or querent's place; the Kundli's own KP section carries those at birth.
+
+astroRouter.get("/kp/ruling-planets", async (req, res) => {
+  rateLimit(`kp-ruling:${ip(req)}`, 60, 60_000, "Too many requests. Wait a moment.");
+  const q = z
+    .object({
+      lat: z.coerce.number().min(-90).max(90),
+      lon: z.coerce.number().min(-180).max(180),
+      tz: tzField.optional(),
+      at: z.iso.datetime({ offset: true, error: "Give the time as an ISO date-time, e.g. 2026-10-16T06:00:00+05:30." }).optional(),
+    })
+    .parse(req.query);
+  const at = q.at ? new Date(q.at) : new Date();
+  const day = at.toISOString().slice(0, 10);
+  if (day < MIN_DATE || day > MAX_DATE) throw badRequest("Dates from 1600 to 2500 are supported.");
+  const timezone = q.tz ?? timezoneAt(q.lat, q.lon);
+  res.json({ rulingPlanets: calculate("kp ruling planets", () => kpRulingPlanets(at, q.lat, q.lon, timezone)) });
 });

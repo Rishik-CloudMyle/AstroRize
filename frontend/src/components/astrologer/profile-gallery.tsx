@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * swipeable strip (scroll-snap) on phones. A photo opens in a lightbox. With no photos yet,
  * three quiet placeholder tiles and "Photos coming soon" (never stock or fake photos).
  */
-export default function ProfileGallery({ photos, name }: { photos: string[]; name: string }) {
+export default function ProfileGallery({ photos, name, variant = "section" }: { photos: string[]; name: string; variant?: "section" | "strip" }) {
   const [open, setOpen] = useState<number | null>(null);
   const thumbs = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -19,6 +19,33 @@ export default function ProfileGallery({ photos, name }: { photos: string[]; nam
       return null;
     });
   }, []);
+
+  // Phone/tablet profile (the app's thumbnail row): square thumbnails, nothing at all without photos.
+  if (variant === "strip") {
+    if (photos.length === 0) return null;
+    return (
+      <section aria-label={`Photos from ${name}`}>
+        <ul className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {photos.map((src, i) => (
+            <li key={src} className="w-[calc((100%-32px)/5)] min-w-[60px] flex-none">
+              <button
+                ref={(el) => {
+                  thumbs.current[i] = el;
+                }}
+                type="button"
+                onClick={() => setOpen(i)}
+                aria-label={`Open photo ${i + 1} of ${photos.length}`}
+                className="relative block aspect-[66/56] w-full overflow-hidden rounded-[10px] sm:aspect-auto sm:h-14 border border-app-line bg-app-tint-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-selected"
+              >
+                <Image src={src} alt="" fill unoptimized loading="lazy" sizes="80px" className="object-cover" />
+              </button>
+            </li>
+          ))}
+        </ul>
+        {open !== null && photos[open] && <Lightbox photos={photos} name={name} index={open} onIndex={setOpen} onClose={close} />}
+      </section>
+    );
+  }
 
   return (
     <section aria-labelledby="gallery-title" className="mt-[18px] rounded-3xl border border-line bg-paper p-5 sm:p-6">

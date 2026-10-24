@@ -52,6 +52,8 @@ export interface Horoscope {
   tone: Tone;
   /** Plain statement of the transits the reading is based on. */
   basis: string;
+  /** The instant the transit positions are read at (daily: 12:00 noon in the time zone; weekly: Monday 06:00), ISO UTC. */
+  positionsAt: string;
   transits: TransitHouse[];
   /** Weekly only: the Moon's house each day. */
   days?: DayOutlook[];
@@ -134,6 +136,7 @@ function daily(sign: number, date: string, tz: string): Horoscope {
       `Based on the transits on ${date}: the Moon in ${moon.sign.name} (${NAKSHATRAS[nak]}), your ${ordinal(moonHouse)} house; ` +
       `Jupiter in your ${ordinal(jupiter.house)}; Saturn in your ${ordinal(saturn.house)}; ${tithi.paksha} ${tithi.name}. ` +
       `A general reading for everyone with this Moon sign.`,
+    positionsAt: at.toISOString(),
     transits,
   };
 }
@@ -200,6 +203,7 @@ function weekly(sign: number, date: string, tz: string): Horoscope {
     basis:
       `Based on the transits for ${monday} to ${sunday}: the Moon's daily house from ${signInfo(sign).name}, ` +
       `Jupiter in your ${ordinal(jupiter.house)} and Saturn in your ${ordinal(saturn.house)}. A general reading for everyone with this Moon sign.`,
+    positionsAt: morning(monday, tz).toISOString(),
     transits,
     days,
   };

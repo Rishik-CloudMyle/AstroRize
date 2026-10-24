@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useHydrated, useSession } from "@/lib/session-store";
+import { APP_CTA } from "../account/app-look";
 import { useAppUI } from "../app-provider";
 import KundliChart from "./kundli-chart";
 
@@ -51,7 +52,7 @@ export default function KundliLocked({ access }: { access: Exclude<KundliAccess,
               planets and degrees.
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-2.5 md:justify-start">
-              <button type="button" onClick={() => openLogin()} className="az-cta h-11 rounded-full px-6 text-[14.5px] font-bold">
+              <button type="button" onClick={() => openLogin()} className={`az-cta h-11 rounded-full px-6 text-[14.5px] font-bold ${APP_CTA}`}>
                 Log in
               </button>
               <Link

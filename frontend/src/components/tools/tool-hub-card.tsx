@@ -7,7 +7,8 @@ import { ToolMedallion } from "./tool-icons";
 // seven tools fit in a short scroll. Wider screens: the prototype's tall illustrated card, with the
 // tool's gold medallion and the benefit line added in the scrim.
 
-export default function ToolHubCard({ tool, benefit }: { tool: Tool; benefit?: string }) {
+/** `priority`: the first card on the page — its picture is the largest thing on screen, so load it first. */
+export default function ToolHubCard({ tool, benefit, priority = false }: { tool: Tool; benefit?: string; priority?: boolean }) {
   return (
     <Link
       href={`/free-tools/${tool.id}`}
@@ -15,7 +16,7 @@ export default function ToolHubCard({ tool, benefit }: { tool: Tool; benefit?: s
       style={{ "--tool-bg": tool.bg, "--tool-ink": tool.ink, "--tool-scrim": tool.scrim } as React.CSSProperties}
     >
       <span className="relative block size-[92px] shrink-0 overflow-hidden rounded-2xl bg-(--tool-bg) sm:absolute sm:inset-0 sm:size-auto sm:rounded-none">
-        <Image src={tool.art} alt="" fill sizes="(max-width: 640px) 92px, 300px" className="object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+        <Image src={tool.art} alt="" fill priority={priority} sizes="(max-width: 640px) 92px, 300px" className="object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
       </span>
       <span className="pointer-events-none absolute inset-0 hidden rounded-[22px] shadow-[inset_0_0_0_1px_rgba(240,228,208,.55)] sm:block" />
       <span className="absolute left-3.5 top-3.5 hidden sm:block">

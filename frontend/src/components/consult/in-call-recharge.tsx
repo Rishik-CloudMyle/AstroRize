@@ -78,7 +78,7 @@ export default function InCallRecharge({
 
   return (
     <div
-      className="fixed inset-0 z-[170] flex items-end justify-center bg-[rgba(12,10,9,.55)] sm:items-center sm:p-6"
+      className="fixed inset-0 z-[170] flex items-end justify-center bg-[rgba(12,10,9,.55)] sm:items-center sm:p-6 max-lg:bg-app-scrim max-lg:sm:items-end max-lg:sm:p-0"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !paying) onClose();
       }}
@@ -89,15 +89,15 @@ export default function InCallRecharge({
         aria-modal="true"
         aria-labelledby="in-call-recharge-title"
         tabIndex={-1}
-        className="max-h-[90dvh] w-full overflow-y-auto rounded-t-[26px] bg-paper px-4 pb-6 pt-3 shadow-[0_-12px_40px_rgba(0,0,0,.3)] outline-none motion-safe:animate-[azToastIn_.28s_ease-out_both] sm:max-w-[460px] sm:rounded-[26px] sm:px-6 sm:pt-6"
+        className="max-h-[90dvh] w-full overflow-y-auto rounded-t-[26px] bg-paper px-4 pb-6 pt-3 shadow-[0_-12px_40px_rgba(0,0,0,.3)] outline-none motion-safe:animate-[azToastIn_.28s_ease-out_both] sm:max-w-[460px] sm:rounded-[26px] sm:px-6 sm:pt-6 max-lg:max-h-[85dvh] max-lg:rounded-t-app-modal max-lg:bg-app-elev max-lg:pb-[calc(24px+var(--app-safe-bottom))] max-lg:shadow-app-modal max-lg:sm:max-w-none max-lg:sm:rounded-b-none max-lg:sm:px-4 max-lg:sm:pt-3"
       >
-        <span aria-hidden="true" className="mx-auto mb-3 block h-1 w-10 rounded-full bg-stone-300 sm:hidden" />
+        <span aria-hidden="true" className="mx-auto mb-3 block h-1 w-10 rounded-full bg-stone-300 sm:hidden max-lg:mt-1 max-lg:block max-lg:w-9 max-lg:bg-app-line" />
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <h2 id="in-call-recharge-title" className="font-display text-[26px] font-semibold leading-tight text-ink">
+            <h2 id="in-call-recharge-title" className="font-display text-[26px] font-semibold leading-tight text-ink max-lg:font-sans max-lg:text-[18px] max-lg:font-bold max-lg:text-app-ink">
               Add money
             </h2>
-            <p className="mt-1 text-[13px] leading-normal text-stone-600">
+            <p className="mt-1 text-[13px] leading-normal text-stone-600 max-lg:text-app-ink-2">
               Your call stays connected while you pay. It continues at {rupee(rate)}/min.
             </p>
           </div>
@@ -138,7 +138,9 @@ export default function InCallRecharge({
                     setAmount(d.amount);
                     setError("");
                   }}
-                  className={`rounded-2xl border-2 px-3 py-2.5 text-left ${on ? "border-amber-500 bg-amber-50" : "border-line bg-white hover:border-amber-300"}`}
+                  className={`rounded-2xl border-2 px-3 py-2.5 text-left max-lg:rounded-app-card max-lg:border ${
+                    on ? "border-amber-500 bg-amber-50 max-lg:border-app-selected max-lg:bg-app-tint max-lg:shadow-[0_0_0_1px_var(--color-app-selected)]" : "border-line bg-white hover:border-amber-300 max-lg:border-app-line max-lg:bg-app-surface"
+                  }`}
                 >
                   <b className="block text-[18px] tabular-nums text-ink">{rupee(d.amount)}</b>
                   <span className="block text-[11.5px] text-stone-500">
@@ -171,7 +173,9 @@ export default function InCallRecharge({
           type="button"
           onClick={() => void pay()}
           disabled={!selected || paying}
-          className={`mt-4 min-h-[52px] w-full rounded-[14px] text-[15px] font-bold ${selected && !paying ? "az-cta" : "cursor-not-allowed bg-stone-200 text-stone-500"}`}
+          className={`mt-4 min-h-[52px] w-full rounded-[14px] text-[15px] font-bold max-lg:min-h-app-hit max-lg:rounded-app-btn ${
+            selected && !paying ? "az-cta max-lg:bg-none max-lg:bg-app-primary max-lg:text-app-on-primary max-lg:shadow-none" : "cursor-not-allowed bg-stone-200 text-stone-500"
+          }`}
         >
           {paying ? "Confirming payment…" : selected ? `Pay ${rupee(selected.amount + gst)}` : "Choose an amount"}
         </button>

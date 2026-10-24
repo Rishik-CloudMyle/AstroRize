@@ -55,7 +55,7 @@ export default function LiveAnnouncements({ announcements }: { announcements: Li
 
   return (
     <Panel className="p-[18px]">
-      <h2 className="m-0 mb-1 text-[15px] font-bold">Announcements</h2>
+      <h2 className="m-0 mb-1 text-[15px] font-bold max-lg:text-[16px]">Announcements</h2>
       <p className="mb-3 text-xs text-stone-500">Shown to everyone in the room, above the chat. Contact details aren&apos;t allowed.</p>
       <form onSubmit={post}>
         <textarea
@@ -66,7 +66,7 @@ export default function LiveAnnouncements({ announcements }: { announcements: Li
           placeholder="e.g. Private consults open after this segment."
           maxLength={MAX_CHARS}
           rows={3}
-          className="block w-full resize-y rounded-[11px] border border-line bg-white px-3 py-2.5 text-[13.5px] leading-normal text-ink outline-none focus:border-amber-500"
+          className="block w-full resize-y rounded-[11px] border border-line bg-white px-3 py-2.5 text-[13.5px] leading-normal text-ink outline-none focus:border-amber-500 max-lg:rounded-app-input max-lg:px-4 max-lg:text-[16px] max-lg:focus:border-app-selected"
         />
         <div className="mt-2 flex items-center justify-between gap-3">
           <span id="announce-count" className={`text-[11.5px] tabular-nums ${left <= 20 ? "font-bold text-urgent" : "text-stone-500"}`}>
@@ -75,7 +75,7 @@ export default function LiveAnnouncements({ announcements }: { announcements: Li
           <button
             type="submit"
             disabled={!trimmed || posting}
-            className="h-[38px] rounded-xl bg-amber-500 px-5 text-[13.5px] font-bold text-ink disabled:bg-amber-200 disabled:text-amber-900"
+            className="h-[38px] rounded-xl bg-amber-500 px-5 text-[13.5px] font-bold text-ink disabled:bg-amber-200 disabled:text-amber-900 max-lg:h-app-hit max-lg:rounded-app-btn max-lg:text-[15px]"
           >
             {posting ? "Posting…" : "Post"}
           </button>
@@ -85,7 +85,7 @@ export default function LiveAnnouncements({ announcements }: { announcements: Li
       <div className="mt-3.5 flex flex-col gap-2">
         {announcements.length === 0 && <p className="text-[12.5px] text-stone-500">No announcements yet.</p>}
         {announcements.map((n, i) => (
-          <div key={n.id} className="flex items-start gap-2.5 rounded-xl border border-line bg-white px-3 py-2.5">
+          <div key={n.id} className="flex items-start gap-2.5 rounded-xl border border-line bg-white px-3 py-2.5 max-lg:rounded-app-btn">
             <div className="min-w-0 flex-1">
               <p className="m-0 text-[13px] leading-[1.45] break-words text-ink">{n.text}</p>
               <span className="mt-1 block text-[11px] text-stone-500">
@@ -98,7 +98,7 @@ export default function LiveAnnouncements({ announcements }: { announcements: Li
               onClick={() => void remove(n.id)}
               disabled={deleting !== null}
               aria-label={`Delete announcement: ${n.text.slice(0, 40)}`}
-              className="h-[30px] shrink-0 rounded-[9px] border border-line bg-white px-[11px] text-xs font-bold text-rose-700 disabled:opacity-60"
+              className="h-[30px] shrink-0 rounded-[9px] border border-line bg-white px-[11px] text-xs font-bold text-rose-700 disabled:opacity-60 max-lg:h-9 max-lg:rounded-app-btn max-lg:text-[13px]"
             >
               {deleting === n.id ? "Deleting…" : "Delete"}
             </button>

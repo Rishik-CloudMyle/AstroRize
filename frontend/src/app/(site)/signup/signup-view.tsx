@@ -18,6 +18,9 @@ import {
   type Form,
   type Profile,
 } from "@/components/account/profile-form";
+import { APP_CTA, APP_LABEL, APP_SECONDARY } from "@/components/account/app-look";
+import { PHONE_BOX } from "@/components/account/login-form";
+import OtpInput from "@/components/account/otp-input";
 import { useAppUI } from "@/components/app-provider";
 import PasswordInput from "@/components/ui/password-input";
 import { ApiError, api } from "@/lib/api/client";
@@ -29,7 +32,7 @@ type SignupRole = "customer" | "astrologer";
 const errorText = (e: unknown) =>
   e instanceof ApiError ? e.message : "Something went wrong. Check your connection and try again.";
 
-const LABEL = "text-xs font-semibold text-stone-600";
+const LABEL = `text-xs font-semibold text-stone-600 ${APP_LABEL}`;
 const PHONE_PATTERN = /^[6-9]\d{9}$/;
 
 /**
@@ -44,7 +47,7 @@ export default function SignupView({ initialRole, next }: { initialRole: SignupR
   /** True once this page signed them in, so the "already logged in" card never replaces the flow. */
   const [started, setStarted] = useState(false);
 
-  if (!session.ready) return <div className="h-[420px] rounded-2xl bg-cream" aria-busy="true" />;
+  if (!session.ready) return <div className="h-[420px] rounded-2xl bg-cream max-lg:bg-transparent" aria-busy="true" />;
 
   if (session.loggedIn && !started) {
     return (
@@ -55,14 +58,14 @@ export default function SignupView({ initialRole, next }: { initialRole: SignupR
         </p>
         <Link
           href={destinationFor(session.role, next)}
-          className="az-cta mt-5 flex h-[50px] items-center justify-center rounded-full text-[15px] font-bold hover:text-cta-ink hover:no-underline"
+          className={`az-cta mt-5 flex h-[50px] items-center justify-center rounded-full text-[15px] font-bold hover:text-cta-ink hover:no-underline ${APP_CTA}`}
         >
           Continue
         </Link>
         <button
           type="button"
           onClick={() => void sessionActions.logOut()}
-          className="mt-2.5 h-11 w-full rounded-full border border-line bg-white text-[14px] font-bold text-ink"
+          className={`mt-2.5 h-11 w-full rounded-full border border-line bg-white text-[14px] font-bold text-ink ${APP_SECONDARY}`}
         >
           Log out
         </button>
@@ -74,8 +77,8 @@ export default function SignupView({ initialRole, next }: { initialRole: SignupR
     <div>
       {!started && (
         <>
-          <h1 className="m-0 font-display text-[30px] font-semibold text-ink">Create your account</h1>
-          <p className="mt-1 mb-4 text-[13px] text-stone-500">Choose how you&rsquo;ll use Astrorize.</p>
+          <h1 className="m-0 font-display text-[30px] font-semibold text-ink max-lg:leading-tight">Create your account</h1>
+          <p className="mt-1 mb-4 text-[13px] text-stone-500 max-lg:text-[12px] max-lg:text-app-ink-2">Choose how you&rsquo;ll use Astrorize.</p>
           <div role="radiogroup" aria-label="Account type" className="grid grid-cols-2 gap-2.5">
             {(
               [
@@ -91,8 +94,8 @@ export default function SignupView({ initialRole, next }: { initialRole: SignupR
                   role="radio"
                   aria-checked={on}
                   onClick={() => setRole(key)}
-                  className={`flex min-h-[86px] flex-col items-start justify-start rounded-2xl border-2 p-3 text-left ${
-                    on ? "border-amber-500 bg-amber-50" : "border-line bg-white"
+                  className={`flex min-h-[86px] flex-col items-start justify-start rounded-2xl border-2 p-3 text-left max-lg:rounded-app-card max-lg:border max-lg:shadow-app-card ${
+                    on ? "border-amber-500 bg-amber-50 max-lg:border-app-selected max-lg:bg-app-tint" : "border-line bg-white max-lg:border-app-line max-lg:bg-app-surface"
                   }`}
                 >
                   <span className="text-[13.5px] leading-[1.3] font-bold text-ink">{label}</span>
@@ -111,7 +114,7 @@ export default function SignupView({ initialRole, next }: { initialRole: SignupR
       )}
 
       {!started && (
-        <div className="mt-5 border-t border-line-soft pt-4 text-center">
+        <div className="mt-5 border-t border-line-soft pt-4 text-center max-lg:border-app-line">
           <p className="m-0 text-[13px] text-stone-600">
             Already have an account?{" "}
             <Link href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"} className="font-bold">
@@ -121,7 +124,7 @@ export default function SignupView({ initialRole, next }: { initialRole: SignupR
           <button
             type="button"
             onClick={() => router.push(destinationFor("customer", next))}
-            className="mt-2.5 h-11 w-full rounded-full border border-line bg-white text-[14px] font-bold text-ink"
+            className={`mt-2.5 h-11 w-full rounded-full border border-line bg-white text-[14px] font-bold text-ink ${APP_SECONDARY}`}
           >
             Continue as guest
           </button>
@@ -211,8 +214,8 @@ function CustomerSignup({ next, onStarted }: { next: string | null; onStarted: (
           <label htmlFor="su-phone" className={`mt-3.5 block ${LABEL}`}>
             Mobile number
           </label>
-          <div className="mt-1.5 flex min-h-[52px] items-center overflow-hidden rounded-xl border border-line bg-white">
-            <span className="border-r border-line px-[13px] font-bold text-stone-600">+91</span>
+          <div className={PHONE_BOX}>
+            <span className="border-r border-line px-[13px] font-bold text-stone-600 max-lg:border-app-line max-lg:text-app-ink">+91</span>
             <input
               id="su-phone"
               inputMode="numeric"
@@ -232,7 +235,7 @@ function CustomerSignup({ next, onStarted }: { next: string | null; onStarted: (
               {error}
             </p>
           )}
-          <button type="submit" disabled={busy} className="az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold">
+          <button type="submit" disabled={busy} className={`az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold ${APP_CTA}`}>
             {busy ? "Sending code…" : "Send OTP"}
           </button>
         </form>
@@ -241,14 +244,12 @@ function CustomerSignup({ next, onStarted }: { next: string | null; onStarted: (
           <label htmlFor="su-otp" className={`mt-3.5 block ${LABEL}`}>
             Six-digit code
           </label>
-          <input
+          <OtpInput
             id="su-otp"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            placeholder="••••••"
             value={otp}
-            onChange={(e) => {
-              setOtp(e.target.value.replace(/\D/g, "").slice(0, 6));
+            invalid={!!error}
+            onChange={(digits) => {
+              setOtp(digits);
               setError("");
             }}
             className="mt-1.5 min-h-[52px] w-full rounded-xl border border-line bg-white px-3 text-center text-xl font-bold tracking-[.4em] text-ink outline-none"
@@ -263,7 +264,7 @@ function CustomerSignup({ next, onStarted }: { next: string | null; onStarted: (
               {error}
             </p>
           )}
-          <button type="submit" disabled={busy} className="az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold">
+          <button type="submit" disabled={busy} className={`az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold ${APP_CTA}`}>
             {busy ? "Checking…" : "Verify and continue"}
           </button>
           <div className="mt-2 flex justify-center gap-5">
@@ -274,11 +275,11 @@ function CustomerSignup({ next, onStarted }: { next: string | null; onStarted: (
                 setOtp("");
                 setError("");
               }}
-              className="text-[13px] font-semibold text-amber-700"
+              className="text-[13px] font-semibold text-amber-700 max-lg:min-h-app-hit max-lg:text-app-accent"
             >
               Change number
             </button>
-            <button type="button" disabled={busy} onClick={() => void sendCode()} className="text-[13px] font-semibold text-amber-700">
+            <button type="button" disabled={busy} onClick={() => void sendCode()} className="text-[13px] font-semibold text-amber-700 max-lg:min-h-app-hit max-lg:text-app-accent">
               Resend code
             </button>
           </div>
@@ -383,7 +384,7 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
   if (!profile || !form) {
     return (
       <div className="mt-2" aria-busy={!loadError}>
-        <h1 className="m-0 font-display text-[30px] font-semibold text-ink">Welcome to Astrorize</h1>
+        <h1 className="m-0 font-display text-[30px] font-semibold text-ink max-lg:leading-tight">Welcome to Astrorize</h1>
         {loadError ? (
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <p role="alert" className="m-0 text-[13px] font-semibold text-rose-700">
@@ -399,7 +400,7 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
             >
               Try again
             </button>
-            <button type="button" onClick={skip} className="text-[13px] font-semibold text-amber-700">
+            <button type="button" onClick={skip} className="text-[13px] font-semibold text-amber-700 max-lg:min-h-app-hit max-lg:text-app-accent">
               Skip for now
             </button>
           </div>
@@ -412,7 +413,7 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
 
   return (
     <div>
-      <h1 className="m-0 mb-3 font-display text-[30px] font-semibold text-ink">Welcome to Astrorize</h1>
+      <h1 className="m-0 mb-3 font-display text-[30px] font-semibold text-ink max-lg:leading-tight">Welcome to Astrorize</h1>
       <p className="m-0 mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[12.5px] font-semibold text-emerald-800">
         ✓ Your account is ready. Tell us a little about you — or skip for now.
       </p>
@@ -708,7 +709,7 @@ function AstrologerSignupForm({ onStarted }: { onStarted: (started: boolean) => 
               aria-pressed={on}
               onClick={() => toggleIn(key, o, max)}
               className={`h-9 rounded-full border px-3.5 text-[13px] font-semibold ${
-                on ? "border-amber-500 bg-amber-500 text-ink" : "border-line bg-white text-ink"
+                on ? "border-amber-500 bg-amber-500 text-ink max-lg:border-app-primary max-lg:bg-app-primary" : "border-line bg-white text-ink max-lg:border-app-line max-lg:bg-app-surface"
               }`}
             >
               {o}
@@ -730,14 +731,12 @@ function AstrologerSignupForm({ onStarted }: { onStarted: (started: boolean) => 
         <label htmlFor="as-otp" className={`mt-3.5 block ${LABEL}`}>
           Six-digit code
         </label>
-        <input
+        <OtpInput
           id="as-otp"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          placeholder="••••••"
           value={otp}
-          onChange={(e) => {
-            setOtp(e.target.value.replace(/\D/g, "").slice(0, 6));
+          invalid={!!otpError}
+          onChange={(digits) => {
+            setOtp(digits);
             setOtpError("");
           }}
           className="mt-1.5 min-h-[52px] w-full rounded-xl border border-line bg-white px-3 text-center text-xl font-bold tracking-[.4em] text-ink outline-none"
@@ -752,7 +751,7 @@ function AstrologerSignupForm({ onStarted }: { onStarted: (started: boolean) => 
             {otpError}
           </p>
         )}
-        <button type="submit" disabled={busy} className="az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold">
+        <button type="submit" disabled={busy} className={`az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold ${APP_CTA}`}>
           {busy ? "Creating your account…" : "Verify and create account"}
         </button>
         <div className="mt-2 flex justify-center gap-5">
@@ -763,11 +762,11 @@ function AstrologerSignupForm({ onStarted }: { onStarted: (started: boolean) => 
               setOtp("");
               setOtpError("");
             }}
-            className="text-[13px] font-semibold text-amber-700"
+            className="text-[13px] font-semibold text-amber-700 max-lg:min-h-app-hit max-lg:text-app-accent"
           >
             Edit details
           </button>
-          <button type="button" disabled={busy} onClick={() => void sendCode()} className="text-[13px] font-semibold text-amber-700">
+          <button type="button" disabled={busy} onClick={() => void sendCode()} className="text-[13px] font-semibold text-amber-700 max-lg:min-h-app-hit max-lg:text-app-accent">
             Resend code
           </button>
         </div>
@@ -789,9 +788,11 @@ function AstrologerSignupForm({ onStarted }: { onStarted: (started: boolean) => 
             Mobile number
           </label>
           <div
-            className={`mt-1.5 flex h-12 items-center overflow-hidden rounded-xl border bg-white ${errors.phone ? "border-rose-400" : "border-line"}`}
+            className={`mt-1.5 flex h-12 items-center overflow-hidden rounded-xl border bg-white max-lg:h-[50px] max-lg:rounded-app-input max-lg:focus-within:border-app-selected ${
+              errors.phone ? "border-rose-400" : "border-line max-lg:border-app-line"
+            }`}
           >
-            <span className="border-r border-line px-[13px] font-bold text-stone-600">+91</span>
+            <span className="border-r border-line px-[13px] font-bold text-stone-600 max-lg:border-app-line max-lg:text-app-ink">+91</span>
             <input
               id="as-phone"
               inputMode="numeric"
@@ -874,8 +875,8 @@ function AstrologerSignupForm({ onStarted }: { onStarted: (started: boolean) => 
                 role="radio"
                 aria-checked={on}
                 onClick={() => set("gender", value)}
-                className={`h-10 rounded-full border px-4 text-[13.5px] font-semibold ${
-                  on ? "border-amber-500 bg-amber-500 text-ink" : "border-line bg-white text-ink"
+                className={`h-10 rounded-full border px-4 text-[13.5px] font-semibold max-lg:px-3 max-lg:text-[13px] ${
+                  on ? "border-amber-500 bg-amber-500 text-ink max-lg:border-app-primary max-lg:bg-app-primary" : "border-line bg-white text-ink max-lg:border-app-line max-lg:bg-app-surface"
                 }`}
               >
                 {label}
@@ -901,7 +902,7 @@ function AstrologerSignupForm({ onStarted }: { onStarted: (started: boolean) => 
           {formError}
         </p>
       )}
-      <button type="submit" disabled={busy} className="az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold">
+      <button type="submit" disabled={busy} className={`az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold ${APP_CTA}`}>
         {busy ? "Checking…" : "Continue"}
       </button>
     </form>

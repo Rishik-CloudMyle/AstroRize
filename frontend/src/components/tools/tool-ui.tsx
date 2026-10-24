@@ -2,20 +2,22 @@
 
 import Link from "next/link";
 import type { Tool } from "@/lib/types";
+import { APP_CTA, APP_SECONDARY } from "../account/app-look";
 import { useAppUI } from "../app-provider";
 import { ToolMedallion } from "./tool-icons";
 
 // Building blocks shared by the free tools: panels, form card, fields, result card, stat chips,
-// toggles, tables and loading skeletons — one look for every tool.
+// toggles, tables and loading skeletons — one look for every tool. Below 1024px the same blocks take
+// the mobile app prototype's look (white 16px cards, 50px inputs, flat gold button) via max-lg: classes.
 
 /** A tool panel: warm paper card with a soft shadow. */
 export const panelClass =
-  "relative min-w-0 rounded-3xl border border-line-warm bg-paper shadow-[0_1px_0_rgba(255,255,255,.9)_inset,0_12px_32px_rgba(62,38,18,.06)]";
-export const panelPad = "p-5 sm:p-7";
+  "relative min-w-0 rounded-3xl border border-line-warm bg-paper shadow-[0_1px_0_rgba(255,255,255,.9)_inset,0_12px_32px_rgba(62,38,18,.06)] max-lg:rounded-app-card max-lg:border-app-line max-lg:bg-app-surface max-lg:shadow-app-card";
+export const panelPad = "p-5 sm:p-7 max-lg:p-4!";
 
 /** A text input without the top margin (for inputs that sit beside a button). */
 export const inputBase =
-  "h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 text-[14.5px] text-ink outline-none transition-[border-color,box-shadow] placeholder:text-stone-500 hover:border-[#dccfb9] focus:border-amber-500 focus:shadow-[0_0_0_3px_rgba(245,158,11,.18)] disabled:bg-stone-100";
+  "h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 text-[14.5px] text-ink outline-none transition-[border-color,box-shadow] placeholder:text-stone-500 hover:border-[#dccfb9] focus:border-amber-500 focus:shadow-[0_0_0_3px_rgba(245,158,11,.18)] disabled:bg-stone-100 max-lg:h-[50px] max-lg:rounded-app-input max-lg:border-app-line max-lg:text-[16px] max-lg:focus:border-app-selected";
 export const inputClass = `mt-1.5 ${inputBase}`;
 
 export const thClass =
@@ -35,9 +37,9 @@ export function GoldHairline() {
 export function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
     <label className="block min-w-0">
-      <span className="text-[12.5px] font-semibold text-stone-700">{label}</span>
+      <span className="text-[12.5px] font-semibold text-stone-700 max-lg:text-[12px] max-lg:font-medium max-lg:text-app-ink-2">{label}</span>
       {children}
-      {hint && <span className="mt-1 block text-[12px] leading-snug text-stone-500">{hint}</span>}
+      {hint && <span className="mt-1 block text-[12px] leading-snug text-stone-500 max-lg:text-app-ink-3">{hint}</span>}
     </label>
   );
 }
@@ -45,7 +47,7 @@ export function Field({ label, hint, children }: { label: string; hint?: React.R
 /** A red line under a form, for validation and API errors. */
 export function ErrorNote({ children }: { children: React.ReactNode }) {
   return (
-    <p role="alert" className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[13px] text-rose-800">
+    <p role="alert" className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[13px] text-rose-800 max-lg:rounded-app-btn">
       {children}
     </p>
   );
@@ -54,7 +56,7 @@ export function ErrorNote({ children }: { children: React.ReactNode }) {
 /** A section heading inside a result: display serif with a small gold diamond. */
 export function SectionTitle({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <h3 className={`mb-3 flex items-center gap-2 font-display text-[22px] font-semibold leading-tight text-ink ${className}`}>
+    <h3 className={`mb-3 flex items-center gap-2 font-display text-[22px] font-semibold leading-tight text-ink max-lg:text-[20px] ${className}`}>
       <span aria-hidden="true" className="size-[7px] shrink-0 rotate-45 bg-[#d6a84a]" />
       {children}
     </h3>
@@ -71,8 +73,8 @@ export function PanelHeading({ toolId, title, intro }: { toolId?: string; title:
         </span>
       )}
       <div className="min-w-0">
-        <h2 className="font-display text-[26px] font-semibold leading-tight text-ink sm:text-[28px]">{title}</h2>
-        {intro && <div className="mt-1.5 max-w-[64ch] text-[14px] leading-normal text-stone-600">{intro}</div>}
+        <h2 className="font-display text-[26px] font-semibold leading-tight text-ink sm:text-[28px] max-lg:text-[24px]!">{title}</h2>
+        {intro && <div className="mt-1.5 max-w-[64ch] text-[14px] leading-normal text-stone-600 max-lg:text-[12.5px] max-lg:text-app-ink-2">{intro}</div>}
       </div>
     </div>
   );
@@ -93,7 +95,7 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={`mt-6 ${panelClass} ${panelPad} ${className}`}>
+    <section className={`mt-6 max-lg:mt-3.5 ${panelClass} ${panelPad} ${className}`}>
       <GoldHairline />
       {title && <PanelHeading toolId={toolId} title={title} intro={intro} />}
       {children}
@@ -133,11 +135,11 @@ export function FormCard({
         e.preventDefault();
         if (!busy) onSubmit();
       }}
-      className={`mt-6 ${panelClass} ${panelPad}`}
+      className={`mt-6 max-lg:mt-3.5 ${panelClass} ${panelPad}`}
     >
       <GoldHairline />
       <PanelHeading toolId={toolId} title={title} intro={intro} />
-      <div className={`mt-5 grid gap-x-5 gap-y-4 ${columns ? "sm:grid-cols-2" : ""}`}>{children}</div>
+      <div className={`mt-5 grid gap-x-5 gap-y-4 max-lg:mt-4 max-lg:gap-y-3 ${columns ? "sm:grid-cols-2" : ""}`}>{children}</div>
       {error && <ErrorNote>{error}</ErrorNote>}
       <SubmitButton busy={busy} label={submitLabel} busyLabel={busyLabel} />
     </form>
@@ -151,7 +153,7 @@ export function SubmitButton({ busy, label, busyLabel }: { busy: boolean; label:
       type="submit"
       disabled={busy}
       aria-busy={busy}
-      className="az-cta mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full px-7 text-[15px] font-bold disabled:cursor-wait disabled:opacity-75 sm:w-auto"
+      className={`az-cta mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full px-7 text-[15px] font-bold disabled:cursor-wait disabled:opacity-75 sm:w-auto max-lg:mt-5 ${APP_CTA}`}
     >
       {busy && <Spinner />}
       {busy ? busyLabel : label}
@@ -238,7 +240,7 @@ export function ResultCard({
   }
 
   return (
-    <section aria-live="polite" className={`az-rise mt-6 ${panelClass} ${panelPad}`}>
+    <section aria-live="polite" className={`az-rise mt-6 max-lg:mt-3.5 ${panelClass} ${panelPad}`}>
       <GoldHairline />
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3 border-b border-line-soft pb-5">
         <div className="min-w-0">
@@ -246,7 +248,7 @@ export function ResultCard({
             <span aria-hidden="true">✦</span>
             {eyebrow}
           </div>
-          <h2 className="mt-1 break-words font-display text-[28px] font-semibold leading-tight text-ink sm:text-[32px]">{title}</h2>
+          <h2 className="mt-1 break-words font-display text-[28px] font-semibold leading-tight text-ink sm:text-[32px] max-lg:text-[26px]!">{title}</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {actions}
@@ -265,7 +267,7 @@ export function ResultCard({
         </div>
       </div>
       <div className="mt-6 min-w-0">{children}</div>
-      <div className="mt-6 flex items-start gap-3 rounded-[14px] border border-blue-200 bg-blue-50 px-[15px] py-[13px]">
+      <div className="mt-6 flex items-start gap-3 rounded-[14px] border border-blue-200 bg-blue-50 px-[15px] py-[13px] max-lg:rounded-app-btn max-lg:border-0 max-lg:bg-app-info-bg">
         <span className="text-[15px] leading-[1.3]">ⓘ</span>
         <div className="text-[13px] leading-normal text-blue-800">
           <b>AI-generated — for guidance; not professional advice.</b> Read the{" "}
@@ -281,7 +283,7 @@ export function ResultCard({
         </span>
         <Link
           href="/astrologers"
-          className="az-cta inline-flex h-11 w-full items-center justify-center rounded-full px-5 text-sm font-bold hover:text-cta-ink hover:no-underline sm:w-auto"
+          className={`az-cta inline-flex h-11 w-full items-center justify-center rounded-full px-5 text-sm font-bold hover:text-cta-ink hover:no-underline sm:w-auto ${APP_CTA} max-lg:text-[15px]`}
         >
           Ask an astrologer about this →
         </Link>
@@ -303,7 +305,11 @@ export function PillToggle({
   label?: string;
 }) {
   return (
-    <div role="group" aria-label={label} className="inline-flex rounded-full border border-line-warm bg-[#f8f0de] p-1">
+    <div
+      role="group"
+      aria-label={label}
+      className="inline-flex rounded-full border border-line-warm bg-[#f8f0de] p-1 max-lg:border-app-line max-lg:bg-app-surface"
+    >
       {options.map((o) => {
         const on = o.key === value;
         return (
@@ -313,7 +319,7 @@ export function PillToggle({
             aria-pressed={on}
             onClick={() => onChange(o.key)}
             className={`h-8 rounded-full px-3.5 text-[13px] font-bold ${
-              on ? "bg-amber-500 text-ink shadow-[0_2px_6px_rgba(180,83,9,.25)]" : "text-stone-600 hover:text-ink"
+              on ? "bg-amber-500 text-ink shadow-[0_2px_6px_rgba(180,83,9,.25)] max-lg:bg-app-primary max-lg:shadow-none" : "text-stone-600 hover:text-ink"
             }`}
           >
             {o.label}
@@ -327,7 +333,7 @@ export function PillToggle({
 /** A skeleton of a result while it loads: header, a row of stat chips and a block. */
 export function LoadingCard({ label }: { label: string }) {
   return (
-    <section aria-busy="true" className={`mt-6 ${panelClass} ${panelPad}`}>
+    <section aria-busy="true" className={`mt-6 max-lg:mt-3.5 ${panelClass} ${panelPad}`}>
       <GoldHairline />
       <div className="flex items-center gap-2 text-[13px] font-semibold text-amber-900" role="status">
         <span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-amber-200 border-t-amber-600" />
@@ -347,12 +353,12 @@ export function LoadingCard({ label }: { label: string }) {
 /** An error panel with a retry button. */
 export function FailedCard({ error, retry }: { error: string; retry: () => void }) {
   return (
-    <section className={`mt-6 ${panelClass} ${panelPad}`}>
+    <section className={`mt-6 max-lg:mt-3.5 ${panelClass} ${panelPad}`}>
       <ErrorNote>{error}</ErrorNote>
       <button
         type="button"
         onClick={retry}
-        className="mt-3 h-10 rounded-full border border-line bg-white px-4 text-[13px] font-bold text-ink hover:border-amber-400"
+        className={`mt-3 h-10 rounded-full border border-line bg-white px-4 text-[13px] font-bold text-ink hover:border-amber-400 ${APP_SECONDARY}`}
       >
         Try again
       </button>

@@ -111,7 +111,18 @@ export function uploadFile<T>(path: string, file: PreparedFile, caption: string,
 }
 
 /** Paperclip button that opens the file picker. */
-export function AttachButton({ onPick, disabled, size = 48 }: { onPick: (file: File) => void; disabled?: boolean; size?: number }) {
+export function AttachButton({
+  onPick,
+  disabled,
+  size = 48,
+  className = "",
+}: {
+  onPick: (file: File) => void;
+  disabled?: boolean;
+  size?: number;
+  /** Extra classes (the customer messenger restyles it below 1024px). */
+  className?: string;
+}) {
   const input = useRef<HTMLInputElement>(null);
   return (
     <>
@@ -134,7 +145,7 @@ export function AttachButton({ onPick, disabled, size = 48 }: { onPick: (file: F
         disabled={disabled}
         aria-label="Attach a photo or video"
         title="Attach a photo or video"
-        className="grid shrink-0 place-items-center rounded-full border border-line bg-white text-stone-600 hover:border-amber-300 hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+        className={`grid shrink-0 place-items-center rounded-full border border-line bg-white text-stone-600 hover:border-amber-300 hover:text-ink disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
         style={{ width: size, height: size }}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

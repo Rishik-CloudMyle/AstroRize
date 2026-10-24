@@ -5,11 +5,16 @@ import { useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import { sessionActions, type ApiUser } from "@/lib/session-store";
 import PasswordInput from "../ui/password-input";
+import { APP_CTA, APP_INPUT, APP_LABEL, APP_SECONDARY } from "./app-look";
+import OtpInput from "./otp-input";
 
 export type LoginMethod = "phone" | "email";
 
-const FIELD =
-  "min-h-[52px] w-full rounded-xl border border-line bg-white px-3 text-base text-ink outline-none focus:border-amber-500";
+const FIELD = `min-h-[52px] w-full rounded-xl border border-line bg-white px-3 text-base text-ink outline-none focus:border-amber-500 ${APP_INPUT} max-lg:min-h-[50px] max-lg:border-app-line`;
+
+/** The "+91 | number" field: the app's 50px input on phones/tablets. */
+export const PHONE_BOX =
+  "mt-1.5 flex min-h-[52px] items-center overflow-hidden rounded-xl border border-line bg-white max-lg:min-h-[50px] max-lg:rounded-app-input max-lg:border-app-line max-lg:bg-app-surface max-lg:focus-within:border-app-selected";
 
 /**
  * The sign-in form used by the login window and the /login page.
@@ -100,10 +105,10 @@ export default function LoginForm({
     <>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <Heading id={headingId} className="m-0 font-display text-[27px] font-semibold text-ink">
+          <Heading id={headingId} className="m-0 font-display text-[27px] font-semibold text-ink max-lg:text-[30px] max-lg:leading-tight">
             {onOtpStep ? "Enter the code" : "Log in to continue"}
           </Heading>
-          <p className="mt-1 text-[13px] text-stone-500">
+          <p className="mt-1 text-[13px] text-stone-500 max-lg:text-[12px] max-lg:text-app-ink-2">
             {onOtpStep
               ? `We sent a six-digit code to +91 ${phone.slice(0, 5)} ${phone.slice(5)}.`
               : method === "email"
@@ -121,7 +126,11 @@ export default function LoginForm({
       )}
 
       {!onOtpStep && (
-        <div role="tablist" aria-label="Sign-in method" className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-cream p-1">
+        <div
+          role="tablist"
+          aria-label="Sign-in method"
+          className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-cream p-1 max-lg:rounded-app-btn max-lg:border max-lg:border-app-line max-lg:bg-app-surface"
+        >
           {(
             [
               ["phone", "Mobile number"],
@@ -135,7 +144,9 @@ export default function LoginForm({
               aria-selected={method === key}
               onClick={() => switchMethod(key)}
               className={`h-9 rounded-[10px] text-[13px] font-bold ${
-                method === key ? "bg-white text-ink shadow-[0_1px_3px_rgba(90,62,40,.15)]" : "text-stone-500"
+                method === key
+                  ? "bg-white text-ink shadow-[0_1px_3px_rgba(90,62,40,.15)] max-lg:bg-app-primary max-lg:text-app-on-primary max-lg:shadow-none"
+                  : "text-stone-500 max-lg:text-app-ink-2"
               }`}
             >
               {label}
@@ -147,7 +158,7 @@ export default function LoginForm({
       {method === "email" ? (
         <form onSubmit={submitEmail} noValidate>
           <div className="mt-[18px]">
-            <label htmlFor={`${headingId}-email`} className="text-xs font-semibold text-stone-600">
+            <label htmlFor={`${headingId}-email`} className={`text-xs font-semibold text-stone-600 ${APP_LABEL}`}>
               Email
             </label>
             <input
@@ -164,7 +175,7 @@ export default function LoginForm({
             />
           </div>
           <div className="mt-3">
-            <label htmlFor={`${headingId}-password`} className="text-xs font-semibold text-stone-600">
+            <label htmlFor={`${headingId}-password`} className={`text-xs font-semibold text-stone-600 ${APP_LABEL}`}>
               Password
             </label>
             <PasswordInput
@@ -180,7 +191,7 @@ export default function LoginForm({
             />
           </div>
           {errorLine}
-          <button type="submit" disabled={busy} className="az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold">
+          <button type="submit" disabled={busy} className={`az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold ${APP_CTA}`}>
             Log in
           </button>
         </form>
@@ -193,11 +204,11 @@ export default function LoginForm({
           }}
         >
           <div className="mt-[18px]">
-            <label htmlFor={`${headingId}-phone`} className="text-xs font-semibold text-stone-600">
+            <label htmlFor={`${headingId}-phone`} className={`text-xs font-semibold text-stone-600 ${APP_LABEL}`}>
               Mobile number
             </label>
-            <div className="mt-1.5 flex min-h-[52px] items-center overflow-hidden rounded-xl border border-line bg-white">
-              <span className="border-r border-line px-[13px] font-bold text-stone-600">+91</span>
+            <div className={PHONE_BOX}>
+              <span className="border-r border-line px-[13px] font-bold text-stone-600 max-lg:border-app-line max-lg:text-app-ink">+91</span>
               <input
                 id={`${headingId}-phone`}
                 inputMode="numeric"
@@ -213,7 +224,7 @@ export default function LoginForm({
             </div>
           </div>
           {errorLine}
-          <button type="submit" disabled={busy} className="az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold">
+          <button type="submit" disabled={busy} className={`az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold ${APP_CTA}`}>
             Send OTP
           </button>
         </form>
@@ -226,17 +237,15 @@ export default function LoginForm({
           }}
         >
           <div className="mt-[18px]">
-            <label htmlFor={`${headingId}-otp`} className="text-xs font-semibold text-stone-600">
+            <label htmlFor={`${headingId}-otp`} className={`text-xs font-semibold text-stone-600 ${APP_LABEL}`}>
               Six-digit code
             </label>
-            <input
+            <OtpInput
               id={`${headingId}-otp`}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              placeholder="••••••"
               value={otp}
-              onChange={(e) => {
-                setOtp(e.target.value.replace(/\D/g, "").slice(0, 6));
+              invalid={!!error}
+              onChange={(digits) => {
+                setOtp(digits);
                 setError("");
               }}
               className="mt-1.5 min-h-[52px] w-full rounded-xl border border-line bg-white px-3 text-center text-xl font-bold tracking-[.4em] text-ink outline-none"
@@ -248,7 +257,7 @@ export default function LoginForm({
             </p>
           )}
           {errorLine}
-          <button type="submit" disabled={busy} className="az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold">
+          <button type="submit" disabled={busy} className={`az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold ${APP_CTA}`}>
             Verify and log in
           </button>
           <button
@@ -258,14 +267,14 @@ export default function LoginForm({
               setOtp("");
               setError("");
             }}
-            className="mt-2 w-full text-[13px] font-semibold text-amber-700"
+            className="mt-2 w-full text-[13px] font-semibold text-amber-700 max-lg:min-h-app-hit max-lg:text-app-accent"
           >
             Change number
           </button>
         </form>
       )}
 
-      <div className="mt-4 border-t border-line-soft pt-3.5 text-center">
+      <div className="mt-4 border-t border-line-soft pt-3.5 text-center max-lg:border-app-line">
         <p className="m-0 text-[13px] text-stone-600">
           New here?{" "}
           <Link href="/signup" onClick={onLeave} className="font-bold">
@@ -275,7 +284,7 @@ export default function LoginForm({
         <button
           type="button"
           onClick={onGuest}
-          className="mt-2.5 h-11 w-full rounded-full border border-line bg-white text-[14px] font-bold text-ink"
+          className={`mt-2.5 h-11 w-full rounded-full border border-line bg-white text-[14px] font-bold text-ink ${APP_SECONDARY} max-lg:text-[15px]`}
         >
           Continue as guest
         </button>

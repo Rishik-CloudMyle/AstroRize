@@ -6,7 +6,7 @@ import {
   GRAHA_NAMES, NAKSHATRA_GANA, NAKSHATRA_YONI, RASHI_LORD, VARNA, VARNA_NAMES, VASHYA_NAMES, YONI_ANIMALS,
   YONI_POINTS, ganaPoints, nakshatraNadi, relation, vashyaGroup, vashyaPoints,
 } from "./constants.ts";
-import { angles, grahaPositions } from "./ephemeris.ts";
+import { angles, grahaPositions, outsideTestedRange } from "./ephemeris.ts";
 import { nakshatraInfo, signInfo, type NakshatraInfo, type SignInfo } from "./kundli.ts";
 import { zonedToUtc } from "./time.ts";
 
@@ -48,6 +48,10 @@ export interface PersonMoon {
   nakshatra: NakshatraInfo;
   /** The Moon changed nakshatra or sign during the birth date and no time was given. */
   uncertain: boolean;
+  /** No birth time was given, so 12:00 noon local time at the birthplace was used. */
+  timeAssumed: boolean;
+  /** The birth date is outside 1700–2200, where the ephemeris is less certain. */
+  outsideTestedRange: boolean;
   mangal: MangalDosha;
 }
 
@@ -63,6 +67,27 @@ export interface Match {
 }
 
 const DOSHA_HOUSES = new Set([1, 2, 4, 7, 8, 12]);
+
+/**
+ * Mangal (Kuja) dosha: Mars in the 1st, 2nd, 4th, 7th, 8th or 12th house counted (whole-sign) from
+ * the lagna or from the Moon. `lagnaLongitude` null = no birth time (Moon only). The classical
+ * cancellations below are listed, not used to clear the flag. Shared by the Kundli's dosha section.
+ */
+export function mangalDosha(marsLongitude: number, moonLongitude: number, lagnaLongitude: number | null, jupiterLongitude: number): MangalDosha {
+  const moonSign = Math.floor(moonLongitude / 30);
+  const marsSign = Math.floor(marsLongitude / 30);
+  const fromMoon = ((marsSign - moonSign + 12) % 12) + 1;
+  const fromLagna = lagnaLongitude !== null ? ((marsSign - Math.floor(lagnaLongitude / 30) + 12) % 12) + 1 : null;
+  const present = DOSHA_HOUSES.has(fromMoon) || (fromLagna !== null && DOSHA_HOUSES.has(fromLagna));
+  const cancellations: string[] = [];
+  if (present) {
+    if (marsSign === 0 || marsSign === 7) cancellations.push(`Mars is in its own sign (${signInfo(marsSign).name}).`);
+    if (marsSign === 9) cancellations.push("Mars is exalted in Capricorn.");
+    if (Math.floor(jupiterLongitude / 30) === marsSign) cancellations.push("Mars is joined by Jupiter.");
+    if (moonSign === marsSign) cancellations.push("Mars is joined by the Moon.");
+  }
+  return { present, fromLagna, fromMoon, marsSign: signInfo(marsSign), cancellations };
+}
 
 function personMoon(p: MatchPerson, fallbackName: string): PersonMoon {
   const time = p.time ?? "12:00";
@@ -82,17 +107,8 @@ function personMoon(p: MatchPerson, fallbackName: string): PersonMoon {
   }
 
   const moonSign = Math.floor(moon.longitude / 30);
-  const marsSign = Math.floor(mars.longitude / 30);
-  const fromMoon = ((marsSign - moonSign + 12) % 12) + 1;
-  const fromLagna = p.time ? ((marsSign - Math.floor(angles(z.utc, p.latitude, p.longitude).ascendant / 30) + 12) % 12) + 1 : null;
-  const present = DOSHA_HOUSES.has(fromMoon) || (fromLagna !== null && DOSHA_HOUSES.has(fromLagna));
-  const cancellations: string[] = [];
-  if (present) {
-    if (marsSign === 0 || marsSign === 7) cancellations.push(`Mars is in its own sign (${signInfo(marsSign).name}).`);
-    if (marsSign === 9) cancellations.push("Mars is exalted in Capricorn.");
-    if (Math.floor(jupiter.longitude / 30) === marsSign) cancellations.push("Mars is joined by Jupiter.");
-    if (moonSign === marsSign) cancellations.push("Mars is joined by the Moon.");
-  }
+  const lagna = p.time ? angles(z.utc, p.latitude, p.longitude).ascendant : null;
+  const mangal = mangalDosha(mars.longitude, moon.longitude, lagna, jupiter.longitude);
 
   return {
     name: p.name?.trim() || fallbackName,
@@ -100,7 +116,9 @@ function personMoon(p: MatchPerson, fallbackName: string): PersonMoon {
     moonSign: signInfo(moonSign),
     nakshatra: nakshatraInfo(moon.longitude),
     uncertain,
-    mangal: { present, fromLagna, fromMoon, marsSign: signInfo(marsSign), cancellations },
+    timeAssumed: !p.time,
+    outsideTestedRange: outsideTestedRange(p.date),
+    mangal,
   };
 }
 

@@ -7,7 +7,9 @@ import { GRAHA_NAMES, type GrahaKey } from "./constants.ts";
 import { currentDasha, type DashaPeriod } from "./dasha.ts";
 import { grahaPositions, trueLahiri, type NodeKind } from "./ephemeris.ts";
 import { buildHoroscope, type Horoscope, type HoroscopeInput } from "./horoscope.ts";
-import { buildKundli, zodiacPoint, type BirthInput, type Kundli, type ZodiacPoint } from "./kundli.ts";
+import { buildKundli, completeKundli, zodiacPoint, type BirthInput, type Kundli, type ZodiacPoint } from "./kundli.ts";
+import { kundliToday, type KundliToday } from "./kundli-live.ts";
+import { kundliReading, type KundliReading } from "./readings.ts";
 import { matchmaking, type Match, type MatchPerson } from "./matchmaking.ts";
 import { buildPanchang, type Panchang, type PanchangInput } from "./panchang.ts";
 
@@ -37,6 +39,12 @@ export interface CurrentDasha {
 export interface AstroEngine {
   readonly label: string;
   kundli(input: BirthInput): Kundli;
+  /** A saved Kundli with any fields added since it was saved worked out from its stored data. */
+  completeKundli(stored: Kundli): Kundli;
+  /** Transits in the chart's houses, Sade Sati and the running Yogini dasha at `at`. */
+  kundliToday(k: Kundli, at: Date): KundliToday;
+  /** Ascendant summary and per-graha readings (deterministic phrase library). */
+  kundliReading(k: Kundli): KundliReading;
   /** Dasha running at `at` for a kundli's mahadashas. */
   currentDasha(mahadashas: DashaPeriod[], at: Date): CurrentDasha | null;
   matchmaking(boy: MatchPerson, girl: MatchPerson): Match;
@@ -48,6 +56,9 @@ export interface AstroEngine {
 export const astrorizeEngine: AstroEngine = {
   label: ENGINE_LABEL,
   kundli: buildKundli,
+  completeKundli,
+  kundliToday,
+  kundliReading,
   currentDasha,
   matchmaking,
   panchang: buildPanchang,

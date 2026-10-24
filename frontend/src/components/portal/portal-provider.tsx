@@ -187,7 +187,7 @@ export default function PortalProvider({ account, children }: { account: Account
       {toastMessage && (
         <div
           role="status"
-          className="az-toast fixed bottom-7 left-1/2 z-[300] flex w-[calc(100%-32px)] max-w-[600px] -translate-x-1/2 items-start gap-[11px] rounded-[14px] bg-ink px-[18px] py-3.5 text-line shadow-[0_16px_40px_rgba(11,31,51,.3)] min-[640px]:w-max"
+          className="az-toast fixed bottom-7 left-1/2 z-[300] max-lg:bottom-[calc(20px+var(--app-tabbar-space))] flex w-[calc(100%-32px)] max-w-[600px] -translate-x-1/2 items-start gap-[11px] rounded-[14px] bg-ink px-[18px] py-3.5 text-line shadow-[0_16px_40px_rgba(11,31,51,.3)] min-[640px]:w-max"
         >
           {toastMessage.tone === "error" ? (
             <span className="text-sm text-rose-300">!</span>

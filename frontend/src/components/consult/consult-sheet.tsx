@@ -110,7 +110,7 @@ export default function ConsultSheet({
 
   return (
     <div
-      className="fixed inset-0 z-[150] flex items-end justify-center bg-[rgba(28,25,23,.5)] sm:items-center sm:p-6"
+      className="fixed inset-0 z-[150] flex items-end justify-center bg-[rgba(28,25,23,.5)] max-lg:bg-app-scrim lg:items-center lg:p-6"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -121,13 +121,13 @@ export default function ConsultSheet({
         aria-modal="true"
         aria-labelledby="consult-sheet-title"
         tabIndex={-1}
-        className="relative motion-safe:animate-[azToastIn_.28s_ease-out_both] max-h-[92dvh] w-full overflow-y-auto rounded-t-[26px] bg-paper px-4 pb-6 pt-3 shadow-[0_-12px_40px_rgba(11,31,51,.22)] outline-none sm:max-w-[520px] sm:rounded-[26px] sm:px-6 sm:pb-7 sm:pt-6"
+        className="relative motion-safe:animate-[azToastIn_.28s_ease-out_both] max-h-[92dvh] w-full overflow-y-auto rounded-t-[26px] bg-paper px-4 pb-6 pt-3 shadow-[0_-12px_40px_rgba(11,31,51,.22)] outline-none lg:max-w-[520px] lg:rounded-[26px] lg:px-6 lg:pb-7 lg:pt-6 max-lg:max-h-[85dvh] max-lg:overscroll-contain max-lg:rounded-t-app-modal max-lg:bg-app-elev max-lg:pb-[calc(24px+var(--app-safe-bottom))] max-lg:shadow-app-modal"
       >
-        <span aria-hidden="true" className="mx-auto mb-3 block h-1 w-10 rounded-full bg-stone-300 sm:hidden" />
+        <span aria-hidden="true" className="mx-auto mb-3 block h-1 w-10 rounded-full bg-stone-300 lg:hidden max-lg:mt-1 max-lg:w-9 max-lg:bg-app-line" />
         <div className="flex items-center gap-3">
           <Portrait astrologer={a} size={48} statusDot />
           <div className="min-w-0 flex-1">
-            <h2 id="consult-sheet-title" className="truncate font-display text-[24px] font-semibold leading-tight text-ink">
+            <h2 id="consult-sheet-title" className="truncate font-display text-[24px] font-semibold leading-tight text-ink max-lg:font-sans max-lg:text-[18px] max-lg:font-bold">
               {state === "live" ? `${a.name} is live` : state === "off" ? `${a.name} is unavailable` : `Consult ${a.name}`}
             </h2>
             <SheetLead state={state} freeHere={freeHere} freeSecs={freeSecs} replacement={replacement} />
@@ -136,7 +136,7 @@ export default function ConsultSheet({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="grid size-9 shrink-0 place-items-center self-start rounded-full bg-cream text-base text-stone-600 hover:bg-line-soft"
+            className="grid size-9 shrink-0 place-items-center self-start rounded-full bg-cream text-base text-stone-600 hover:bg-line-soft max-lg:size-10 max-lg:bg-app-surface max-lg:shadow-[inset_0_0_0_1px_#e7e0d6]"
           >
             ✕
           </button>
@@ -151,7 +151,7 @@ export default function ConsultSheet({
             <Link
               href={`/live?room=${encodeURIComponent(a.id)}`}
               onClick={onClose}
-              className="mt-5 flex h-12 items-center justify-center gap-2 rounded-[14px] bg-urgent text-[15px] font-bold text-white hover:text-white hover:no-underline"
+              className="mt-5 flex h-12 items-center justify-center gap-2 rounded-[14px] max-lg:rounded-app-btn bg-urgent text-[15px] font-bold text-white hover:text-white hover:no-underline"
             >
               <span className="az-live-dot size-2 rounded-full bg-white" aria-hidden="true" />
               Join live
@@ -168,7 +168,7 @@ export default function ConsultSheet({
             <Link
               href="/astrologers?availability=Available"
               onClick={onClose}
-              className="az-cta mt-5 flex h-12 items-center justify-center rounded-[14px] text-[15px] font-bold hover:text-cta-ink hover:no-underline"
+              className="az-cta mt-5 flex h-12 items-center justify-center rounded-[14px] text-[15px] font-bold hover:text-cta-ink hover:no-underline max-lg:rounded-app-btn max-lg:bg-none max-lg:bg-app-primary max-lg:text-app-on-primary max-lg:shadow-none"
             >
               See astrologers available now
             </Link>
@@ -200,7 +200,7 @@ export default function ConsultSheet({
                     aria-disabled={disabled}
                     disabled={disabled}
                     onClick={() => onChoose(row.key)}
-                    className={`group flex min-h-[60px] w-full items-center gap-3 rounded-2xl border-2 px-3.5 py-2.5 text-left transition-colors disabled:cursor-not-allowed ${
+                    className={`group flex min-h-[60px] w-full items-center gap-3 rounded-2xl border-2 px-3.5 py-2.5 text-left max-lg:min-h-[52px] max-lg:gap-2.5 max-lg:rounded-app-btn max-lg:px-3 transition-colors disabled:cursor-not-allowed ${
                       disabled
                         ? "border-rose-100 bg-white/70"
                         : on
@@ -306,14 +306,14 @@ export default function ConsultSheet({
                   type="button"
                   onClick={onStart}
                   disabled={!selected || !eligible || busy}
-                  className={`mt-4 min-h-[54px] w-full rounded-[14px] text-[15.5px] font-bold transition-colors ${
+                  className={`mt-4 min-h-[54px] w-full rounded-[14px] text-[15.5px] font-bold transition-colors max-lg:min-h-12 max-lg:rounded-app-btn max-lg:text-[15px] ${
                     !selected || !eligible || busy
                       ? "cursor-not-allowed bg-stone-200 text-stone-500"
                       : selected === "instant"
                         ? "bg-blue-700 text-white hover:bg-blue-800"
                         : free
                           ? "bg-emerald-700 text-white hover:bg-emerald-800"
-                          : "az-cta"
+                          : "az-cta max-lg:bg-none max-lg:bg-app-primary max-lg:text-app-on-primary max-lg:shadow-none"
                   }`}
                 >
                   {startLabel(state, selected, free, rate, busy)}
@@ -459,7 +459,7 @@ function CloseRow({ onClose }: { onClose: () => void }) {
     <button
       type="button"
       onClick={onClose}
-      className="mt-2.5 min-h-[48px] w-full rounded-[14px] border border-line bg-white text-[15px] font-bold text-ink"
+      className="mt-2.5 min-h-[48px] w-full rounded-[14px] border border-line bg-white text-[15px] font-bold text-ink max-lg:rounded-app-btn max-lg:border-app-line max-lg:bg-transparent"
     >
       Close
     </button>

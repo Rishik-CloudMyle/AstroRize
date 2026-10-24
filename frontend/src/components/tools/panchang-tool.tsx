@@ -4,9 +4,14 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import {
+  DATE_LIMIT_MESSAGE,
+  DATE_RANGE_NOTE,
+  MAX_DATE,
+  MIN_DATE,
   coords,
   getPanchang,
   longDate,
+  outsideTestedRange,
   stampTime,
   type Limb,
   type Panchang,
@@ -29,7 +34,7 @@ interface Query {
 }
 
 type Loaded =
-  | { key: string; ok: true; place: PanchangPlace; panchang: Panchang }
+  | { key: string; ok: true; place: PanchangPlace; defaultPlace: boolean; panchang: Panchang }
   | { key: string; ok: false; error: string };
 
 const keyOf = (q: Query) => `${q.date ?? ""}|${q.placeId ?? ""}`;
@@ -48,9 +53,9 @@ export default function PanchangTool({ tool }: { tool: Tool }) {
   useEffect(() => {
     let cancelled = false;
     getPanchang(query.date, query.placeId)
-      .then(({ place: p, panchang }) => {
+      .then(({ place: p, defaultPlace, panchang }) => {
         if (cancelled) return;
-        setLoaded({ key, ok: true, place: p, panchang });
+        setLoaded({ key, ok: true, place: p, defaultPlace: defaultPlace ?? !p.placeId, panchang });
         // A place from the link: show it in the picker. (New Delhi, the default, has no id.)
         if (p.placeId) setPlace((cur) => cur ?? { id: p.placeId!, name: p.name, latitude: p.latitude, longitude: p.longitude, timezone: p.timezone });
         setDate((d) => d || panchang.date);
@@ -65,8 +70,8 @@ export default function PanchangTool({ tool }: { tool: Tool }) {
   }, [key, query.date, query.placeId]);
 
   function submit() {
-    if (date && (date < "1800-01-01" || date > "2200-12-31")) {
-      setFormError("Dates from 1800 to 2200 are supported.");
+    if (date && (date < MIN_DATE || date > MAX_DATE)) {
+      setFormError(DATE_LIMIT_MESSAGE);
       return;
     }
     setFormError(null);
@@ -96,8 +101,11 @@ export default function PanchangTool({ tool }: { tool: Tool }) {
         onSubmit={submit}
       >
         <BirthPlaceInput label="Place" value={place} onChange={setPlace} hint="Leave empty for New Delhi. Type a town, then press Search." />
-        <Field label="Date" hint="Leave empty for today at that place.">
-          <input type="date" min="1800-01-01" max="2200-12-31" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} />
+        <Field
+          label="Date"
+          hint={date && outsideTestedRange(date) ? <span className="text-orange-800">{DATE_RANGE_NOTE}</span> : "Leave empty for today at that place."}
+        >
+          <input type="date" min={MIN_DATE} max={MAX_DATE} value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} />
         </Field>
       </FormCard>
 
@@ -106,13 +114,25 @@ export default function PanchangTool({ tool }: { tool: Tool }) {
       ) : !current.ok ? (
         <FailedCard error={current.error} retry={() => setAttempt((a) => a + 1)} />
       ) : (
-        <PanchangResult tool={tool} place={current.place} p={current.panchang} sharePath={share} />
+        <PanchangResult tool={tool} place={current.place} defaultPlace={current.defaultPlace} p={current.panchang} sharePath={share} />
       )}
     </>
   );
 }
 
-function PanchangResult({ tool, place, p, sharePath }: { tool: Tool; place: PanchangPlace; p: Panchang; sharePath?: string }) {
+function PanchangResult({
+  tool,
+  place,
+  defaultPlace,
+  p,
+  sharePath,
+}: {
+  tool: Tool;
+  place: PanchangPlace;
+  defaultPlace: boolean;
+  p: Panchang;
+  sharePath?: string;
+}) {
   const day = p.date;
   const at = (s: Stamp | null) => (s ? stampTime(s, day) : "Does not occur");
   const span = (s: Span | null) => (s ? `${stampTime(s.start, day)} – ${stampTime(s.end, day)}` : "—");
@@ -120,6 +140,16 @@ function PanchangResult({ tool, place, p, sharePath }: { tool: Tool; place: Panc
 
   return (
     <ResultCard tool={tool} eyebrow={`Panchang · ${place.name}`} title={longDate(p.date)} sharePath={sharePath}>
+      {defaultPlace && (
+        <p className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[13px] font-semibold text-amber-900">
+          Showing New Delhi — choose your city for local times.
+        </p>
+      )}
+      {p.outsideTestedRange && (
+        <p role="alert" className="mb-5 rounded-xl border border-orange-200 bg-orange-50 px-3.5 py-2.5 text-[13px] text-orange-800">
+          {DATE_RANGE_NOTE}
+        </p>
+      )}
       {p.note && (
         <p className="mb-5 rounded-xl border border-orange-200 bg-orange-50 px-3.5 py-2.5 text-[13px] text-orange-800">{p.note}</p>
       )}
@@ -137,6 +167,7 @@ function PanchangResult({ tool, place, p, sharePath }: { tool: Tool; place: Panc
       </div>
 
       <SectionTitle className="mt-8">The five limbs</SectionTitle>
+      <p className="-mt-1.5 mb-3 text-[12.5px] font-semibold text-stone-600">Limbs at local sunrise, each with the time it ends.</p>
       <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 min-[480px]:grid-cols-2 lg:grid-cols-3">
         <LimbCard label="Tithi" items={p.tithi.map((t) => ({ ...t, name: `${t.paksha} ${t.name}` }))} day={day} />
         <LimbCard label="Nakshatra" items={p.nakshatra} day={day} />

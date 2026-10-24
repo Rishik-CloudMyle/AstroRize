@@ -103,7 +103,7 @@ export default function GalleryEditor({ photos, max, maxMb }: { photos: string[]
   }
 
   const iconBtn =
-    "grid size-8 place-items-center rounded-full bg-white/95 text-[13px] font-bold text-ink shadow-[0_2px_6px_rgba(0,0,0,.18)] aria-disabled:opacity-35 aria-disabled:cursor-not-allowed";
+    "grid size-8 max-lg:size-9 place-items-center rounded-full bg-white/95 text-[13px] font-bold text-ink shadow-[0_2px_6px_rgba(0,0,0,.18)] aria-disabled:opacity-35 aria-disabled:cursor-not-allowed";
 
   return (
     <div>
@@ -199,7 +199,7 @@ export default function GalleryEditor({ photos, max, maxMb }: { photos: string[]
 
       {confirm && (
         <Modal onClose={() => setConfirm(null)} labelledBy="remove-photo-title">
-          <h2 id="remove-photo-title" className="m-0 font-display text-[26px] font-semibold text-ink">
+          <h2 id="remove-photo-title" className="m-0 font-display text-[26px] font-semibold text-ink max-lg:font-sans max-lg:text-[18px] max-lg:font-bold">
             Remove this photo?
           </h2>
           <div className="relative mt-3 aspect-[4/3] overflow-hidden rounded-[14px] bg-cream">
@@ -208,11 +208,11 @@ export default function GalleryEditor({ photos, max, maxMb }: { photos: string[]
           <p className="mt-3 text-[13.5px] leading-normal text-stone-600">
             It disappears from your public profile straight away. You can add it again any time.
           </p>
-          <div className="mt-5 flex flex-wrap justify-end gap-2.5">
-            <button type="button" onClick={() => setConfirm(null)} className="h-11 rounded-xl border border-line bg-white px-5 text-[14px] font-bold text-ink">
+          <div className="mt-5 flex flex-wrap justify-end gap-2.5 max-lg:flex-nowrap">
+            <button type="button" onClick={() => setConfirm(null)} className="h-11 rounded-xl border border-line bg-white px-5 text-[14px] font-bold text-ink max-lg:flex-1 max-lg:rounded-app-btn max-lg:bg-transparent max-lg:px-3 max-lg:text-[15px]">
               Keep it
             </button>
-            <button type="button" onClick={() => void remove(confirm)} disabled={removing} className="h-11 rounded-xl bg-rose-700 px-5 text-[14px] font-bold text-white disabled:opacity-60">
+            <button type="button" onClick={() => void remove(confirm)} disabled={removing} className="h-11 rounded-xl bg-rose-700 px-5 text-[14px] font-bold text-white disabled:opacity-60 max-lg:flex-1 max-lg:rounded-app-btn max-lg:px-3 max-lg:text-[15px]">
               {removing ? "Removing…" : "Remove photo"}
             </button>
           </div>

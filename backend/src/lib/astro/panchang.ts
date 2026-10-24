@@ -8,9 +8,9 @@
 
 import { Body, MakeTime, Observer, SearchMoonPhase, SearchRiseSet } from "astronomy-engine";
 import {
-  GULIKA_PART, MOVABLE_KARANAS, NAKSHATRAS, RAHU_KAAL_PART, TITHI_NAMES, VARAS, YAMAGANDA_PART, YOGAS,
+  DASHA_ORDER, GULIKA_PART, MOVABLE_KARANAS, NAKSHATRAS, RAHU_KAAL_PART, TITHI_NAMES, VARAS, YAMAGANDA_PART, YOGAS,
 } from "./constants.ts";
-import { findCrossing, norm360, siderealLongitude } from "./ephemeris.ts";
+import { findCrossing, norm360, outsideTestedRange, siderealLongitude } from "./ephemeris.ts";
 import { signInfo, type SignInfo } from "./kundli.ts";
 import { DAY_MS, localParts, offsetLabel, parseDate, stamp, utcOffsetSeconds, zonedToUtc, type Stamp } from "./time.ts";
 
@@ -66,6 +66,8 @@ export interface Panchang {
   gulika: Span | null;
   /** The 8th of 15 daytime muhurtas. Traditionally not observed on Wednesdays. */
   abhijit: Span | null;
+  /** The date is outside 1700–2200, where the ephemeris is less certain. */
+  outsideTestedRange: boolean;
   /** Set when the Sun doesn't rise or set that day at this latitude. */
   note?: string;
 }
@@ -215,6 +217,61 @@ export function buildPanchang(input: PanchangInput): Panchang {
     yamaganda,
     gulika,
     abhijit,
+    outsideTestedRange: outsideTestedRange(input.date),
     ...(sunrise && sunset ? {} : { note: "The Sun does not both rise and set on this date at this latitude; limbs are given from local midnight." }),
+  };
+}
+
+/** The five limbs at one instant (a birth), not at sunrise. */
+export interface BirthPanchang {
+  tithi: { index: number; name: string; paksha: "Shukla" | "Krishna"; number: number };
+  /**
+   * The Vedic weekday: the day runs from sunrise to sunrise, so a birth before that date's sunrise
+   * belongs to the previous weekday (`beforeSunrise` true). Without a sunrise (polar day/night) the
+   * civil weekday is used.
+   */
+  vara: { index: number; name: string; sanskrit: string; lord: string; civil: string; beforeSunrise: boolean };
+  nakshatra: { index: number; name: string; pada: number; lord: string };
+  yoga: { index: number; name: string };
+  karana: { index: number; name: string };
+  sunrise: Stamp | null;
+  sunset: Stamp | null;
+}
+
+/** Panchang limbs at the birth moment `utc`, plus that civil date's sunrise and sunset at the place. */
+export function birthPanchang(date: string, utc: Date, latitude: number, longitude: number, tz: string): BirthPanchang {
+  const d = parseDate(date);
+  if (!d) throw new RangeError("Invalid date");
+  const observer = new Observer(latitude, longitude, 0);
+  const midnight = zonedToUtc(date, "00:00", tz).utc;
+  const nextDay = new Date(Date.UTC(d.year, d.month - 1, d.day) + DAY_MS).toISOString().slice(0, 10);
+  const nextMidnight = zonedToUtc(nextDay, "00:00", tz).utc;
+  const within = (t: ReturnType<typeof SearchRiseSet>) => (t && t.date < nextMidnight ? t.date : null);
+  const sunrise = within(SearchRiseSet(Body.Sun, observer, +1, midnight, 1));
+  const sunset = within(SearchRiseSet(Body.Sun, observer, -1, sunrise ?? midnight, 1));
+
+  const civil = localParts(new Date(Date.UTC(d.year, d.month - 1, d.day, 12)), "UTC").weekday;
+  const beforeSunrise = sunrise !== null && utc < sunrise;
+  const weekday = beforeSunrise ? (civil + 6) % 7 : civil;
+  const v = VARAS[weekday]!;
+
+  const tithiIndex = Math.floor(elongation(utc) / 12) % 30;
+  const moon = moonSid(utc);
+  const nakIndex = Math.min(26, Math.floor(moon / NAK));
+  const yogaIndex = Math.floor(yogaSum(utc) / NAK) % 27;
+  const karanaIndex = Math.floor(elongation(utc) / 6) % 60;
+  return {
+    tithi: { index: tithiIndex, ...tithiName(tithiIndex) },
+    vara: { index: weekday, name: v.en, sanskrit: v.sa, lord: v.lord, civil: VARAS[civil]!.en, beforeSunrise },
+    nakshatra: {
+      index: nakIndex,
+      name: NAKSHATRAS[nakIndex]!,
+      pada: Math.min(4, Math.floor((moon - nakIndex * NAK) / (NAK / 4)) + 1),
+      lord: DASHA_ORDER[nakIndex % 9]!,
+    },
+    yoga: { index: yogaIndex, name: YOGAS[yogaIndex]! },
+    karana: { index: karanaIndex, name: karanaName(karanaIndex) },
+    sunrise: sunrise ? stamp(sunrise, tz) : null,
+    sunset: sunset ? stamp(sunset, tz) : null,
   };
 }

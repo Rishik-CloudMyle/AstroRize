@@ -25,6 +25,16 @@ interface Feed {
   notifications: Notice[];
 }
 
+/** The prototype app's bell (part-a-mobile-app icons.bell). */
+function BellIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 9a6 6 0 1 1 12 0c0 7 2 7 2 9H4c0-2 2-2 2-9" />
+      <path d="M10 20a2 2 0 0 0 4 0" />
+    </svg>
+  );
+}
+
 /** "just now", "5 min ago", "3 h ago", "2 d ago", then the date. */
 function timeAgo(iso: string, now: number): string {
   const mins = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60_000));
@@ -37,7 +47,18 @@ function timeAgo(iso: string, now: number): string {
   return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
 }
 
-export default function NotificationBell({ align = "right" }: { align?: "left" | "right" }) {
+/**
+ * variant: "default" — the desktop header's round 38px bell;
+ *          "app" — the phone/tablet app header's 44px white square bell (prototype .icon-btn);
+ *          "row" — a full-width list row ("Notifications", unread count, chevron) for the Profile hub.
+ */
+export default function NotificationBell({
+  align = "right",
+  variant = "default",
+}: {
+  align?: "left" | "right";
+  variant?: "default" | "app" | "row";
+}) {
   const router = useRouter();
   const [feed, setFeed] = useState<Feed | null>(null);
   const [failed, setFailed] = useState(false);
@@ -103,43 +124,90 @@ export default function NotificationBell({ align = "right" }: { align?: "left" |
     if (n.href) router.push(n.href);
   };
 
+  const toggle = () => {
+    setOpen((o) => !o);
+    if (!open) load();
+  };
+
   const unread = feed?.unread ?? 0;
   const list = feed?.notifications ?? [];
 
   return (
     <div ref={wrap} className="relative">
-      <button
-        type="button"
-        onClick={() => {
-          setOpen((o) => !o);
-          if (!open) load();
-        }}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
-        className="relative grid size-[38px] place-items-center rounded-full border border-line bg-white text-stone-600 hover:bg-amber-50"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-        </svg>
-        {unread > 0 && (
-          <span
-            aria-hidden="true"
-            className="absolute -top-1 -right-1 grid h-[18px] min-w-[18px] place-items-center rounded-full border-2 border-paper bg-urgent px-1 text-[9.5px] leading-none font-extrabold text-white"
-          >
-            {unread > 99 ? "99+" : unread}
+      {variant === "row" ? (
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
+          className="flex min-h-app-hit w-full items-center gap-3 rounded-app-card border border-app-line bg-app-surface p-3 text-left text-[13.333px] text-app-ink shadow-app-card"
+        >
+          <span className="min-w-0 flex-1">Notifications</span>
+          {unread > 0 && (
+            <span aria-hidden="true" className="grid h-5 min-w-5 place-items-center rounded-full bg-app-urgent px-1.5 text-[10.5px] font-bold text-white">
+              {unread > 99 ? "99+" : unread}
+            </span>
+          )}
+          <span aria-hidden="true" className="text-app-ink-3">
+            ›
           </span>
-        )}
-      </button>
+        </button>
+      ) : variant === "app" ? (
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
+          className="relative grid size-app-hit place-items-center rounded-app-btn bg-app-surface text-app-ink"
+        >
+          <BellIcon size={22} />
+          {unread > 0 && (
+            <span
+              aria-hidden="true"
+              className="absolute top-1.5 right-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-app-urgent px-1 text-[10px] leading-none font-bold text-white"
+            >
+              {unread > 99 ? "99+" : unread}
+            </span>
+          )}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
+          className="relative grid size-[38px] place-items-center rounded-full border border-line bg-white text-stone-600 hover:bg-amber-50"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+          </svg>
+          {unread > 0 && (
+            <span
+              aria-hidden="true"
+              className="absolute -top-1 -right-1 grid h-[18px] min-w-[18px] place-items-center rounded-full border-2 border-paper bg-urgent px-1 text-[9.5px] leading-none font-extrabold text-white"
+            >
+              {unread > 99 ? "99+" : unread}
+            </span>
+          )}
+        </button>
+      )}
 
       {open && (
         <div
           role="dialog"
           aria-label="Notifications"
-          className={`fixed inset-x-3 top-[66px] z-[60] flex max-h-[min(72dvh,540px)] flex-col overflow-hidden rounded-2xl border border-line bg-paper shadow-[0_18px_48px_rgba(90,62,40,.22)] sm:absolute sm:inset-x-auto sm:top-[calc(100%+8px)] sm:w-[380px] ${
-            align === "right" ? "sm:right-0" : "sm:left-0"
-          }`}
+          className={
+            variant === "default"
+              ? `fixed inset-x-3 top-[66px] z-[60] flex max-h-[min(72dvh,540px)] flex-col overflow-hidden rounded-2xl border border-line bg-paper shadow-[0_18px_48px_rgba(90,62,40,.22)] sm:absolute sm:inset-x-auto sm:top-[calc(100%+8px)] sm:w-[380px] ${
+                  align === "right" ? "sm:right-0" : "sm:left-0"
+                }`
+              : // App look: a floating card under the app header on phones, beside the control on wider screens.
+                `fixed inset-x-3 top-[calc(64px+env(safe-area-inset-top))] z-[60] flex max-h-[min(70dvh,540px)] flex-col overflow-hidden rounded-app-card border border-app-line bg-app-elev shadow-app-float sm:absolute sm:inset-x-auto sm:top-[calc(100%+8px)] sm:right-0 sm:w-[380px]`
+          }
         >
           <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
             <b className="text-[15px] text-ink">Notifications</b>

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { api } from "@/lib/api/client";
 import type { FreeCalls } from "@/lib/portal/types";
 import { useErrorToast, useToast } from "../portal-provider";
-import { Panel } from "../ui";
+import { M_INPUT, M_LABEL, M_PRIMARY, Panel } from "../ui";
 
 /** "5 min", "30 min", "1 h", "1 h 30 min" */
 function lengthLabel(secs: number): string {
@@ -76,7 +76,7 @@ export default function FreeCallsCard({ freeCalls: f }: { freeCalls: FreeCalls }
           aria-label="Take free calls"
           onClick={() => void send({ enabled: !f.optedIn }, f.optedIn ? "Free calls switched off." : "Free calls switched on.")}
           disabled={busy}
-          className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${f.optedIn ? "bg-emerald-600" : "bg-stone-300"}`}
+          className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${f.optedIn ? "bg-emerald-600 max-lg:bg-app-primary" : "bg-stone-300"}`}
         >
           <span className={`absolute top-0.5 size-6 rounded-full bg-white shadow transition-[left] ${f.optedIn ? "left-[22px]" : "left-0.5"}`} />
         </button>
@@ -87,7 +87,7 @@ export default function FreeCallsCard({ freeCalls: f }: { freeCalls: FreeCalls }
           Astrorize has paused free calls for now, so none start anywhere at the moment.
         </p>
       ) : f.optedIn ? (
-        <div className="mt-3 rounded-[14px] border border-emerald-200 bg-emerald-50 px-3.5 py-3">
+        <div className="mt-3 rounded-[14px] border border-emerald-200 bg-emerald-50 px-3.5 py-3 max-lg:rounded-app-btn max-lg:p-3">
           <b className="block text-[15px] text-emerald-900 tabular-nums">
             {f.remaining} of {f.limit} left {periodWord}
           </b>
@@ -107,7 +107,7 @@ export default function FreeCallsCard({ freeCalls: f }: { freeCalls: FreeCalls }
           void saveLimit();
         }}
       >
-        <span id="fc-cap" className="mb-1.5 block text-xs font-semibold text-stone-600">
+        <span id="fc-cap" className={`mb-1.5 block text-xs font-semibold text-stone-600 ${M_LABEL}`}>
           How many you take
         </span>
         <div className="flex flex-wrap gap-2" role="group" aria-labelledby="fc-cap">
@@ -124,9 +124,9 @@ export default function FreeCallsCard({ freeCalls: f }: { freeCalls: FreeCalls }
               setLimit(e.target.value);
               setProblem(null);
             }}
-            className="h-11 w-[90px] rounded-xl border border-line bg-white px-3 text-[14px] text-ink tabular-nums outline-none focus:border-amber-500"
+            className={`h-11 w-[90px] rounded-xl border border-line bg-white px-3 text-[14px] text-ink tabular-nums outline-none focus:border-amber-500 ${M_INPUT} max-lg:h-11 max-lg:w-[76px] max-lg:px-3`}
           />
-          <div className="flex h-11 overflow-hidden rounded-xl border border-line bg-white" role="radiogroup" aria-label="Per">
+          <div className="flex h-11 overflow-hidden rounded-xl border border-line bg-white max-lg:gap-1.5 max-lg:overflow-visible max-lg:border-0 max-lg:bg-transparent" role="radiogroup" aria-label="Per">
             {(["DAY", "WEEK"] as const).map((p) => (
               <button
                 key={p}
@@ -137,13 +137,17 @@ export default function FreeCallsCard({ freeCalls: f }: { freeCalls: FreeCalls }
                   setPeriod(p);
                   setProblem(null);
                 }}
-                className={`px-3.5 text-[13px] font-bold ${period === p ? "bg-ink text-white" : "text-stone-600"}`}
+                className={`px-3.5 text-[13px] font-bold max-lg:rounded-app-chip max-lg:border max-lg:font-semibold ${
+                  period === p
+                    ? "bg-ink text-white max-lg:border-app-primary max-lg:bg-app-primary max-lg:text-app-on-primary"
+                    : "text-stone-600 max-lg:border-app-line max-lg:bg-app-surface max-lg:text-app-ink"
+                }`}
               >
                 per {p === "DAY" ? "day" : "week"}
               </button>
             ))}
           </div>
-          <button type="submit" disabled={busy || !dirty} className="h-11 rounded-xl bg-ink px-4 text-sm font-bold text-white disabled:opacity-50">
+          <button type="submit" disabled={busy || !dirty} className={`h-11 rounded-xl bg-ink px-4 text-sm font-bold text-white disabled:opacity-50 ${M_PRIMARY} max-lg:w-full`}>
             Save
           </button>
         </div>

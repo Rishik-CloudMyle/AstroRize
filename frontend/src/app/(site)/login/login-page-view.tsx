@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { destinationFor, sessionName } from "@/components/account/auth-shell";
 import LoginForm, { type LoginMethod } from "@/components/account/login-form";
+import { APP_CTA, APP_SECONDARY } from "@/components/account/app-look";
 import { useAppUI } from "@/components/app-provider";
 import { sessionActions, useSession } from "@/lib/session-store";
 
@@ -16,7 +17,7 @@ export default function LoginPageView({ next, initialMethod }: { next: string | 
   /** Set once they sign in here, so the "already logged in" card doesn't flash before the redirect. */
   const [leaving, setLeaving] = useState(false);
 
-  if (!session.ready) return <div className="h-[420px] rounded-2xl bg-cream" aria-busy="true" />;
+  if (!session.ready) return <div className="h-[420px] rounded-2xl bg-cream max-lg:bg-transparent" aria-busy="true" />;
 
   if (session.loggedIn && !leaving) {
     return (
@@ -27,14 +28,14 @@ export default function LoginPageView({ next, initialMethod }: { next: string | 
         </p>
         <Link
           href={destinationFor(session.role, next)}
-          className="az-cta mt-5 flex h-[50px] items-center justify-center rounded-full text-[15px] font-bold hover:text-cta-ink hover:no-underline"
+          className={`az-cta mt-5 flex h-[50px] items-center justify-center rounded-full text-[15px] font-bold hover:text-cta-ink hover:no-underline ${APP_CTA}`}
         >
           {session.role === "astrologer" ? "Open the astrologer portal" : session.role === "admin" ? "Open the admin console" : "Continue"}
         </Link>
         <button
           type="button"
           onClick={() => void sessionActions.logOut()}
-          className="mt-2.5 h-11 w-full rounded-full border border-line bg-white text-[14px] font-bold text-ink"
+          className={`mt-2.5 h-11 w-full rounded-full border border-line bg-white text-[14px] font-bold text-ink ${APP_SECONDARY}`}
         >
           Log out and use another account
         </button>

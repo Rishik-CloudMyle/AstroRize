@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { M_INPUT, M_LABEL } from "../ui";
 
 export interface LiveDetails {
   title: string;
@@ -16,8 +17,8 @@ const MAX_DURATION = 480;
 /** Quick picks for the expected duration; any whole number of minutes in range can be typed. */
 const DURATIONS = [15, 30, 45, 60, 90, 120];
 
-const input = "mt-1.5 h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 text-[14px] text-ink outline-none focus:border-amber-400";
-const label = "block text-[13px] font-bold text-ink";
+const input = `mt-1.5 h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 text-[14px] text-ink outline-none focus:border-amber-400 ${M_INPUT}`;
+const label = `block text-[13px] font-bold text-ink ${M_LABEL}`;
 
 /** What is wrong with the details, by field (empty = fine). Same rules as the API (spec AR-LIVE §4). */
 export function checkLiveDetails(d: LiveDetails, categories: string[], languages: string[]): Partial<Record<keyof LiveDetails, string>> {
@@ -175,7 +176,11 @@ export default function LiveDetailsForm({
                 setDurationText(String(m));
                 set("durationMins", m);
               }}
-              className={`h-8 rounded-full border px-3 text-[12.5px] font-bold ${d.durationMins === m ? "border-amber-500 bg-amber-100 text-amber-900" : "border-line bg-white text-stone-600"}`}
+              className={`h-8 rounded-full border px-3 text-[12.5px] font-bold max-lg:h-[34px] max-lg:text-[12px] ${
+                d.durationMins === m
+                  ? "border-amber-500 bg-amber-100 text-amber-900 max-lg:border-app-selected max-lg:bg-app-tint max-lg:text-app-active"
+                  : "border-line bg-white text-stone-600 max-lg:border-app-line-gold max-lg:text-app-ink"
+              }`}
             >
               {m < 60 ? `${m} min` : `${m / 60} h`}
             </button>

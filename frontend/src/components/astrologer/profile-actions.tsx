@@ -13,6 +13,7 @@ import { FreeCallBadge } from "../consult/free-call";
 import { multiplierLabel, type ConsultChoice } from "../consult/consult-sheet";
 import MessageButton from "../messages/message-button";
 import { DiscountBadge, WasPrice, priceNote } from "./parts";
+import { useBelowDesktop } from "../directory/use-current-astrologers";
 import { useFreshAstrologer } from "./use-fresh-astrologer";
 import ModeIcon from "@/components/ui/mode-icon";
 
@@ -40,7 +41,9 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
   const { startConsult, openInstantCall, toast } = useAppUI();
   const session = useSession();
   // Kept current while the page is open, so the buttons follow the astrologer's availability.
-  const a = useFreshAstrologer(initial);
+  // (Only on desktop, where this card shows; phones and tablets render the app's profile instead.)
+  const below = useBelowDesktop();
+  const a = useFreshAstrologer(initial, !below);
   // Buttons work only for a customer (or a visitor about to sign in) when the astrologer is
   // available and no other consultation is open (one at a time).
   const gate = useConsultGate(a);

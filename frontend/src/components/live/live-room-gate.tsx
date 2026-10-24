@@ -12,6 +12,11 @@ import { RecognitionBadge, VerifiedTick } from "../astrologer/parts";
 import { recheckAvailability } from "../astrologer/use-fresh-astrologer";
 import { liveForLabel, plannedLabel, useMinuteClock } from "./live-feed";
 import LiveRoomView from "./live-room-view";
+import { LiveShareButton, LiveTopBar } from "./live-top-bar";
+
+/** One fact about the live (category, language…): a cream tile, the app's plain tile below 1024px. */
+const FACT = "rounded-[14px] bg-cream px-3.5 py-2.5 max-lg:rounded-app-btn max-lg:bg-app-bg max-lg:px-3 max-lg:py-2";
+const FACT_LABEL = "text-[11px] font-semibold text-stone-500 max-lg:text-app-ink-3";
 
 /** How often the preview re-reads the room (viewers, details, still live?). */
 const PREVIEW_REFRESH_MS = 8000;
@@ -88,13 +93,16 @@ function LivePreview({ room: initialRoom, host, onJoined }: { room: LiveRoom; ho
   return (
     <section
       aria-labelledby="live-preview-title"
-      className="mx-auto mt-6 max-w-[1040px] overflow-hidden rounded-[24px] border border-line-warm bg-card shadow-[0_8px_20px_rgba(90,62,40,.06)] lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]"
+      className="mx-auto mt-6 max-w-[1040px] overflow-hidden rounded-[24px] border border-line-warm bg-card shadow-[0_8px_20px_rgba(90,62,40,.06)] lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] max-lg:fixed max-lg:inset-0 max-lg:z-[60] max-lg:mt-0 max-lg:flex max-lg:max-w-none max-lg:flex-col max-lg:rounded-none max-lg:border-0 max-lg:bg-[#0c0a12] max-lg:shadow-none"
     >
-      {/* ---------- The room as it looks from outside ---------- */}
-      <div className="relative aspect-[16/11] bg-ink lg:aspect-auto lg:min-h-[420px]">
+      {/* ---------- The room as it looks from outside (a full screen below 1024px, as in the app) ---------- */}
+      <div className="relative aspect-[16/11] bg-ink lg:aspect-auto lg:min-h-[420px] max-lg:min-h-[180px] max-lg:flex-1 max-lg:aspect-auto max-lg:bg-[#0c0a12]">
         <Image src={room.thumb} alt="" fill priority sizes="(min-width: 1024px) 560px, 100vw" className={`object-cover ${ended ? "opacity-40 grayscale" : ""}`} />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.45)_0%,rgba(28,25,23,.05)_45%,rgba(28,25,23,.7)_100%)]" />
-        <div className="absolute inset-x-3.5 top-3.5 flex flex-wrap items-center gap-2">
+        <div className="absolute inset-x-0 top-0">
+          <LiveTopBar name={host.name} photo={host.photo} viewers={room.viewers} topic={room.topic} ended={ended} actions={<LiveShareButton title={`${host.name} is live on Astrorize`} />} />
+        </div>
+        <div className="absolute inset-x-3.5 top-3.5 flex flex-wrap items-center gap-2 max-lg:hidden">
           {ended ? (
             <span className="inline-flex h-[26px] items-center rounded-full bg-stone-700 px-[11px] text-[11px] font-extrabold text-white">■ ENDED</span>
           ) : (
@@ -109,7 +117,7 @@ function LivePreview({ room: initialRoom, host, onJoined }: { room: LiveRoom; ho
             <span className="inline-flex h-[26px] items-center rounded-full bg-black/45 px-[11px] text-[11px] font-bold text-white">{liveFor}</span>
           )}
         </div>
-        <div className="absolute inset-x-4 bottom-4 flex items-center gap-3">
+        <div className="absolute inset-x-4 bottom-4 flex items-center gap-3 max-lg:hidden">
           <span className="relative size-[60px] shrink-0 overflow-hidden rounded-full border-[3px] border-gold shadow-[0_0_0_2px_rgba(255,255,255,.7)]">
             <Image src={host.photo} alt="" fill sizes="120px" className="object-cover" />
           </span>
@@ -126,32 +134,35 @@ function LivePreview({ room: initialRoom, host, onJoined }: { room: LiveRoom; ho
       </div>
 
       {/* ---------- What this live is about, and Join ---------- */}
-      <div className="flex min-w-0 flex-col p-5 sm:p-7">
-        <div className="text-[11px] font-bold uppercase tracking-[.1em] text-stone-500">{ended ? "Live ended" : "Live now"}</div>
-        <h2 id="live-preview-title" className="mt-1.5 font-display text-[28px] font-semibold leading-[1.1] text-ink [overflow-wrap:anywhere] sm:text-[32px]">
+      <div className="flex min-w-0 flex-col p-5 sm:p-7 max-lg:relative max-lg:z-[1] max-lg:-mt-5 max-lg:max-h-[64dvh] max-lg:shrink-0 max-lg:overflow-y-auto max-lg:rounded-t-app-modal max-lg:bg-app-elev max-lg:px-4 max-lg:pt-4 max-lg:pb-[max(16px,env(safe-area-inset-bottom))] max-lg:sm:px-6">
+        <div className="text-[11px] font-bold uppercase tracking-[.1em] text-stone-500 max-lg:text-app-ink-3">
+          {ended ? "Live ended" : "Live now"}
+          {!ended && liveFor && <span className="lg:hidden"> · {liveFor}</span>}
+        </div>
+        <h2 id="live-preview-title" className="mt-1.5 font-display text-[28px] font-semibold leading-[1.1] text-ink [overflow-wrap:anywhere] sm:text-[32px] max-lg:mt-1 max-lg:text-[24px] max-lg:text-app-ink max-lg:sm:text-[28px]">
           {room.title}
         </h2>
-        {room.topic !== room.title && <p className="mt-1.5 text-[14px] leading-normal text-stone-600 [overflow-wrap:anywhere]">{room.topic}</p>}
+        {room.topic !== room.title && <p className="mt-1.5 text-[14px] leading-normal text-stone-600 [overflow-wrap:anywhere] max-lg:mt-1 max-lg:text-[13px] max-lg:text-app-ink-2">{room.topic}</p>}
 
-        <dl className="mt-4 grid grid-cols-2 gap-2.5 text-[13px]">
+        <dl className="mt-4 grid grid-cols-2 gap-2.5 text-[13px] max-lg:mt-3 max-lg:gap-2 max-lg:sm:grid-cols-4">
           {room.category && (
-            <div className="rounded-[14px] bg-cream px-3.5 py-2.5">
-              <dt className="text-[11px] font-semibold text-stone-500">Category</dt>
+            <div className={FACT}>
+              <dt className={FACT_LABEL}>Category</dt>
               <dd className="mt-0.5 font-bold text-ink">{room.category}</dd>
             </div>
           )}
-          <div className="rounded-[14px] bg-cream px-3.5 py-2.5">
-            <dt className="text-[11px] font-semibold text-stone-500">Language</dt>
+          <div className={FACT}>
+            <dt className={FACT_LABEL}>Language</dt>
             <dd className="mt-0.5 font-bold text-ink [overflow-wrap:anywhere]">{room.language ?? languageLine(host)}</dd>
           </div>
           {planned && (
-            <div className="rounded-[14px] bg-cream px-3.5 py-2.5">
-              <dt className="text-[11px] font-semibold text-stone-500">Planned length</dt>
+            <div className={FACT}>
+              <dt className={FACT_LABEL}>Planned length</dt>
               <dd className="mt-0.5 font-bold text-ink">About {planned}</dd>
             </div>
           )}
-          <div className="rounded-[14px] bg-cream px-3.5 py-2.5">
-            <dt className="text-[11px] font-semibold text-stone-500">Consult rate</dt>
+          <div className={FACT}>
+            <dt className={FACT_LABEL}>Consult rate</dt>
             <dd className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
               {discount && host.was && <span className="text-[11.5px] text-[#b0a8b8] line-through">{rupee(host.was)}</span>}
               <b className="text-ink">{rupee(host.price)}/min</b>
@@ -160,21 +171,21 @@ function LivePreview({ room: initialRoom, host, onJoined }: { room: LiveRoom; ho
           </div>
         </dl>
 
-        <div className="mt-auto pt-6">
+        <div className="mt-auto pt-6 max-lg:pt-4">
           {ended ? (
-            <div role="status" className="rounded-2xl border border-line bg-paper px-4 py-3.5">
-              <b className="block text-[14px] text-ink">This live has ended</b>
-              <p className="mt-1 text-[13px] leading-normal text-stone-600">You can still consult {host.name} one-to-one, or watch another live.</p>
+            <div role="status" className="rounded-2xl border border-line bg-paper px-4 py-3.5 max-lg:rounded-app-card max-lg:border-app-line max-lg:bg-app-surface">
+              <b className="block text-[14px] text-ink max-lg:text-app-ink">This live has ended</b>
+              <p className="mt-1 text-[13px] leading-normal text-stone-600 max-lg:text-app-ink-2">You can still consult {host.name} one-to-one, or watch another live.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Link
                   href={`/astrologer/${host.slug}`}
-                  className="az-cta inline-flex h-10 items-center rounded-full px-5 text-[13.5px] font-bold hover:text-cta-ink hover:no-underline"
+                  className="az-cta inline-flex h-10 items-center rounded-full px-5 text-[13.5px] font-bold hover:text-cta-ink hover:no-underline max-lg:rounded-app-btn max-lg:bg-none max-lg:bg-app-primary max-lg:text-app-on-primary max-lg:shadow-none"
                 >
                   View profile
                 </Link>
                 <Link
                   href="/live"
-                  className="inline-flex h-10 items-center rounded-full border border-line bg-white px-5 text-[13.5px] font-bold text-ink hover:no-underline"
+                  className="inline-flex h-10 items-center rounded-full border border-line bg-white px-5 text-[13.5px] font-bold text-ink hover:no-underline max-lg:rounded-app-btn max-lg:border-app-line max-lg:bg-transparent"
                 >
                   Other lives
                 </Link>
@@ -186,11 +197,11 @@ function LivePreview({ room: initialRoom, host, onJoined }: { room: LiveRoom; ho
                 type="button"
                 onClick={() => void join()}
                 disabled={joining || !session.ready}
-                className="az-cta h-[52px] w-full rounded-full text-[16px] font-bold shadow-[0_6px_16px_rgba(255,140,26,.32)] disabled:opacity-70"
+                className="az-cta h-[52px] w-full rounded-full text-[16px] font-bold shadow-[0_6px_16px_rgba(255,140,26,.32)] disabled:opacity-70 max-lg:h-12 max-lg:rounded-app-btn max-lg:bg-none max-lg:bg-app-primary max-lg:text-[15px] max-lg:text-app-on-primary max-lg:shadow-none"
               >
                 {joining ? "Joining…" : signedOut ? "Sign in to join" : "Join live"}
               </button>
-              <p className="mt-2.5 text-center text-[12px] leading-normal text-stone-500">
+              <p className="mt-2.5 text-center text-[12px] leading-normal text-stone-500 max-lg:mt-2 max-lg:text-app-ink-3">
                 {signedOut
                   ? "Sign in to watch, chat with the room and send gifts."
                   : "When you join, the room sees your name and photo. Watching is free."}

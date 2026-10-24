@@ -1,6 +1,7 @@
 import Link from "next/link";
 import FeaturedCard from "@/components/astrologer/featured-card";
 import LiveBand from "@/components/home/live-band";
+import AppHome from "@/components/home/app-home";
 import AvailableNow from "@/components/home/available-now";
 import HeroSky, { ShootingStars, Sparkles } from "@/components/home/hero-sky";
 import { consultationLabel } from "@/components/home/review-text";
@@ -23,7 +24,12 @@ export default async function HomePage() {
     .filter((r): r is { room: typeof r.room; host: NonNullable<typeof r.host> } => Boolean(r.host));
 
   return (
-    <div>
+    <>
+    {/* Phones and tablets: the app's Home screen. */}
+    <div className="lg:hidden">
+      <AppHome astrologers={astrologers} rooms={rooms} tools={tools} reviews={reviews} />
+    </div>
+    <div className="max-lg:hidden">
       {/* ---------- Hero ----------
           Wide screens (1440px+): text | who is available | wheel. Laptops: the available list sits
           under the text, beside the wheel. Tablets and phones: text, list, wheel, one under another. */}
@@ -222,6 +228,7 @@ export default async function HomePage() {
       )}
       <div className="pb-16" />
     </div>
+    </>
   );
 }
 
