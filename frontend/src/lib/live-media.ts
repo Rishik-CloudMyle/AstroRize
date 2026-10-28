@@ -1,7 +1,7 @@
 "use client";
 
 import type { ZegoExpressEngine } from "zego-express-engine-webrtc";
-import type { CallState } from "./media/zego-call";
+import { JOIN_TIMEOUT_MS, PUBLISH_OPTIONS, closeEngine, publishSource, type CallState } from "./media/zego-call";
 
 // A live room's public video through ZEGO: the host broadcasts one stream (camera + microphone),
 // viewers only play it. A private consultation taken from the live is a separate one-to-one room
@@ -38,12 +38,18 @@ export interface LiveHandlers {
 const problem = (code?: number | string) =>
   `The live video couldn't connect${code !== undefined && code !== 0 && code !== "" ? ` (code ${code})` : ""}. Check your internet connection.`;
 
-/** A joined live room. Create with ZegoLive.watch or ZegoLive.broadcast; always end with leave(). */
+/**
+ * A live room. ZegoLive.watch / ZegoLive.broadcast join in the background and return at once, so
+ * the caller can leave() at any moment, even mid-join. Always end with leave().
+ */
 export class ZegoLive {
   private engine: ZegoExpressEngine | null = null;
   private published: MediaStream | null = null;
   private playing = false;
   private left = false;
+  /** What the caller asked for, applied as soon as our stream is published (and kept across reconnects). */
+  private audioOff = false;
+  private videoOff = false;
 
   private constructor(
     private cred: LiveCredentials,
@@ -51,17 +57,21 @@ export class ZegoLive {
   ) {}
 
   /** Viewer: joins play-only and plays the live's stream whenever it is on air. */
-  static async watch(cred: LiveCredentials, handlers: LiveHandlers): Promise<ZegoLive> {
-    const live = new ZegoLive(cred, handlers);
-    await live.start(null);
-    return live;
+  static watch(cred: LiveCredentials, handlers: LiveHandlers): ZegoLive {
+    return new ZegoLive(cred, handlers).begin(null);
   }
 
   /** Host: joins and publishes `local` (camera + microphone, already captured) as the live's stream. */
-  static async broadcast(cred: LiveCredentials, local: MediaStream, handlers: LiveHandlers): Promise<ZegoLive> {
-    const live = new ZegoLive(cred, handlers);
-    await live.start(local);
-    return live;
+  static broadcast(cred: LiveCredentials, local: MediaStream, handlers: LiveHandlers): ZegoLive {
+    return new ZegoLive(cred, handlers).begin(local);
+  }
+
+  private begin(local: MediaStream | null): ZegoLive {
+    this.start(local).catch((e: unknown) => {
+      // The SDK didn't load, or ZEGO refused the stream.
+      if (!this.left) this.handlers.onState("failed", problem((e as { code?: number | string })?.code));
+    });
+    return this;
   }
 
   private async start(local: MediaStream | null) {
@@ -72,7 +82,8 @@ export class ZegoLive {
     const engine = new ZegoExpressEngine(cred.appId, cred.server);
     this.engine = engine;
     try {
-      engine.setLogConfig({ logLevel: "error", remoteLogLevel: "disable" });
+      // Nothing of ours (tokens, ids) goes to the console or to ZEGO's log upload.
+      engine.setLogConfig({ logLevel: "disable", remoteLogLevel: "disable" });
       engine.setDebugVerbose(false);
     } catch {
       // Older SDKs: logging stays at its default.
@@ -106,22 +117,30 @@ export class ZegoLive {
     });
 
     let ok = false;
+    // A blocked or very poor network: ZEGO's login can keep retrying for a long time. Say so.
+    const slow = setTimeout(() => !this.left && handlers.onState("failed", problem()), JOIN_TIMEOUT_MS);
     try {
       ok = await engine.loginRoom(cred.roomId, cred.token, { userID: cred.userId, userName: cred.userName }, { userUpdate: false });
     } catch (e) {
       if (!this.left) handlers.onState("failed", problem((e as { code?: number | string })?.code));
       return;
+    } finally {
+      clearTimeout(slow);
     }
-    if (this.left) return;
+    // Left while joining: leave() already logged out, but the join may have finished after it.
+    if (this.left) return closeEngine(engine, cred.roomId);
     if (!ok) {
       handlers.onState("failed", problem());
       return;
     }
     handlers.onState("connected");
     if (local) {
-      this.published = await engine.createStream({ custom: { source: local } });
+      const published = await engine.createStream(publishSource(local));
       if (this.left) return;
-      engine.startPublishingStream(cred.streamId, this.published);
+      this.published = published;
+      engine.startPublishingStream(cred.streamId, published, PUBLISH_OPTIONS);
+      if (this.audioOff) engine.mutePublishStreamAudio(published, true);
+      if (this.videoOff) engine.mutePublishStreamVideo(published, true);
     } else {
       // Already on air when we arrived: roomStreamUpdate only reports changes.
       void this.play();
@@ -153,10 +172,12 @@ export class ZegoLive {
 
   /** Host: silences the live's audio for everyone (e.g. during a private consultation) or restores it. */
   setAudioMuted(muted: boolean) {
+    this.audioOff = muted;
     if (this.engine && this.published) this.engine.mutePublishStreamAudio(this.published, muted);
   }
 
   setVideoOff(off: boolean) {
+    this.videoOff = off;
     if (this.engine && this.published) this.engine.mutePublishStreamVideo(this.published, off);
   }
 
@@ -173,10 +194,9 @@ export class ZegoLive {
         engine.stopPublishingStream(this.cred.streamId);
         engine.destroyStream(this.published);
       }
-      engine.logoutRoom(this.cred.roomId);
-      engine.destroyEngine();
     } catch {
-      // Best effort: ZEGO closes the session when the page goes.
+      // Best effort: closing the engine below releases them too.
     }
+    closeEngine(engine, this.cred.roomId);
   }
 }

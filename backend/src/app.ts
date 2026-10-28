@@ -14,6 +14,7 @@ import { mediaRouter } from "./routes/media.ts";
 import { notificationsRouter } from "./routes/notifications.ts";
 import { offersRouter } from "./routes/offers.ts";
 import { portalRouter } from "./routes/portal.ts";
+import { razorpayWebhookRouter } from "./routes/razorpay-webhook.ts";
 import { statsRouter } from "./routes/stats.ts";
 
 export function createApp() {
@@ -29,6 +30,8 @@ export function createApp() {
     res.setHeader("Cache-Control", "no-store");
     next();
   });
+  // Razorpay's webhook is signed over its raw body, so it is read before the JSON parser.
+  app.use("/api/payments/razorpay/webhook", razorpayWebhookRouter);
   app.use(express.json({ limit: "100kb" }));
   app.use(cookieParser());
 

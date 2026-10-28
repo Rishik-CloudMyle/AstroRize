@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { Astrologer } from "@/lib/types";
-import { freeLengthLong } from "@/lib/free-calls";
+import { fittingLengths, lengthsLabel, minutesHeadline } from "@/lib/free-calls";
 import { usableWelcome, useSession } from "@/lib/session-store";
 import { languageLine, ratingLabel, rupee, skillLine } from "@/lib/format";
 import { AvailabilityBadge, DiscountBadge, IntroBadge, Portrait, RecognitionBadge, VerifiedTick, WasPrice } from "../astrologer/parts";
@@ -227,8 +227,9 @@ export default function DirectoryView({ astrologers: initial }: { astrologers: A
       {welcome &&
         (freeView ? (
           <p className="mt-3 text-[13px] leading-[1.45] text-app-ink-2">
-            {freeLengthLong(welcome.freeSeconds)} complimentary. Chat or Voice only — paid rates apply if you continue. A call that
-            doesn&apos;t connect keeps your free call.
+            <b className="text-app-success">{minutesHeadline(welcome)}.</b> Tap Consult Now, then choose “Use free minutes” and a length (
+            {lengthsLabel(fittingLengths(welcome))}) — the full length is used — or a paid call. Chat or Voice only. A call that doesn&apos;t
+            start keeps your minutes.
           </p>
         ) : (
           <button
@@ -238,10 +239,10 @@ export default function DirectoryView({ astrologers: initial }: { astrologers: A
           >
             <span aria-hidden="true" className="text-[18px]">🎁</span>
             <span className="min-w-0 flex-1">
-              <b className="block text-[13px] text-app-success">Your free call · {freeLengthLong(welcome.freeSeconds)}</b>
-              <span className="block text-[12px] text-app-ink-2">Chat or Voice with astrologers marked “Free call”</span>
+              <b className="block text-[13px] text-app-success">{minutesHeadline(welcome)}</b>
+              <span className="block text-[12px] text-app-ink-2">Find astrologers taking free calls (Chat or Voice)</span>
             </span>
-            <span className="shrink-0 text-[12px] font-bold text-app-success">Show them ›</span>
+            <span aria-hidden="true" className="shrink-0 text-[16px] font-bold text-app-success">›</span>
           </button>
         ))}
 
@@ -273,7 +274,7 @@ export default function DirectoryView({ astrologers: initial }: { astrologers: A
         <>
           <div className="mt-3 flex flex-col gap-2.5">
             {results.map((a) => (
-              <AppAstroCard key={a.id} astrologer={a} welcome={freeView && a.freeCall} />
+              <AppAstroCard key={a.id} astrologer={a} />
             ))}
           </div>
           <p className="mt-[18px] text-center text-[12px] text-app-ink-3">You&apos;ve reached the end</p>

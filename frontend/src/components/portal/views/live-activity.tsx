@@ -1,64 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api/client";
+import { useEffect } from "react";
 import { rupee } from "@/lib/portal/format";
-import type { LiveHostPrivate } from "@/lib/portal/types";
-import type { LiveChatLine, LiveGift } from "@/lib/types";
+import type { LiveFeed } from "@/lib/media/live-broadcast";
 import { useGiftShow } from "../../live/gift-burst";
 import { FeedAvatar } from "../../live/live-feed";
 import { Panel } from "../ui";
+import { useLiveSnapshot } from "./use-live-broadcast";
 
-/** What is happening in the astrologer's room (GET /portal/live/feed). */
-export interface LiveFeed {
-  chat: LiveChatLine[];
-  gifts: LiveGift[];
-  viewers: number;
-  giftsTotal: number;
-  giftsCount: number;
-  title: string;
-  /** The private consultation in progress (followed closely, with the feed), or null. */
-  private: LiveHostPrivate | null;
-  /** People waiting in the consult queue. */
-  waiting: number;
-}
-
-/** How often the console re-reads the room's feed while live. */
-const FEED_MS = 4000;
+export type { LiveFeed } from "@/lib/media/live-broadcast";
 
 /**
- * The room's feed for the live console: chat, joins and gifts, refreshed every few seconds
- * while live, with each new gift shown once over the video.
+ * The room's feed for the live console: chat, joins and gifts, as the live broadcast session
+ * (lib/media/live-broadcast.ts) follows it every few seconds while live, with each new gift shown
+ * once over the video.
  */
 export function useLiveFeed(live: boolean) {
-  const [feed, setFeed] = useState<LiveFeed | null>(null);
+  const snap = useLiveSnapshot();
+  const feed = live ? (snap?.feed ?? null) : null;
   // The console's video is shorter than the customer's: two pills at a time.
   const gifts = useGiftShow(2);
   const offer = gifts.offer;
-
   useEffect(() => {
-    if (!live) return;
-    let cancelled = false;
-    const refresh = async () => {
-      if (document.hidden) return;
-      try {
-        const res = await api.get<{ feed: LiveFeed | null }>("/portal/live/feed");
-        if (cancelled) return;
-        setFeed(res.feed);
-        if (res.feed) offer(res.feed.gifts);
-      } catch {
-        // Try again at the next refresh; the rest of the console keeps working.
-      }
-    };
-    void refresh();
-    const id = setInterval(refresh, FEED_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [live, offer]);
+    if (feed) offer(feed.gifts);
+  }, [feed, offer]);
 
-  return { feed: live ? feed : null, gifts: gifts.shown };
+  return { feed, feedAt: snap?.feedAt ?? 0, gifts: gifts.shown };
 }
 
 /** Gifts received in this live: the total and the latest few. */

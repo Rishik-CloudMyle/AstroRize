@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Astrologer, ConsultMode, Settlement } from "@/lib/types";
 import { ApiError, api } from "@/lib/api/client";
 import { clock, rupee, skillLine } from "@/lib/format";
@@ -13,8 +13,10 @@ import { useAppUI } from "../app-provider";
 import { recheckAvailability, useFreshAstrologer } from "../astrologer/use-fresh-astrologer";
 import { MeterAlerts, MeterChips, RateCard, SettlementSummary, SettlementView, endNoteOf, meterOf, type MeterInput } from "./call-stage";
 import { SessionWindow, windowKindOf } from "./session/session-window";
+import { releaseCallSession } from "@/lib/media/call-session";
+import { unlockSound } from "@/lib/media/ring";
 import { staffConsultNote } from "./consult-gate";
-import ConsultSheet, { CHOICE_TITLE, quotedRateFor, type ConsultChoice, type RateChange } from "./consult-sheet";
+import ConsultSheet, { CHOICE_TITLE, quotedRateFor, type ConsultChoice, type PayChoice, type RateChange } from "./consult-sheet";
 import InCallRecharge from "./in-call-recharge";
 import { offersChanged, useConsultDiscount } from "@/lib/offers";
 import { makeGoodChanged, useMakeGood } from "@/lib/makegood";
@@ -39,6 +41,8 @@ const APP_STEPS: Step[] = ["connecting", "waiting", "settle", "rate", "outcome"]
 
 /** How often the waiting screen and the session check in with the API. */
 const POLL_MS = 3000;
+/** …and while waiting for the astrologer to join a connected session. */
+const JOIN_POLL_MS = 1500;
 const NOT_CONNECTED = ["rejected", "timed_out", "cancelled"];
 
 /** Where a re-opened consultation picks up. */
@@ -76,7 +80,7 @@ interface Meter {
 }
 
 /** Refusals that mean the free call can't be used here right now (lib/welcome.ts on the API). */
-const WELCOME_REFUSED = ["WEL_DISABLED", "WEL_ASTROLOGER_NOT_PARTICIPATING", "WEL_ASTROLOGER_UNAVAILABLE", "WEL_DAILY_LIMIT", "WEL_ASTROLOGER_BUSY", "WEL_NOT_AVAILABLE", "WEL_MODALITY_DENIED"];
+const WELCOME_REFUSED = ["WEL_DISABLED", "WEL_ASTROLOGER_NOT_PARTICIPATING", "WEL_ASTROLOGER_UNAVAILABLE", "WEL_DAILY_LIMIT", "WEL_ASTROLOGER_BUSY", "WEL_NOT_AVAILABLE", "WEL_MODALITY_DENIED", "WEL_MINUTES_SHORT", "WEL_LENGTH_INVALID"];
 
 export default function ConsultJourney({
   astrologer,
@@ -113,6 +117,10 @@ export default function ConsultJourney({
   );
   // The API refused because the price changed since the sheet showed it; the customer confirms the new one.
   const [rateChange, setRateChange] = useState<RateChange | null>(null);
+  // Free minutes or a paid call, where a free option exists: the customer's own choice (never assumed).
+  const [pay, setPay] = useState<PayChoice | null>(null);
+  // The free-call length the customer chose in the sheet (minutes); the whole of it is used.
+  const [freeMinutes, setFreeMinutes] = useState<number | null>(null);
   const [recharging, setRecharging] = useState(false);
   const [elapsed, setElapsed] = useState(resume?.elapsedSeconds ?? 0);
   const [ending, setEnding] = useState(false);
@@ -123,7 +131,10 @@ export default function ConsultJourney({
   const [live, setLive] = useState(() => (resume ? { view: resume, at: Date.now() } : null));
   const [now, setNow] = useState(() => Date.now());
   const [endedByAstrologer, setEndedByAstrologer] = useState(resume?.status === "ended" && resume.endReason === "astrologer");
-  // When the session connected, by this browser's clock (from the server's elapsed seconds).
+  // Billing starts only once both sides have really joined the session (the server says when);
+  // until then the clock stays at 0 and the window says "Waiting for … to join".
+  const [billing, setBilling] = useState(!!resume?.billingStartedAt);
+  // When billing started, by this browser's clock (from the server's billed seconds).
   const startedAt = useRef(now - (resume?.elapsedSeconds ?? 0) * 1000);
   const connectingRef = useRef(false);
   const instant = (live?.view.kind ?? resume?.kind) === "instant" || choice === "instant";
@@ -136,9 +147,18 @@ export default function ConsultJourney({
   // A free replacement call with this astrologer (offered on a complaint): Chat, Voice or Video, free
   // for its minutes. It stands alone — never with the welcome free call or an offer's discount.
   const makeGood = useMakeGood(fresh.id);
-  const useMakeGoodCall = !!makeGood && fresh.availability === "on" && !!mode;
-  // This request uses the customer's welcome free call (Chat or Voice with a taking-part astrologer).
-  const useFree = !useMakeGoodCall && !!welcome && fresh.freeCall && fresh.availability === "on" && !!mode && welcome.modes.includes(mode);
+  const makeGoodHere = !!makeGood && fresh.availability === "on";
+  // A free option exists here (the sheet then asks "Use free minutes" or "Paid call").
+  const freeHere = makeGoodHere || (!!welcome && fresh.freeCall && fresh.availability === "on");
+  // Free only when the customer picked it.
+  const useMakeGoodCall = makeGoodHere && pay === "free" && !!mode;
+  // This request uses the customer's weekly free minutes (Chat or Voice with a taking-part astrologer).
+  const useFree =
+    !makeGoodHere && pay === "free" && !!welcome && fresh.freeCall && fresh.availability === "on" && !!mode && welcome.modes.includes(mode);
+  // Where this choice could be free, free or paid hasn't been chosen yet.
+  const payMissing = freeHere && pay === null && !!mode && (makeGoodHere || !!welcome?.modes.includes(mode));
+  // Only a length that still fits in this week's free minutes counts as chosen.
+  const freeLength = useFree && welcome.lengths.some((l) => l.minutes === freeMinutes && l.fits) ? freeMinutes : null;
   // A claimed consultation offer: percent off paid Chat, Voice and Video (the API applies the same rule).
   const discount = useConsultDiscount();
   const discountPct = discount && mode && !useFree && !useMakeGoodCall ? discount.pct : 0;
@@ -254,7 +274,10 @@ export default function ConsultJourney({
     }
     setStep("mode");
     // The replacement call was used or expired meanwhile: re-read it so the sheet shows paid rates.
-    if (e instanceof ApiError && e.code === "MAKEGOOD_NOT_AVAILABLE") makeGoodChanged();
+    if (e instanceof ApiError && e.code === "MAKEGOOD_NOT_AVAILABLE") {
+      makeGoodChanged();
+      setPay(null);
+    }
     if (e instanceof ApiError && e.code === "rate_changed" && typeof e.details.rate === "number" && choice) {
       // The price changed after the sheet showed it: nothing started; ask before going on at the new rate.
       setRateChange({ choice, from: quoted, to: e.details.rate });
@@ -264,8 +287,11 @@ export default function ConsultJourney({
       return;
     }
     if (e instanceof ApiError && WELCOME_REFUSED.includes(e.code)) {
-      // The free call can't be used here after all: re-read it and the astrologer so the sheet shows paid rates.
+      // The free call can't be used here after all: re-read it and the astrologer so the sheet shows
+      // what is left, and let the customer choose again (free with another length, or paid).
       void sessionActions.refreshWallet().catch(() => {});
+      setPay(null);
+      setFreeMinutes(null);
       recheckAvailability();
     } else if (e instanceof ApiError && e.status === 409) {
       // Refused because the astrologer just went offline, live or into another consultation:
@@ -279,8 +305,14 @@ export default function ConsultJourney({
   /** `quotedOverride`: the new rate the customer just agreed to after a price change. */
   async function beginConnect(quotedOverride?: number) {
     if (!choice || busy) return;
+    // A click: let the call sounds play (the "picked up" chime) later on.
+    void unlockSound();
     const quoted = quotedOverride ?? quotedRateFor(fresh, choice, discountPct);
+    // Free or paid must be the customer's own choice; a free call needs its length chosen too.
+    if (payMissing) return;
+    if (pay === "free" && freeHere && choice !== "instant" && !useFree && !useMakeGoodCall) return;
     if (!useFree && !useMakeGoodCall && balance < quoted * 5) return;
+    if (useFree && !freeLength) return;
     setBusy(true);
     setError("");
     setRateChange(null);
@@ -309,7 +341,7 @@ export default function ConsultJourney({
         astrologerId: fresh.id,
         mode: choice.toUpperCase(),
         quotedRate: quoted,
-        ...(useFree ? { welcome: true } : {}),
+        ...(useFree ? { welcome: true, freeMinutes: freeLength } : {}),
         ...(useMakeGoodCall ? { makeGoodCreditId: makeGood.id } : {}),
       });
       if (useMakeGoodCall) makeGoodChanged();
@@ -335,10 +367,6 @@ export default function ConsultJourney({
         complimentary: !!c.complimentary,
         reminderSeconds: c.complimentary ? (welcome?.reminderSeconds ?? 120) : 0,
       });
-      // A free call counts once it connects: the wallet's free-call note updates.
-      if (c.complimentary) void sessionActions.refreshWallet().catch(() => {});
-      // A claimed offer is used once the call connects.
-      if (discountPct > 0) offersChanged();
       setConnectStep(3);
       void consultationActions.refresh();
     } catch (e) {
@@ -348,7 +376,7 @@ export default function ConsultJourney({
       void sessionActions.refreshWallet().catch(() => {});
       makeGoodChanged();
       setPlaced(null);
-      setError(`${errorText(e)} You have not been charged.${c.complimentary ? " Your free call is still yours." : ""}`);
+      setError(`${errorText(e)} You have not been charged.${c.complimentary ? " Your free minutes are still yours." : ""}`);
       setStep("mode");
     }
   }
@@ -381,11 +409,17 @@ export default function ConsultJourney({
     if (!placed || ending) return;
     setEnding(true);
     try {
-      const res = await api.post<{ settlement: Settlement }>(`/consultations/${placed.id}/end`);
-      setSettlement(res.settlement);
-      setStep("settle");
+      const res = await api.post<{ settlement: Settlement; status: string }>(`/consultations/${placed.id}/end`);
       void consultationActions.refresh();
       void sessionActions.refreshWallet().catch(() => {});
+      if (res.status === "cancelled") {
+        // Ended before the conversation started: nothing was charged (and a free call is still theirs).
+        onClose();
+        toast(`Call ended before it started — you have not been charged.${placed.complimentary ? " Your free minutes are still yours." : ""}`);
+        return;
+      }
+      setSettlement(res.settlement);
+      setStep("settle");
     } catch (e) {
       toast(errorText(e));
     } finally {
@@ -399,7 +433,7 @@ export default function ConsultJourney({
   });
 
   useEffect(() => {
-    if (step !== "session") return;
+    if (step !== "session" || !billing) return;
     const cap = meter.maxSeconds;
     const id = setInterval(() => {
       // From the connect time, so a re-opened session shows the true elapsed time.
@@ -412,7 +446,7 @@ export default function ConsultJourney({
       }
     }, 1000);
     return () => clearInterval(id);
-  }, [step, meter.maxSeconds]);
+  }, [step, meter.maxSeconds, billing]);
 
   // ---- Waiting for the astrologer (Instant Call), and watching the session from their side ----
   /** A fresh answer about this consultation: move to the screen it calls for. */
@@ -421,13 +455,24 @@ export default function ConsultJourney({
     setLive({ view: v, at: Date.now() });
     setNow(Date.now());
     const nextMeter = { freeSeconds: v.freeSeconds, maxSeconds: v.maxSeconds, complimentary: v.complimentary, reminderSeconds: v.reminderSeconds };
+    if ((step === "waiting" || step === "session") && v.status === "active" && v.billingStartedAt && !billing) {
+      // Both sides have joined: billing (and the clock) starts now, by the server's numbers.
+      setBilling(true);
+      startedAt.current = Date.now() - v.elapsedSeconds * 1000;
+      setElapsed(v.elapsedSeconds);
+      // A free call's minutes and a claimed offer are used now.
+      if (v.complimentary) void sessionActions.refreshWallet().catch(() => {});
+      if (v.discountPct) offersChanged();
+    }
     if (step === "waiting") {
       if (v.status === "active") {
         // Accepted: straight into the session.
         setPlaced({ id: v.id, rate: v.rate, held: v.held, complimentary: v.complimentary, makeGood: v.makeGood });
         setMeter(nextMeter);
-        startedAt.current = Date.now() - v.elapsedSeconds * 1000;
-        setElapsed(v.elapsedSeconds);
+        if (!v.billingStartedAt) {
+          startedAt.current = Date.now();
+          setElapsed(0);
+        }
         setStep("session");
       } else if (v.status === "ended" && v.settlement) {
         setSettlement(v.settlement);
@@ -442,6 +487,10 @@ export default function ConsultJourney({
       setEndedByAstrologer(v.endReason === "astrologer");
       setStep("settle");
       void sessionActions.refreshWallet().catch(() => {});
+    } else if (step === "session" && NOT_CONNECTED.includes(v.status) && !ending) {
+      // Ended before the conversation started (a side never joined, or the astrologer left): ₹0.
+      setStep("outcome");
+      void sessionActions.refreshWallet().catch(() => {});
     } else if (step === "session" && v.status === "active") {
       // Money added during the call is held for it: the session's length follows.
       setMeter(nextMeter);
@@ -455,6 +504,21 @@ export default function ConsultJourney({
   });
 
   const consultationId = placed?.id ?? resume?.id ?? null;
+  // The session is over here (summary, rating, not connected): leave its call straight away.
+  const over = step === "settle" || step === "rate" || step === "outcome";
+  useEffect(() => {
+    if (over && consultationId) releaseCallSession(`/consultations/${consultationId}`);
+  }, [over, consultationId]);
+  /** This side's "joined" was recorded: re-read the session at once (billing may have started). */
+  const reread = useCallback(async () => {
+    if (!consultationId) return;
+    try {
+      const { consultation } = await api.get<{ consultation: ConsultationView }>(`/consultations/${consultationId}`);
+      applyViewRef.current(consultation);
+    } catch {
+      // The session poll picks it up in a moment.
+    }
+  }, [consultationId]);
   useEffect(() => {
     if (!consultationId || (step !== "waiting" && step !== "session")) return;
     let cancelled = false;
@@ -467,12 +531,13 @@ export default function ConsultJourney({
       }
     };
     if (step === "waiting") void poll();
-    const id = setInterval(poll, POLL_MS);
+    // Faster while waiting for the astrologer to join, so the clock starts as soon as they do.
+    const id = setInterval(poll, step === "session" && !billing ? JOIN_POLL_MS : POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [consultationId, step]);
+  }, [consultationId, step, billing]);
 
   // The accept countdown ticks every second between polls.
   useEffect(() => {
@@ -513,20 +578,19 @@ export default function ConsultJourney({
   /** The four steps of connecting (the desktop lists them; the app shows the current one). */
   const freeCall = useFree || useMakeGoodCall || !!placed?.complimentary;
   const connectLabels = [
-    freeCall ? "Checking your free call" : "Checking your balance",
+    freeCall ? (placed?.makeGood || useMakeGoodCall ? "Checking your free replacement call" : "Checking your free minutes") : "Checking your balance",
     freeCall
       ? held > 0
-        ? `Free call reserved · ${rupee(held)} held for after it`
-        : "Free call reserved — no balance needed"
+        ? `Free time reserved · ${rupee(held)} held for after it`
+        : "Free time reserved — no balance needed"
       : `Placing a hold on ${rupee(placed ? held : balance)}`,
     `Ringing ${astrologer.name}`,
     "Connected",
   ];
 
   /** Paid during the call: re-read the session so its new length shows straight away. */
-  async function rechargedInCall(amount: number) {
-    setRecharging(false);
-    toast(`${rupee(amount)} added — your call continues at ${rupee(rate)}/min.`);
+  // The recharge sheet stays open on its "Payment successful" state until "Back to your call".
+  async function rechargedInCall() {
     if (!consultationId) return;
     try {
       const { consultation } = await api.get<{ consultation: ConsultationView }>(`/consultations/${consultationId}`);
@@ -589,6 +653,19 @@ export default function ConsultJourney({
         }}
         balance={balance}
         welcome={welcome}
+        pay={freeHere ? pay : null}
+        onPay={(p) => {
+          setPay(p);
+          setError("");
+          setRateChange(null);
+          // Free minutes cover Chat and Voice only (a replacement call: Chat, Voice, Video): drop a choice they don't cover.
+          if (p === "free" && (choice === "instant" || (choice === "video" && !makeGoodHere))) setChoice(null);
+        }}
+        freeMinutes={freeLength}
+        onFreeMinutes={(m) => {
+          setFreeMinutes(m);
+          setError("");
+        }}
         makeGood={makeGood && fresh.availability === "on" ? makeGood : null}
         discount={useMakeGoodCall ? null : discount}
         busy={busy}
@@ -639,8 +716,16 @@ export default function ConsultJourney({
             onClose();
           }}
           endNote={endNoteOf(m)}
+          waiting={
+            billing
+              ? undefined
+              : live?.view.astrologerJoined
+                ? `Connecting you with ${astrologer.name} — you're not being charged yet.`
+                : `Ringing ${astrologer.name}… — you're not being charged yet.`
+          }
+          onJoined={() => void reread()}
         />
-        {recharging && <InCallRecharge rate={rate} onPaid={(amount) => void rechargedInCall(amount)} onClose={() => setRecharging(false)} />}
+        {recharging && <InCallRecharge rate={rate} onPaid={() => void rechargedInCall()} onClose={() => setRecharging(false)} />}
       </>
     );
   }
@@ -916,6 +1001,8 @@ export default function ConsultJourney({
           <OutcomeView
             astrologer={astrologer}
             status={live?.view.status ?? "cancelled"}
+            reason={live?.view.endReason ?? null}
+            freeCall={!!live?.view.complimentary}
             onClose={() => {
               void consultationActions.refresh();
               onClose();
@@ -987,7 +1074,7 @@ export default function ConsultJourney({
         )}
       </div>
       {recharging && step === "session" && (
-        <InCallRecharge rate={rate} onPaid={(amount) => void rechargedInCall(amount)} onClose={() => setRecharging(false)} />
+        <InCallRecharge rate={rate} onPaid={() => void rechargedInCall()} onClose={() => setRecharging(false)} />
       )}
     </div>
   );
@@ -1001,20 +1088,42 @@ function FlowPortrait({ astrologer, size }: { astrologer: Astrologer; size: numb
   );
 }
 
-/** The Instant Call didn't connect: declined, not answered in time, or cancelled. Nothing was charged. */
-function OutcomeView({ astrologer, status, onClose }: { astrologer: Astrologer; status: string; onClose: () => void }) {
+/**
+ * The consultation didn't happen: declined, not answered in time, cancelled — or connected but the
+ * conversation never started (a side didn't join in time, or the astrologer left first). Nothing was charged.
+ */
+function OutcomeView({
+  astrologer,
+  status,
+  reason,
+  freeCall,
+  onClose,
+}: {
+  astrologer: Astrologer;
+  status: string;
+  reason: string | null;
+  freeCall: boolean;
+  onClose: () => void;
+}) {
+  const unjoined = status === "cancelled" && (reason === "no_media" || reason === "astrologer");
   const title =
     status === "rejected"
       ? `${astrologer.name} couldn't take your call`
       : status === "timed_out"
         ? `${astrologer.name} didn't answer in time`
-        : "This request was cancelled";
+        : unjoined
+          ? "The call couldn't start"
+          : "This request was cancelled";
   const lead =
     status === "rejected"
       ? "They declined this request — they may be preparing for another consultation."
       : status === "timed_out"
         ? "The 3-minute window to accept ran out before they picked up."
-        : "The request closed before the call connected.";
+        : reason === "no_media"
+          ? `You and ${astrologer.name} couldn't both join the call in time, so it ended by itself.${freeCall ? " Your free minutes are still yours." : ""}`
+          : reason === "astrologer"
+            ? `${astrologer.name} couldn't take the call — they declined it or left before it started.${freeCall ? " Your free minutes are still yours." : ""}`
+            : "The request closed before the call connected.";
   return (
     <div className="text-center max-lg:px-4 max-lg:pb-8">
       {/* Below 1024px: the app's title bar for this screen. */}
@@ -1029,7 +1138,7 @@ function OutcomeView({ astrologer, status, onClose }: { astrologer: Astrologer; 
       <div className="mt-[18px] flex items-start gap-3 rounded-2xl border-2 border-emerald-700 bg-emerald-50 px-[17px] py-[15px] text-left max-lg:rounded-app-btn max-lg:border max-lg:border-emerald-200 max-lg:bg-app-success-bg max-lg:px-3.5 max-lg:py-3">
         <span className="text-base max-lg:text-app-success">₹</span>
         <div className="text-[13.5px] leading-[1.55] text-emerald-800 max-lg:text-[12.5px] max-lg:text-app-success">
-          <b>You have not been charged.</b> Nothing was held from your balance. You can start a new consultation now.
+          <b>You have not been charged.</b> {unjoined ? "The hold on your balance has been released." : "Nothing was held from your balance."} You can start a new consultation now.
         </div>
       </div>
       <Link

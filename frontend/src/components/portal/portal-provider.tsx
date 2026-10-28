@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
 import type { Account, Presence } from "@/lib/portal/types";
+import { acquireLiveBroadcast, onLiveEndedByServer, releaseLiveBroadcast } from "@/lib/media/live-broadcast";
+import PortalCallCenter from "./call-alerts";
 
 type Store = Record<string, unknown>;
 type SetStateArg<T> = T | ((previous: T) => T);
@@ -178,11 +180,29 @@ export default function PortalProvider({ account, children }: { account: Account
     };
   }, [toast, router, astrologerId]);
 
+  // Live: the broadcast (camera, microphone, the published stream, the room's feed) runs from here,
+  // not from the Live page, so moving between portal pages or minimising never stops it. It ends on
+  // End live, when the server says the room closed (then the portal re-reads), or with the page.
+  useEffect(() => {
+    if (lostReason) return releaseLiveBroadcast();
+    if (presence === "live") acquireLiveBroadcast();
+  }, [presence, lostReason]);
+  useEffect(
+    () =>
+      onLiveEndedByServer(() => {
+        toast("Your live has ended — the room is closed.");
+        router.refresh();
+      }),
+    [toast, router],
+  );
+
   const value = useMemo(() => ({ account, presence, setPresence, toast, store, setStore }), [account, presence, setPresence, toast, store]);
 
   return (
     <PortalContext.Provider value={value}>
       {children}
+      {/* Incoming consultations ring on every portal page (and a minimised call stays reachable). */}
+      {!lostReason && <PortalCallCenter />}
       {lostReason && <SignInLostNotice reason={lostReason} name={openedFor.name} />}
       {toastMessage && (
         <div

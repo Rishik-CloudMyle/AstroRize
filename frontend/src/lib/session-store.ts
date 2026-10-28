@@ -1,7 +1,8 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { api } from "./api/client";
+import { ApiError, api } from "./api/client";
+import { openCheckout, type RechargeOrder } from "./razorpay-checkout";
 import type { AdminRole, Role } from "./auth";
 import type { WalletState, WelcomeBenefit } from "./types";
 
@@ -153,6 +154,37 @@ export function useHydrated(): boolean {
   );
 }
 
+/** What our API says about a recharge after asking Razorpay. */
+interface RechargeAnswer {
+  status: "PAID" | "FAILED" | "PENDING";
+  reason?: string;
+  paymentId?: string | null;
+  method?: string | null;
+  cashback?: number;
+  wallet?: ApiWallet;
+}
+
+/** How a recharge ended. PAID: the wallet is already updated in the session. */
+export type RechargeOutcome =
+  | { status: "PAID"; order: RechargeOrder; paymentId: string | null; method: string | null; cashback: number }
+  /** Razorpay hasn't confirmed it yet (slow UPI approval, or our check couldn't finish). */
+  | { status: "PENDING"; order: RechargeOrder; message: string }
+  | { status: "FAILED"; order: RechargeOrder; message: string }
+  /** The customer closed the checkout without paying. */
+  | { status: "CLOSED"; order: RechargeOrder };
+
+const CHECK_LATER = "We're waiting for Razorpay to confirm this payment. Check its status in a moment — you're never charged twice.";
+
+function outcomeOf(order: RechargeOrder, answer: RechargeAnswer): RechargeOutcome {
+  if (answer.status === "PAID") {
+    if (answer.wallet) setState({ ...state, wallet: toWallet(answer.wallet) });
+    // `cashback`: what a claimed offer actually added (0 if its use was taken meanwhile).
+    return { status: "PAID", order, paymentId: answer.paymentId ?? null, method: answer.method ?? null, cashback: answer.cashback ?? 0 };
+  }
+  if (answer.status === "FAILED") return { status: "FAILED", order, message: answer.reason || "The payment didn't go through." };
+  return { status: "PENDING", order, message: CHECK_LATER };
+}
+
 export function totalBalance(s: Session): number {
   return s.wallet.service + s.wallet.promo;
 }
@@ -241,18 +273,36 @@ export const sessionActions = {
   },
 
   /**
-   * Wallet top-up. Creates a payment order, then confirms it. With the real gateway the
-   * checkout window sits between the two calls; until its keys exist the API uses a
-   * stand-in provider that confirms straight away.
+   * Wallet top-up through Razorpay: our API creates the order, Razorpay Checkout takes the
+   * payment, and our API verifies it with Razorpay before crediting the wallet (once). Closing
+   * the checkout asks the API once more, in case a payment (e.g. UPI) went through meanwhile.
+   * Throws (with a message to show) only when nothing was charged: the order or checkout
+   * couldn't start.
    */
-  async recharge(amount: number) {
-    const order = await api.post<{ orderId: string; amount: number; gst: number; bonus: number; cashback: number; cashbackFrom: string | null; total: number }>(
-      "/wallet/recharge",
-      { amount },
-    );
-    // `cashback`: what a claimed offer actually added (0 if its use was taken meanwhile).
-    const paid = await api.post<{ cashback: number }>(`/wallet/recharge/${order.orderId}/confirm`);
-    await sessionActions.refreshWallet();
-    return { ...order, cashback: paid.cashback ?? 0 };
+  async recharge(amount: number): Promise<RechargeOutcome> {
+    const order = await api.post<RechargeOrder>("/wallet/recharge", { amount });
+    const result = await openCheckout(order);
+    if (result.kind === "paid") {
+      try {
+        const answer = await api.post<RechargeAnswer>(`/wallet/recharge/${order.orderId}/verify`, result.response);
+        return outcomeOf(order, answer);
+      } catch (e) {
+        // Paid at Razorpay but not confirmed here (connection, gateway): "Check status" finds it.
+        return { status: "PENDING", order, message: e instanceof ApiError ? e.message : CHECK_LATER };
+      }
+    }
+    try {
+      const answer = await api.post<RechargeAnswer>(`/wallet/recharge/${order.orderId}/status`);
+      if (answer.status === "PAID") return outcomeOf(order, answer);
+    } catch {
+      // Couldn't ask: report what the checkout said.
+    }
+    return result.failure ? { status: "FAILED", order, message: result.failure } : { status: "CLOSED", order };
+  },
+
+  /** "Check status" for a recharge whose payment is still being confirmed. */
+  async checkRecharge(order: RechargeOrder): Promise<RechargeOutcome> {
+    const answer = await api.post<RechargeAnswer>(`/wallet/recharge/${order.orderId}/status`);
+    return outcomeOf(order, answer);
   },
 };

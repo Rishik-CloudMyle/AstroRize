@@ -5,7 +5,7 @@ import { config } from "../config.ts";
 import { conflict, forbidden, notFound } from "./errors.ts";
 import { messageText } from "./messaging.ts";
 import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "./safety.ts";
-import { zegoConfigured, zegoRoom, zegoToken, zegoUserId } from "./zego.ts";
+import { zegoConfigured, zegoRoom, zegoServerUrl, zegoToken, zegoUserId } from "./zego.ts";
 
 // The inside of a one-to-one consultation: its written chat (every mode has one — the whole
 // session for Chat, a side panel for Voice and Video) and the credentials for its voice/video
@@ -92,9 +92,6 @@ export function windowOf(c: Pick<Consultation, "mode" | "kind">): "chat" | "voic
   return w.video ? "video" : w.audio ? "voice" : "chat";
 }
 
-/** ZEGO's web signalling address for this project (ZEGO console → project → server URL). */
-const zegoServer = (appId: number) => `wss://webliveroom${appId}-api.zegocloud.com/ws`;
-
 /** The two deterministic stream ids of a consultation: each side may publish only its own. */
 const streamIds = (id: string) => ({ CUSTOMER: `c_${id}_cust`, ASTROLOGER: `c_${id}_astro` });
 
@@ -117,7 +114,7 @@ export function mediaFor(c: Consultation, party: Party, user: { id: string }, us
   return {
     available: true as const,
     appId: config.zegoAppId,
-    server: zegoServer(config.zegoAppId),
+    server: zegoServerUrl(),
     roomId,
     userId,
     userName,

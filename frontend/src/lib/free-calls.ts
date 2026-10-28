@@ -1,7 +1,7 @@
 import type { WelcomeBenefit } from "./types";
 
-// Wording for the welcome free calls. The numbers (how many, per what period, how long) are set
-// by Astrorize in the admin Config console and come from the API (GET /wallet → welcome).
+// Wording for the welcome free minutes. The numbers (minutes per week, the lengths a free call can
+// be) are set by Astrorize in the admin Config console and come from the API (GET /wallet → welcome).
 
 /** Length of a free call: "5 min", "30 min", "1 hour", "1 h 30 min". */
 export function freeLength(secs: number): string {
@@ -23,21 +23,37 @@ export function resetDay(iso: string): string {
   return new Date(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
 }
 
-const PER: Record<WelcomeBenefit["allowance"]["period"], string> = { once: "", day: " a day", week: " a week", month: " a month" };
-const THIS: Record<WelcomeBenefit["allowance"]["period"], string> = { once: "", day: "today", week: "this week", month: "this month" };
-
-/** "1 free call · 5 min", "2 free calls left this week · 30 min each". */
-export function allowanceHeadline(w: WelcomeBenefit): string {
-  const n = w.allowance.remaining;
-  const calls = `${n} free call${n === 1 ? "" : "s"}`;
-  const left = w.allowance.period === "once" ? calls : `${calls} left ${THIS[w.allowance.period]}`;
-  return `${left} · ${freeLength(w.freeSeconds)}${n === 1 ? "" : " each"}`;
+/** "Mon" — the weekday the free minutes reset (IST). */
+export function resetWeekday(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-GB", { weekday: "short", timeZone: "Asia/Kolkata" });
 }
 
-/** The rule in one line: "2 free calls a week · renews Mon 27 Oct" ("" for one free call, once ever). */
-export function allowanceRule(w: WelcomeBenefit): string {
-  const { count, period, resetsAt } = w.allowance;
-  if (period === "once") return count === 1 ? "" : `${count} free calls in all`;
-  const rule = `${count} free call${count === 1 ? "" : "s"}${PER[period]}`;
-  return resetsAt ? `${rule} · renews ${resetDay(resetsAt)}` : rule;
+/** "25 of 30 left this week · resets Mon". */
+export function minutesLeft(w: WelcomeBenefit): string {
+  return `${w.weekly.remaining} of ${w.weekly.total} left this week · resets ${resetWeekday(w.weekly.resetsAt)}`;
+}
+
+/** "Free minutes: 25 of 30 left this week · resets Mon". */
+export function minutesHeadline(w: WelcomeBenefit): string {
+  return `Free minutes: ${minutesLeft(w)}`;
+}
+
+/** Where a customer finds the astrologers taking free calls (the directory's "Free call" filter). */
+export const FREE_CALL_DIRECTORY = "/astrologers?availability=Free%20call";
+
+/** The lengths that fit in this week's minutes (minutes, smallest first). */
+export function fittingLengths(w: WelcomeBenefit): number[] {
+  return w.lengths.filter((l) => l.fits).map((l) => l.minutes);
+}
+
+/** Longest free call that fits this week, in minutes (0 when none). */
+export function longestFit(w: WelcomeBenefit): number {
+  return Math.max(0, ...fittingLengths(w));
+}
+
+/** "5, 10 or 30 min" — the lengths that fit (or all lengths). */
+export function lengthsLabel(minutes: number[]): string {
+  if (!minutes.length) return "";
+  if (minutes.length === 1) return `${minutes[0]} min`;
+  return `${minutes.slice(0, -1).join(", ")} or ${minutes[minutes.length - 1]} min`;
 }

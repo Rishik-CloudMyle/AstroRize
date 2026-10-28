@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import express, { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { config } from "../config.ts";
@@ -40,21 +39,25 @@ import {
 } from "../lib/messaging.ts";
 import {
   acceptBy,
+  billedElapsed,
+  endIfNeverJoined,
   endConsultation,
   expireStaleRequests,
   extendHold,
   freeWindow,
+  joinTimeoutSeconds,
+  joinView,
   lockKey,
+  markJoined,
   openConsultationOf,
   sessionCapSeconds,
   settlementView,
   startsFree,
 } from "../lib/consultations.ts";
-import { MAKE_GOOD, consumeMakeGood, reserveMakeGood, usableMakeGood } from "../lib/makegood.ts";
+import { MAKE_GOOD, reserveMakeGood, usableMakeGood } from "../lib/makegood.ts";
 import {
   COMPLIMENTARY,
   WELCOME_MODES,
-  consumeWelcome,
   freeCallRefusal,
   reserveWelcome,
   welcomeAvailability,
@@ -62,7 +65,9 @@ import {
   welcomeView,
 } from "../lib/welcome.ts";
 import { effectivePresence, syncPresence } from "../lib/presence.ts";
-import { cashbackQuotes, discountQuote, discountedRate, useClaim } from "../lib/campaigns.ts";
+import { cashbackQuotes, discountQuote, discountedRate } from "../lib/campaigns.ts";
+import { NOT_CONNECTED, createRecharge, paymentReceipt, paymentRefsFor, paymentResult, reconcile, settle, type Settled } from "../lib/payments.ts";
+import { RazorpayError, checkoutSignatureValid, fetchPayment, razorpayConfigured } from "../lib/razorpay.ts";
 import { astrologerView } from "./catalog.ts";
 import { configNumber } from "../lib/settings.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
@@ -98,6 +103,8 @@ async function walletView(userId: string) {
     db.transaction.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 50 }),
     welcomeView(userId),
   ]);
+  // Recharge lines (and their bonus/cashback) open that payment's page.
+  const paymentOf = await paymentRefsFor(userId, transactions);
   return {
     /** The welcome free call (null when this account never had one). */
     welcome,
@@ -105,7 +112,15 @@ async function walletView(userId: string) {
     promo: wallet.promo,
     held: wallet.held,
     promoExpires: wallet.promoExpiresAt ? istDate(wallet.promoExpiresAt) : null,
-    transactions: transactions.map((t) => ({ date: istDate(t.createdAt), type: t.type, ref: t.ref, bucket: t.bucket, amount: t.amount })),
+    transactions: transactions.map((t) => ({
+      date: istDate(t.createdAt),
+      type: t.type,
+      ref: t.ref,
+      bucket: t.bucket,
+      amount: t.amount,
+      /** The Razorpay order id of the recharge this line came from (its page: /wallet/payment/<id>), else null. */
+      payment: paymentOf.get(t.ref) ?? null,
+    })),
   };
 }
 
@@ -125,87 +140,116 @@ customerRouter.get("/wallet/denominations", async (req, res) => {
       cashbackFrom: quotes[i]?.name ?? null,
     })),
     gstRate: GST_RATE,
+    /** Razorpay is connected (otherwise the website says recharges aren't available yet). */
+    payments: { available: razorpayConfigured(), provider: "razorpay" },
   });
 });
 
 /**
- * Step 1 of a recharge: create a payment order. With the real gateway (Razorpay) the
- * browser opens its checkout with this order id; until the keys exist a stand-in
- * provider ("mock") is used and step 2 confirms the payment.
+ * Step 1 of a recharge: a Razorpay order for the amount plus GST. The browser opens Razorpay
+ * Checkout with it (only the key id is sent; the secret stays on this server).
  */
 customerRouter.post("/wallet/recharge", async (req, res) => {
-  // ⚠ Until Razorpay is connected, recharges only work outside production.
-  if (!config.mockPayments) throw new HttpError(503, "Recharges aren't available yet. Please try again later.", "unavailable");
+  const user = auth(req).user;
+  rateLimit(`recharge:${user.id}`, 20, 10 * 60_000, "Too many payment attempts. Please wait a few minutes and try again.");
   const { amount } = z.object({ amount: z.number().int().positive() }).parse(req.body);
-  const denom = await db.denomination.findUnique({ where: { amount } });
-  if (!denom?.enabled) throw badRequest("That recharge amount isn't available.");
-  const gst = Math.round(amount * GST_RATE);
-  // A claimed cashback offer that fits this amount (its use is taken when the payment succeeds).
-  const [offer] = await cashbackQuotes(auth(req).user.id, [amount]);
-  const payment = await db.payment.create({
-    data: {
-      userId: auth(req).user.id,
-      amount,
-      gst,
-      bonus: denom.bonus,
-      cashback: offer?.cashback ?? 0,
-      campaignClaimId: offer?.claimId ?? null,
-      total: amount + gst,
-      provider: "mock",
-      providerOrderId: `order_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
-    },
-  });
+  const { payment, offerName } = await createRecharge(user.id, amount);
+  const profile = await db.user.findUniqueOrThrow({ where: { id: user.id }, select: { name: true, email: true, phone: true } });
   res.status(201).json({
+    provider: "razorpay",
+    keyId: config.razorpayKeyId,
     orderId: payment.providerOrderId,
-    amount,
-    gst,
-    bonus: denom.bonus,
+    currency: "INR",
+    /** What Checkout charges, in paise. */
+    totalPaise: payment.total * 100,
+    amount: payment.amount,
+    gst: payment.gst,
+    bonus: payment.bonus,
     cashback: payment.cashback,
-    cashbackFrom: offer?.name ?? null,
+    cashbackFrom: offerName,
     total: payment.total,
-    provider: payment.provider,
+    // Razorpay expects the 10-digit Indian number (it adds +91 itself).
+    prefill: { name: profile.name, email: profile.email ?? "", contact: profile.phone ?? "" },
   });
 });
 
-/** Step 2: the payment succeeded. Credits the wallet exactly once (safe to retry). */
-customerRouter.post("/wallet/recharge/:orderId/confirm", async (req, res) => {
-  const userId = auth(req).user.id;
+async function ownPayment(req: Request) {
   const payment = await db.payment.findUnique({ where: { providerOrderId: String(req.params.orderId) } });
-  if (!payment || payment.userId !== userId) throw notFound("Payment not found.");
-  // The real gateway confirms payments through its signed webhook, never this route.
-  if (payment.provider === "mock" && !config.mockPayments) throw new HttpError(503, "Recharges aren't available yet.", "unavailable");
+  if (!payment || payment.userId !== auth(req).user.id) throw notFound("Payment not found.");
+  return payment;
+}
 
-  let cashback = payment.status === "PAID" ? payment.cashback : 0;
-  if (payment.status !== "PAID") {
-    const [payRef, bonusRef, cashbackRef] = await Promise.all([txRef("PAY"), txRef("CMP"), txRef("CMC")]);
-    const now = new Date();
-    cashback = await db.$transaction(async (tx) => {
-      // Only one confirmation credits the wallet; a second one (retry, other tab) changes nothing.
-      const { count } = await tx.payment.updateMany({ where: { id: payment.id, status: "CREATED" }, data: { status: "PAID", paidAt: now } });
-      if (!count) return (await tx.payment.findUniqueOrThrow({ where: { id: payment.id } })).cashback;
-      // The offer's cashback, if its use is still there (another recharge may have used it meanwhile).
-      let extra = payment.cashback;
-      if (extra > 0 && !(payment.campaignClaimId && (await useClaim(tx, payment.campaignClaimId, now)))) {
-        extra = 0;
-        await tx.payment.update({ where: { id: payment.id }, data: { cashback: 0 } });
-      }
-      await tx.wallet.update({
-        where: { userId },
-        data: { service: { increment: payment.amount }, promo: { increment: payment.bonus + extra } },
-      });
-      await tx.transaction.create({ data: { userId, type: "Recharge", ref: payRef, bucket: "Service", amount: payment.amount } });
-      if (payment.bonus > 0) {
-        await tx.transaction.create({ data: { userId, type: "Cashback", ref: bonusRef, bucket: "Promotional", amount: payment.bonus } });
-      }
-      if (extra > 0) {
-        await tx.transaction.create({ data: { userId, type: "Campaign cashback", ref: cashbackRef, bucket: "Promotional", amount: extra } });
-      }
-      return extra;
-    });
+/** The answer for a recharge after checking it: paid (with the new wallet), failed, or still pending. */
+async function rechargeAnswer(res: Response, userId: string, settled: Settled) {
+  if (settled.status === "PAID") {
+    // Recharged during a consultation: the new money is held for it, so it carries on without disconnecting.
+    await extendHold(userId);
+    return res.json({ status: "PAID", ...paymentResult(settled.payment), wallet: await walletView(userId) });
   }
-  // Recharged during a consultation: the new money is held for it, so it carries on without disconnecting.
-  await extendHold(userId);
-  res.json({ credited: payment.amount, bonus: payment.bonus, cashback, wallet: await walletView(userId) });
+  if (settled.status === "FAILED") return res.json({ status: "FAILED", reason: settled.reason });
+  res.json({ status: "PENDING" });
+}
+
+const gatewayDown = (e: unknown) => {
+  if (e instanceof RazorpayError) {
+    console.error("Razorpay check failed:", e.message);
+    return new HttpError(502, "We couldn't reach the payment gateway to confirm this payment. Please check its status again in a moment.", "gateway_unreachable");
+  }
+  return e;
+};
+
+/**
+ * Step 2: Checkout says the customer paid. Its signature is checked, then the payment is fetched
+ * from Razorpay and only a captured payment for exactly this order and amount credits the wallet
+ * (once; safe to retry).
+ */
+customerRouter.post("/wallet/recharge/:orderId/verify", async (req, res) => {
+  const userId = auth(req).user.id;
+  const body = z
+    .object({
+      razorpay_order_id: z.string().min(1).max(64),
+      razorpay_payment_id: z.string().min(1).max(64),
+      razorpay_signature: z.string().min(1).max(256),
+    })
+    .parse(req.body);
+  const payment = await ownPayment(req);
+  if (payment.provider !== "razorpay") throw badRequest("That isn't a Razorpay payment.");
+  if (body.razorpay_order_id !== payment.providerOrderId || !checkoutSignatureValid(payment.providerOrderId, body.razorpay_payment_id, body.razorpay_signature)) {
+    throw badRequest("We couldn't verify this payment. If money left your account, it will show up here within a few minutes or be refunded by your bank.");
+  }
+  let settled: Settled;
+  try {
+    settled = payment.status === "PAID" ? { status: "PAID", payment } : await settle(payment, await fetchPayment(body.razorpay_payment_id));
+  } catch (e) {
+    throw gatewayDown(e);
+  }
+  await rechargeAnswer(res, userId, settled);
+});
+
+/** One of the customer's own recharges, for its payment page (anyone else's is "not found"). */
+customerRouter.get("/wallet/payments/:orderId", async (req, res) => {
+  const userId = auth(req).user.id;
+  rateLimit(`payment-page:${userId}`, 60, 60_000, "Please wait a moment and try again.");
+  const payment = await ownPayment(req);
+  const [receipt, wallet] = await Promise.all([paymentReceipt(payment), walletOf(userId)]);
+  res.json({ payment: receipt, wallet: { service: wallet.service, promo: wallet.promo } });
+});
+
+/** "Check status": asks Razorpay about the order (closed checkout, slow UPI approval, lost answer). */
+customerRouter.post("/wallet/recharge/:orderId/status", async (req, res) => {
+  const userId = auth(req).user.id;
+  rateLimit(`recharge-status:${userId}`, 30, 60_000, "Please wait a moment before checking again.");
+  const payment = await ownPayment(req);
+  if (payment.status === "PAID") return rechargeAnswer(res, userId, { status: "PAID", payment });
+  if (payment.provider !== "razorpay") return res.json({ status: payment.status === "FAILED" ? "FAILED" : "PENDING", reason: payment.failureReason ?? undefined });
+  if (!razorpayConfigured()) throw new HttpError(503, NOT_CONNECTED, "payments_unavailable");
+  let settled: Settled;
+  try {
+    settled = await reconcile(payment);
+  } catch (e) {
+    throw gatewayDown(e);
+  }
+  await rechargeAnswer(res, userId, settled);
 });
 
 // ── Consultations ──
@@ -263,7 +307,7 @@ function rateChanged(res: Response, quoted: number, rate: number, message?: stri
 
 /** The free call can only be used for Chat and Voice; Video and Instant Call stay paid. */
 const modalityDenied = () =>
-  new HttpError(400, "Your free call can be used for Chat or Voice. Video and Instant Call are paid.", "WEL_MODALITY_DENIED");
+  new HttpError(400, "Free minutes can be used for Chat or Voice. Video and Instant Call are paid.", "WEL_MODALITY_DENIED");
 
 async function ownConsultation(userId: string, id: string) {
   const c = await db.consultation.findUnique({ where: { id } });
@@ -274,7 +318,7 @@ async function ownConsultation(userId: string, id: string) {
 /** What the website needs to show (or resume) a consultation: waiting, connecting, in session or finished. */
 async function consultationView(c: Consultation & { astrologer: Astrologer }) {
   const now = new Date();
-  const [standardFree, policy] = await Promise.all([configNumber("consult.free_seconds", 60), welcomePolicy()]);
+  const [standardFree, policy, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 60), welcomePolicy(), joinTimeoutSeconds()]);
   const ahead =
     c.status === "REQUESTED"
       ? await db.consultation.count({ where: { astrologerId: c.astrologerId, status: "REQUESTED", requestedAt: { lt: c.requestedAt } } })
@@ -301,7 +345,10 @@ async function consultationView(c: Consultation & { astrologer: Astrologer }) {
     acceptBy: by?.toISOString() ?? null,
     secondsToAccept: by ? Math.max(0, Math.ceil((by.getTime() - now.getTime()) / 1000)) : null,
     connectedAt: c.connectedAt?.toISOString() ?? null,
-    elapsedSeconds: c.status === "ACTIVE" && c.connectedAt ? Math.max(0, Math.floor((now.getTime() - c.connectedAt.getTime()) / 1000)) : 0,
+    /** Billed seconds so far: counted from billingStartedAt (0 while waiting for a side to join). */
+    elapsedSeconds: billedElapsed(c, now.getTime()),
+    /** Billing starts only once both sides have really joined (see joinView). */
+    ...joinView(c, joinTimeout),
     /** Seconds not billed at the start: the standard free minute, or a free call's complimentary time. */
     freeSeconds: freeWindow(c, standardFree),
     /** A welcome free call or a free replacement call (complimentary, then the same session continues at `rate`). */
@@ -329,6 +376,8 @@ customerRouter.get("/consultations/active", async (req, res) => {
     await expireStaleRequests(open.astrologerId);
     open = await openConsultationOf(db, userId);
   }
+  // Connected but a side never joined in time: ended (₹0) on schedule.
+  if (open?.status === "ACTIVE" && (await endIfNeverJoined(open)).status !== "ACTIVE") open = null;
   res.json({ consultation: open ? await viewOf(open.id) : null });
 });
 
@@ -336,6 +385,7 @@ customerRouter.get("/consultations/active", async (req, res) => {
 customerRouter.get("/consultations/:id", async (req, res) => {
   const c = await ownConsultation(auth(req).user.id, String(req.params.id));
   if (c.status === "REQUESTED") await expireStaleRequests(c.astrologerId);
+  if (c.status === "ACTIVE") await endIfNeverJoined(c);
   res.json({ consultation: await viewOf(c.id) });
 });
 
@@ -343,19 +393,22 @@ const quotedRateSchema = z.number().int().nonnegative().optional();
 
 customerRouter.post("/consultations", async (req, res) => {
   const me = auth(req);
-  const { astrologerId, mode, quotedRate, welcome, makeGoodCreditId } = z
+  const { astrologerId, mode, quotedRate, welcome, freeMinutes, makeGoodCreditId } = z
     .object({
       astrologerId: z.string(),
       mode: modeSchema,
       quotedRate: quotedRateSchema,
       welcome: z.boolean().optional(),
+      /** A free call's length, chosen by the customer (minutes; one of the Config lengths that fits this week). */
+      freeMinutes: z.number().int().positive().max(600).optional(),
       /** Use a free replacement call (make-good) with this astrologer. */
       makeGoodCreditId: z.string().max(40).optional(),
     })
     .parse(req.body);
   if (welcome && !(WELCOME_MODES as readonly string[]).includes(mode)) throw modalityDenied();
+  if (welcome && !freeMinutes) throw new HttpError(400, "Choose how long your free call should be.", "WEL_LENGTH_REQUIRED");
   // A free replacement call stands alone: never together with a welcome free call (or an offer).
-  if (welcome && makeGoodCreditId) throw badRequest("Use either your free call or your free replacement call — not both at once.");
+  if (welcome && makeGoodCreditId) throw badRequest("Use either your free minutes or your free replacement call — not both at once.");
   const astrologer = await availableAstrologer(astrologerId);
   // The rate is fixed now and the whole session is billed at it. A claimed consultation offer
   // lowers it — never together with a free call or a free replacement call.
@@ -392,7 +445,7 @@ customerRouter.post("/consultations", async (req, res) => {
     }
     if (policy) {
       // The customer's own allowance first: "you've used it" is the answer that matters to them.
-      const mine = await welcomeAvailability(tx, me.user.id, policy);
+      const mine = await welcomeAvailability(tx, me.user.id, policy, freeMinutes ?? 0);
       if (!mine.ok) return { kind: "refused" as const, code: mine.code, message: mine.message };
       const refusal = await freeCallRefusal(astrologer, policy, tx);
       if (refusal) return { kind: "refused" as const, ...refusal };
@@ -412,9 +465,10 @@ customerRouter.post("/consultations", async (req, res) => {
         rate,
         status: "CONNECTING",
         heldAmount: spendable,
-        ...(policy ? { billingMode: COMPLIMENTARY, complimentarySeconds: policy.complimentarySeconds } : {}),
+        // The chosen length, snapshotted: all of it is taken from the weekly minutes once the call starts.
+        ...(policy ? { billingMode: COMPLIMENTARY, complimentarySeconds: (freeMinutes ?? 0) * 60 } : {}),
         ...(makeGood ? { billingMode: MAKE_GOOD, complimentarySeconds: makeGood.credit.minutes * 60, makeGoodCreditId: makeGood.credit.id } : {}),
-        // The offer is only used up once the consultation connects.
+        // The offer is only used up once the conversation starts (both sides joined).
         ...(offer ? { listRate, discountPct: offer.pct, campaignClaimId: offer.claimId } : {}),
       },
     });
@@ -423,7 +477,7 @@ customerRouter.post("/consultations", async (req, res) => {
     }
     if (policy && !(await reserveWelcome(tx, me.user.id, consultation.id))) {
       // Undo everything above: the free call isn't there to use.
-      throw new HttpError(409, "You don't have a free call to use. You can still consult at the normal rate.", "WEL_NOT_AVAILABLE");
+      throw new HttpError(409, "You don't have free minutes to use right now. You can still consult at the normal rate.", "WEL_NOT_AVAILABLE");
     }
     if (spendable > 0) await tx.wallet.update({ where: { userId: me.user.id }, data: { held: { increment: spendable } } });
     return { kind: "ok" as const, consultation };
@@ -452,26 +506,34 @@ customerRouter.post("/consultations/:id/connect", async (req, res) => {
     await lockKey(tx, `astro:${c.astrologerId}`);
     const busy = await tx.consultation.findFirst({ where: { astrologerId: c.astrologerId, status: "ACTIVE", id: { not: c.id } }, select: { id: true } });
     if (busy) return "busy" as const;
+    // Connected, not yet billed: billing (and using up a free call, a free replacement call or an
+    // offer) starts once both sides have really joined — POST /consultations/:id/joined.
     const { count } = await tx.consultation.updateMany({ where: { id: c.id, status: "CONNECTING" }, data: { status: "ACTIVE", connectedAt } });
     if (!count) return "gone" as const;
-    // A free call counts against the customer's allowance once it connects.
-    if (c.billingMode === COMPLIMENTARY) await consumeWelcome(tx, c.id, connectedAt);
-    // A free replacement call is used once it connects.
-    if (c.billingMode === MAKE_GOOD) await consumeMakeGood(tx, c.id);
-    // A claimed consultation offer is used once the consultation connects (never before).
-    if (c.campaignClaimId) await useClaim(tx, c.campaignClaimId, connectedAt);
     return "ok" as const;
   });
   if (result === "busy") throw conflict("The astrologer is in another consultation right now.");
   if (result === "gone") throw conflict("This consultation can no longer connect.");
   await syncPresence(c.astrologerId); // the astrologer is now in a session → BUSY
   const updated = await db.consultation.findUniqueOrThrow({ where: { id: c.id } });
-  const standardFree = await configNumber("consult.free_seconds", 60);
+  const [standardFree, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 60), joinTimeoutSeconds()]);
   res.json({
-    consultation: { id: updated.id, status: updated.status, connectedAt: updated.connectedAt },
+    consultation: { id: updated.id, status: updated.status, connectedAt: updated.connectedAt, ...joinView(updated, joinTimeout) },
     freeSeconds: freeWindow(updated, standardFree),
     maxSeconds: sessionCapSeconds(updated, standardFree),
   });
+});
+
+/**
+ * The customer's side has really joined: on a voice or video call its stream is being published and
+ * it is playing the astrologer's; on a chat, its session window is open. Billing starts once the
+ * astrologer has joined too. Idempotent; answers with the session as it now stands.
+ */
+customerRouter.post("/consultations/:id/joined", async (req, res) => {
+  const c = await ownConsultation(auth(req).user.id, String(req.params.id));
+  if (c.status !== "ACTIVE") throw conflict("This consultation isn't in progress.");
+  await markJoined(c, "CUSTOMER");
+  res.json({ consultation: await viewOf(c.id) });
 });
 
 /**

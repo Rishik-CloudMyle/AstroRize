@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
 import { rupee } from "@/lib/format";
-import { sessionActions } from "@/lib/session-store";
+import { LockIcon, methodName, payLabel, rechargeMessage, useRecharge, type Paid } from "../wallet/use-recharge";
 
 interface Denomination {
   amount: number;
@@ -14,9 +14,10 @@ interface Denomination {
 }
 
 /**
- * "Add money" during a consultation: a recharge over the call screen. The call keeps running
- * underneath; once paid, the API holds the new balance for this session, so it simply runs
- * longer at the same rate.
+ * "Add money" during a consultation: a recharge over the call screen, paid in Razorpay Checkout
+ * (which opens on top). The call keeps running underneath; once paid, the API holds the new
+ * balance for this session, so it simply runs longer at the same rate. The result shows in this
+ * sheet (never the payment page, which would leave the call); "Back to your call" closes it.
  */
 export default function InCallRecharge({
   rate,
@@ -25,25 +26,31 @@ export default function InCallRecharge({
 }: {
   /** The session's per-minute rate (₹), to show how long each amount lasts */
   rate: number;
-  /** Paid: the caller re-reads the session's new length. */
+  /** Paid: the caller re-reads the session's new length (the sheet stays open on its success state). */
   onPaid: (amount: number) => void;
   onClose: () => void;
 }) {
   const [list, setList] = useState<Denomination[] | null>(null);
   const [gstRate, setGstRate] = useState(0);
   const [amount, setAmount] = useState<number | null>(null);
-  const [paying, setPaying] = useState(false);
   const [error, setError] = useState("");
+  // Razorpay is connected (null until the amounts load).
+  const [paymentsOn, setPaymentsOn] = useState<boolean | null>(null);
+  const recharge = useRecharge(useCallback((p: Paid) => onPaid(p.order.amount), [onPaid]));
+  const paying = recharge.busy;
+  const note = rechargeMessage(recharge.state);
+  const paid = recharge.state.stage === "paid" ? recharge.state.paid : null;
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
     api
-      .get<{ denominations: Denomination[]; gstRate: number }>("/wallet/denominations")
+      .get<{ denominations: Denomination[]; gstRate: number; payments?: { available: boolean } }>("/wallet/denominations")
       .then((res) => {
         if (cancelled) return;
         setList(res.denominations);
         setGstRate(res.gstRate);
+        setPaymentsOn(res.payments?.available ?? false);
         // Pre-select the smallest amount that buys at least five more minutes.
         setAmount((res.denominations.find((d) => d.amount >= rate * 5) ?? res.denominations.at(-1))?.amount ?? null);
       })
@@ -62,19 +69,6 @@ export default function InCallRecharge({
 
   const selected = list?.find((d) => d.amount === amount) ?? null;
   const gst = selected ? Math.round(selected.amount * gstRate) : 0;
-
-  async function pay() {
-    if (!selected || paying) return;
-    setPaying(true);
-    setError("");
-    try {
-      await sessionActions.recharge(selected.amount);
-      onPaid(selected.amount);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "The payment didn't go through. Your call continues — try again.");
-      setPaying(false);
-    }
-  }
 
   return (
     <div
@@ -95,10 +89,10 @@ export default function InCallRecharge({
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <h2 id="in-call-recharge-title" className="font-display text-[26px] font-semibold leading-tight text-ink max-lg:font-sans max-lg:text-[18px] max-lg:font-bold max-lg:text-app-ink">
-              Add money
+              {paid ? "Payment successful" : "Add money"}
             </h2>
             <p className="mt-1 text-[13px] leading-normal text-stone-600 max-lg:text-app-ink-2">
-              Your call stays connected while you pay. It continues at {rupee(rate)}/min.
+              {paid ? `Your call is still connected and continues at ${rupee(rate)}/min.` : `Your call stays connected while you pay. It continues at ${rupee(rate)}/min.`}
             </p>
           </div>
           <button
@@ -112,73 +106,142 @@ export default function InCallRecharge({
           </button>
         </div>
 
-        {!list && !error && (
-          <div className="mt-5 grid grid-cols-2 gap-2.5" aria-busy="true">
-            {[0, 1, 2, 3].map((i) => (
-              <span key={i} className="h-[72px] animate-pulse rounded-2xl bg-line-soft" />
-            ))}
-          </div>
-        )}
-
-        {list && list.length === 0 && (
-          <p className="mt-5 text-[13px] text-stone-600">No recharge amounts are available right now.</p>
-        )}
-
-        {list && list.length > 0 && (
-          <div role="radiogroup" aria-label="Amount" className="mt-5 grid grid-cols-2 gap-2.5">
-            {list.map((d) => {
-              const on = d.amount === amount;
-              return (
-                <button
-                  key={d.amount}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  onClick={() => {
-                    setAmount(d.amount);
-                    setError("");
-                  }}
-                  className={`rounded-2xl border-2 px-3 py-2.5 text-left max-lg:rounded-app-card max-lg:border ${
-                    on ? "border-amber-500 bg-amber-50 max-lg:border-app-selected max-lg:bg-app-tint max-lg:shadow-[0_0_0_1px_var(--color-app-selected)]" : "border-line bg-white hover:border-amber-300 max-lg:border-app-line max-lg:bg-app-surface"
-                  }`}
-                >
-                  <b className="block text-[18px] tabular-nums text-ink">{rupee(d.amount)}</b>
-                  <span className="block text-[11.5px] text-stone-500">
-                    ≈ {Math.floor(d.amount / Math.max(1, rate))} min
-                    {d.bonus > 0 && <span className="font-bold text-emerald-700"> · +{rupee(d.bonus)} bonus</span>}
-                    {d.cashback > 0 && <span className="font-bold text-emerald-700"> · +{rupee(d.cashback)} cashback</span>}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {selected && (
-          <p className="mt-3 text-[12.5px] text-stone-500">
-            {rupee(selected.amount)} talk time + {rupee(gst)} GST · you pay {rupee(selected.amount + gst)}
-            {selected.cashback > 0 && (
-              <span className="block font-semibold text-emerald-700">
-                +{rupee(selected.cashback)} cashback from {selected.cashbackFrom ?? "your offer"}
+        {paid ? (
+          <div role="status" className="mt-5 text-center">
+            <span aria-hidden="true" className="mx-auto grid size-16 place-items-center rounded-full bg-emerald-700 text-white max-lg:bg-app-success">
+              <svg viewBox="0 0 24 24" className="size-8" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+                <path d="m5 12.5 4.5 4.5L19 7.5" />
+              </svg>
+            </span>
+            <b className="mt-3 block text-[20px] tabular-nums text-ink max-lg:text-app-ink">{rupee(paid.order.amount)} added to your wallet</b>
+            {paid.order.bonus + paid.cashback > 0 && (
+              <span className="mt-0.5 block text-[13px] font-semibold text-emerald-700 max-lg:text-app-success">
+                + {rupee(paid.order.bonus + paid.cashback)} {paid.cashback > 0 ? "bonus / cashback" : "bonus"} to your Promotional Balance
               </span>
             )}
-          </p>
+            <span className="mt-1.5 block text-[12.5px] text-stone-500 max-lg:text-app-ink-3">
+              You paid {rupee(paid.order.total)} incl. {rupee(paid.order.gst)} GST
+              {paid.method ? ` · ${methodName(paid.method)}` : ""}
+            </span>
+            {paid.paymentId && (
+              <span className="mt-0.5 block text-[12px] [overflow-wrap:anywhere] text-stone-500 max-lg:text-app-ink-3">
+                Payment ID <b className="font-mono font-semibold text-ink max-lg:text-app-ink">{paid.paymentId}</b>
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              autoFocus
+              className="mt-5 min-h-[52px] w-full rounded-[14px] text-[15px] font-bold az-cta max-lg:min-h-app-hit max-lg:rounded-app-btn max-lg:bg-none max-lg:bg-app-primary max-lg:text-app-on-primary max-lg:shadow-none"
+            >
+              Back to your call
+            </button>
+            <p className="mt-2.5 mb-0 text-[11.5px] leading-normal text-stone-500 max-lg:text-app-ink-3">
+              The receipt is in your wallet&apos;s transactions.
+            </p>
+          </div>
+        ) : (
+          <>
+          {!list && !error && (
+            <div className="mt-5 grid grid-cols-2 gap-2.5" aria-busy="true">
+              {[0, 1, 2, 3].map((i) => (
+                <span key={i} className="h-[72px] animate-pulse rounded-2xl bg-line-soft" />
+              ))}
+            </div>
+          )}
+
+          {list && list.length === 0 && (
+            <p className="mt-5 text-[13px] text-stone-600">No recharge amounts are available right now.</p>
+          )}
+
+          {list && list.length > 0 && (
+            <div role="radiogroup" aria-label="Amount" className="mt-5 grid grid-cols-2 gap-2.5">
+              {list.map((d) => {
+                const on = d.amount === amount;
+                return (
+                  <button
+                    key={d.amount}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => {
+                      if (paying) return;
+                      setAmount(d.amount);
+                      setError("");
+                      recharge.reset();
+                    }}
+                    className={`rounded-2xl border-2 px-3 py-2.5 text-left max-lg:rounded-app-card max-lg:border ${
+                      on ? "border-amber-500 bg-amber-50 max-lg:border-app-selected max-lg:bg-app-tint max-lg:shadow-[0_0_0_1px_var(--color-app-selected)]" : "border-line bg-white hover:border-amber-300 max-lg:border-app-line max-lg:bg-app-surface"
+                    }`}
+                  >
+                    <b className="block text-[18px] tabular-nums text-ink">{rupee(d.amount)}</b>
+                    <span className="block text-[11.5px] text-stone-500">
+                      ≈ {Math.floor(d.amount / Math.max(1, rate))} min
+                      {d.bonus > 0 && <span className="font-bold text-emerald-700"> · +{rupee(d.bonus)} bonus</span>}
+                      {d.cashback > 0 && <span className="font-bold text-emerald-700"> · +{rupee(d.cashback)} cashback</span>}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {selected && (
+            <p className="mt-3 text-[12.5px] text-stone-500">
+              {rupee(selected.amount)} talk time + {rupee(gst)} GST · you pay {rupee(selected.amount + gst)}
+              {selected.cashback > 0 && (
+                <span className="block font-semibold text-emerald-700">
+                  +{rupee(selected.cashback)} cashback from {selected.cashbackFrom ?? "your offer"}
+                </span>
+              )}
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="mt-3 text-[13px] font-semibold text-rose-700">
+              {error}
+            </p>
+          )}
+          {paymentsOn === false && (
+            <p role="status" className="mt-3 text-[13px] font-semibold text-stone-600">
+              Payments aren&apos;t connected yet, so money can&apos;t be added right now. Your call continues.
+            </p>
+          )}
+          {note && (
+            <p
+              role={note.tone === "error" ? "alert" : "status"}
+              className={`mt-3 rounded-xl px-3 py-2.5 text-[12.5px] leading-normal font-semibold max-lg:rounded-app-card ${
+                note.tone === "error" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-900"
+              }`}
+            >
+              {note.text} Your call continues.
+            </p>
+          )}
+          {recharge.state.stage === "pending" ? (
+            <button
+              type="button"
+              onClick={() => void recharge.check()}
+              className="mt-4 min-h-[52px] w-full rounded-[14px] text-[15px] font-bold az-cta max-lg:min-h-app-hit max-lg:rounded-app-btn max-lg:bg-none max-lg:bg-app-primary max-lg:text-app-on-primary max-lg:shadow-none"
+            >
+              Check status
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => selected && void recharge.pay(selected.amount)}
+              disabled={!selected || paying || !paymentsOn}
+              className={`mt-4 min-h-[52px] w-full rounded-[14px] text-[15px] font-bold max-lg:min-h-app-hit max-lg:rounded-app-btn ${
+                selected && !paying && paymentsOn ? "az-cta max-lg:bg-none max-lg:bg-app-primary max-lg:text-app-on-primary max-lg:shadow-none" : "cursor-not-allowed bg-stone-200 text-stone-500"
+              }`}
+            >
+              {selected ? payLabel(recharge.state, selected.amount + gst) : "Choose an amount"}
+            </button>
+          )}
+          </>
         )}
-        {error && (
-          <p role="alert" className="mt-3 text-[13px] font-semibold text-rose-700">
-            {error}
-          </p>
-        )}
-        <button
-          type="button"
-          onClick={() => void pay()}
-          disabled={!selected || paying}
-          className={`mt-4 min-h-[52px] w-full rounded-[14px] text-[15px] font-bold max-lg:min-h-app-hit max-lg:rounded-app-btn ${
-            selected && !paying ? "az-cta max-lg:bg-none max-lg:bg-app-primary max-lg:text-app-on-primary max-lg:shadow-none" : "cursor-not-allowed bg-stone-200 text-stone-500"
-          }`}
-        >
-          {paying ? "Confirming payment…" : selected ? `Pay ${rupee(selected.amount + gst)}` : "Choose an amount"}
-        </button>
+        <p className="mt-2.5 mb-0 flex items-start gap-1.5 text-[11.5px] leading-normal text-stone-500 max-lg:text-app-ink-3">
+          <LockIcon className="mt-px size-3.5 shrink-0" />
+          <span>Paid securely with Razorpay — UPI, cards, netbanking and wallets.</span>
+        </p>
       </div>
     </div>
   );

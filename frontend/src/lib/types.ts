@@ -140,8 +140,22 @@ export interface LiveRequestStatus {
   mode: ConsultMode | null;
 }
 
+/**
+ * Billing starts only once BOTH sides have really joined a connected session (voice/video: each is
+ * publishing and playing the other's stream; chat: both windows open). Until then nothing is billed
+ * and the clock stays at 0; if they don't both join by `joinBy`, the session ends by itself at ₹0.
+ */
+export interface JoinState {
+  /** When billing started (null while waiting for a side to join) */
+  billingStartedAt: string | null;
+  customerJoined: boolean;
+  astrologerJoined: boolean;
+  /** While waiting: when the session ends by itself (₹0) if a side hasn't joined */
+  joinBy: string | null;
+}
+
 /** A private consultation taken from a live room, by the server clock. */
-export interface LivePrivateConsult {
+export interface LivePrivateConsult extends JoinState {
   id: string;
   ref: string;
   status: "connecting" | "active";
@@ -170,26 +184,26 @@ export interface Transaction {
   bucket: string;
   /** Positive = credit, negative = debit, in rupees */
   amount: number;
+  /** A recharge line (or its bonus/cashback): the Razorpay order id of its payment page, else null. */
+  payment?: string | null;
 }
 
-/** The customer's welcome free calls (GET /wallet → welcome). */
+/** The customer's weekly free minutes (GET /wallet → welcome). */
 export interface WelcomeBenefit {
-  /** granted (free calls left) | reserved (one is being requested) | consumed (none left for now) | revoked */
+  /** granted (a free call fits in this week's minutes) | reserved (one is being requested) | consumed (none left this week) | revoked */
   status: "granted" | "reserved" | "consumed" | "revoked";
-  /** How many free calls, per what period (set by Astrorize) */
-  allowance: {
-    count: number;
-    /** once = once ever; day / week (Mon–Sun) / month in IST */
-    period: "once" | "day" | "week" | "month";
+  /** This Mon–Sun week's (IST) free minutes (set by Astrorize) */
+  weekly: {
+    total: number;
     used: number;
     remaining: number;
-    /** ISO time the allowance starts again; null for "once ever" */
-    resetsAt: string | null;
+    /** ISO time they reset: Monday 00:00 IST */
+    resetsAt: string;
   };
-  /** True while it can be used to start a free call. */
+  /** The lengths a free call can be (minutes, smallest first); `fits` = fits in what is left this week. The whole length is used. */
+  lengths: { minutes: number; fits: boolean }[];
+  /** True while a free call can be started (at least one length fits). */
   available: boolean;
-  /** Length of the free call, in seconds */
-  freeSeconds: number;
   /** How long before the free time ends the customer is reminded to add money */
   reminderSeconds: number;
   /** Modes it can be used for */

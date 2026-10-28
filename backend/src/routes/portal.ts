@@ -7,9 +7,14 @@ import { META, draftValues, metaValues, missingFor, nextApplicantId, submittedOn
 import {
   INCOMING_WINDOW_SECS,
   acceptConsultation,
+  billedElapsed,
   endConsultation,
+  endIfNeverJoined,
   expireStaleRequests,
+  joinTimeoutSeconds,
+  joinView,
   lockKey,
+  markJoined,
   sessionCapSeconds,
   settlementView,
 } from "../lib/consultations.ts";
@@ -628,17 +633,22 @@ portalRouter.get("/consultations", async (req, res) => {
   const a = await me(req);
   await expireStaleRequests(a.id);
   const now = new Date();
-  const [requests, active, queueMax, standardFree, freeCalls] = await Promise.all([
+  // A connected session whose sides didn't both join in time ends (₹0) on schedule.
+  const unjoined = await db.consultation.findFirst({ where: { astrologerId: a.id, status: "ACTIVE", billingStartedAt: null } });
+  if (unjoined) await endIfNeverJoined(unjoined);
+  const [requests, active, queueMax, standardFree, freeCalls, joinTimeout] = await Promise.all([
     db.consultation.findMany({ where: { astrologerId: a.id, status: "REQUESTED" }, orderBy: { requestedAt: "asc" }, include: { customer: true } }),
     db.consultation.findFirst({ where: { astrologerId: a.id, status: "ACTIVE" }, orderBy: { connectedAt: "desc" }, include: { customer: true } }),
     configNumber("live.queue.max_depth", 20),
     configNumber("consult.free_seconds", 60),
     freeCallsView(a),
+    joinTimeoutSeconds(),
   ]);
   const first = requests[0];
   let session = null;
   if (active?.connectedAt) {
-    const secs = Math.floor((now.getTime() - active.connectedAt.getTime()) / 1000);
+    // Billed time: counted from when both sides joined (0 while waiting for the customer to join).
+    const secs = billedElapsed(active, now.getTime());
     const wallet = active.customerId ? await db.wallet.findUnique({ where: { userId: active.customerId } }) : null;
     // Seconds the session can still run (free time plus what the customer's held balance pays for).
     const cap = sessionCapSeconds(active, standardFree);
@@ -660,7 +670,9 @@ portalRouter.get("/consultations", async (req, res) => {
       elapsedSeconds: secs,
       // Two minutes or less of what the balance pays for (not the 15-minute cap; a free call's
       // paid part is capped on its own, after the free time).
-      lowBalance: cap - (free ? active.complimentarySeconds : 0) < MAX_SESSION_SECONDS && cap - secs <= 120,
+      lowBalance: !!active.billingStartedAt && cap - (free ? active.complimentarySeconds : 0) < MAX_SESSION_SECONDS && cap - secs <= 120,
+      /** Billing starts only once both sides have really joined. */
+      ...joinView(active, joinTimeout),
       hasWallet: !!wallet,
       profile: active.customer ? consultSummary(active.customer) : null,
     };
@@ -695,6 +707,116 @@ portalRouter.get("/consultations", async (req, res) => {
       session,
       freeCalls,
     },
+  });
+});
+
+/**
+ * The incoming-call alert, polled every few seconds by every portal page while the astrologer is
+ * online (kept to a handful of small queries). `incoming` is what is ringing for them right now, the
+ * most urgent first: a connected call they haven't picked up yet (Chat, Voice, Video — the customer
+ * is already in it), an Instant Call request at the front of their queue, or the person at the front
+ * of their live's private-consultation queue. `current` is the consultation they are in (so a call
+ * minimised on another page can be returned to, and a finished one let go).
+ */
+portalRouter.get("/incoming", async (req, res) => {
+  const a = await me(req);
+  await expireStaleRequests(a.id);
+  const now = Date.now();
+  const [open, head, liveHead] = await Promise.all([
+    db.consultation.findFirst({
+      where: { astrologerId: a.id, OR: [{ status: "ACTIVE" }, { status: "CONNECTING", origin: "LIVE" }] },
+      orderBy: { requestedAt: "desc" },
+      include: { customer: true },
+    }),
+    db.consultation.findFirst({ where: { astrologerId: a.id, status: "REQUESTED" }, orderBy: { requestedAt: "asc" }, include: { customer: true } }),
+    a.presence === "LIVE"
+      ? db.liveQueueEntry.findFirst({ where: { room: { astrologerId: a.id, isLive: true }, status: "WAITING" }, orderBy: { createdAt: "asc" }, include: { user: true } })
+      : null,
+  ]);
+  const who = (c: { customer: Parameters<typeof displayName>[0] | null; customerAlias: string }) => ({
+    name: c.customer ? displayName(c.customer) : `Customer ${c.customerAlias}`,
+    photoUrl: c.customer?.photoUrl ?? null,
+    initials: c.customer?.initials ?? "?",
+  });
+  const freeOf = (c: { billingMode: string; complimentarySeconds: number }) => {
+    const free = c.billingMode === COMPLIMENTARY || c.billingMode === MAKE_GOOD;
+    return { free, makeGood: c.billingMode === MAKE_GOOD, freeMinutes: free ? Math.round(c.complimentarySeconds / 60) : null };
+  };
+
+  let incoming = null;
+  if (open && open.origin !== "LIVE" && open.status === "ACTIVE" && !open.astrologerJoinedAt && !open.billingStartedAt && open.connectedAt) {
+    // The customer is in the call: the astrologer picks up within the time to join, or it ends (₹0).
+    const timeout = await joinTimeoutSeconds();
+    const left = Math.ceil((open.connectedAt.getTime() + timeout * 1000 - now) / 1000);
+    if (left > 0) {
+      incoming = {
+        key: `session:${open.id}`,
+        kind: "session" as const,
+        id: open.id,
+        ...who(open),
+        mode: modeLabel(open),
+        window: windowOf(open),
+        instant: open.kind === "INSTANT",
+        ...freeOf(open),
+        rate: open.rate,
+        secondsLeft: left,
+        windowSecs: timeout,
+      };
+    }
+  } else if (head?.offeredAt && !open) {
+    incoming = {
+      key: `request:${head.id}`,
+      kind: "request" as const,
+      id: head.id,
+      ...who(head),
+      mode: modeLabel(head),
+      window: windowOf(head),
+      instant: head.kind === "INSTANT",
+      ...freeOf(head),
+      rate: head.rate,
+      secondsLeft: Math.max(0, INCOMING_WINDOW_SECS - Math.floor((now - head.offeredAt.getTime()) / 1000)),
+      windowSecs: INCOMING_WINDOW_SECS,
+    };
+  } else if (liveHead && !open) {
+    const queued = liveHead.consultationId
+      ? await db.consultation.findUnique({ where: { id: liveHead.consultationId }, select: { mode: true, kind: true, rate: true } })
+      : null;
+    incoming = {
+      key: `live:${liveHead.id}`,
+      kind: "live" as const,
+      id: liveHead.id,
+      name: liveHead.user ? displayName(liveHead.user) : `Customer ${liveHead.alias}`,
+      photoUrl: liveHead.user?.photoUrl ?? null,
+      initials: liveHead.user?.initials ?? "?",
+      mode: queued ? modeLabel(queued) : "Voice",
+      window: queued ? windowOf(queued) : ("voice" as const),
+      instant: false,
+      free: false,
+      makeGood: false,
+      freeMinutes: null,
+      rate: queued?.rate ?? liveRate(a.price),
+      // A live request has no deadline: it waits in the queue (the console shows it too).
+      secondsLeft: null,
+      windowSecs: null,
+      waitingSecs: Math.floor((now - liveHead.createdAt.getTime()) / 1000),
+    };
+  }
+  res.json({
+    presence: effectivePresence(a).toLowerCase(),
+    incoming,
+    current: open
+      ? {
+          id: open.id,
+          origin: open.origin === "LIVE" ? ("live" as const) : ("direct" as const),
+          status: open.status.toLowerCase(),
+          ...who(open),
+          mode: modeLabel(open),
+          window: windowOf(open),
+          astrologerJoined: !!open.astrologerJoinedAt,
+          billingStartedAt: open.billingStartedAt?.toISOString() ?? null,
+          elapsedSeconds: billedElapsed(open, now),
+        }
+      : null,
   });
 });
 
@@ -743,6 +865,20 @@ portalRouter.post("/consultations/:id/reject", async (req, res) => {
   // Declined: a free call held for it is the customer's again.
   if (c.billingMode === COMPLIMENTARY) await releaseWelcome(db, c.id);
   res.json({ ok: true });
+});
+
+/**
+ * The astrologer's side has really joined: on a voice or video call their stream is being published
+ * and they are playing the customer's; on a chat, their session window is open. Billing starts once
+ * the customer has joined too. Idempotent.
+ */
+portalRouter.post("/consultations/:id/joined", async (req, res) => {
+  const a = await me(req);
+  const c = await db.consultation.findUnique({ where: { id: String(req.params.id) } });
+  if (!c || c.astrologerId !== a.id) throw notFound("Session not found.");
+  if (c.status !== "ACTIVE") throw conflict("This session isn't in progress.");
+  const updated = await markJoined(c, "ASTROLOGER");
+  res.json({ status: updated.status.toLowerCase(), ...joinView(updated, await joinTimeoutSeconds()) });
 });
 
 portalRouter.post("/consultations/:id/end", async (req, res) => {
@@ -915,7 +1051,7 @@ portalRouter.patch("/live", async (req, res) => {
 /**
  * What is happening in the room right now, for the console's video overlay: the feed (messages,
  * joins, gifts), recent gifts to animate, gift totals this session and the viewer count.
- * The console polls this every few seconds while live.
+ * The portal follows this every few seconds while live (lib/media/live-broadcast.ts, on every portal page).
  */
 portalRouter.get("/live/feed", async (req, res) => {
   const a = await me(req);
@@ -935,6 +1071,8 @@ portalRouter.get("/live/feed", async (req, res) => {
       giftsTotal: totals._sum.price ?? 0,
       giftsCount: totals._count,
       title: room.title || room.topic,
+      /** When this live session started (the portal's "You're LIVE" clock). */
+      startedAt: room.startedAt.toISOString(),
       /** The private consultation in progress, polled with the feed so the console follows it closely. */
       private: inPrivate,
       waiting,

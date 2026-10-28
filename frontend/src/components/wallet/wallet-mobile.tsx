@@ -1,17 +1,17 @@
 "use client";
 
 // Wallet & account on phones and tablets (< 1024px), in the look of the client's mobile app
-// prototype: Wallet → Add money → Secure payment → Payment successful, Transactions → Transaction,
+// prototype: Wallet → Add money → Secure payment → the payment's own page (/wallet/payment/<id>,
+// "Payment successful" / failed / pending), Transactions → Transaction,
 // plus the account screens that live on this page on desktop (Profile, Settings & data rights).
 // Each screen is a `?view=` of /wallet, so the phone's back button walks back through them.
 // Desktop renders wallet-view.tsx's own layout instead (never both).
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { ApiError } from "@/lib/api/client";
+import { useCallback, useEffect, useState } from "react";
 import { rupee, signedRupee } from "@/lib/format";
 import { DATA_RIGHTS } from "@/lib/mock/wallet";
-import { sessionActions, totalBalance, useSession } from "@/lib/session-store";
+import { totalBalance, useSession } from "@/lib/session-store";
 import type { Transaction } from "@/lib/types";
 import { WelcomeBanner } from "../consult/free-call";
 import LogoutButton from "../logout-button";
@@ -27,6 +27,7 @@ import { Skeleton } from "../mobile/skeleton";
 import { HideTabBar } from "../mobile/tab-bar";
 import AccountSection, { type Closed } from "./account-section";
 import ProfileSection from "./profile-section";
+import { LockIcon, RAZORPAY_TRUST, payLabel, paymentPageHref, rechargeMessage, useRecharge } from "./use-recharge";
 
 export interface Denomination {
   amount: number;
@@ -38,21 +39,8 @@ export interface Denomination {
 
 export type DataRight = (typeof DATA_RIGHTS)[number];
 
-type View = "home" | "add" | "pay" | "done" | "transactions" | "tx" | "profile" | "settings";
-const VIEWS: View[] = ["home", "add", "pay", "done", "transactions", "tx", "profile", "settings"];
-
-/** What a successful recharge added, for the "Payment successful" screen. */
-interface Paid {
-  amount: number;
-  gst: number;
-  total: number;
-  bonus: number;
-  cashback: number;
-  cashbackFrom: string | null;
-}
-
-const errorText = (e: unknown) =>
-  e instanceof ApiError ? e.message : "Something went wrong. Check your connection and try again.";
+type View = "home" | "add" | "pay" | "transactions" | "tx" | "profile" | "settings";
+const VIEWS: View[] = ["home", "add", "pay", "transactions", "tx", "profile", "settings"];
 
 /** Move between this page's screens without a page load (Next keeps useSearchParams in sync). */
 function go(view: View, extra: Record<string, string> = {}, replace = false) {
@@ -69,6 +57,7 @@ export default function MobileWallet({
   denom,
   onPick,
   loadError,
+  paymentsOn,
   onPaid,
   onClosed,
   onDataRight,
@@ -80,6 +69,8 @@ export default function MobileWallet({
   onPick: (amount: number) => void;
   /** Recharge amounts couldn't be loaded. */
   loadError: string;
+  /** Razorpay is connected (null while loading). */
+  paymentsOn: boolean | null;
   /** A recharge went through (`usedOffer`: a claimed cashback offer was part of it). */
   onPaid: (usedOffer: boolean) => void;
   onClosed: (closed: Closed) => void;
@@ -90,7 +81,6 @@ export default function MobileWallet({
   const raw = params.get("view") as View | null;
   const view: View = raw && VIEWS.includes(raw) ? raw : "home";
   const [chosen, setChosen] = useState(false);
-  const [paid, setPaid] = useState<Paid | null>(null);
 
   // Links from elsewhere use the desktop anchors (/wallet#add-money, /wallet#profile): open those screens.
   useEffect(() => {
@@ -101,8 +91,7 @@ export default function MobileWallet({
   // Screens that only make sense mid-flow (a refresh, or back/forward into them) start the flow again.
   useEffect(() => {
     if (view === "pay" && !chosen) go("add", {}, true);
-    if (view === "done" && !paid) go("home", {}, true);
-  }, [view, chosen, paid]);
+  }, [view, chosen]);
 
   switch (view) {
     case "add":
@@ -113,6 +102,7 @@ export default function MobileWallet({
           denom={denom}
           onPick={onPick}
           loadError={loadError}
+          paymentsOn={paymentsOn}
           onProceed={() => {
             setChosen(true);
             go("pay");
@@ -123,21 +113,9 @@ export default function MobileWallet({
       const selected = denominations?.find((d) => d.amount === denom);
       if (!chosen || !selected) return <ScreenSkeleton title="Secure payment" />;
       return (
-        <SecurePayment
-          selected={selected}
-          gstRate={gstRate}
-          onPaid={(p) => {
-            // `chosen` stays set: the URL changes to ?view=done a moment after this render, and
-            // clearing it here would send that in-between render back to Add money.
-            setPaid(p);
-            onPaid(selected.cashback > 0);
-            go("done", {}, true);
-          }}
-        />
+        <SecurePayment selected={selected} gstRate={gstRate} onPaid={() => onPaid(selected.cashback > 0)} />
       );
     }
-    case "done":
-      return paid ? <PaymentDone paid={paid} /> : <ScreenSkeleton title="Payment successful" />;
     case "transactions":
       return <Transactions />;
     case "tx":
@@ -382,6 +360,11 @@ function TransactionDetail({ txRef }: { txRef: string }) {
             </dl>
           </AppCard>
         )}
+        {t?.payment && (
+          <AppButton href={paymentPageHref(t.payment)} variant="secondary" block className="mt-3">
+            View payment receipt
+          </AppButton>
+        )}
         {t && (
           <p className="mt-3 mb-0 text-[12px] leading-[1.45] text-app-ink-3">
             Keep the transaction ID handy if you need to ask us about this payment.
@@ -400,6 +383,7 @@ function AddMoney({
   denom,
   onPick,
   loadError,
+  paymentsOn,
   onProceed,
 }: {
   denominations: Denomination[] | null;
@@ -407,6 +391,7 @@ function AddMoney({
   denom: number;
   onPick: (amount: number) => void;
   loadError: string;
+  paymentsOn: boolean | null;
   onProceed: () => void;
 }) {
   const selected = denominations?.find((d) => d.amount === denom);
@@ -488,11 +473,13 @@ function AddMoney({
           <span aria-hidden="true">=</span>
           <b className="text-app-ink">Pay {rupee(denom + gst)}</b>
         </div>
-        <AppButton block className="mt-2" disabled={!selected} onClick={onProceed}>
-          Proceed to payment · {rupee(denom + gst)}
+        <AppButton block className="mt-2" disabled={!selected || paymentsOn === false} onClick={onProceed}>
+          {paymentsOn === false ? "Payments aren't connected yet" : `Proceed to payment · ${rupee(denom + gst)}`}
         </AppButton>
         <p className="mt-1.5 mb-0 text-[11.5px] leading-[1.4] text-app-ink-3">
-          Your wallet is credited the full {rupee(denom)}. A payment is never credited twice.
+          {paymentsOn === false
+            ? "Recharges open as soon as our payment partner is connected. Your balance is safe."
+            : `Your wallet is credited the full ${rupee(denom)}. A payment is never credited twice.`}
         </p>
       </div>
     </>
@@ -515,27 +502,12 @@ function Rows({ rows }: { rows: { label: string; value: string; strong?: boolean
   );
 }
 
-function SecurePayment({ selected, gstRate, onPaid }: { selected: Denomination; gstRate: number; onPaid: (p: Paid) => void }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const busyRef = useRef(false);
+function SecurePayment({ selected, gstRate, onPaid }: { selected: Denomination; gstRate: number; onPaid: () => void }) {
   const gst = Math.round(selected.amount * gstRate);
   const total = selected.amount + gst;
-
-  async function pay() {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      const r = await sessionActions.recharge(selected.amount);
-      onPaid({ amount: r.amount, gst: r.gst, total: r.total, bonus: r.bonus, cashback: r.cashback, cashbackFrom: r.cashbackFrom });
-    } catch (e) {
-      setError(errorText(e));
-      setBusy(false);
-      busyRef.current = false;
-    }
-  }
+  // Paid, failed or still pending: the payment's page replaces this screen (Back then returns to Add money).
+  const { state, pay, check, busy } = useRecharge(useCallback(() => onPaid(), [onPaid]), "replace");
+  const note = rechargeMessage(state);
 
   return (
     <>
@@ -566,60 +538,32 @@ function SecurePayment({ selected, gstRate, onPaid }: { selected: Denomination; 
             ]}
           />
         </AppCard>
-        {error && (
-          <p role="alert" className="mt-3 mb-0 text-[12.5px] font-semibold text-app-error">
-            {error}
-          </p>
+        {note && (
+          <div
+            role={note.tone === "error" ? "alert" : "status"}
+            className={`mt-3 rounded-app-card px-3 py-2.5 text-[12.5px] leading-[1.45] font-semibold ${
+              note.tone === "error" ? "bg-app-error-bg text-app-error" : "bg-app-tint text-app-ink"
+            }`}
+          >
+            {note.text}
+          </div>
         )}
-        <AppButton block className="mt-3.5" loading={busy} onClick={() => void pay()}>
-          {busy ? "Confirming payment…" : `Pay ${rupee(total)}`}
-        </AppButton>
+        {state.stage === "pending" ? (
+          <AppButton block className="mt-3.5" onClick={() => void check()}>
+            Check status
+          </AppButton>
+        ) : (
+          <AppButton block className="mt-3.5" loading={busy} onClick={() => void pay(selected.amount)}>
+            {payLabel(state, total)}
+          </AppButton>
+        )}
         <AppButton variant="secondary" block className="mt-2" disabled={busy} onClick={() => window.history.back()}>
-          Cancel payment
+          {state.stage === "pending" ? "Back" : "Cancel payment"}
         </AppButton>
-      </div>
-    </>
-  );
-}
-
-function PaymentDone({ paid }: { paid: Paid }) {
-  const session = useSession();
-  const { wallet } = session;
-  const extra = paid.bonus + paid.cashback;
-  return (
-    <>
-      <HideTabBar />
-      <div className="bg-app-elev px-4 pt-2.5 pb-3">
-        <h1 className="m-0 text-[16px] font-bold text-app-ink">Payment successful</h1>
-      </div>
-      <div className="px-4 pt-6 pb-8 text-center">
-        <span aria-hidden="true" className="mx-auto grid size-[88px] place-items-center rounded-full bg-app-success text-white">
-          <svg viewBox="0 0 24 24" className="size-9" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
-            <path d="m5 12.5 4.5 4.5L19 7.5" />
-          </svg>
-        </span>
-        <p role="status" className="mt-4 mb-0 font-display text-[28px] leading-tight font-semibold text-app-ink">
-          Payment successful
+        <p className="mt-3 mb-0 flex items-start justify-center gap-1.5 text-center text-[11.5px] leading-[1.45] text-app-ink-3">
+          <LockIcon className="mt-px size-3.5 shrink-0" />
+          <span>{RAZORPAY_TRUST}</span>
         </p>
-        <AppCard padding="lg" className="mt-4 text-left">
-          <Rows
-            rows={[
-              { label: "Amount added", value: rupee(paid.amount) },
-              ...(extra > 0 ? [{ label: paid.cashback > 0 ? "Bonus / cashback" : "Bonus", value: `+ ${rupee(extra)}`, green: true }] : []),
-              { label: "Updated wallet", value: rupee(totalBalance(session)), strong: true, rule: true },
-              { label: "Service Balance", value: rupee(wallet.service) },
-              { label: "Promotional Balance", value: rupee(wallet.promo) },
-            ]}
-          />
-        </AppCard>
-        <p className="mx-auto mt-3 mb-0 max-w-[40ch] text-[12px] leading-[1.45] text-app-ink-3">
-          You paid {rupee(paid.total)} including {rupee(paid.gst)} GST. Your wallet is credited the recharge amount — GST
-          never reduces it.
-          {extra > 0 && " Bonus and cashback go to your Promotional Balance."}
-        </p>
-        <AppButton block className="mt-6" onClick={() => go("home", {}, true)}>
-          View wallet
-        </AppButton>
       </div>
     </>
   );

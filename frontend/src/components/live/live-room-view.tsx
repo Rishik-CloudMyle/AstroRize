@@ -268,6 +268,17 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
       toast("Your balance no longer covers five minutes, so you were taken out of the queue. You haven't been charged.");
     else if (req.consultation === "cancelled" && req.reason === "unanswered")
       toast("You didn't join in time, so the astrologer moved on. You haven't been charged.");
+    else if (req.consultation === "cancelled" && before.consultation === "active") {
+      // Connected, but the conversation never started (a side didn't join in time, or the astrologer left first).
+      void consultationActions.refresh();
+      setSummary({
+        title: "The private call couldn't start",
+        body:
+          req.reason === "astrologer"
+            ? `${host.name} left before the call started. Nothing was charged.`
+            : `You and ${host.name} couldn't both join the call in time, so it ended by itself. Nothing was charged.`,
+      });
+    }
     else if (req.consultation === "ended" && (before.consultation === "active" || before.consultation === "connecting")) {
       void consultationActions.refresh();
       setSummary({

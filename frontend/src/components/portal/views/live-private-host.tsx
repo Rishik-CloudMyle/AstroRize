@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { ApiError, api } from "@/lib/api/client";
 import { rupee } from "@/lib/portal/format";
 import type { LiveHostPrivate, Settlement } from "@/lib/portal/types";
 import { useHydrated } from "@/lib/session-store";
 import { SessionWindow } from "../../consult/session/session-window";
+import { releaseCallSession } from "@/lib/media/call-session";
 import { WINDOW_TITLE, useTicking } from "../../live/live-private-call";
 import { Avatar } from "./live-queue-people";
 
@@ -28,7 +30,16 @@ export default function LivePrivateHost({ p, onEnded }: { p: LiveHostPrivate; on
   // returns to the console, and "Open" brings it back.
   const [windowShut, setWindowShut] = useState(false);
   const hydrated = useHydrated();
-  const elapsed = useTicking(p.elapsedSeconds, active);
+  // Billing (and the clock) starts once both sides have really joined the private room.
+  const billing = active && !!p.billingStartedAt;
+  const elapsed = useTicking(p.elapsedSeconds, billing);
+  const router = useRouter();
+  // While the call waits for a side to join, re-read the console often so the clock starts as billing does.
+  useEffect(() => {
+    if (!active || billing) return;
+    const id = setInterval(() => router.refresh(), 2000);
+    return () => clearInterval(id);
+  }, [active, billing, router]);
   const answerBase = p.secondsToAnswer ?? 0;
   const answerLeft = Math.max(0, answerBase - (useTicking(answerBase, !active) - answerBase));
   const who = p.profile?.name ?? p.alias;
@@ -41,9 +52,12 @@ export default function LivePrivateHost({ p, onEnded }: { p: LiveHostPrivate; on
     setError("");
     try {
       const res = await api.post<{ settlement: Settlement }>(`${base}/end`);
+      releaseCallSession(base);
       const s = res.settlement;
       onEnded(
-        active
+        active && !billing
+          ? `${title} ended before it started — ${who} wasn't charged. The room is public again, with sound.`
+          : active
           ? `${title} ended after ${clock(s.elapsed)}. ${s.total > 0 ? `${who} was charged ${rupee(s.total)}.` : "Nothing was charged."} The room is public again, with sound.`
           : `Invitation withdrawn — ${who} wasn't charged. The room is public again.`,
       );
@@ -65,7 +79,9 @@ export default function LivePrivateHost({ p, onEnded }: { p: LiveHostPrivate; on
             {p.profile?.age != null && <span className="ml-1.5 text-[12px] font-semibold text-paper/60">· {p.profile.age}</span>}
           </b>
           <span className="text-[12px] tabular-nums text-paper/70">
-            {active
+            {active && !billing
+              ? `Joining the private call · not billed yet · ${rupee(p.rate)}/min`
+              : active
               ? `${clock(elapsed)} · ${elapsed < p.freeSeconds ? "free time" : `${billed} min billed`} · ${rupee(p.rate)}/min`
               : answerLeft > 0
                 ? `Waiting for them to join · ${answerLeft} s · ${rupee(p.rate)}/min`
@@ -118,6 +134,8 @@ export default function LivePrivateHost({ p, onEnded }: { p: LiveHostPrivate; on
             ending={busy}
             onEnd={() => void end()}
             onMinimise={() => setWindowShut(true)}
+            waiting={billing ? undefined : `Waiting for ${who} to join — the call and billing start when they do.`}
+            onJoined={() => router.refresh()}
           />,
           document.body,
         )}

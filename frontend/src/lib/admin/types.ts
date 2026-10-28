@@ -331,8 +331,10 @@ export interface AstrologerDetail {
     /** Highest capacity that may be set per day / per week (Config) */
     maxPerDay: number;
     maxPerWeek: number;
-    /** Length of each free call, in seconds */
-    freeSeconds: number;
+    /** Lengths a customer can choose for a free call (minutes, Config) */
+    lengths: number[];
+    /** Free minutes each customer gets per Mon–Sun week (Config) */
+    weeklyMinutes: number;
   };
 }
 

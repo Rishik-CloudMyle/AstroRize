@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { api } from "./api/client";
-import type { Astrologer, ConsultMode, Settlement } from "./types";
+import type { Astrologer, ConsultMode, JoinState, Settlement } from "./types";
 
 // The signed-in customer's open consultation (waiting for the astrologer, connecting or in
 // session), mirrored from GET /api/consultations/active. A customer can have only one at a
@@ -12,7 +12,7 @@ import type { Astrologer, ConsultMode, Settlement } from "./types";
 export type ConsultationStatus = "requested" | "connecting" | "active" | "ended" | "rejected" | "timed_out" | "cancelled";
 
 /** GET /api/consultations/active and /api/consultations/:id */
-export interface ConsultationView {
+export interface ConsultationView extends JoinState {
   id: string;
   ref: string;
   status: ConsultationStatus;
@@ -36,7 +36,7 @@ export interface ConsultationView {
   acceptBy: string | null;
   secondsToAccept: number | null;
   connectedAt: string | null;
-  /** Connected seconds by the server clock */
+  /** Billed seconds by the server clock: from billingStartedAt (0 while waiting for the astrologer to join) */
   elapsedSeconds: number;
   /** Seconds not billed at the start: the standard free minute, or a free call's complimentary time */
   freeSeconds: number;

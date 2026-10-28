@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { MediaWants } from "@/lib/media/zego-call";
 import { ConsultChat, useConsultChat } from "./consult-chat";
-import { useCallMedia, type CallMedia } from "./use-call-media";
+import { useCallMedia, type CallMedia, type Speaker } from "./use-call-media";
 
 // The consultation's own window, the same for the customer and the astrologer, one per mode:
 //   chat  → a messaging window
@@ -12,6 +12,16 @@ import { useCallMedia, type CallMedia } from "./use-call-media";
 //   video → a video call (Video and Instant Call), with a messages drawer
 // Full screen on phones; a centred stage on larger screens. Billing numbers are passed in by
 // whoever opens it (the customer's meter, or the astrologer's clock).
+//
+// The call itself (room, devices, the other side's sound) lives outside this window
+// (lib/media/call-session.ts): Minimise — or moving to another page — only closes the window; the call
+// keeps running and re-opening the window shows the same streams again (no re-join, no re-publish).
+//
+// Billing starts only once BOTH sides have really joined: the call reports "joined"
+// (POST <base>/joined) when this side is in the conversation — on a voice or video call once its
+// own stream is published AND the other side's is playing; on a chat (or a call while voice/video
+// isn't set up on Astrorize) as soon as the window is open. Until the server says billing started,
+// the caller passes `waiting` and the window says so.
 //
 // `appLook` (the customer's side): below 1024px the window takes the customer mobile app's screens —
 // a light Chat screen with the meter under its title bar, a light Voice screen with the big timer,
@@ -31,12 +41,6 @@ const WANTS: Record<WindowKind, MediaWants> = {
   voice: { audio: true, video: false },
   video: { audio: true, video: true },
 };
-
-/** The other side's sound on this device. */
-interface Speaker {
-  off: boolean;
-  volume: number;
-}
 
 export interface Peer {
   name: string;
@@ -62,6 +66,8 @@ export function SessionWindow({
   onMinimise,
   endNote,
   appLook = false,
+  waiting,
+  onJoined,
 }: {
   /** API path of this consultation for this side, e.g. "/consultations/ID" or "/portal/consultations/ID". */
   base: string;
@@ -85,8 +91,13 @@ export function SessionWindow({
   endNote?: string;
   /** Below 1024px, the customer app's screens (see the note at the top). */
   appLook?: boolean;
+  /** Billing hasn't started (the other side hasn't joined yet): what to tell this side. */
+  waiting?: ReactNode;
+  /** This side's "joined" was recorded (re-read the session: billing may have started). */
+  onJoined?: () => void;
 }) {
-  const media = useCallMedia({ base, wants: WANTS[kind], active });
+  // The call (and this side's "joined" report — see the note at the top) outlives this window.
+  const media = useCallMedia({ base, wants: WANTS[kind], active, onJoined });
   // With no voice/video yet, the conversation is the chat: open it straight away on a call.
   const [drawer, setDrawer] = useState(false);
   const autoOpened = useRef(false);
@@ -98,7 +109,7 @@ export function SessionWindow({
     }
   }, [kind, media.notConfigured]);
   const chatVisible = kind === "chat" || drawer;
-  const [speaker, setSpeaker] = useState<Speaker>({ off: false, volume: 1 });
+  const { speaker, setSpeaker } = media;
   const chat = useConsultChat(base, true, chatVisible);
   const look: Look = !appLook ? "stage" : kind === "video" ? "dark" : "light";
   /** Classes that apply only with the app look (they are all max-lg: ones). */
@@ -126,6 +137,16 @@ export function SessionWindow({
   // On the app's Voice and Video screens the notices and alerts sit under the timer (below 1024px).
   const callScreen = appLook && kind !== "chat";
   const noticeBox = `mx-3 mt-2 rounded-xl border px-3.5 py-2.5 text-[13px] sm:mx-auto sm:w-full sm:max-w-[720px] ${L("max-lg:mx-4 max-lg:sm:w-auto")}`;
+  const renderWaiting = (where: string) =>
+    waiting ? (
+      <div
+        role="status"
+        className={`${noticeBox} ${where} flex items-center gap-2.5 border-sky-300/40 bg-sky-300/10 text-sky-100 ${LL("max-lg:border-app-tint-3 max-lg:bg-app-tint max-lg:text-app-ink-2")}`}
+      >
+        <span className={`size-4 shrink-0 animate-spin rounded-full border-2 border-sky-200/40 border-t-sky-100 ${LL("max-lg:border-app-line max-lg:border-t-app-selected")}`} aria-hidden="true" />
+        <span>{waiting}</span>
+      </div>
+    ) : null;
   const renderNotice = (where: string) => {
     const box = `${noticeBox} ${where}`;
     return media.notConfigured ? (
@@ -140,6 +161,11 @@ export function SessionWindow({
   ) : media.offline || media.link === "reconnecting" ? (
     <div role="status" className={`${box} border-amber-300/40 bg-amber-300/10 text-amber-100 ${LL("max-lg:border-app-tint-3 max-lg:bg-app-tint max-lg:text-app-ink-2")}`}>
       <b className={LL("max-lg:text-app-ink")}>Reconnecting…</b> Your internet connection dropped. Stay on this screen.
+    </div>
+  ) : media.weakNetwork && media.link === "connected" ? (
+    <div role="status" className={`${box} border-amber-300/40 bg-amber-300/10 text-amber-100 ${LL("max-lg:border-app-tint-3 max-lg:bg-app-tint max-lg:text-app-ink-2")}`}>
+      <b className={LL("max-lg:text-app-ink")}>Weak connection.</b>{" "}
+      {kind === "video" ? "The video quality is lowered automatically to keep the call going." : "The sound may break up — move closer to your Wi-Fi if you can."}
     </div>
   ) : media.answerFailed ? (
     <div role="alert" className={`${box} flex flex-wrap items-center gap-2 border-rose-300/40 bg-rose-400/10 text-rose-100 ${LL("max-lg:border-rose-200 max-lg:bg-app-error-bg max-lg:text-app-error")}`}>
@@ -168,7 +194,9 @@ export function SessionWindow({
         drawer={drawer}
         unread={chat.unread}
         onToggleDrawer={() => setDrawer((d) => !d)}
+        waiting={!!waiting}
       >
+        {renderWaiting("lg:hidden")}
         {renderNotice("lg:hidden")}
         {alerts && <div className="mx-4 mt-2 text-left lg:hidden">{alerts}</div>}
       </CallHead>
@@ -259,7 +287,7 @@ export function SessionWindow({
               </b>
               <span className="flex items-center justify-end gap-1 text-[11px] font-semibold text-app-success">
                 <span className="az-live-dot size-1.5 rounded-full bg-app-success" aria-hidden="true" />
-                Active
+                {waiting ? "Waiting" : "Active"}
               </span>
             </div>
           </div>
@@ -270,6 +298,7 @@ export function SessionWindow({
         {badges}
         {chips}
       </div>
+      {renderWaiting(callScreen ? "max-lg:hidden" : "")}
       {renderNotice(callScreen ? "max-lg:hidden" : "")}
       {alerts && <div className={`mx-3 mt-2 sm:mx-auto sm:w-full sm:max-w-[720px] ${L("max-lg:mx-4 max-lg:sm:w-auto")} ${callScreen ? "max-lg:hidden" : ""}`}>{alerts}</div>}
 
@@ -282,7 +311,7 @@ export function SessionWindow({
           ) : kind === "voice" ? (
             <VoiceStage media={media} peer={peer} title={title} clock={clock} endNote={endNote} speaker={speaker} head={callHead} />
           ) : (
-            <VideoStage media={media} peer={peer} title={title} endNote={endNote} speaker={speaker} head={callHead} />
+            <VideoStage media={media} peer={peer} title={title} endNote={endNote} head={callHead} />
           )}
         </main>
 
@@ -356,6 +385,7 @@ function CallHead({
   drawer,
   unread,
   onToggleDrawer,
+  waiting = false,
   children,
 }: {
   dark: boolean;
@@ -366,6 +396,8 @@ function CallHead({
   drawer: boolean;
   unread: number;
   onToggleDrawer: () => void;
+  /** Billing hasn't started yet (the other side hasn't joined). */
+  waiting?: boolean;
   /** Notices and alerts, under the meter. */
   children?: ReactNode;
 }) {
@@ -405,7 +437,7 @@ function CallHead({
       <div className="mt-2 px-4 text-center">
         <div className={`inline-flex items-center gap-2 text-[12px] font-bold tracking-[.08em] uppercase ${dark ? "text-emerald-300" : "text-app-success"}`}>
           <span className={`az-live-dot size-2 rounded-full ${dark ? "bg-emerald-300" : "bg-app-success"}`} aria-hidden="true" />
-          Active session · {title}
+          {waiting ? "Waiting to start" : "Active session"} · {title}
         </div>
         <div
           className={`mt-1 font-semibold leading-[1.05] tracking-[.04em] tabular-nums ${dark ? "text-[44px] text-[#fffdf8]" : "text-[52px] text-app-ink"}`}
@@ -430,35 +462,13 @@ function linkLabel(media: CallMedia, peerName: string, peerHere: boolean): strin
   return media.answer ? "Getting ready…" : "Setting up the call…";
 }
 
-/** Plays the other side's audio (voice calls); offers a tap when the browser blocks autoplay. */
-function RemoteAudio({ stream, muted, volume }: { stream: MediaStream | null; muted: boolean; volume: number }) {
-  const ref = useRef<HTMLAudioElement>(null);
-  const [blocked, setBlocked] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.srcObject = stream;
-    if (stream) el.play().then(() => setBlocked(false), () => setBlocked(true));
-  }, [stream]);
-  useEffect(() => {
-    if (ref.current) {
-      ref.current.muted = muted;
-      ref.current.volume = volume;
-    }
-  }, [muted, volume]);
+/** The other side's sound is played by the call itself (it keeps playing while minimised); a tap when the browser blocks it. */
+function SoundBlocked({ media, className = "" }: { media: CallMedia; className?: string }) {
+  if (!media.audioBlocked) return null;
   return (
-    <>
-      <audio ref={ref} autoPlay />
-      {blocked && (
-        <button
-          type="button"
-          onClick={() => ref.current?.play().then(() => setBlocked(false), () => {})}
-          className="mt-3 rounded-full bg-amber-400 px-4 py-2 text-[13.5px] font-bold text-ink"
-        >
-          Tap to turn on sound
-        </button>
-      )}
-    </>
+    <button type="button" onClick={media.resumeAudio} className={`rounded-full bg-amber-400 px-4 py-2 text-[13.5px] font-bold text-ink ${className}`}>
+      Tap to turn on sound
+    </button>
   );
 }
 
@@ -586,17 +596,23 @@ function VoiceStage({
               </span>
             </div>
           )}
-          {media.link === "failed" && <FailedLine media={media} />}
-          <RemoteAudio stream={media.remote} muted={speaker.off} volume={speaker.volume} />
+          {media.link === "failed" && <FailedLine media={media} light={app} />}
+          <SoundBlocked media={media} className="mt-3" />
         </>
       )}
     </div>
   );
 }
 
-function FailedLine({ media }: { media: CallMedia }) {
+/** `light`: on the app's light Voice screen below 1024px. */
+function FailedLine({ media, light = false }: { media: CallMedia; light?: boolean }) {
   return (
-    <div role="alert" className="max-w-[420px] rounded-xl border border-rose-300/40 bg-rose-400/10 px-3.5 py-2.5 text-[13px] text-rose-100">
+    <div
+      role="alert"
+      className={`max-w-[420px] rounded-xl border border-rose-300/40 bg-rose-400/10 px-3.5 py-2.5 text-[13px] text-rose-100 ${
+        light ? "max-lg:mx-4 max-lg:border-rose-200 max-lg:bg-app-error-bg max-lg:text-app-error" : ""
+      }`}
+    >
       {media.linkProblem}
       <button type="button" onClick={media.retryJoin} className="ml-2 font-bold underline">
         Try again
@@ -610,36 +626,29 @@ function VideoStage({
   peer,
   title,
   endNote,
-  speaker,
   head,
 }: {
   media: CallMedia;
   peer: Peer;
   title: string;
   endNote?: string;
-  speaker: Speaker;
   /** The app look's top (below 1024px), laid over the picture. */
   head: ReactNode;
 }) {
   const remoteRef = useRef<HTMLVideoElement>(null);
   const localRef = useRef<HTMLVideoElement>(null);
-  const [blocked, setBlocked] = useState(false);
   const peerHere = !!media.remote;
   const showPeerVideo = peerHere && !media.remoteCameraOff;
   const app = !!head;
 
+  // The picture only (muted): the sound is played by the call, so it carries on while minimised.
+  // Re-opening the window attaches the same stream again — nothing is re-published.
   useEffect(() => {
     const el = remoteRef.current;
     if (!el) return;
     el.srcObject = media.remote;
-    if (media.remote) el.play().then(() => setBlocked(false), () => setBlocked(true));
+    if (media.remote) el.play().catch(() => {});
   }, [media.remote]);
-  useEffect(() => {
-    if (remoteRef.current) {
-      remoteRef.current.muted = speaker.off;
-      remoteRef.current.volume = speaker.volume;
-    }
-  }, [speaker]);
   useEffect(() => {
     const el = localRef.current;
     if (el) el.srcObject = media.preview;
@@ -655,7 +664,7 @@ function VideoStage({
         }`}
       >
         {/* The other side, large */}
-        <video ref={remoteRef} autoPlay playsInline className={`absolute inset-0 size-full object-cover ${showPeerVideo ? "" : "invisible"}`} />
+        <video ref={remoteRef} autoPlay playsInline muted className={`absolute inset-0 size-full object-cover ${showPeerVideo ? "" : "invisible"}`} />
         {!showPeerVideo && (
           <div
             className={`absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-y-auto px-4 py-6 text-center ${
@@ -690,15 +699,10 @@ function VideoStage({
             )}
           </div>
         )}
-        {blocked && (
-          <button
-            type="button"
-            onClick={() => remoteRef.current?.play().then(() => setBlocked(false), () => {})}
-            className={`absolute left-1/2 top-4 z-[2] -translate-x-1/2 rounded-full bg-amber-400 px-4 py-2 text-[13.5px] font-bold text-ink ${app ? "max-lg:top-auto max-lg:bottom-[140px] max-lg:z-[4]" : ""}`}
-          >
-            Tap to turn on sound
-          </button>
-        )}
+        <SoundBlocked
+          media={media}
+          className={`absolute left-1/2 top-4 z-[2] -translate-x-1/2 ${app ? "max-lg:top-auto max-lg:bottom-[140px] max-lg:z-[4]" : ""}`}
+        />
 
         {/* Me, small and mirrored */}
         {media.preview && (

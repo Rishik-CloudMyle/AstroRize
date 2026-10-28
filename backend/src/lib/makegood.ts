@@ -3,8 +3,9 @@
 // person (Finance or a Super Admin) approves it, exactly like a refund (routes/admin/support.ts).
 //
 // The credit's life: AVAILABLE (approved, until `expiresAt`) → reserved by a consultation that asks
-// for it (consultationId set, still AVAILABLE) → USED once that consultation connects. A request
-// that never connects (cancelled, declined, timed out) gives it back. Unused credits EXPIRE after
+// for it (consultationId set, still AVAILABLE) → USED once that consultation's conversation starts
+// (both sides joined: billingStartedAt). A request that never gets that far (cancelled, declined,
+// timed out, a side never joined) gives it back. Unused credits EXPIRE after
 // `expiresAt` (the minute sweep).
 //
 // The replacement consultation runs like a welcome free call — its first `minutes` are free to the
@@ -59,12 +60,12 @@ export async function reserveMakeGood(tx: Prisma.TransactionClient, creditId: st
   return count === 1;
 }
 
-/** The replacement consultation connected: its credit is used. */
+/** The replacement consultation's conversation started: its credit is used. */
 export async function consumeMakeGood(client: Client, consultationId: string) {
   await client.makeGoodCredit.updateMany({ where: { consultationId, status: "AVAILABLE" }, data: { status: "USED" } });
 }
 
-/** The replacement consultation closed without connecting: the credit is the customer's again. */
+/** The replacement consultation closed before its conversation started: the credit is the customer's again. */
 export async function releaseMakeGood(client: Client, consultationId: string) {
   await client.makeGoodCredit.updateMany({ where: { consultationId, status: "AVAILABLE" }, data: { consultationId: null } });
 }
@@ -77,8 +78,8 @@ export async function releaseMakeGood(client: Client, consultationId: string) {
 export async function sweepMakeGood(now = new Date()) {
   const reserved = await db.makeGoodCredit.findMany({ where: { status: "AVAILABLE", consultationId: { not: null } } });
   for (const credit of reserved) {
-    const c = await db.consultation.findUnique({ where: { id: credit.consultationId! }, select: { status: true, connectedAt: true } });
-    if (c?.connectedAt) await consumeMakeGood(db, credit.consultationId!);
+    const c = await db.consultation.findUnique({ where: { id: credit.consultationId! }, select: { status: true, billingStartedAt: true } });
+    if (c?.billingStartedAt) await consumeMakeGood(db, credit.consultationId!);
     else if (!c || !OPEN.includes(c.status)) await releaseMakeGood(db, credit.consultationId!);
   }
   await db.makeGoodCredit.updateMany({ where: { status: "AVAILABLE", consultationId: null, expiresAt: { lte: now } }, data: { status: "EXPIRED" } });

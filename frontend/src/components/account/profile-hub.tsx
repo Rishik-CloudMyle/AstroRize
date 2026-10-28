@@ -11,6 +11,7 @@ import { api } from "@/lib/api/client";
 import { FOOTER_COLUMNS, COMPANY } from "@/lib/mock/site";
 import { homeFor } from "@/lib/auth";
 import { rupee } from "@/lib/format";
+import { FREE_CALL_DIRECTORY, minutesLeft } from "@/lib/free-calls";
 import { totalBalance, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 import LogoutButton from "../logout-button";
@@ -160,6 +161,8 @@ export default function ProfileHub() {
   }
 
   const balance = rupee(totalBalance(session));
+  // The weekly free minutes (welcome campaign): shown while the customer has them (not when revoked).
+  const welcome = session.role === "customer" && session.wallet.welcome?.status !== "revoked" ? session.wallet.welcome : null;
   return (
     <>
       <Identity name={session.user.name} initials={session.user.initials} line={phone ?? (session.email || null)} photoUrl={photoUrl} />
@@ -178,6 +181,7 @@ export default function ProfileHub() {
       <ListRows>
         <ListRow href="/wallet?view=profile#profile" title="Profile" subtitle="Name, photo and birth details" />
         <ListRow href="/wallet" title="Wallet & transactions" />
+        {welcome && <ListRow href={FREE_CALL_DIRECTORY} title="Free minutes" subtitle={minutesLeft(welcome)} />}
         <ListRow href="/messages" title="Messages" />
         <NotificationBell variant="row" />
         <ListRow href="/offers" title="Offers" />

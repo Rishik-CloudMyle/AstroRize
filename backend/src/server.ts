@@ -4,12 +4,19 @@ import { db } from "./db.ts";
 import { sweepCampaigns } from "./lib/campaigns.ts";
 import { sweepAbandonedConsultations } from "./lib/consultations.ts";
 import { isDatabaseDown } from "./lib/errors.ts";
+import { sweepPendingPayments } from "./lib/payments.ts";
 import { sweepStalePresence } from "./lib/presence.ts";
+import { razorpayConfigured, razorpayMode } from "./lib/razorpay.ts";
+import { sweepProcessingRefunds } from "./lib/wallet-refunds.ts";
 import { purgeDaily } from "./lib/retention.ts";
 
 const app = createApp();
 const server = app.listen(config.port, () => {
   console.log(`Astrorize API listening on http://localhost:${config.port}`);
+  // Which Razorpay mode is on (never the keys themselves).
+  if (!razorpayConfigured()) console.log("Razorpay isn't configured: recharges are off.");
+  else if (config.isProduction && razorpayMode() === "test") console.warn("⚠ Razorpay TEST keys in production: no real money is collected.");
+  else console.log(`Razorpay connected (${razorpayMode()} mode).`);
   // Say clearly, once, if the database isn't reachable, instead of failing on every request.
   db.$queryRaw`SELECT 1`.catch((e: unknown) => {
     const where = new URL(config.databaseUrl).host;
@@ -41,6 +48,15 @@ const sweeper = setInterval(() => {
     .then(() => sweepCampaigns())
     .catch((e: unknown) => {
       if (!isDatabaseDown(e)) console.error("Campaign sweep failed:", e);
+    })
+    // Razorpay: recharges still open after a few minutes, and refunds still processing.
+    .then(() => sweepPendingPayments())
+    .catch((e: unknown) => {
+      if (!isDatabaseDown(e)) console.error("Payment sweep failed:", e);
+    })
+    .then(() => sweepProcessingRefunds())
+    .catch((e: unknown) => {
+      if (!isDatabaseDown(e)) console.error("Refund sweep failed:", e);
     });
 }, 60_000);
 

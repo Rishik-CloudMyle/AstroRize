@@ -10,6 +10,7 @@ import type { Astrologer, ConsultMode, LivePrivateConsult, LiveRoom, Settlement 
 import { useAppUI } from "../app-provider";
 import { MeterChips, endNoteOf, type MeterInput } from "../consult/call-stage";
 import { SessionWindow } from "../consult/session/session-window";
+import { releaseCallSession } from "@/lib/media/call-session";
 
 // The customer's private consultation inside a live room, in the mode they chose when joining the
 // queue: chat, voice or video. It opens the same session window as a one-to-one consultation
@@ -80,7 +81,9 @@ function Overlay({
   // Seconds left to join: the server's figure minus the seconds ticked since it arrived.
   const answerBase = c.secondsToAnswer ?? 0;
   const left = Math.max(0, answerBase - (useTicking(answerBase, c.status === "connecting") - answerBase));
-  const elapsed = useTicking(c.elapsedSeconds, c.status === "active");
+  // Billing (and the clock) starts once both sides have really joined the private room.
+  const billing = c.status === "active" && !!c.billingStartedAt;
+  const elapsed = useTicking(c.elapsedSeconds, billing);
   const name = firstName(host.name);
   const title = PRIVATE_TITLE[c.mode] ?? "Private consultation";
 
@@ -104,6 +107,7 @@ function Overlay({
     setBusy(true);
     try {
       const res = await api.post<{ settlement: Settlement; status: string }>(`/consultations/${encodeURIComponent(c.id)}/end`);
+      releaseCallSession(`/consultations/${encodeURIComponent(c.id)}`);
       onEnded(res.status === "ended" ? res.settlement : null);
     } catch (e) {
       endedRef.current = false;
@@ -115,7 +119,7 @@ function Overlay({
   }
 
   // The held balance (or the 15-minute cap) is used up: the call ends here, as the server would.
-  const capped = c.status === "active" && elapsed >= c.maxSeconds;
+  const capped = billing && elapsed >= c.maxSeconds;
   useEffect(() => {
     if (!capped) return;
     const id = setTimeout(() => void end(true), 0);
@@ -137,7 +141,7 @@ function Overlay({
         <p className="mt-1.5 text-[12.5px] leading-normal text-paper/80">{what}</p>
         <p className="mt-2 text-[12.5px] text-paper/80">
           <b className="text-paper">{rupee(c.rate)}/min</b>
-          {c.freeSeconds > 0 ? ` · first ${c.freeSeconds >= 60 ? `${Math.round(c.freeSeconds / 60)} min` : `${c.freeSeconds} s`} free` : ""} · billing starts when you join
+          {c.freeSeconds > 0 ? ` · first ${c.freeSeconds >= 60 ? `${Math.round(c.freeSeconds / 60)} min` : `${c.freeSeconds} s`} free` : ""} · billing starts once you&apos;re both in the call
         </p>
         <div className="mt-4 grid grid-cols-2 gap-2.5">
           <button type="button" onClick={() => void end()} disabled={busy} className="h-11 rounded-xl border border-white/20 bg-white/10 text-[14px] font-bold text-paper">
@@ -172,7 +176,12 @@ function Overlay({
           {clock(elapsed)}
         </b>
         <span className="text-[12px] tabular-nums text-paper/75">
-          {elapsed < c.freeSeconds ? "free time" : `${rupee(costSoFar(c, elapsed))} so far`} · {rupee(c.rate)}/min
+          {!billing
+            ? `waiting for ${name} to join · not billed yet`
+            : elapsed < c.freeSeconds
+              ? "free time"
+              : `${rupee(costSoFar(c, elapsed))} so far`}{" "}
+          · {rupee(c.rate)}/min
         </span>
         <span className="ml-auto flex gap-2">
           {!open && (
@@ -206,6 +215,14 @@ function Overlay({
             onEnd={() => void end()}
             onMinimise={() => setOpen(false)}
             endNote={endNoteOf(meter)}
+            waiting={billing ? undefined : `Waiting for ${host.name} to join — you're not being charged yet.`}
+            onJoined={() => {
+              // Re-read the room at once: billing may have started.
+              api
+                .get<{ room: LiveRoom }>(`/live-rooms/${encodeURIComponent(roomId)}`)
+                .then(({ room }) => onRoom(room))
+                .catch(() => {});
+            }}
           />,
           document.body,
         )}

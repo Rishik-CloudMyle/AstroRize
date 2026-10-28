@@ -17,7 +17,7 @@ import { useAppUI } from "../app-provider";
 // handles sign-in, the price and balance check, and explains a busy astrologer; "Join Live"
 // opens their live room. `welcome`: the customer's free call view (FREE price, Chat/Voice/Video).
 
-type TileKind = "on" | "busy" | "instant" | "off" | "paid";
+type TileKind = "on" | "busy" | "instant" | "off";
 
 const TILE_ICON: Record<"chat" | "voice" | "video" | "instant", React.ReactNode> = {
   chat: (
@@ -55,7 +55,6 @@ const TILE_TEXT: Record<TileKind, string> = {
   busy: "text-[#c81e4a]",
   instant: "text-[#2563eb]",
   off: "text-[#9a93a5]",
-  paid: "text-[#8a8296]",
 };
 
 export const PHONE_ICON = (
@@ -140,8 +139,7 @@ export function AppVerifiedTick({ size = 14 }: { size?: number }) {
   );
 }
 
-function tileKind(a: Astrologer, mode: "chat" | "voice" | "video" | "instant", welcome: boolean): TileKind {
-  if (welcome && mode === "video") return "paid";
+function tileKind(a: Astrologer, mode: "chat" | "voice" | "video" | "instant"): TileKind {
   if (a.availability === "busy") return mode === "instant" ? "off" : "busy";
   if (a.availability !== "on") return "off";
   return mode === "instant" ? "instant" : "on";
@@ -155,22 +153,22 @@ function tileSub(kind: TileKind, a: Astrologer): string {
       return "Ready";
     case "busy":
       return a.eta ? a.eta.replace(/^~\s*/, "~") : "Busy";
-    case "paid":
-      return "Paid";
     default:
       return a.availability === "live" ? "Live" : "Off";
   }
 }
 
-export default function AppAstroCard({ astrologer: a, welcome = false }: { astrologer: Astrologer; welcome?: boolean }) {
+/**
+ * An astrologer in the app's lists. "🎁 Free call" marks one the customer can use their weekly free
+ * minutes with; the card always shows the paid rate, and "Consult Now" opens the consult sheet,
+ * where the customer chooses free minutes (and a length) or a paid call — nothing is applied here.
+ */
+export default function AppAstroCard({ astrologer: a }: { astrologer: Astrologer }) {
   const { startConsult } = useAppUI();
   const session = useSession();
-  const freeTag = !welcome && a.freeCall && showsFreeCalls(session);
+  const freeTag = a.freeCall && showsFreeCalls(session);
   const skills = a.skills.slice(0, 3).join(" • ");
-  const modes = (welcome ? (["chat", "voice", "video"] as const) : (["chat", "voice", "video", "instant"] as const)).map((m) => ({
-    mode: m,
-    kind: tileKind(a, m, welcome),
-  }));
+  const modes = (["chat", "voice", "video", "instant"] as const).map((m) => ({ mode: m, kind: tileKind(a, m) }));
   const label = { chat: "Chat", voice: "Voice", video: "Video", instant: "Instant" };
   const st = a.availability;
 
@@ -239,7 +237,7 @@ export default function AppAstroCard({ astrologer: a, welcome = false }: { astro
             <b className="font-bold text-[#2a1848] tabular-nums">{consultsShort(a.consults)}</b> Verified Consults
           </span>
         </div>
-        <ul aria-label="Ways to consult" className={`grid gap-1 ${welcome ? "grid-cols-3" : "grid-cols-4"}`}>
+        <ul aria-label="Ways to consult" className="grid grid-cols-4 gap-1">
           {modes.map(({ mode, kind }) => (
             <li key={mode} className={`flex min-w-0 flex-col items-center gap-px text-center ${kind === "off" ? "opacity-[.48]" : ""}`}>
               <span className="grid size-[21px] place-items-center">{TILE_ICON[mode]}</span>
@@ -253,23 +251,13 @@ export default function AppAstroCard({ astrologer: a, welcome = false }: { astro
       <div className="mt-[5px] flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-baseline gap-1.5 whitespace-nowrap">
-            {welcome ? (
-              <>
-                <span className="text-[15px] leading-[1.15] font-bold tracking-[-.02em] text-[#147a45]">FREE</span>
-                <s className="text-[11px] font-medium text-[#b0a8b8] tabular-nums">{rupee(a.price)}</s>
-                <span className="text-[10px] font-semibold text-[#8a8296]">/min</span>
-              </>
-            ) : (
-              <>
-                <span className="inline-flex items-baseline gap-[3px]">
-                  <span className="text-[15px] leading-[1.15] font-bold tracking-[-.02em] text-[#2a1848] tabular-nums">{rupee(a.price)}</span>
-                  <span className="text-[10px] font-semibold text-[#8a8296]">/min</span>
-                </span>
-                {a.was && a.was > a.price && <s className="text-[11px] font-medium text-[#b0a8b8] tabular-nums">{rupee(a.was)}</s>}
-              </>
-            )}
+            <span className="inline-flex items-baseline gap-[3px]">
+              <span className="text-[15px] leading-[1.15] font-bold tracking-[-.02em] text-[#2a1848] tabular-nums">{rupee(a.price)}</span>
+              <span className="text-[10px] font-semibold text-[#8a8296]">/min</span>
+            </span>
+            {a.was && a.was > a.price && <s className="text-[11px] font-medium text-[#b0a8b8] tabular-nums">{rupee(a.was)}</s>}
           </div>
-          {!welcome && st === "busy" && (
+          {st === "busy" && (
             <div className="mt-0.5 text-[10px] text-[#8a8296]">In consultation{a.eta ? ` ${a.eta}` : ""}</div>
           )}
         </div>
@@ -294,11 +282,11 @@ export default function AppAstroCard({ astrologer: a, welcome = false }: { astro
           <button
             type="button"
             onClick={() => startConsult({ astrologer: a })}
-            aria-label={`${welcome ? "Start free consultation" : "Consult now"} with ${a.name}`}
+            aria-label={`Consult now with ${a.name}`}
             className="relative inline-flex min-h-8 shrink-0 before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-[''] items-center justify-center gap-1 rounded-full bg-[linear-gradient(90deg,#ffd233_0%,#ff8c1a_100%)] pr-3 pl-2.5 text-[12px] font-bold text-[#1a1208] shadow-[0_5px_12px_rgba(255,140,26,.26)]"
           >
             {PHONE_ICON}
-            <span>{welcome ? "Start free" : "Consult Now"}</span>
+            <span>Consult Now</span>
             <span aria-hidden="true" className="text-[12px] leading-none font-semibold">›</span>
           </button>
         )}

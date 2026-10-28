@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { Astrologer } from "@/lib/types";
 import { RECOGNITION, percentages, rupee } from "@/lib/format";
-import { freeLength } from "@/lib/free-calls";
+import { resetWeekday } from "@/lib/free-calls";
 import { useMakeGood } from "@/lib/makegood";
 import { discountedRate, useConsultDiscount } from "@/lib/offers";
 import { usableWelcome, useSession } from "@/lib/session-store";
@@ -50,7 +50,9 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
   const makeGood = useMakeGood(a.id);
   const offer = useConsultDiscount();
   const discount = makeGood ? null : offer;
-  const freeSecs = makeGood ? makeGood.minutes * 60 : welcome && a.freeCall ? welcome.freeSeconds : 0;
+  // The weekly free minutes can be used with this astrologer. Nothing is applied here: the customer
+  // chooses "Use free minutes" (and a length) or "Paid call" in the consult sheet.
+  const freeMinutesHere = !makeGood && !!welcome && a.freeCall;
   const ratings = a.ratingDistribution.reduce((x, y) => x + y, 0);
   const st = a.availability;
   const modeState: "on" | "busy" | "off" = st === "on" ? "on" : st === "busy" ? "busy" : "off";
@@ -123,9 +125,12 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
             <b className="block text-[13px]">🎁 Free replacement call · {makeGood.minutes} min</b>
             We&apos;re sorry about session {makeGood.sessionRef}. Talk to {a.name} again free by Chat, Voice or Video — use it by {makeGood.validUntil}.
           </p>
-        ) : freeSecs > 0 ? (
-          <p className="mt-3 rounded-app-card border border-[#a7f3d0] bg-app-success-bg px-3 py-2.5 text-[12.5px] font-semibold text-app-success">
-            🎁 Your free call works here · {freeLength(freeSecs)} of Chat or Voice
+        ) : freeMinutesHere ? (
+          <p className="mt-3 rounded-app-card border border-[#a7f3d0] bg-app-success-bg px-3 py-2.5 text-[12.5px] leading-[1.45] text-app-success">
+            <b className="block text-[13px]">
+              🎁 Free minutes: {welcome.weekly.remaining} of {welcome.weekly.total} left this week · resets {resetWeekday(welcome.weekly.resetsAt)}
+            </b>
+            Use them here for Chat or Voice, or pay per minute — you choose when you start.
           </p>
         ) : null}
         {discount && (
@@ -239,19 +244,20 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
         </Link>
       </div>
 
-      <ConsultBar astrologer={a} freeSecs={freeSecs} discountPct={discount?.pct ?? 0} />
+      <ConsultBar astrologer={a} freeNote={makeGood ? `Free replacement call · ${makeGood.minutes} min, or paid` : freeMinutesHere ? "Free minutes or paid — you choose" : ""} discountPct={discount?.pct ?? 0} />
     </>
   );
 }
 
 /** The pinned bottom bar: price, a one-line note, and the main action for the astrologer's state. */
-function ConsultBar({ astrologer: a, freeSecs, discountPct }: { astrologer: Astrologer; freeSecs: number; discountPct: number }) {
+/** `freeNote`: a free option here (the customer chooses it in the sheet), or "". */
+function ConsultBar({ astrologer: a, freeNote, discountPct }: { astrologer: Astrologer; freeNote: string; discountPct: number }) {
   const { startConsult, resumeConsult } = useAppUI();
   const gate = useConsultGate(a);
   const base = "flex min-h-app-hit w-full items-center justify-center gap-2 rounded-app-btn text-[15px] font-bold hover:no-underline";
   const note =
-    freeSecs > 0 && a.availability === "on"
-      ? `Free ${freeLength(freeSecs)} · Chat or Voice`
+    freeNote && a.availability === "on"
+      ? freeNote
       : discountPct > 0
         ? `${discountPct}% off applied`
         : "First 60 seconds complimentary";

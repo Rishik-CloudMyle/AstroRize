@@ -17,7 +17,8 @@ import LiveAnnouncements from "./live-announcements";
 import LiveDetailsForm, { type LiveDetails } from "./live-details-form";
 import LivePrivateHost from "./live-private-host";
 import LiveQueuePeople from "./live-queue-people";
-import { useLiveBroadcast } from "./use-live-broadcast";
+import { useLiveBroadcast, useLiveClock } from "./use-live-broadcast";
+import { releaseLiveBroadcast } from "@/lib/media/live-broadcast";
 import ModeIcon from "@/components/ui/mode-icon";
 
 const MOD_ACTIONS = ["Mute 5m", "Mute 15m", "Mute 60m", "Block from room", "Delete message"];
@@ -64,7 +65,9 @@ function LiveConsole({ data }: { data: LiveRoom }) {
   // In session (the customer joined): the live's sound is off for viewers until it ends — automatic,
   // and from the server's state, so a refresh or a second device shows the same.
   const audioMutedForPrivate = priv?.status === "active";
-  const broadcast = useLiveBroadcast({ live, privateOn: audioMutedForPrivate });
+  // The broadcast runs outside this page (lib/media/live-broadcast.ts): leaving the console keeps it going.
+  const broadcast = useLiveBroadcast(live);
+  const liveClock = useLiveClock(live ? feed?.startedAt : undefined) ?? data.elapsed;
   const selfView = useRef<HTMLVideoElement | null>(null);
   useEffect(() => {
     const v = selfView.current;
@@ -137,6 +140,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
   const endLive = () =>
     run(async () => {
       const res = await api.post<{ presence: Presence }>("/portal/live/end");
+      releaseLiveBroadcast();
       setPresence(res.presence);
       setConfirmEnd(false);
       toast("Live ended. The room is closed and anyone still waiting has been told.");
@@ -195,7 +199,9 @@ function LiveConsole({ data }: { data: LiveRoom }) {
               ? audioMutedForPrivate
                 ? "On air without sound — you're in a private consultation."
                 : "On air — viewers see and hear you."
-              : broadcast.link === "failed"
+              : broadcast.link === "reconnecting"
+                ? "Reconnecting… your internet connection dropped. The live carries on when it's back."
+                : broadcast.link === "failed"
                 ? broadcast.linkProblem || "The live video couldn't connect."
                 : broadcast.local
                   ? "Connecting your live video…"
@@ -250,7 +256,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
             <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.45)_0%,rgba(28,25,23,.08)_40%,rgba(28,25,23,.7)_100%)]" />
             <div className="absolute top-3.5 right-3.5 left-3.5 flex flex-wrap items-center gap-2">
               <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-urgent px-[11px] text-[11px] font-extrabold text-white">
-                ● LIVE {data.elapsed}
+                ● LIVE {liveClock}
               </span>
               <span className="inline-flex h-[26px] items-center rounded-full bg-[rgba(0,0,0,.45)] px-[11px] text-[11px] font-bold text-white">
                 👁 {feed?.viewers ?? data.viewers} watching
@@ -309,9 +315,18 @@ function LiveConsole({ data }: { data: LiveRoom }) {
               ))}
               <button
                 type="button"
+                onClick={() => router.push("/portal")}
+                aria-label="Minimise live"
+                title="Your live keeps going — come back from the “Return to live” bar"
+                className="ml-auto inline-flex h-10 items-center rounded-xl border border-[rgba(255,255,255,.2)] bg-[rgba(0,0,0,.45)] px-3 text-[13.5px] font-bold text-paper sm:px-4 max-lg:h-app-hit max-lg:rounded-app-btn"
+              >
+                Minimise
+              </button>
+              <button
+                type="button"
                 onClick={() => setConfirmEnd(true)}
                 disabled={busy}
-                className="ml-auto h-10 rounded-xl bg-urgent px-5 text-[13.5px] font-bold text-white max-lg:h-app-hit max-lg:rounded-app-btn max-lg:text-[15px]"
+                className="h-10 rounded-xl bg-urgent px-5 text-[13.5px] font-bold text-white max-lg:h-app-hit max-lg:rounded-app-btn max-lg:text-[15px]"
               >
                 End live
               </button>
@@ -323,6 +338,11 @@ function LiveConsole({ data }: { data: LiveRoom }) {
           {live && broadcast.local && (
             <p role="status" className="mt-2.5 text-[12.5px] leading-normal text-stone-600">
               {onAir}
+              {broadcast.link === "failed" && (
+                <button type="button" onClick={broadcast.retry} className="ml-1.5 font-bold text-amber-700 underline">
+                  Try again
+                </button>
+              )}
             </p>
           )}
 

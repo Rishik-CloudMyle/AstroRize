@@ -188,7 +188,11 @@ export function SettlementView({
 
   const lines: { label: string; value: string; strong?: boolean; green?: boolean }[] = [{ label: "Connected time", value: duration(s.elapsed) }];
   if (s.complimentary)
-    lines.push({ label: `${s.makeGood ? "Free replacement call" : "Free call"} · first ${freeLength(s.complimentarySeconds)}`, value: "₹0", green: true });
+    lines.push({
+      label: s.makeGood ? `Free replacement call · first ${freeLength(s.complimentarySeconds)}` : `Free minutes used this week · ${freeLength(s.complimentarySeconds)}`,
+      value: "₹0",
+      green: true,
+    });
   else lines.push({ label: "Free first minute", value: "not billed", green: true });
   if (!freeOnly) lines.push({ label: s.complimentary ? "Paid after the free time, rounded up" : "Billed, rounded up", value: `${s.billedMins} min` });
   if (!zero) {
@@ -226,7 +230,7 @@ export function SettlementView({
           </span>
           <div className="min-w-0 flex-1">
             <b className="block truncate text-[14px] text-ink">{astrologer.name}</b>
-            <span className="block text-[12px] text-stone-500">{s.makeGood ? "Free replacement call" : s.complimentary ? "Welcome free call" : "Consultation"}</span>
+            <span className="block text-[12px] text-stone-500">{s.makeGood ? "Free replacement call" : s.complimentary ? "Free call (your free minutes)" : "Consultation"}</span>
           </div>
         </div>
         <div className="px-5 py-2">
@@ -302,7 +306,9 @@ export function SettlementSummary({
     { label: "Duration", value: clock(s.elapsed), strong: true },
     { label: s.complimentary ? "Billed after the free time" : "Billed", value: `${s.billedMins} min`, strong: true },
   ];
-  if (s.complimentary) lines.push({ label: `Free · first ${freeLength(s.complimentarySeconds)}`, value: "₹0", green: true });
+  if (s.complimentary) {
+    lines.push({ label: s.makeGood ? `Free · first ${freeLength(s.complimentarySeconds)}` : `Free minutes used · ${freeLength(s.complimentarySeconds)}`, value: "₹0", green: true });
+  }
   if (!freeOnly) lines.push({ label: "Rate", value: `${rupee(s.rate)}/min`, strong: true });
   if (s.listRate && s.discountPct && !zero) {
     lines.push({ label: `${s.discountPct}% off · instead of ${rupee(s.listRate)}/min`, value: s.saved ? `−${rupee(s.saved)}` : "applied", green: true });

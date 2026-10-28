@@ -483,8 +483,8 @@ function FreeCallsSection({
           <div className="min-w-0 flex-1">
             <b className="block text-[13.5px] text-ink">{f.optedIn ? "Takes free calls" : "Doesn't take free calls"}</b>
             <span className="block text-[12px] text-[#78716c]">
-              Customers can use their welcome free calls (Chat or Voice, {Math.max(1, Math.round(f.freeSeconds / 60))} min each) with astrologers who
-              take part, one at a time. The astrologer can also switch this and set their capacity in the portal.
+              Customers use their weekly free minutes ({f.weeklyMinutes} min a week; calls of {f.lengths.join(", ")} min, Chat or Voice) with
+              astrologers who take part, one at a time. The astrologer can also switch this and set their capacity in the portal.
             </span>
           </div>
         </div>

@@ -2,6 +2,7 @@
 // (backend/src/routes/portal.ts, GET /api/portal/*).
 
 import type { MessageAttachment } from "@/lib/messages";
+import type { JoinState } from "@/lib/types";
 
 /** The signed-in astrologer. */
 export interface Astrologer {
@@ -160,8 +161,10 @@ export interface FreeCalls {
   /** Most you may offer per day / per week */
   maxPerDay: number;
   maxPerWeek: number;
-  /** Length of each free call, in seconds */
-  freeSeconds: number;
+  /** Lengths a customer can choose for a free call (minutes) */
+  lengths: number[];
+  /** Free minutes each customer gets per Mon–Sun week */
+  weeklyMinutes: number;
 }
 
 /** Your price (GET /portal/dashboard → pricing, PATCH /portal/price). */
@@ -325,7 +328,7 @@ export interface QueueEntry {
   profile: ConsultCustomer | null;
 }
 
-export interface ActiveSession {
+export interface ActiveSession extends JoinState {
   id: string;
   alias: string;
   mode: string;
@@ -395,7 +398,7 @@ export interface LiveRequest {
 }
 
 /** The private consultation in progress in the astrologer's live (server clock). */
-export interface LiveHostPrivate {
+export interface LiveHostPrivate extends JoinState {
   id: string;
   ref: string;
   /** connecting: accepted, waiting for the customer to join · active: in session */

@@ -3,10 +3,12 @@ import DisputeRefundsPanel from "@/components/admin/finance/dispute-refunds";
 import FinanceView from "@/components/admin/finance/finance-view";
 import PayoutHoldsPanel from "@/components/admin/finance/payout-holds";
 import PriceChangesPanel from "@/components/admin/finance/price-changes";
+import RechargePaymentsPanel from "@/components/admin/finance/recharge-payments";
 import WalletRefundsPanel from "@/components/admin/finance/wallet-refunds";
 import { KpiCard, PageTitle } from "@/components/admin/ui";
 import { allowed } from "@/lib/admin/guard";
 import { getFinance } from "@/lib/admin/api";
+import { getPayments } from "@/lib/admin/payments";
 import { getPayoutHolds } from "@/lib/admin/payout-holds";
 import { getPriceChanges } from "@/lib/admin/price-changes";
 import { getWalletRefunds } from "@/lib/admin/refunds";
@@ -15,7 +17,13 @@ export const metadata = { title: "Finance" };
 
 export default async function FinancePage() {
   if (!(await allowed("finance"))) return <AccessDenied />;
-  const [data, refunds, priceChanges, holds] = await Promise.all([getFinance(), getWalletRefunds(), getPriceChanges(), getPayoutHolds()]);
+  const [data, refunds, priceChanges, holds, payments] = await Promise.all([
+    getFinance(),
+    getWalletRefunds(),
+    getPriceChanges(),
+    getPayoutHolds(),
+    getPayments(),
+  ]);
 
   return (
     <div>
@@ -32,6 +40,7 @@ export default async function FinancePage() {
       <PayoutHoldsPanel data={holds} />
       <DisputeRefundsPanel refunds={data.disputeRefunds} />
       <WalletRefundsPanel data={refunds} />
+      <RechargePaymentsPanel data={payments} />
       <PriceChangesPanel changes={priceChanges} />
     </div>
   );

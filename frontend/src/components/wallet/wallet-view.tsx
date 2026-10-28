@@ -18,6 +18,7 @@ import { AppTopbar } from "../mobile/page-title";
 import { Skeleton } from "../mobile/skeleton";
 import AccountSection, { ClosedNotice, type Closed } from "./account-section";
 import ProfileSection from "./profile-section";
+import { LockIcon, RAZORPAY_TRUST, payLabel, paymentPageHref, rechargeMessage, useRecharge, type Paid } from "./use-recharge";
 import MobileWallet, { type Denomination } from "./wallet-mobile";
 
 const CLOSED_KEY = "astrorize.accountClosed";
@@ -201,8 +202,8 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
   const [denominations, setDenominations] = useState<Denomination[] | null>(null);
   const [gstRate, setGstRate] = useState(0);
   const [denom, setDenom] = useState(1000);
-  const [payStage, setPayStage] = useState<"idle" | "confirming" | "done">("idle");
-  const [paidAmount, setPaidAmount] = useState(0);
+  // Razorpay is connected (null until the amounts load).
+  const [paymentsOn, setPaymentsOn] = useState<boolean | null>(null);
   const [payError, setPayError] = useState("");
   const [requesting, setRequesting] = useState<string | null>(null);
   const addMoneyHeading = useRef<HTMLHeadingElement>(null);
@@ -239,11 +240,12 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
   useEffect(() => {
     let cancelled = false;
     api
-      .get<{ denominations: Denomination[]; gstRate: number }>("/wallet/denominations")
+      .get<{ denominations: Denomination[]; gstRate: number; payments?: { available: boolean } }>("/wallet/denominations")
       .then((res) => {
         if (cancelled) return;
         setDenominations(res.denominations);
         setGstRate(res.gstRate);
+        setPaymentsOn(res.payments?.available ?? false);
         setDenom((d) => (res.denominations.some((x) => x.amount === d) ? d : (res.denominations[0]?.amount ?? 0)));
       })
       .catch((e) => !cancelled && setPayError(errorText(e)));
@@ -256,26 +258,15 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
   const gst = Math.round(denom * gstRate);
   const selected = denominations?.find((d) => d.amount === denom);
 
-  async function pay() {
-    if (payStage === "confirming" || !selected) return;
-    setPayStage("confirming");
-    setPayError("");
-    toast("Opening secure checkout… confirming your payment.");
-    try {
-      const paid = await sessionActions.recharge(selected.amount);
-      setPaidAmount(selected.amount);
-      setPayStage("done");
-      toast(
-        `Payment successful. Your wallet is credited the full ${rupee(selected.amount)} talk-time value — GST was charged on top.${
-          paid.cashback > 0 ? ` Plus ${rupee(paid.cashback)} cashback from ${paid.cashbackFrom ?? "your offer"}.` : ""
-        }`,
-      );
-      if (selected.cashback > 0) setLoads((n) => n + 1);
-    } catch (e) {
-      setPayStage("idle");
-      setPayError(errorText(e));
-    }
-  }
+  // Paid, failed or still pending: the payment's own page shows it (with the receipt).
+  const recharge = useRecharge(
+    useCallback((paid: Paid) => {
+      if (paid.order.cashback > 0) setLoads((n) => n + 1);
+    }, []),
+    "push",
+  );
+  const payState = recharge.state;
+  const payNote = rechargeMessage(payState);
 
   async function requestDataRight(r: (typeof DATA_RIGHTS)[number]) {
     if (requesting) return;
@@ -293,7 +284,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
   function pick(amount: number) {
     setDenom(amount);
     setPayError("");
-    if (payStage === "done") setPayStage("idle");
+    recharge.reset();
   }
 
   if (!desktop) {
@@ -305,6 +296,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
           denom={denom}
           onPick={pick}
           loadError={payError}
+          paymentsOn={paymentsOn}
           onPaid={(usedOffer) => usedOffer && setLoads((n) => n + 1)}
           onClosed={onClosed}
           onDataRight={(r) => void requestDataRight(r)}
@@ -314,12 +306,12 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
     );
   }
 
-  const payLabel =
-    payStage === "confirming"
-      ? "Confirming payment…"
-      : payStage === "done"
-        ? `✓ Paid · ${rupee(paidAmount)} credited`
-        : `Pay ${rupee(denom + gst)}`;
+  const buttonLabel =
+    paymentsOn === false
+      ? "Payments aren't connected yet"
+      : payState.stage === "paid"
+        ? `✓ Paid · ${rupee(payState.paid.order.amount)} credited`
+        : payLabel(payState, denom + gst);
 
   return (
     // Phones: balance, Add money, then the rest. Wider: the rest under the balance, Add money alongside.
@@ -393,7 +385,19 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
                   <tr key={t.ref}>
                     <td className="whitespace-nowrap border-b border-line-soft px-2.5 py-[11px] text-stone-600">{t.date}</td>
                     <td className="border-b border-line-soft px-2.5 py-[11px] font-semibold text-ink">{t.type}</td>
-                    <td className="border-b border-line-soft px-2.5 py-[11px] tabular-nums text-stone-600">{t.ref}</td>
+                    <td className="border-b border-line-soft px-2.5 py-[11px] tabular-nums text-stone-600">
+                      {t.payment ? (
+                        <Link
+                          href={paymentPageHref(t.payment)}
+                          className="font-semibold text-amber-700 underline decoration-amber-300 underline-offset-2 hover:text-amber-800"
+                          aria-label={`${t.ref} — view payment`}
+                        >
+                          {t.ref}
+                        </Link>
+                      ) : (
+                        t.ref
+                      )}
+                    </td>
                     <td className="border-b border-line-soft px-2.5 py-[11px] text-stone-600">{t.bucket}</td>
                     <td
                       className="whitespace-nowrap border-b border-line-soft px-2.5 py-[11px] text-right font-bold tabular-nums"
@@ -478,6 +482,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
               { label: denominations ? `GST ${Math.round(gstRate * 100)}%` : "GST", value: rupee(gst) },
               { label: "Total payable", value: rupee(denom + gst), strong: true },
               { label: "Wallet credit", value: rupee(denom), strong: true, green: true },
+              ...(selected && selected.bonus > 0 ? [{ label: "Bonus · promotional", value: `+${rupee(selected.bonus)}`, strong: true, green: true }] : []),
               ...(selected && selected.cashback > 0
                 ? [{ label: `Cashback · ${selected.cashbackFrom ?? "your offer"}`, value: `+${rupee(selected.cashback)}`, strong: true, green: true }]
                 : []),
@@ -494,17 +499,55 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
           </div>
           <button
             type="button"
-            onClick={() => void pay()}
-            disabled={payStage === "confirming" || !selected}
-            className={`mt-3.5 h-12 w-full rounded-full text-[15px] font-bold shadow-[0_6px_16px_rgba(255,140,26,.28)] ${payStage === "done" ? "bg-emerald-700 text-white" : "az-cta"}`}
+            onClick={() => selected && void recharge.pay(selected.amount)}
+            disabled={recharge.busy || !selected || !paymentsOn}
+            className={`mt-3.5 h-12 w-full rounded-full text-[15px] font-bold shadow-[0_6px_16px_rgba(255,140,26,.28)] disabled:cursor-not-allowed ${
+              payState.stage === "paid" ? "bg-emerald-700 text-white" : paymentsOn === false ? "bg-stone-200 text-stone-500 shadow-none" : "az-cta"
+            }`}
           >
-            {payLabel}
+            {buttonLabel}
           </button>
+          {paymentsOn === false && (
+            <p role="status" className="mt-2.5 text-xs font-semibold text-stone-600">
+              Recharges open as soon as our payment partner is connected. Your balance is safe.
+            </p>
+          )}
+          {payState.stage === "paid" && payState.paid.paymentId && (
+            <p role="status" className="mt-2.5 text-xs font-semibold text-emerald-700">
+              Payment ID {payState.paid.paymentId}
+              {payState.paid.method ? ` · ${payState.paid.method.toUpperCase()}` : ""}
+            </p>
+          )}
           {payError && (
             <p role="alert" className="mt-2.5 text-xs font-semibold text-rose-700">
               {payError}
             </p>
           )}
+          {payNote && (
+            <div
+              role={payNote.tone === "error" ? "alert" : "status"}
+              className={`mt-2.5 rounded-xl px-3 py-2.5 text-xs leading-normal font-semibold ${payNote.tone === "error" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-900"}`}
+            >
+              {payNote.text}
+              {payState.stage === "pending" && (
+                <button
+                  type="button"
+                  onClick={() => void recharge.check()}
+                  className="mt-2 block h-8 rounded-full border border-amber-300 bg-white px-3.5 text-[12px] font-bold text-amber-900"
+                >
+                  Check status
+                </button>
+              )}
+            </div>
+          )}
+          <p className="mt-2.5 flex items-start gap-1.5 text-[11.5px] leading-normal text-stone-500">
+            <LockIcon className="mt-px size-3.5 shrink-0" />
+            <span>{RAZORPAY_TRUST}</span>
+          </p>
+          {/* Under NPCI's rules a computer gets UPI as a QR code only (no "enter your UPI ID"). */}
+          <p className="mt-1.5 text-[11.5px] leading-normal text-stone-500">
+            Paying by UPI on a computer? Scan the QR code with any UPI app on your phone.
+          </p>
           <p className="mt-2.5 text-[11.5px] leading-normal text-stone-500">
             GST is charged on top of your recharge. Your wallet is credited the full {rupee(denom)} talk-time value.
             {selected && selected.cashback > 0 && " Cashback is promotional credit from an offer you claimed."}

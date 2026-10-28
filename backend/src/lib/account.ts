@@ -40,10 +40,17 @@ async function openConsultation(client: Tx | typeof db, userId: string) {
   return client.consultation.findFirst({ where: { customerId: userId, status: { in: OPEN_STATUSES } }, select: { id: true } });
 }
 
-/** "Original payment method · mock order_…": where a refund goes (provider and last paid order, when known). */
+/**
+ * Where a refund goes: "Razorpay · upi · pay_…" (the latest Razorpay recharge, refunded first),
+ * or the older provider and order for balances from before Razorpay.
+ */
 async function refundMethod(client: Tx | typeof db, userId: string): Promise<string> {
   const last = await client.payment.findFirst({ where: { userId, status: "PAID" }, orderBy: { paidAt: "desc" } });
-  return last ? `Original payment method · ${last.provider} ${last.providerOrderId}` : "Original payment method";
+  if (!last) return "Original payment method";
+  if (last.provider === "razorpay" && last.providerPaymentId) {
+    return `Original payment method · Razorpay${last.method ? ` · ${last.method}` : ""} · ${last.providerPaymentId}`;
+  }
+  return `Original payment method · ${last.provider} ${last.providerOrderId}`;
 }
 
 /** What the "Deactivate" and "Delete my account" boxes show before the customer confirms. */
@@ -113,8 +120,8 @@ async function freeTxnRef(tx: Tx, prefix: string): Promise<string> {
 const FILE_REMOVED = "This photo or video was removed when the customer deleted their account.";
 
 /**
- * Delete: refunds the service balance (WalletRefund, PENDING until Finance — or, once the
- * Razorpay keys exist, the gateway — pays it), forfeits promotional credit, erases personal
+ * Delete: refunds the service balance (WalletRefund, PENDING until Finance refunds it through
+ * Razorpay or pays it by hand), forfeits promotional credit, erases personal
  * details and signs out everywhere. The caller has already checked the OTP or password.
  */
 export async function deleteAccount(userId: string) {

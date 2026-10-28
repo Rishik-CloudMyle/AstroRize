@@ -17,10 +17,15 @@ export const config = {
   sessionSecret,
   isProduction: process.env.NODE_ENV === "production",
   /**
-   * Stand-in payment provider that credits the wallet without taking money. Only ever
-   * on outside production; production recharges stay off until Razorpay is connected.
+   * Razorpay (wallet recharges and bank refunds). Key id and key secret come from the Razorpay
+   * dashboard → Account & Settings → API keys (rzp_test_… in test mode, rzp_live_… live). Until both
+   * are set, recharges are off and the website says payments aren't connected. Only the key id
+   * ever reaches the browser; the secret stays here.
    */
-  mockPayments: process.env.NODE_ENV !== "production",
+  razorpayKeyId: (process.env.RAZORPAY_KEY_ID ?? process.env.RAZORPAY_ID ?? "").trim(),
+  razorpayKeySecret: (process.env.RAZORPAY_KEY_SECRET ?? process.env.RAZORPAY_SECRET_KEY ?? "").trim(),
+  /** The secret set on the Razorpay webhook (dashboard → Webhooks); empty = webhook refused. */
+  razorpayWebhookSecret: (process.env.RAZORPAY_WEBHOOK_SECRET ?? "").trim(),
   /** Prints sign-in codes instead of texting them. Never on in production. */
   mockSms: process.env.NODE_ENV !== "production",
   frontendOrigin: process.env.FRONTEND_ORIGIN ?? "http://localhost:3000",
@@ -33,6 +38,9 @@ export const config = {
    */
   zegoAppId: Number(process.env.ZEGO_APP_ID ?? 0),
   zegoServerSecret: process.env.ZEGO_SERVER_SECRET ?? "",
+  /** ZEGO's web server address for this project (ZEGO console → project → "Server URL" for Web).
+   *  Projects differ in domain, so it comes from the console; empty = the standard zegocloud address. */
+  zegoServerUrl: (process.env.ZEGO_SERVER_URL ?? "").trim(),
   /**
    * Birthplace search via OpenStreetMap Nominatim. Their usage policy asks for an identifying
    * User-Agent with a contact; GEOCODER_CONTACT (an email) is sent with every request.

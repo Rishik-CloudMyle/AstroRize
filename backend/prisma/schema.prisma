@@ -148,6 +148,8 @@ model FreeCallUse {
   usedAt         DateTime       @default(now())
   /// Set when the call dropped early through no fault of the customer and the use was given back.
   restoredAt     DateTime?
+  /// Free minutes this call took from the customer's weekly allowance (the length they chose).
+  minutes        Int            @default(0)
 
   @@index([identityKey, usedAt])
 }
@@ -489,9 +491,17 @@ model Payment {
   total           Int
   /// CREATED | PAID | FAILED
   status          String    @default("CREATED")
-  /// "mock" until the Razorpay keys are configured.
+  /// "razorpay" (or "mock" for old dev-only recharges made before Razorpay was connected).
   provider        String
   providerOrderId String    @unique
+  /// Razorpay's payment id (pay_…) once the customer has paid; unique so one payment credits once.
+  providerPaymentId String? @unique
+  /// How they paid (upi, card, netbanking, wallet…), from Razorpay.
+  method          String?
+  /// Why a payment failed (Razorpay's error description), shown to the customer and Finance.
+  failureReason   String?
+  /// ₹ of this payment's amount already refunded through Razorpay (bank refunds of service balance).
+  refundedAmount  Int       @default(0)
   createdAt       DateTime  @default(now())
   paidAt          DateTime?
 }
@@ -547,6 +557,11 @@ model Consultation {
   /// When the request reached the front of the queue; the astrologer has 3 minutes from then to accept.
   offeredAt            DateTime?
   connectedAt          DateTime?
+  /// When each side was really in the conversation (chat window open / voice-video media flowing).
+  customerJoinedAt     DateTime?
+  astrologerJoinedAt   DateTime?
+  /// When both were in: the free time and the paid clock count only from here (null = not started, ₹0).
+  billingStartedAt     DateTime?
   endedAt              DateTime?
   /// user | cap | exhausted | astrologer
   endReason            String?

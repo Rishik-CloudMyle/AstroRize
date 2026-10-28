@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api/client";
 import { rupee } from "@/lib/format";
-import { allowanceHeadline, freeLengthLong } from "@/lib/free-calls";
+import { resetWeekday } from "@/lib/free-calls";
 import type { Offer } from "@/lib/offers";
 import { usableWelcome, useSession } from "@/lib/session-store";
 import type { Astrologer, FeaturedReview, LiveRoom, Tool } from "@/lib/types";
@@ -56,20 +56,24 @@ export default function AppHome({
       {welcome && (
         <Link
           href="/astrologers?availability=Free%20call"
+          aria-label={`Free minutes: ${welcome.weekly.remaining} of ${welcome.weekly.total} left this week. Find astrologers taking free calls`}
           className="mt-3.5 flex min-h-[64px] items-center gap-3 rounded-app-card border border-[#f3d9b8] bg-[linear-gradient(100deg,#fff4ea,#fffaf3_55%,#fdf1e6)] px-3 py-2.5 hover:no-underline"
         >
           <span aria-hidden="true" className="text-[30px] leading-none">🎁</span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[9px] font-bold tracking-[.12em] text-[#c2410c] uppercase">Your free call</span>
-            <b className="block font-display text-[22px] leading-[1.05] font-semibold text-app-ink">
-              {freeLengthLong(welcome.freeSeconds).replace(/^\w/, (c) => c.toUpperCase())} free
-            </b>
-            <span className="block truncate text-[11px] text-app-ink-2">
-              Chat • Voice{welcome.allowance.period !== "once" || welcome.allowance.remaining > 1 ? ` · ${allowanceHeadline(welcome)}` : ""}
+            <span className="block text-[9px] font-bold tracking-[.12em] text-[#c2410c] uppercase">
+              Free minutes · resets {resetWeekday(welcome.weekly.resetsAt)}
             </span>
+            <b className="block font-display text-[22px] leading-[1.05] font-semibold text-app-ink">
+              {welcome.weekly.remaining} of {welcome.weekly.total} min left
+            </b>
+            <span className="mt-0.5 block text-[11.5px] font-bold text-[#b45309]">Find astrologers taking free calls</span>
           </span>
-          <span className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full bg-[linear-gradient(180deg,#f7c75e,#e2a83e)] px-3 text-[12.5px] font-bold text-app-ink shadow-[0_4px_10px_rgba(226,168,62,.35)]">
-            Start Free <span aria-hidden="true">→</span>
+          <span
+            aria-hidden="true"
+            className="grid size-9 shrink-0 place-items-center rounded-full bg-[linear-gradient(180deg,#f7c75e,#e2a83e)] text-[16px] font-bold text-app-ink shadow-[0_4px_10px_rgba(226,168,62,.35)]"
+          >
+            →
           </span>
         </Link>
       )}
@@ -313,8 +317,8 @@ interface Slide {
 }
 
 /**
- * The Spotlight carousel: the customer's free call (or, for visitors, the new-customer free call
- * while astrologers are taking free calls), open offers, then today's Panchang and the Live Rooms.
+ * The Spotlight carousel: the customer's weekly free minutes (or, for visitors, the free minutes
+ * every customer gets, while astrologers are taking free calls), open offers, then today's Panchang and the Live Rooms.
  * Swipe or use the dots; it never moves by itself.
  */
 function Spotlight({ astrologers, rooms, enabled }: { astrologers: Astrologer[]; rooms: number; enabled: boolean }) {
@@ -329,9 +333,9 @@ function Spotlight({ astrologers, rooms, enabled }: { astrologers: Astrologer[];
     slides.push({
       id: "welcome",
       kicker: "Astrorize Spotlight",
-      title: "Your first conversation is on us.",
-      lead: `${freeLengthLong(welcome.freeSeconds)} free · Chat or Voice`,
-      cta: "Start Free Consult",
+      title: "Free minutes every week",
+      lead: `${welcome.weekly.remaining} of ${welcome.weekly.total} min left this week · Chat or Voice`,
+      cta: "Find astrologers",
       href: "/astrologers?availability=Free%20call",
       art: "/assets/spotlight/spotlight-welcome.jpg",
     });
@@ -340,8 +344,8 @@ function Spotlight({ astrologers, rooms, enabled }: { astrologers: Astrologer[];
     slides.push({
       id: "welcome",
       kicker: "Astrorize Spotlight",
-      title: "Your first conversation is on us.",
-      lead: "A free call for new customers · Chat or Voice",
+      title: "Free minutes every week",
+      lead: "Free Chat or Voice minutes with astrologers marked “Free call”",
       cta: "Sign up free",
       href: "/signup",
       art: "/assets/spotlight/spotlight-welcome.jpg",

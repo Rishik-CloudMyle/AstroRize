@@ -17,6 +17,7 @@ import InstantCallModal from "./modals/instant-call-modal";
 import LiveQueueModal from "./modals/live-queue-modal";
 import ConsultJourney from "./consult/consult-journey";
 import { staffConsultNote } from "./consult/consult-gate";
+import CustomerCallWatcher from "./consult/call-watcher";
 
 export interface ConsultRequest {
   astrologer: Astrologer;
@@ -157,6 +158,7 @@ export default function AppProvider({ children }: { children: React.ReactNode })
   return (
     <AppContext.Provider value={ui}>
       {children}
+      {isCustomer && <CustomerCallWatcher />}
 
       {overlay?.kind === "login" && <LoginModal onClose={closeOverlay} options={overlay.options} />}
       {overlay?.kind === "instant" && (

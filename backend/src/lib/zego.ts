@@ -16,6 +16,11 @@ export function zegoConfigured(): boolean {
   return config.zegoAppId > 0 && config.zegoServerSecret.length === 32;
 }
 
+/** The web server address the browser SDK connects to: the project's own (ZEGO console), else the standard one. */
+export function zegoServerUrl(): string {
+  return config.zegoServerUrl || `wss://webliveroom${config.zegoAppId}-api.zegocloud.com/ws`;
+}
+
 /** What a token lets its holder do in one room (ZEGO "privilege" payload). */
 export interface RoomPrivilege {
   roomId: string;
@@ -70,7 +75,12 @@ export const zegoRoom = {
   livePrivate: (consultationId: string) => `livep-${consultationId}`,
 };
 
-/** A ZEGO user id for one of our users (ZEGO allows letters, digits and _ - only). */
-export function zegoUserId(userId: string): string {
-  return `u_${userId}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
+/**
+ * A ZEGO user id for one of our users (ZEGO allows letters, digits and _ - only). ZEGO signs out
+ * ("kicks out") an earlier session when the same user id logs in again, so the same person must
+ * use a different id in a live room than in a consultation room: the astrologer stays in their
+ * live while taking a private call from it, and the customer goes back to watching it afterwards.
+ */
+export function zegoUserId(userId: string, scope: "consult" | "live" = "consult"): string {
+  return `u_${userId}${scope === "live" ? "_live" : ""}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
 }

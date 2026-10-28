@@ -1,13 +1,24 @@
 import { config } from "../config.ts";
 import { db } from "../db.ts";
 import { ELIGIBILITY_MINUTES, rateFor, type Mode } from "./billing.ts";
-import { OPEN_STATUSES, endConsultation, freeWindow, lockKey, openConsultationOf, sessionCapSeconds } from "./consultations.ts";
+import {
+  OPEN_STATUSES,
+  billedElapsed,
+  endConsultation,
+  endIfNeverJoined,
+  freeWindow,
+  joinTimeoutSeconds,
+  joinView,
+  lockKey,
+  openConsultationOf,
+  sessionCapSeconds,
+} from "./consultations.ts";
 import { makeRef } from "./format.ts";
 import { syncPresence } from "./presence.ts";
 import { windowOf } from "./consult-room.ts";
 import { consultSummary } from "./profile.ts";
 import { configNumber } from "./settings.ts";
-import { zegoConfigured, zegoRoom, zegoToken, zegoUserId } from "./zego.ts";
+import { zegoConfigured, zegoRoom, zegoServerUrl, zegoToken, zegoUserId } from "./zego.ts";
 import type { Consultation, LiveRoom, Prisma, User } from "../generated/prisma/client.ts";
 
 // Private consultations taken from a live room (spec AR-LIVE): the live's video keeps going to
@@ -21,7 +32,8 @@ import type { Consultation, LiveRoom, Prisma, User } from "../generated/prisma/c
 //   Accept          → the consultation is CONNECTING and the customer's balance is held; the
 //                     customer has a short window to join the call. One per room at a time; the
 //                     others keep waiting in order.
-//   Join the call   → ACTIVE, metered from now (same billing as any consultation).
+//   Join the call   → ACTIVE (connected); metered once both sides have really joined the private
+//                     room (billingStartedAt — same rule and join timeout as any consultation).
 //   End (either)    → settled by endConsultation, exactly like a direct consultation.
 //   Not answered / declined / left / live ended before connecting → released, ₹0 charged.
 
@@ -224,8 +236,9 @@ export function answerBy(c: Pick<Consultation, "status" | "offeredAt">, secs: nu
 }
 
 /**
- * The customer joins the private call: metering starts now. Refused once the window to join has
- * closed (the offer is then withdrawn and the hold released).
+ * The customer joins the private call: it is connected (ACTIVE); metering starts once both sides have
+ * really joined its room (markJoined). Refused once the window to join has closed (the offer is then
+ * withdrawn and the hold released).
  */
 export async function connectPrivate(consultationId: string, customerId: string) {
   const secs = await answerSeconds();
@@ -276,7 +289,7 @@ export async function closeRoomConsultations(roomId: string) {
 
 /** Time and money of a private consultation as it runs (server clock). */
 async function meter(c: Consultation) {
-  const [standardFree, secs] = await Promise.all([configNumber("consult.free_seconds", 60), answerSeconds()]);
+  const [standardFree, secs, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 60), answerSeconds(), joinTimeoutSeconds()]);
   const now = Date.now();
   const by = answerBy(c, secs);
   return {
@@ -290,7 +303,9 @@ async function meter(c: Consultation) {
     rate: c.rate,
     held: c.heldAmount,
     connectedAt: c.connectedAt?.toISOString() ?? null,
-    elapsedSeconds: c.status === "ACTIVE" && c.connectedAt ? Math.max(0, Math.floor((now - c.connectedAt.getTime()) / 1000)) : 0,
+    /** Billed seconds so far: from billingStartedAt (0 while waiting for a side to join). */
+    elapsedSeconds: billedElapsed(c, now),
+    ...joinView(c, joinTimeout),
     freeSeconds: freeWindow(c, standardFree),
     maxSeconds: sessionCapSeconds(c, standardFree),
     /** Seconds left to join the call (connecting only). */
@@ -301,16 +316,19 @@ async function meter(c: Consultation) {
 
 /** The customer's own private consultation in this room, or null (nobody else ever gets it). */
 export async function customerPrivateView(roomId: string, customerId: string) {
-  const c = await db.consultation.findFirst({
+  let c = await db.consultation.findFirst({
     where: { origin: LIVE_ORIGIN, liveRoomId: roomId, customerId, status: { in: PRIVATE_STATUSES } },
     orderBy: { requestedAt: "desc" },
   });
-  return c ? meter(c) : null;
+  // Connected but a side never joined in time: ended (₹0) on schedule.
+  if (c?.status === "ACTIVE") c = await endIfNeverJoined(c);
+  return c && PRIVATE_STATUSES.includes(c.status) ? meter(c) : null;
 }
 
 /** The astrologer's view of the private consultation in their room: who, how long, and its state. */
 export async function hostPrivateView(roomId: string) {
-  const c = await privateInRoom(roomId);
+  let c = await privateInRoom(roomId);
+  if (c?.status === "ACTIVE" && (await endIfNeverJoined(c)).status !== "ACTIVE") c = await privateInRoom(roomId);
   if (!c) return null;
   return { ...(await meter(c)), alias: c.customerAlias, profile: c.customer ? consultSummary(c.customer) : null };
 }
@@ -346,8 +364,6 @@ export async function myRequest(room: Pick<LiveRoom, "id" | "startedAt">, userId
 /** The one stream of a live: the host's camera and microphone. */
 export const liveStreamId = (roomId: string) => `live_${roomId}_main`.replace(/[^A-Za-z0-9_-]/g, "_");
 
-const zegoServer = () => `wss://webliveroom${config.zegoAppId}-api.zegocloud.com/ws`;
-
 /**
  * Credentials for the live's public ZEGO room. The host may publish only the live stream; viewers
  * only play it. Private consultations use a different room (see consult-room.ts: mediaFor).
@@ -355,12 +371,12 @@ const zegoServer = () => `wss://webliveroom${config.zegoAppId}-api.zegocloud.com
 export function liveMedia(room: Pick<LiveRoom, "id">, user: Pick<User, "id">, role: "host" | "viewer", userName: string) {
   if (!zegoConfigured()) return { available: false as const, reason: "not_configured" };
   const roomId = zegoRoom.live(room.id);
-  const userId = zegoUserId(user.id);
+  const userId = zegoUserId(user.id, "live");
   const streamId = liveStreamId(room.id);
   return {
     available: true as const,
     appId: config.zegoAppId,
-    server: zegoServer(),
+    server: zegoServerUrl(),
     roomId,
     userId,
     userName,

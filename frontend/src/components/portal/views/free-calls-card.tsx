@@ -7,11 +7,10 @@ import type { FreeCalls } from "@/lib/portal/types";
 import { useErrorToast, useToast } from "../portal-provider";
 import { M_INPUT, M_LABEL, M_PRIMARY, Panel } from "../ui";
 
-/** "5 min", "30 min", "1 h", "1 h 30 min" */
-function lengthLabel(secs: number): string {
-  const m = Math.max(1, Math.round(secs / 60));
-  if (m < 60) return `${m} min`;
-  return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} h`;
+/** "5, 10 or 30 min" */
+function lengthsLabel(minutes: number[]): string {
+  if (minutes.length <= 1) return `${minutes[0] ?? 0} min`;
+  return `${minutes.slice(0, -1).join(", ")} or ${minutes[minutes.length - 1]} min`;
 }
 
 /** "Mon 27 Oct" in IST. */
@@ -65,8 +64,8 @@ export default function FreeCallsCard({ freeCalls: f }: { freeCalls: FreeCalls }
         <div className="min-w-0 flex-1">
           <h2 className="m-0 mb-1 text-base font-bold">Free calls</h2>
           <p className="m-0 text-[12.5px] leading-[1.5] text-stone-500">
-            Customers use their welcome free calls ({lengthLabel(f.freeSeconds)} of Chat or Voice) with astrologers who take part. You take one free
-            call at a time.
+            Customers use their weekly free minutes on free calls of {lengthsLabel(f.lengths)} (Chat or Voice) with astrologers who take part.
+            You take one free call at a time; Astrorize pays you monthly for the free minutes you give.
           </p>
         </div>
         <button

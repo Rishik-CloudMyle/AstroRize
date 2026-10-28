@@ -12,9 +12,12 @@ import { M_PRIMARY, M_SECONDARY, PageHeader, Panel } from "../ui";
 import { HideTabBar } from "../../mobile/tab-bar";
 import { Avatar, PersonProfileDialog } from "./live-queue-people";
 import { SessionWindow } from "@/components/consult/session/session-window";
+import { getCallSession, releaseCallSession } from "@/lib/media/call-session";
+import { markAnswered, useAnswered } from "../call-alerts";
 
 /** How often the page asks the API for new requests, the queue and the live session. */
 const POLL_MS = 4000;
+const JOIN_POLL_MS = 1500;
 
 const DROP_STEPS = [
   "Metering stops at the moment of the drop",
@@ -40,6 +43,15 @@ function factsOf(profile: ConsultCustomer | null): string {
 }
 
 const noSubscribe = () => () => {};
+
+const baseOf = (id: string) => `/portal/consultations/${id}`;
+
+/**
+ * The session window opens by itself for a session the astrologer is already in (joined, or its call
+ * still running on this device after Minimise); a call they haven't picked up rings instead (the
+ * portal's call alert), and opens when they accept it.
+ */
+const opensItself = (s: Consultations["session"]) => !!s && (s.astrologerJoined || !!getCallSession(baseOf(s.id)));
 
 /** A customer's welcome free call: distinct from paid requests. */
 function FreeBadge({ className = "" }: { className?: string }) {
@@ -77,7 +89,9 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
   const [detailId, setDetailId] = useState<string | null>(null);
   const queueSize = useRef(initial.queue.length);
   // The session window: opens by itself when a session starts (and on arrival during one).
-  const [windowFor, setWindowFor] = useState<string | null>(initial.session?.id ?? null);
+  const [windowFor, setWindowFor] = useState<string | null>(() => (opensItself(initial.session) ? initial.session!.id : null));
+  // Picked up from the call alert (or Accept here): the window opens as soon as the session is here.
+  const answeredId = useAnswered();
   // The session window is portalled into <body>, which only exists in the browser: a page loaded
   // while a session is in progress must not render it on the server.
   const inBrowser = useSyncExternalStore(
@@ -86,6 +100,8 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
     () => false,
   );
   const sessionRef = useRef<string | null>(initial.session?.id ?? null);
+  // Whether that session's billing had started (both sides joined), for the "ended" message.
+  const billedRef = useRef(!!initial.session?.billingStartedAt);
   // Set while this astrologer is ending the session, so it isn't reported as ended by the customer.
   const endingRef = useRef(false);
   // Stable, so the dialogs keep focus while the clock ticks underneath them.
@@ -99,13 +115,20 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
       setNow(Date.now());
       const next = res.consultations.session?.id ?? null;
       if (next !== sessionRef.current) {
-        if (next) setWindowFor(next);
-        else if (!endingRef.current) {
+        // The call that was running is over: leave its room and turn the devices off.
+        if (sessionRef.current) releaseCallSession(baseOf(sessionRef.current));
+        if (next && opensItself(res.consultations.session)) setWindowFor(next);
+        else if (!next && !endingRef.current) {
           setWindowFor(null);
-          toast("The session has ended — the customer ended it, or their balance ran out.");
+          toast(
+            billedRef.current
+              ? "The session has ended — the customer ended it, or their balance ran out."
+              : "The session ended before it started — the customer left or didn't join in time. Nothing was billed.",
+          );
         }
         sessionRef.current = next;
       }
+      billedRef.current = !!res.consultations.session?.billingStartedAt;
       // Keep the sidebar's request count in step with the queue.
       if (res.consultations.queue.length !== queueSize.current) {
         queueSize.current = res.consultations.queue.length;
@@ -117,14 +140,23 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
   }, [router, toast]);
 
   // Poll the API, and tick the countdown / session clock once a second.
+  // Faster while a connected session waits for the customer to join, so the clock starts as they do.
+  const waitingJoin = !!snap.data.session && !snap.data.session.billingStartedAt;
   useEffect(() => {
-    const poll = setInterval(load, POLL_MS);
+    const poll = setInterval(load, waitingJoin ? JOIN_POLL_MS : POLL_MS);
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       clearInterval(poll);
       clearInterval(tick);
     };
-  }, [load]);
+  }, [load, waitingJoin]);
+
+  // Accepted from the call alert: re-read straight away so the window opens without waiting for the poll.
+  useEffect(() => {
+    if (!answeredId) return;
+    const t = setTimeout(() => void load(), 0);
+    return () => clearTimeout(t);
+  }, [answeredId, load]);
 
   const data = snap.data;
   const inc = data.incoming;
@@ -143,9 +175,11 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
   const statusLabel = expired ? "Timed out — billed ₹0" : `Accept in ${countdown(remaining)}`;
   const pct = inc ? `${(remaining / inc.windowSecs) * 100}%` : "0%";
   const session = data.session;
-  const sessionSecs = session ? session.elapsedSeconds + sinceFetch : 0;
+  // Billed time: 0 until both sides have joined (the server starts billing then).
+  const sessionSecs = session?.billingStartedAt ? session.elapsedSeconds + sinceFetch : 0;
   // One active consult at a time.
   const inSession = session !== null;
+  const windowOpen = !!session && (windowFor === session.id || answeredId === session.id);
 
   const act = async (run: () => Promise<void>) => {
     if (busy) return;
@@ -171,6 +205,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
   const accept = (id: string) =>
     act(async () => {
       await api.post(`/portal/consultations/${id}/accept`);
+      markAnswered(id);
       setDetailId(null);
       toast("Accepted — the customer is joining your session now.");
     });
@@ -184,6 +219,8 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
         endingRef.current = false;
       }
       sessionRef.current = null;
+      releaseCallSession(baseOf(id));
+      markAnswered(null);
       setWindowFor(null);
       setConfirmEnd(false);
       toast(
@@ -234,7 +271,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
             {data.freeCalls.remaining} of {data.freeCalls.limit} free calls left {data.freeCalls.period === "week" ? "this week" : "today"}
           </b>
           <span className="text-[12px] text-emerald-900/75">
-            Customers can use their welcome free calls with you, one at a time. Change how many you take on your dashboard.
+            Customers can use their weekly free minutes with you, one free call at a time. Change how many you take on your dashboard.
           </span>
         </div>
       )}
@@ -400,7 +437,9 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
                   <b className="block truncate text-[15px] text-paper">In session · {nameOf(session.profile, session.alias)}</b>
                   <span className="block text-[12px] text-stone-400">
                     {session.mode}
+                    {!session.billingStartedAt && " · waiting for the customer to join — not billed yet"}
                     {session.free &&
+                      session.billingStartedAt &&
                       (sessionSecs < session.freeSeconds
                         ? ` · 🎁 ${session.makeGood ? "free replacement call" : "free call"} · ${mmss(session.freeSeconds - sessionSecs)} free left`
                         : " · 🎁 free time over — now billed")}
@@ -467,12 +506,12 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
       </div>
 
       {/* Phones/tablets: the session window is full screen, so the tab bar steps aside while it's open. */}
-      <HideTabBar when={!!session && windowFor === session.id} />
+      <HideTabBar when={windowOpen} />
 
       {/* The session's own window (chat, voice or video), over the whole portal. */}
       {session &&
         inBrowser &&
-        windowFor === session.id &&
+        windowOpen &&
         createPortal(
           <SessionWindow
             base={`/portal/consultations/${session.id}`}
@@ -508,7 +547,14 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
             }
             ending={busy}
             onEnd={() => setConfirmEnd(true)}
-            onMinimise={() => setWindowFor(null)}
+            onMinimise={() => {
+              markAnswered(null);
+              setWindowFor(null);
+            }}
+            waiting={
+              session.billingStartedAt ? undefined : `Waiting for ${nameOf(session.profile, session.alias)} to join — the session and billing start when they do.`
+            }
+            onJoined={() => void load()}
           />,
           document.body,
         )}

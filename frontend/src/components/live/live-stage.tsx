@@ -32,6 +32,7 @@ export default function LiveStage({
   const [problem, setProblem] = useState("");
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [soundOn, setSoundOn] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
@@ -47,9 +48,8 @@ export default function LiveStage({
 
   useEffect(() => {
     if (!answer?.available) return;
-    let live: ZegoLive | null = null;
     let gone = false;
-    void ZegoLive.watch(answer, {
+    const live = ZegoLive.watch(answer, {
       onState: (s, detail) => {
         if (gone) return;
         setLink(s);
@@ -60,20 +60,14 @@ export default function LiveStage({
         const { media } = await api.get<{ media: LiveMediaAnswer }>(`/live-rooms/${encodeURIComponent(roomId)}/media`);
         return media.available ? media : null;
       },
-    })
-      .then((l) => {
-        if (gone) l.leave();
-        else live = l;
-      })
-      .catch(() => {
-        if (!gone) setLink("failed");
-      });
+    });
     return () => {
       gone = true;
-      live?.leave();
+      live.leave();
       setStream(null);
     };
-  }, [answer, roomId]);
+    // attempt: "Try again" joins afresh.
+  }, [answer, roomId, attempt]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -110,6 +104,16 @@ export default function LiveStage({
           ) : link === "failed" ? (
             <span className="max-w-[34ch] rounded-2xl bg-black/55 px-4 py-3 text-[13px] leading-normal text-white/85">
               {problem || "The live video couldn't connect. Check your connection — the chat and queue still work."}
+              <button
+                type="button"
+                onClick={() => {
+                  setLink("connecting");
+                  setAttempt((n) => n + 1);
+                }}
+                className="mt-2 block w-full font-bold text-amber-300 underline"
+              >
+                Try again
+              </button>
             </span>
           ) : (
             <span className="flex flex-col items-center gap-3">
@@ -119,7 +123,12 @@ export default function LiveStage({
           )}
         </div>
       )}
-      {stream && !silenced && !soundOn && (
+      {stream && link === "reconnecting" && (
+        <span role="status" className="absolute left-1/2 top-[38%] z-[1] -translate-x-1/2 rounded-full bg-black/60 px-4 py-2 text-[13px] font-bold text-white">
+          Reconnecting…
+        </span>
+      )}
+      {stream && !silenced && !soundOn && link !== "reconnecting" && (
         <button
           type="button"
           onClick={() => setSoundOn(true)}

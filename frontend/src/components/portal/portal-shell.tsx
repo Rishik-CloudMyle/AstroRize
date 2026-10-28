@@ -15,6 +15,8 @@ import TabBar from "../mobile/tab-bar";
 import Modal from "./modal";
 import NotificationBell from "../notification-bell";
 import StatusBanner from "./status-banner";
+import { CallAlertsBar } from "./call-alerts";
+import LiveReturnBar from "./live-return-bar";
 
 interface NavItem {
   href: string;
@@ -247,6 +249,9 @@ export default function PortalShell({ account, children }: { account: Account; c
         </aside>
 
         <main className="min-w-0 px-4 pt-3 pb-6 lg:px-7 lg:pt-6 lg:pb-14">
+          {/* Desktop: while live, the way back to the broadcast (phones/tablets: above the tab bar). */}
+          <LiveReturnBar placement="top" />
+          <CallAlertsBar />
           <StatusBanner status={account.status} />
           {children}
         </main>

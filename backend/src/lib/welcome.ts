@@ -5,56 +5,54 @@ import { istDate, istDateKey } from "./format.ts";
 import { effectivePresence } from "./presence.ts";
 import { configNumber } from "./settings.ts";
 
-// The welcome campaign (spec AR-WEL): every customer with a verified mobile number gets free
-// consultations — how many, per what period and how long each is are set in the Config console
-// (welcome.allowance_count / welcome.allowance_period / welcome.complimentary_seconds). A free
-// call is counted only once it connects. Free time earns the astrologer nothing and is never
-// refunded; after it, the same session continues at the astrologer's normal rate if the wallet
-// allows, else it ends.
+// The welcome campaign (spec AR-WEL): every customer with a verified mobile number gets a weekly
+// pool of free minutes (Config welcome.weekly_free_minutes; weeks run Monday to Sunday, IST). For
+// each free call the customer chooses a length (Config welcome.free_call_length_1/_2/_3, e.g. 5, 10
+// or 30 min) that fits in what is left this week; the WHOLE chosen length is taken from the pool
+// once the conversation starts (Consultation.billingStartedAt — both sides really connected), even
+// if the call ends earlier. Free time earns the astrologer nothing from the customer (Astrorize
+// compensates them monthly) and is never refunded; after it, the same session continues at the
+// astrologer's normal rate if the wallet allows, else it ends.
 
 /** Modes the free call can use (the spec's seed allow-list: Audio + Chat). */
 export const WELCOME_MODES = ["CHAT", "VOICE"] as const;
 
-/** ONCE = once ever; DAY / WEEK (Mon–Sun) / MONTH = per calendar day, week or month in IST. */
-export type AllowancePeriod = "ONCE" | "DAY" | "WEEK" | "MONTH";
 /** The period an astrologer's free-call capacity counts over (Astrologer.freeCallsLimitPeriod). */
 export type CapacityPeriod = "DAY" | "WEEK";
+/** IST calendar periods: the customer's free minutes count per WEEK (Mon–Sun). */
+type Period = CapacityPeriod;
 
-/**
- * Config "welcome.allowance_period" is a number: 0 = once ever, 1 = per day, 7 = per week,
- * 30 = per calendar month. Values in between read as the shorter period (e.g. 10 = per week).
- */
-function allowancePeriodOf(n: number): AllowancePeriod {
-  if (!(n >= 1)) return "ONCE";
-  if (n < 7) return "DAY";
-  if (n < 30) return "WEEK";
-  return "MONTH";
+/** The free-call lengths the customer may choose from (minutes): the Config options that are on, smallest first. */
+function lengthsOf(values: number[]): number[] {
+  const on = values.map((n) => Math.floor(n)).filter((n) => Number.isFinite(n) && n > 0);
+  return [...new Set(on)].sort((a, b) => a - b);
 }
 
 /** Policy, from the Config console (Admin-approved changes, versioned there). */
 export async function welcomePolicy() {
-  const [enabled, seconds, reminder, dailyLimit, minMeaningful, maxRestores, count, period, maxPerDay, maxPerWeek] = await Promise.all([
+  const [enabled, weekly, len1, len2, len3, reminder, dailyLimit, minMeaningful, maxRestores, maxPerDay, maxPerWeek] = await Promise.all([
     configNumber("welcome.enabled", 1),
-    configNumber("welcome.complimentary_seconds", 300),
+    configNumber("welcome.weekly_free_minutes", 30),
+    configNumber("welcome.free_call_length_1", 5),
+    configNumber("welcome.free_call_length_2", 10),
+    configNumber("welcome.free_call_length_3", 30),
     configNumber("welcome.reminder_seconds", 120),
     configNumber("welcome.daily_limit_default", 5),
     configNumber("welcome.min_meaningful_seconds", 30),
     configNumber("welcome.max_fault_restores", 2),
-    configNumber("welcome.allowance_count", 1),
-    configNumber("welcome.allowance_period", 0),
     configNumber("welcome.astrologer_max_per_day", 10),
     configNumber("welcome.astrologer_max_per_week", 50),
   ]);
   return {
     enabled: enabled === 1,
-    complimentarySeconds: Math.max(1, Math.round(seconds)),
+    /** Free minutes each customer (mobile number) gets per Mon–Sun week (IST). */
+    weeklyMinutes: Math.max(0, Math.floor(weekly)),
+    /** Lengths a free call can be (minutes), smallest first. */
+    lengths: lengthsOf([len1, len2, len3]),
     reminderSeconds: reminder,
     dailyLimitDefault: Math.max(0, Math.floor(dailyLimit)),
     minMeaningfulSeconds: minMeaningful,
     maxFaultRestores: maxRestores,
-    /** Free calls each customer (mobile number) gets per `allowancePeriod`. */
-    allowanceCount: Math.max(0, Math.floor(count)),
-    allowancePeriod: allowancePeriodOf(period),
     /** Most free calls an astrologer may offer per day / per week (their own setting is capped to it). */
     maxPerDay: Math.max(0, Math.floor(maxPerDay)),
     maxPerWeek: Math.max(0, Math.floor(maxPerWeek)),
@@ -70,57 +68,50 @@ const DAY_MS = 86400000;
 /** 00:00 IST of an IST date key. */
 const istMidnight = (key: string) => new Date(`${key}T00:00:00+05:30`);
 
-/** When the current period began (IST), or null for "once ever". */
-export function periodStart(period: AllowancePeriod, now = new Date()): Date | null {
+/** When the current IST day, or Monday-to-Sunday week, began. */
+export function periodStart(period: Period, now = new Date()): Date {
   const key = istDateKey(now);
-  if (period === "ONCE") return null;
   if (period === "DAY") return istMidnight(key);
-  if (period === "MONTH") return istMidnight(`${key.slice(0, 7)}-01`);
-  // Weeks run Monday to Sunday.
   const weekday = (new Date(`${key}T00:00:00Z`).getUTCDay() + 6) % 7;
   return new Date(istMidnight(key).getTime() - weekday * DAY_MS);
 }
 
-/** When the next period begins (IST), or null for "once ever". */
-export function periodEnd(period: AllowancePeriod, now = new Date()): Date | null {
-  const start = periodStart(period, now);
-  if (!start) return null;
-  if (period === "DAY") return new Date(start.getTime() + DAY_MS);
-  if (period === "WEEK") return new Date(start.getTime() + 7 * DAY_MS);
-  const [y, m] = istDateKey(now).split("-").map(Number) as [number, number];
-  return istMidnight(m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`);
+/** When the next IST day, or week (Monday 00:00 IST), begins. */
+export function periodEnd(period: Period, now = new Date()): Date {
+  return new Date(periodStart(period, now).getTime() + (period === "DAY" ? 1 : 7) * DAY_MS);
 }
 
-/** "once" | "day" | "week" | "month" — how the website and portals name a period. */
-export const periodName = (p: AllowancePeriod | CapacityPeriod) => (p === "ONCE" ? "once" : p.toLowerCase()) as "once" | "day" | "week" | "month";
+/** "day" | "week" — how the website and portals name a period. */
+export const periodName = (p: Period) => p.toLowerCase() as "day" | "week";
 
-// ── The customer's allowance ──
+// ── The customer's weekly free minutes ──
 
 /** The identity a benefit belongs to: a hash of the verified mobile number (no personal data). */
 export function identityKey(phone: string): string {
   return createHash("sha256").update(`astrorize-welcome:${phone.replace(/\D/g, "").slice(-10)}`).digest("hex");
 }
 
-// WelcomeBenefit is the identity anchor (one row per mobile number); FreeCallUse rows count the
-// free calls that connected. The benefit's state machine:
-//   GRANTED   the person may take free calls — as many as their allowance has left this period
+// WelcomeBenefit is the identity anchor (one row per mobile number); FreeCallUse rows are the free
+// calls that started (minutes = the length chosen). The benefit's state machine:
+//   GRANTED   the person may take free calls — as long as a length fits in this week's minutes left
 //   RESERVED  a free call request is in flight (consultationId); never two at once
 //   REVOKED   no free calls (staff action)
 //   CONSUMED  LEGACY only: rows from before allowances were configurable. Their call was copied
-//             into FreeCallUse, so they are treated exactly like GRANTED (with "1, once ever" they
-//             are used up just as before). Normal code paths move them on to GRANTED over time.
-// Request → GRANTED/CONSUMED → RESERVED. Connects → a FreeCallUse row + back to GRANTED. Never
-// connects (cancelled, declined, timed out) → back to GRANTED, nothing counted. A free call that
-// drops in its first seconds through no fault of the customer gets its FreeCallUse.restoredAt set
-// (it no longer counts), a bounded number of times per person (WelcomeBenefit.faultRestores).
+//             into FreeCallUse, so they are treated exactly like GRANTED. Normal code paths move
+//             them on to GRANTED over time.
+// Request → GRANTED/CONSUMED → RESERVED. Conversation starts (billingStartedAt) → a FreeCallUse row
+// with the chosen minutes + back to GRANTED. Never starts (cancelled, declined, timed out, the other
+// side never joined) → back to GRANTED, nothing counted. A free call that drops in its first seconds
+// through no fault of the customer gets its FreeCallUse.restoredAt set (its minutes are given back),
+// a bounded number of times per person (WelcomeBenefit.faultRestores).
 
-/** Benefit statuses that may take a free call (allowance permitting). */
+/** Benefit statuses that may take a free call (minutes permitting). */
 const ELIGIBLE = ["GRANTED", "CONSUMED"];
 
 /**
  * Grants the welcome benefit to a customer who has just verified their mobile number. Idempotent:
- * a number that ever had one (even on a deleted account) gets no new row — its allowance keeps
- * counting the calls already used; a returning number is re-linked to the new account unless revoked.
+ * a number that ever had one (even on a deleted account) gets no new row — its weekly minutes keep
+ * counting the calls already taken; a returning number is re-linked to the new account unless revoked.
  */
 export async function grantWelcome(userId: string, phone: string, tx: Prisma.TransactionClient = db) {
   const key = identityKey(phone);
@@ -139,38 +130,50 @@ export function benefitOf(userId: string) {
   return db.welcomeBenefit.findUnique({ where: { userId } });
 }
 
-/** Free calls this person has used in the current allowance period (restored ones don't count). */
-export async function allowanceOf(client: Tx | typeof db, key: string, policy: Policy, now = new Date()) {
-  const start = periodStart(policy.allowancePeriod, now);
-  const used = await client.freeCallUse.count({
-    where: { identityKey: key, restoredAt: null, ...(start ? { usedAt: { gte: start } } : {}) },
+/** Free minutes this person has used this week (Mon–Sun, IST; minutes given back after an early drop don't count). */
+export async function weeklyMinutesOf(client: Tx | typeof db, key: string, policy: Policy, now = new Date()) {
+  const { _sum } = await client.freeCallUse.aggregate({
+    where: { identityKey: key, restoredAt: null, usedAt: { gte: periodStart("WEEK", now) } },
+    _sum: { minutes: true },
   });
+  const used = _sum.minutes ?? 0;
   return {
+    total: policy.weeklyMinutes,
     used,
-    remaining: Math.max(0, policy.allowanceCount - used),
-    /** When the allowance starts again (null for "once ever"). */
-    resetsAt: periodEnd(policy.allowancePeriod, now),
+    remaining: Math.max(0, policy.weeklyMinutes - used),
+    /** Monday 00:00 IST: the minutes start again. */
+    resetsAt: periodEnd("WEEK", now),
   };
 }
 
+/** The lengths (minutes) that fit in `remaining`. */
+export const lengthsThatFit = (policy: Policy, remaining: number) => policy.lengths.filter((m) => m <= remaining);
+
 /**
- * Whether this customer may start a free call now (their own side only — the astrologer's is
- * freeCallRefusal). Returns the benefit, or a refusal with a message for the customer.
+ * Whether this customer may start a free call of `minutes` now (their own side only — the
+ * astrologer's is freeCallRefusal). Returns the benefit, or a refusal with a message for the customer.
  */
 export async function welcomeAvailability(
   tx: Tx,
   userId: string,
   policy: Policy,
+  minutes: number,
 ): Promise<{ ok: true; id: string } | { ok: false; code: string; message: string }> {
-  const none = { ok: false as const, code: "WEL_NOT_AVAILABLE", message: "You don't have a free call to use. You can still consult at the normal rate." };
+  const none = { ok: false as const, code: "WEL_NOT_AVAILABLE", message: "You don't have free minutes to use. You can still consult at the normal rate." };
   const b = await tx.welcomeBenefit.findUnique({ where: { userId } });
   if (!b || !ELIGIBLE.includes(b.status)) return none;
-  const { remaining, resetsAt } = await allowanceOf(tx, b.identityKey, policy);
-  if (remaining > 0) return { ok: true, id: b.id };
-  if (!resetsAt) return { ...none, message: "You've used your free calls. You can still consult at the normal rate." };
+  if (!policy.lengths.includes(minutes)) {
+    return { ok: false, code: "WEL_LENGTH_INVALID", message: `Choose a free call of ${policy.lengths.map((m) => `${m}`).join(", ")} minutes.` };
+  }
+  const { remaining, resetsAt } = await weeklyMinutesOf(tx, b.identityKey, policy);
+  if (minutes <= remaining) return { ok: true, id: b.id };
+  const fits = lengthsThatFit(policy, remaining);
   return {
     ...none,
-    message: `You've used this ${periodName(policy.allowancePeriod)}'s free calls — your next one is available from ${istDate(resetsAt)}. You can still consult at the normal rate.`,
+    code: "WEL_MINUTES_SHORT",
+    message: fits.length
+      ? `You have ${remaining} free minute${remaining === 1 ? "" : "s"} left this week — choose ${fits.map((m) => `${m} min`).join(" or ")}.`
+      : `You've used this week's free minutes — they reset on ${istDate(resetsAt)}. You can still consult at the normal rate.`,
   };
 }
 
@@ -199,35 +202,35 @@ type CapacityFields = Pick<Astrologer, "id" | "freeCallsDailyLimit" | "freeCalls
 
 /**
  * Free calls counted against each astrologer's capacity this period (their IST day or Mon–Sun
- * week): those connected in it, plus those requested and about to connect, so two customers
- * can't both take the last one. Also says which astrologers have a free call in flight.
+ * week): those whose conversation started in it, plus those requested and about to start, so two
+ * customers can't both take the last one. Also says which astrologers have a free call in flight.
  */
 async function quotaUsed(client: Tx | typeof db, astrologers: CapacityFields[], policy: Policy, now = new Date()) {
   const used = new Map<string, number>();
   const inFlight = new Set<string>();
   if (!astrologers.length) return { used, inFlight };
-  const weekStart = periodStart("WEEK", now)!;
+  const weekStart = periodStart("WEEK", now);
   const rows = await client.consultation.findMany({
     where: {
       astrologerId: { in: astrologers.map((a) => a.id) },
       billingMode: COMPLIMENTARY,
-      OR: [{ connectedAt: { gte: weekStart } }, { status: { in: FREE_IN_FLIGHT } }],
+      OR: [{ billingStartedAt: { gte: weekStart } }, { status: { in: FREE_IN_FLIGHT } }],
     },
-    select: { astrologerId: true, status: true, connectedAt: true },
+    select: { astrologerId: true, status: true, billingStartedAt: true },
   });
-  const startOf = new Map(astrologers.map((a) => [a.id, periodStart(capacityOf(a, policy).period, now)!]));
+  const startOf = new Map(astrologers.map((a) => [a.id, periodStart(capacityOf(a, policy).period, now)]));
   for (const r of rows) {
     if (FREE_IN_FLIGHT.includes(r.status)) inFlight.add(r.astrologerId);
-    const counts = r.status === "REQUESTED" || r.status === "CONNECTING" || (r.connectedAt && r.connectedAt >= startOf.get(r.astrologerId)!);
+    const counts = r.billingStartedAt ? r.billingStartedAt >= startOf.get(r.astrologerId)! : FREE_IN_FLIGHT.includes(r.status);
     if (counts) used.set(r.astrologerId, (used.get(r.astrologerId) ?? 0) + 1);
   }
   return { used, inFlight };
 }
 
-/** Free calls an astrologer has CONNECTED in their current capacity period (IST day or week). */
+/** Free calls an astrologer has TAKEN (the conversation started) in their current capacity period (IST day or week). */
 export async function freeCallsUsed(a: CapacityFields, policy: Policy, now = new Date()): Promise<number> {
-  const start = periodStart(capacityOf(a, policy).period, now)!;
-  return db.consultation.count({ where: { astrologerId: a.id, billingMode: COMPLIMENTARY, connectedAt: { gte: start } } });
+  const start = periodStart(capacityOf(a, policy).period, now);
+  return db.consultation.count({ where: { astrologerId: a.id, billingMode: COMPLIMENTARY, billingStartedAt: { gte: start } } });
 }
 
 /**
@@ -250,14 +253,15 @@ export async function capacityView(a: Astrologer, policy: Policy, now = new Date
     limit: cap.limit,
     isDefault: cap.isDefault,
     defaultLimit: policy.dailyLimitDefault,
-    /** Connected this period (today, or this Mon–Sun week, IST). */
+    /** Taken this period (today, or this Mon–Sun week, IST). */
     used,
     remaining: Math.max(0, cap.limit - used),
-    resetsAt: periodEnd(cap.period, now)!.toISOString(),
+    resetsAt: periodEnd(cap.period, now).toISOString(),
     maxPerDay: policy.maxPerDay,
     maxPerWeek: policy.maxPerWeek,
-    /** Length of each free call, in seconds. */
-    freeSeconds: policy.complimentarySeconds,
+    /** Lengths a customer can choose for a free call (minutes), and their weekly free minutes. */
+    lengths: policy.lengths,
+    weeklyMinutes: policy.weeklyMinutes,
   };
 }
 
@@ -320,7 +324,7 @@ export async function reserveWelcome(tx: Tx, userId: string, consultationId: str
   return count === 1;
 }
 
-/** The free call never connected: nothing is counted and the benefit is the customer's again. */
+/** The free call never started (no conversation): nothing is counted and the benefit is the customer's again. */
 export function releaseWelcome(tx: Tx | typeof db, consultationId: string) {
   return tx.welcomeBenefit.updateMany({
     where: { consultationId, status: "RESERVED" },
@@ -329,21 +333,23 @@ export function releaseWelcome(tx: Tx | typeof db, consultationId: string) {
 }
 
 /**
- * The free call connected: it counts against the person's allowance (a FreeCallUse row, once per
- * consultation) and the benefit is free for their next one. Safe to run twice.
+ * The free call's conversation started (billingStartedAt): the WHOLE chosen length is taken from the
+ * person's weekly minutes (a FreeCallUse row, once per consultation) even if the call ends earlier,
+ * and the benefit is free for their next one. Safe to run twice.
  */
 export async function consumeWelcome(tx: Tx | typeof db, consultationId: string, at = new Date()) {
   const b = await tx.welcomeBenefit.findFirst({ where: { consultationId, status: "RESERVED" }, select: { identityKey: true } });
   if (!b) return;
-  const c = await tx.consultation.findUnique({ where: { id: consultationId }, select: { astrologerId: true } });
+  const c = await tx.consultation.findUnique({ where: { id: consultationId }, select: { astrologerId: true, complimentarySeconds: true } });
   if (!c) return;
-  await tx.freeCallUse.createMany({ data: [{ identityKey: b.identityKey, consultationId, astrologerId: c.astrologerId, usedAt: at }], skipDuplicates: true });
+  const minutes = Math.ceil(c.complimentarySeconds / 60);
+  await tx.freeCallUse.createMany({ data: [{ identityKey: b.identityKey, consultationId, astrologerId: c.astrologerId, usedAt: at, minutes }], skipDuplicates: true });
   await tx.welcomeBenefit.updateMany({ where: { consultationId, status: "RESERVED" }, data: { status: "GRANTED", consumedAt: at } });
 }
 
 /**
  * A free call dropped before it meant anything (under welcome.min_meaningful_seconds) and the
- * customer didn't end it: it no longer counts, at most welcome.max_fault_restores times per person.
+ * customer didn't end it: its minutes are given back, at most welcome.max_fault_restores times per person.
  * Returns true when it was given back.
  */
 export async function restoreAfterFault(tx: Tx, consultationId: string, policy: Policy): Promise<boolean> {
@@ -357,7 +363,7 @@ export async function restoreAfterFault(tx: Tx, consultationId: string, policy: 
 
 /**
  * Settles benefits left RESERVED by a request that has since finished elsewhere (e.g. timed out
- * when the astrologer went offline): never connected → released, connected → counted.
+ * when the astrologer went offline): the conversation never started → released, started → counted.
  * Runs from the consultation sweep, and before a customer's benefit is shown.
  */
 export async function reconcileWelcome(userId?: string) {
@@ -367,13 +373,13 @@ export async function reconcileWelcome(userId?: string) {
       await db.welcomeBenefit.updateMany({ where: { id: b.id, status: "RESERVED" }, data: { status: "GRANTED", reservedAt: null } });
       continue;
     }
-    const c = await db.consultation.findUnique({ where: { id: b.consultationId }, select: { status: true, connectedAt: true } });
-    if (!c || NOT_CONNECTED.includes(c.status) || (c.status === "ENDED" && !c.connectedAt)) await releaseWelcome(db, b.consultationId);
-    else if (c.connectedAt) await consumeWelcome(db, b.consultationId, c.connectedAt);
+    const c = await db.consultation.findUnique({ where: { id: b.consultationId }, select: { status: true, billingStartedAt: true } });
+    if (c?.billingStartedAt) await consumeWelcome(db, b.consultationId, c.billingStartedAt);
+    else if (!c || NOT_CONNECTED.includes(c.status) || c.status === "ENDED") await releaseWelcome(db, b.consultationId);
   }
 }
 
-/** The customer's free calls as the website shows them, or null when they never had any. */
+/** The customer's free minutes as the website shows them, or null when they never had any. */
 export async function welcomeView(userId: string) {
   let b = await benefitOf(userId);
   if (!b) return null;
@@ -384,27 +390,27 @@ export async function welcomeView(userId: string) {
   }
   const policy = await welcomePolicy();
   const eligible = ELIGIBLE.includes(b.status);
-  const allowance = await allowanceOf(db, b.identityKey, policy);
-  const status = b.status === "RESERVED" ? "reserved" : b.status === "REVOKED" ? "revoked" : allowance.remaining > 0 ? "granted" : "consumed";
+  const week = await weeklyMinutesOf(db, b.identityKey, policy);
+  const remaining = eligible ? week.remaining : 0;
+  const fits = lengthsThatFit(policy, remaining);
+  const status = b.status === "RESERVED" ? "reserved" : b.status === "REVOKED" ? "revoked" : fits.length ? "granted" : "consumed";
   return {
-    /** granted (free calls left) | reserved (one is being requested) | consumed (none left for now) | revoked */
+    /** granted (a free call fits in this week's minutes) | reserved (one is being requested) | consumed (none left this week) | revoked */
     status,
-    /** True while it can be used to start a free call. */
-    available: policy.enabled && eligible && allowance.remaining > 0,
-    /** Length of each free call, in seconds. */
-    freeSeconds: policy.complimentarySeconds,
+    /** True while a free call can be started: the campaign is on and at least one length fits. */
+    available: policy.enabled && eligible && fits.length > 0,
     reminderSeconds: policy.reminderSeconds,
     /** Modes it can be used for (Video and Instant Call stay paid). */
     modes: WELCOME_MODES.map((m) => m.toLowerCase()),
-    allowance: {
-      /** Free calls per period. */
-      count: policy.allowanceCount,
-      /** once | day | week | month (IST calendar periods; weeks run Monday to Sunday) */
-      period: periodName(policy.allowancePeriod),
-      used: allowance.used,
-      remaining: eligible ? allowance.remaining : 0,
-      /** ISO time the allowance starts again; null for "once ever". */
-      resetsAt: allowance.resetsAt?.toISOString() ?? null,
+    /** This Mon–Sun week's (IST) free minutes. */
+    weekly: {
+      total: week.total,
+      used: week.used,
+      remaining,
+      /** ISO time they reset: Monday 00:00 IST. */
+      resetsAt: week.resetsAt.toISOString(),
     },
+    /** The lengths a free call can be (minutes, smallest first); `fits` = it fits in what is left this week. The whole length is used. */
+    lengths: policy.lengths.map((minutes) => ({ minutes, fits: minutes <= remaining })),
   };
 }
