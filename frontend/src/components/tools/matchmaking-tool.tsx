@@ -15,6 +15,7 @@ import {
   type Place,
 } from "@/lib/astro";
 import type { Tool } from "@/lib/types";
+import { BirthTimeInput } from "../account/time-of-birth";
 import BirthPlaceInput from "./birth-place-input";
 import { RashiGlyph } from "./tool-icons";
 import {
@@ -27,6 +28,7 @@ import {
   ResultCard,
   SectionTitle,
   SubmitButton,
+  inputBase,
   inputClass,
   panelClass,
   panelPad,
@@ -38,10 +40,13 @@ import {
 interface PersonForm {
   name: string;
   date: string;
+  /** 24-hour "HH:MM", or "" (optional). */
   time: string;
+  /** Something typed in the time that can't be used yet (e.g. AM/PM not chosen). */
+  timeProblem: string | null;
 }
 
-const EMPTY: PersonForm = { name: "", date: "", time: "" };
+const EMPTY: PersonForm = { name: "", date: "", time: "", timeProblem: null };
 
 const VERDICT: Record<Match["verdict"], { label: string; tone: string }> = {
   excellent: { label: "Excellent match", tone: "text-emerald-800" },
@@ -68,6 +73,7 @@ export default function MatchmakingTool({ tool }: { tool: Tool }) {
       if (!p.name.trim()) return `Enter ${who}'s name.`;
       if (!p.date) return `Enter ${who}'s date of birth.`;
       if (p.date < MIN_DATE || p.date > MAX_DATE) return DATE_LIMIT_MESSAGE;
+      if (p.timeProblem) return `${who[4].toUpperCase()}${who.slice(5)}'s time of birth: ${p.timeProblem}`;
       if (!place) return `Choose ${who}'s place of birth from the list (press Search to find it).`;
     }
     return null;
@@ -120,6 +126,7 @@ export default function MatchmakingTool({ tool }: { tool: Tool }) {
             place={boyPlace}
             onPlace={setBoyPlace}
             invalidPlace={attempted && !boyPlace}
+            attempted={attempted}
           />
           <PersonFields
             title="Girl"
@@ -128,6 +135,7 @@ export default function MatchmakingTool({ tool }: { tool: Tool }) {
             place={girlPlace}
             onPlace={setGirlPlace}
             invalidPlace={attempted && !girlPlace}
+            attempted={attempted}
           />
         </div>
         {error && <ErrorNote>{error}</ErrorNote>}
@@ -149,6 +157,7 @@ function PersonFields({
   place,
   onPlace,
   invalidPlace,
+  attempted,
 }: {
   title: string;
   value: PersonForm;
@@ -156,6 +165,7 @@ function PersonFields({
   place: Place | null;
   onPlace: (p: Place | null) => void;
   invalidPlace: boolean;
+  attempted: boolean;
 }) {
   const set = (k: keyof PersonForm) => (e: React.ChangeEvent<HTMLInputElement>) => onChange({ ...value, [k]: e.target.value });
   return (
@@ -171,7 +181,13 @@ function PersonFields({
           <input type="date" min={MIN_DATE} max={MAX_DATE} value={value.date} onChange={set("date")} className={inputClass} />
         </Field>
         <Field label="Time of birth (optional)">
-          <input type="time" value={value.time} onChange={set("time")} className={inputClass} />
+          <BirthTimeInput
+            id={`mm-time-${title.toLowerCase()}`}
+            value={value.time}
+            onChange={(time, timeProblem) => onChange({ ...value, time, timeProblem })}
+            invalid={attempted}
+            inputClassName={inputBase}
+          />
         </Field>
       </div>
       <BirthPlaceInput label="Place of birth" value={place} onChange={onPlace} invalid={invalidPlace} />

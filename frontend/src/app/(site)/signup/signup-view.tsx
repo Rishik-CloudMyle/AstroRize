@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { destinationFor, sessionName } from "@/components/account/auth-shell";
 import {
-  EMAIL_PATTERN,
   FieldError,
   PhotoPicker,
   ProfileForm,
@@ -24,6 +23,7 @@ import OtpInput from "@/components/account/otp-input";
 import { useAppUI } from "@/components/app-provider";
 import PasswordInput from "@/components/ui/password-input";
 import { ApiError, api } from "@/lib/api/client";
+import { EMAIL_MESSAGE, isValidEmail, mobileDigits, mobileProblem } from "@/lib/contact";
 import { sessionActions, useSession, type AstrologerSignup } from "@/lib/session-store";
 import { LANGUAGE_OPTIONS, MAX_LANGUAGES, MAX_SKILLS, SKILL_OPTIONS, passwordProblem } from "./options";
 
@@ -33,7 +33,6 @@ const errorText = (e: unknown) =>
   e instanceof ApiError ? e.message : "Something went wrong. Check your connection and try again.";
 
 const LABEL = `text-xs font-semibold text-stone-600 ${APP_LABEL}`;
-const PHONE_PATTERN = /^[6-9]\d{9}$/;
 
 /**
  * /signup: customers (mobile number → code → "A little about you" + "Birth details")
@@ -82,7 +81,7 @@ export default function SignupView({ initialRole, next }: { initialRole: SignupR
           <div role="radiogroup" aria-label="Account type" className="grid grid-cols-2 gap-2.5">
             {(
               [
-                ["customer", "I want to consult an astrologer", "Chat, call or watch live"],
+                ["customer", "I want to consult an astrologer", "Call, message or watch live"],
                 ["astrologer", "I'm an astrologer", "Apply to consult on Astrorize"],
               ] as const
             ).map(([key, label, sub]) => {
@@ -156,7 +155,8 @@ function CustomerSignup({ next, onStarted }: { next: string | null; onStarted: (
   async function sendCode(e?: React.FormEvent) {
     e?.preventDefault();
     if (busy) return;
-    if (!PHONE_PATTERN.test(phone)) return setError("Enter a valid 10-digit mobile number.");
+    const phoneProblem = mobileProblem(phone);
+    if (phoneProblem) return setError(phoneProblem);
     setBusy(true);
     setError("");
     try {
@@ -224,7 +224,7 @@ function CustomerSignup({ next, onStarted }: { next: string | null; onStarted: (
               value={phone}
               aria-invalid={!!error}
               onChange={(e) => {
-                setPhone(e.target.value.replace(/\D/g, "").slice(0, 10));
+                setPhone(mobileDigits(e.target.value));
                 setError("");
               }}
               className="min-w-0 flex-1 border-0 bg-transparent p-3 text-base text-ink outline-none"
@@ -339,7 +339,7 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
     const pwErrors: { password?: string; confirm?: string } = {};
     if (withPassword && !passwordSaved) {
       if (!form.email.trim()) found.email = "Add your email to log in with a password.";
-      else if (!EMAIL_PATTERN.test(form.email.trim())) found.email = "Enter a valid email address.";
+      else if (!isValidEmail(form.email)) found.email = EMAIL_MESSAGE;
       const problem = passwordProblem(password);
       if (problem) pwErrors.password = problem;
       else if (confirm !== password) pwErrors.confirm = "The two passwords don't match.";
@@ -434,6 +434,7 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
         formError={formError}
         saving={saving}
         emailRequired={withPassword && !passwordSaved}
+        phone={profile.phone}
         set={set}
         onSubmit={submit}
         onCancel={skip}
@@ -549,8 +550,9 @@ function validateAstro(f: AstroForm): Partial<Record<AstroField, string>> {
   const name = f.name.trim();
   if (name.length < 2) e.name = "Enter your full name.";
   else if (name.length > 60) e.name = "Your name can be up to 60 characters.";
-  if (!EMAIL_PATTERN.test(f.email.trim())) e.email = "Enter a valid email address.";
-  if (!PHONE_PATTERN.test(f.phone)) e.phone = "Enter a valid 10-digit mobile number.";
+  if (!isValidEmail(f.email)) e.email = EMAIL_MESSAGE;
+  const phoneProblem = mobileProblem(f.phone);
+  if (phoneProblem) e.phone = phoneProblem;
   const pw = passwordProblem(f.password);
   if (pw) e.password = pw;
   else if (f.confirm !== f.password) e.confirm = "The two passwords don't match.";
@@ -566,7 +568,7 @@ function validateAstro(f: AstroForm): Partial<Record<AstroField, string>> {
 function toSignup(f: AstroForm): AstrologerSignup {
   return {
     name: f.name.trim().replace(/\s+/g, " "),
-    email: f.email.trim(),
+    email: f.email.trim().toLowerCase(),
     phone: f.phone,
     password: f.password,
     gender: f.gender === "Female" || f.gender === "Male" ? f.gender : null,
@@ -801,7 +803,7 @@ function AstrologerSignupForm({ onStarted }: { onStarted: (started: boolean) => 
               value={form.phone}
               aria-invalid={!!errors.phone}
               aria-describedby={errors.phone ? "as-phone-err" : "as-phone-help"}
-              onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))}
+              onChange={(e) => set("phone", mobileDigits(e.target.value))}
               className="min-w-0 flex-1 border-0 bg-transparent p-3 text-[15px] text-ink outline-none"
             />
           </div>

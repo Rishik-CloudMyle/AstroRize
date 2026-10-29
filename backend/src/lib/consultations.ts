@@ -135,6 +135,8 @@ export async function acceptConsultation(id: string, astrologerId: string) {
     await lockKey(tx, `astro:${astrologerId}`);
     const c = await tx.consultation.findUnique({ where: { id } });
     if (!c || c.astrologerId !== astrologerId || c.status !== "REQUESTED") return { ok: false as const, reason: "gone" as const };
+    // Paid chat is no longer offered: a chat request left over from before can't start (it times out at ₹0).
+    if (c.mode === "CHAT") return { ok: false as const, reason: "gone" as const };
     if (c.customerId) await lockKey(tx, `consult:${c.customerId}`);
     const busy = await tx.consultation.findFirst({ where: { astrologerId, status: "ACTIVE" }, select: { id: true } });
     if (busy) return { ok: false as const, reason: "busy" as const };

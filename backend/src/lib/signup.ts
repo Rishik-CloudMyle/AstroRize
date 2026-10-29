@@ -26,11 +26,8 @@ export const passwordSchema = z
   .max(128, "Passwords can be up to 128 characters.")
   .refine((p) => /[A-Za-z]/.test(p) && /\d/.test(p), "Your password needs at least one letter and one number.");
 
-export const emailSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .pipe(z.email("Enter a valid email address.").max(254, "Enter a valid email address."));
+/** Sign-up emails follow the customer contact rules (lib/contact.ts). */
+export { emailSchema } from "./contact.ts";
 
 /** Friendly 409s before anything is created (the unique indexes still decide in a race). */
 export async function assertContactsFree(email: string, phone: string) {

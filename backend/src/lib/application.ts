@@ -131,13 +131,14 @@ export function missingFor(values: DraftValues, a: Astrologer, known: Known, has
 
   need(hasBio, 8, "Bio — write it on the Profile page and submit it for review");
 
-  const rates: [string, string][] = [["10-0", "Voice"], ["10-1", "Chat"], ["10-2", "Video"]];
+  // "10-1" was the Chat rate: paid chat is no longer offered, so it is neither asked nor checked.
+  const rates: [string, string][] = [["10-0", "Voice"], ["10-2", "Video"]];
   for (const [key, mode] of rates) {
     const text = v(key);
     const n = parseRate(text);
     need(!text || (n !== null && n >= RATE_MIN && n <= RATE_MAX), 10, `${mode} rate — whole rupees from ${rupee(RATE_MIN)} to ${rupee(RATE_MAX)}`);
   }
-  need(!!v("10-0") || !!v("10-1"), 10, "Pricing — request a voice or chat rate");
+  need(!!v("10-0"), 10, "Pricing — request a voice rate");
 
   need(["11-0", "11-1", "11-2", "11-3"].every((k) => v(k) === "yes"), 11, "Readiness — tick every declaration");
   need(v("12-1") === "yes", 12, "Confirm that your details are accurate");
@@ -165,13 +166,14 @@ export function answersFor(values: DraftValues, a: Astrologer, known: Known & { 
     { label: "Specialties", value: v("3-2") },
     { label: "Skills", value: a.skills.join(", ") || "—" },
     { label: "Bank", value: account ? `${v("6-0")} · ••••${account.slice(-4)} · ${v("6-2").toUpperCase()}` : "—" },
-    { label: "Requested rates", value: `Voice ${rate("10-0")} · Chat ${rate("10-1")} · Video ${rate("10-2")}` },
+    // A Chat rate is shown only on an application sent before paid chat was withdrawn.
+    { label: "Requested rates", value: `Voice ${rate("10-0")}${answer(values, a, known, "10-1") ? ` · Chat ${rate("10-1")}` : ""} · Video ${rate("10-2")}` },
     { label: "Fixed sessions", value: v("10-3") },
     { label: "Bio", value: a.about.trim() || "Submitted for review on the Profile page" },
   ];
 }
 
-/** The voice (else chat) rate the astrologer asked for, as a hint for HR when approving. */
+/** The voice rate the astrologer asked for (else, on an older application, its chat rate), as a hint for HR when approving. */
 export function requestedRate(values: DraftValues): number | null {
   return parseRate(values["10-0"] ?? "") ?? parseRate(values["10-1"] ?? "");
 }

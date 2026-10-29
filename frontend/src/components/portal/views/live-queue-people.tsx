@@ -1,5 +1,6 @@
 "use client";
 
+import { genderLabel, time12 } from "@/lib/contact";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -161,9 +162,9 @@ export function PersonProfileDialog({
         ["First name", p.firstName],
         ["Last name", p.lastName],
         ["Age", p.age !== null ? `${p.age} years` : null],
-        ["Gender", p.gender],
+        ["Gender", genderLabel(p.gender)],
         ["Date of birth", p.birthDate],
-        ["Time of birth", p.birthTime ? `${p.birthTime} (24-hour)` : null],
+        ["Time of birth", time12(p.birthTime) || null],
         ["Place of birth", p.birthPlace],
         ["City", p.city],
         ["State", p.state],

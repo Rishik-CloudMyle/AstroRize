@@ -17,9 +17,30 @@ export default function LoginPageView({ next, initialMethod }: { next: string | 
   /** Set once they sign in here, so the "already logged in" card doesn't flash before the redirect. */
   const [leaving, setLeaving] = useState(false);
 
+  // Whether the visitor was already signed in when the page loaded (decided once the session is known).
+  const [arrivedSignedIn, setArrivedSignedIn] = useState<boolean | null>(null);
+  if (session.ready && arrivedSignedIn === null) setArrivedSignedIn(session.loggedIn);
+
   if (!session.ready) return <div className="h-[420px] rounded-2xl bg-cream max-lg:bg-transparent" aria-busy="true" />;
 
-  if (session.loggedIn && !leaving) {
+  // Just signed in here: say so while the next page opens (it can take a few seconds the first
+  // time in development), rather than showing an empty sign-in form that looks like it failed.
+  if (leaving || (session.loggedIn && arrivedSignedIn === false)) {
+    return (
+      <div role="status" aria-live="polite">
+        <h1 className="m-0 font-display text-[27px] font-semibold text-ink">You&rsquo;re signed in</h1>
+        <p className="mt-1 text-[13.5px] text-stone-600">Taking you to Astrorize…</p>
+        <Link
+          href={destinationFor(session.role, next)}
+          className={`az-cta mt-5 flex h-[50px] items-center justify-center rounded-full text-[15px] font-bold hover:text-cta-ink hover:no-underline ${APP_CTA}`}
+        >
+          Continue
+        </Link>
+      </div>
+    );
+  }
+
+  if (session.loggedIn) {
     return (
       <div>
         <h1 className="m-0 font-display text-[27px] font-semibold text-ink">You&rsquo;re logged in</h1>
@@ -52,7 +73,8 @@ export default function LoginPageView({ next, initialMethod }: { next: string | 
         setLeaving(true);
         const to = destinationFor(user.role, next);
         // A re-activated account already got its "Welcome back — active again" note.
-        if (user.role === "customer" && !user.reactivated) toast(`Welcome back${user.name && user.name !== "Astrorize customer" ? `, ${user.name.split(" ")[0]}` : ""}.`);
+        if (user.role === "customer" && user.created) toast("Welcome to Astrorize! Add your details any time from Wallet & account.");
+        else if (user.role === "customer" && !user.reactivated) toast(`Welcome back${user.name && user.name !== "Astrorize customer" ? `, ${user.name.split(" ")[0]}` : ""}.`);
         router.push(to);
       }}
       onGuest={() => router.push(destinationFor("customer", next))}

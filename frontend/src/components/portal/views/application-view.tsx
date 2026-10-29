@@ -226,6 +226,7 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
 
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(260px,100%),1fr))] gap-3.5">
           {fields.map((f, i) => {
+            if (f.hidden) return null;
             const key = `${idx}-${i}`;
             // The bio row is a readout of the Profile page's bio, not a field of its own.
             const typable = editable && current.typable && !f.readOnly && !(current.short === "Bio" && i === 0);

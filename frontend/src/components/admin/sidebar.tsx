@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { AdminSession, Environment, NavGroup } from "@/lib/admin/types";
 import LogoutButton from "../logout-button";
+import { useNavCounts } from "./admin-provider";
 import MessagesUnreadBadge from "./messages/unread-badge";
 
 // [label, background, border, dot, text] — from the prototype's envMap.
@@ -49,6 +50,8 @@ function Brand({ onNavigate }: { onNavigate?: () => void }) {
 /** Environment, signed-in admin and the console menu; shared by the desktop rail and the phone menu. */
 function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProps & { onNavigate?: () => void }) {
   const pathname = usePathname();
+  // Kept current by the provider: re-read after every action and every 30 seconds.
+  const { counts, hints } = useNavCounts();
   const [envLabel, envBg, envBorder, envDot, envFg] = ENV_STYLES[environment];
 
   return (
@@ -81,6 +84,7 @@ function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProp
             </div>
             {g.items.map((n) => {
               const active = isActive(pathname, n.href);
+              const count = counts[n.key] ?? 0;
               return (
                 <Link
                   key={n.key}
@@ -97,9 +101,13 @@ function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProp
                   <span className="min-w-0 flex-1">{n.label}</span>
                   {n.key === "messages" ? (
                     <MessagesUnreadBadge />
-                  ) : n.count ? (
-                    <span className="grid h-[19px] min-w-[19px] place-items-center rounded-full bg-urgent px-[5px] text-[10px] font-extrabold text-white">
-                      {n.count}
+                  ) : count > 0 ? (
+                    <span
+                      title={hints[n.key]}
+                      className="grid h-[19px] min-w-[19px] place-items-center rounded-full bg-urgent px-[5px] text-[10px] font-extrabold text-white"
+                    >
+                      <span aria-hidden="true">{count > 99 ? "99+" : count}</span>
+                      <span className="sr-only">{hints[n.key] ?? `${count} waiting`}</span>
                     </span>
                   ) : null}
                 </Link>

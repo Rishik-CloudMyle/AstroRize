@@ -54,7 +54,7 @@ export async function answerSeconds(): Promise<number> {
 export const liveRate = (price: number, mode: Mode = "VOICE") => rateFor(price, mode);
 
 /** What each mode costs from this astrologer's live (₹/min). Instant Call isn't offered from a live. */
-export const liveRates = (price: number) => ({ chat: liveRate(price, "CHAT"), voice: liveRate(price, "VOICE"), video: liveRate(price, "VIDEO") });
+export const liveRates = (price: number) => ({ voice: liveRate(price, "VOICE"), video: liveRate(price, "VIDEO") });
 
 /** The private consultation happening in the room right now, if any. */
 export function privateInRoom(roomId: string) {
@@ -84,7 +84,7 @@ export type JoinResult =
   | { kind: "open"; open: Consultation };
 
 /**
- * A customer joins the room's consult queue for a private chat, voice or video consultation. They
+ * A customer joins the room's consult queue for a private voice or video consultation. They
  * must have five minutes' balance at the rate they were shown for that mode (`quotedRate`, checked
  * against the current one); that rate is stored and is what they pay if accepted. Joining twice
  * changes nothing (the first request, and its mode, stand).
@@ -119,7 +119,7 @@ export async function joinQueue(room: LiveRoom, userId: string, mode: Mode, quot
         customerId: userId,
         customerAlias: alias,
         astrologerId: room.astrologerId,
-        // Chat, voice or video with the astrologer, in a room of its own (never the live's).
+        // Voice or video with the astrologer, in a room of its own (never the live's).
         mode,
         rate,
         status: QUEUED,

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { ApiError } from "@/lib/api/client";
+import { mobileDigits, mobileProblem } from "@/lib/contact";
 import { sessionActions, type ApiUser } from "@/lib/session-store";
 import PasswordInput from "../ui/password-input";
 import { APP_CTA, APP_INPUT, APP_LABEL, APP_SECONDARY } from "./app-look";
@@ -55,7 +56,6 @@ export default function LoginForm({
   /** Only set in development, when the API returns the code instead of texting it. */
   const [devCode, setDevCode] = useState("");
 
-  const phoneReady = phone.length === 10;
   const otpReady = otp.length === 6;
   const onOtpStep = method === "phone" && step === "otp";
   const Heading = headingLevel;
@@ -199,7 +199,8 @@ export default function LoginForm({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (!phoneReady) return setError("Enter your 10-digit mobile number.");
+            const problem = mobileProblem(phone);
+            if (problem) return setError(problem);
             void sendCode();
           }}
         >
@@ -216,7 +217,7 @@ export default function LoginForm({
                 placeholder="98765 43242"
                 value={phone}
                 onChange={(e) => {
-                  setPhone(e.target.value.replace(/\D/g, "").slice(0, 10));
+                  setPhone(mobileDigits(e.target.value));
                   setError("");
                 }}
                 className="min-w-0 flex-1 border-0 bg-transparent p-3 text-base text-ink outline-none"
@@ -260,17 +261,27 @@ export default function LoginForm({
           <button type="submit" disabled={busy} className={`az-cta mt-4 h-[50px] w-full rounded-full text-[15px] font-bold ${APP_CTA}`}>
             Verify and log in
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setStep("phone");
-              setOtp("");
-              setError("");
-            }}
-            className="mt-2 w-full text-[13px] font-semibold text-amber-700 max-lg:min-h-app-hit max-lg:text-app-accent"
-          >
-            Change number
-          </button>
+          <div className="mt-2 flex justify-center gap-5">
+            <button
+              type="button"
+              onClick={() => {
+                setStep("phone");
+                setOtp("");
+                setError("");
+              }}
+              className="text-[13px] font-semibold text-amber-700 max-lg:min-h-app-hit max-lg:text-app-accent"
+            >
+              Change number
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void sendCode()}
+              className="text-[13px] font-semibold text-amber-700 max-lg:min-h-app-hit max-lg:text-app-accent"
+            >
+              Resend code
+            </button>
+          </div>
         </form>
       )}
 

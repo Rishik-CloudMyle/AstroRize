@@ -1,7 +1,7 @@
 // Money rules for consultations, kept in one place so the website, the portals
 // and the mobile app all charge exactly the same way.
 
-/** Video costs this much more per minute than chat or voice (₹). */
+/** Video costs this much more per minute than voice (₹). */
 export const VIDEO_PREMIUM = 12;
 /** A customer needs this many minutes of balance before a consultation can start. */
 export const ELIGIBILITY_MINUTES = 5;
@@ -10,7 +10,16 @@ export const MAX_SESSION_SECONDS = 15 * 60;
 /** GST charged on top of a recharge. */
 export const GST_RATE = 0.18;
 
+/**
+ * A consultation's mode. "CHAT" stays for consultations started before paid chat was withdrawn
+ * (their history, billing and stats still read it); no new chat consultation can be started.
+ */
 export type Mode = "CHAT" | "VOICE" | "VIDEO";
+
+/** Why a new paid chat consultation is refused (customers chat free in Messages instead). */
+export const CHAT_RETIRED_MESSAGE =
+  "Chat consultations are no longer offered — use Messages to chat for free, or start a Voice or Video call.";
+export const CHAT_RETIRED_CODE = "chat_not_offered";
 
 export function rateFor(price: number, mode: Mode): number {
   return price + (mode === "VIDEO" ? VIDEO_PREMIUM : 0);

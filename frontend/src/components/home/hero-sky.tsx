@@ -73,22 +73,25 @@ interface Gem {
   glow: string;
   /** Facet lines: light stones get darker lines. */
   facet: string;
-  /** Round (pearl) rather than cut. */
+  /** Round and polished (pearl, coral) rather than cut. */
   round?: boolean;
+  /** A cat's eye: a polished cabochon with a bright band of light across it. */
+  eye?: boolean;
 }
 
-// Each graha's stone, after the navaratna: Sun gold, Moon pearl, Mars ruby, Mercury emerald,
-// Jupiter yellow sapphire, Venus diamond, Saturn blue sapphire, Rahu smoky hessonite, Ketu agate.
+// Each graha's stone, after the navaratna: Sun ruby (Manikya), Moon pearl (Moti), Mars red coral
+// (Moonga), Mercury emerald (Panna), Jupiter yellow sapphire (Pukhraj), Venus diamond (Heera),
+// Saturn blue sapphire (Neelam), Rahu hessonite (Gomed), Ketu cat's eye (Lehsunia).
 const GEMS: Record<GrahaKey, Gem> = {
-  sun: { size: 0.044, fill: ["#fff4c2", "#f3b21c", "#9a5a06"], glow: "245,170,30", facet: "rgba(255,248,220,.55)" },
+  sun: { size: 0.044, fill: ["#ffc2d4", "#d0104c", "#5c0322"], glow: "214,24,80", facet: "rgba(255,222,232,.55)" },
   moon: { size: 0.035, fill: ["#ffffff", "#f3eee8", "#b8adc0"], glow: "214,204,226", facet: "", round: true },
-  mars: { size: 0.031, fill: ["#ffb8bd", "#d3152f", "#5f0614"], glow: "214,30,58", facet: "rgba(255,220,225,.5)" },
+  mars: { size: 0.031, fill: ["#ffc9b3", "#f0583a", "#8e2410"], glow: "240,92,58", facet: "", round: true },
   mercury: { size: 0.029, fill: ["#c4f7da", "#139c58", "#05472a"], glow: "22,160,92", facet: "rgba(220,255,236,.5)" },
   jupiter: { size: 0.037, fill: ["#fff7b8", "#efc40c", "#946300"], glow: "236,196,20", facet: "rgba(255,252,225,.6)" },
   venus: { size: 0.034, fill: ["#ffffff", "#eef3fa", "#93a4ba"], glow: "190,214,244", facet: "rgba(90,110,140,.35)" },
   saturn: { size: 0.034, fill: ["#bccbff", "#2545c4", "#0b1857"], glow: "48,78,206", facet: "rgba(220,230,255,.5)" },
   rahu: { size: 0.028, fill: ["#e2d9cc", "#76675a", "#2b221b"], glow: "112,98,86", facet: "rgba(255,245,230,.4)" },
-  ketu: { size: 0.028, fill: ["#f8d6b4", "#b8662c", "#55260c"], glow: "184,102,44", facet: "rgba(255,236,214,.5)" },
+  ketu: { size: 0.028, fill: ["#f1e6a0", "#a99a32", "#48400c"], glow: "176,160,60", facet: "", round: true, eye: true },
 };
 /** The order of the planet buttons (for keyboards and screen readers). */
 const PRIORITY: readonly GrahaKey[] = ["sun", "moon", "jupiter", "venus", "saturn", "mars", "mercury", "rahu", "ketu"];
@@ -423,6 +426,22 @@ function drawGem(ctx: CanvasRenderingContext2D, x: number, y: number, r: number,
     ctx.beginPath();
     ctx.arc(x, y, r, 0, TAU);
     ctx.fill();
+    if (gem.eye) {
+      // The cat's-eye band: a bright line of light across the dome, slowly turning with the gem.
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, TAU);
+      ctx.clip();
+      ctx.translate(x, y);
+      ctx.rotate(turn * 0.5 + Math.PI / 2);
+      const band = ctx.createLinearGradient(-r * 0.3, 0, r * 0.3, 0);
+      band.addColorStop(0, "rgba(255,252,220,0)");
+      band.addColorStop(0.5, "rgba(255,252,220,.95)");
+      band.addColorStop(1, "rgba(255,252,220,0)");
+      ctx.fillStyle = band;
+      ctx.fillRect(-r * 0.3, -r, r * 0.6, r * 2);
+      ctx.restore();
+    }
   } else {
     // Octagonal brilliant seen from above: girdle, table and the facets between.
     const pt = (k: number, f: number) => {

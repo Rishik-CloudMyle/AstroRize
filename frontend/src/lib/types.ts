@@ -3,6 +3,11 @@
 export type RecognitionKey = "premium" | "trusted" | "proven" | "rising" | "fresh";
 export type AvailabilityKey = "on" | "busy" | "live" | "off";
 export type ConsultMode = "chat" | "voice" | "video";
+/**
+ * The ways a NEW consultation can be started. Paid chat is no longer offered (customers chat free
+ * in Messages); "chat" stays in ConsultMode only so past chat consultations still show and resume.
+ */
+export type OfferedMode = Exclude<ConsultMode, "chat">;
 
 export interface Review {
   name: string;

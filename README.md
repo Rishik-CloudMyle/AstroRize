@@ -64,7 +64,23 @@ Password for every email account: `123456` (demo data only; the seed refuses to 
 | More staff (same departments) | `neha.gupta@` (Finance), `priya.nair@` / `arun.das@` (Support), `vivek.rao@` (Compliance), `isha.malhotra@` (Marketing) — all `@astrorize.com`; `fatima.shaikh@` is deactivated |
 
 In development there is no SMS provider yet, so the one-time code appears in the login window
-and in the API's terminal. Any new mobile number creates a fresh customer account with an empty wallet.
+("Development build — your code is …") and in the API's terminal (`[sms] sign-in code for +91 …`).
+Any new mobile number creates a fresh customer account with an empty wallet.
+
+Mobile sign-in codes, when testing:
+
+- Use the code shown in the window (or the **latest** `[sms]` line for that number). A code works for
+  5 minutes and only once; the last 3 codes sent to a number all work, so pressing "Resend" doesn't
+  break the one you already have. There is no fixed demo code such as 123456.
+- After 5 wrong tries, request a new code. The window says exactly what went wrong (wrong code with
+  tries left, expired, already used, or no code sent yet).
+- The very first visit to each page in `npm run dev` compiles it, which can take 10–30 seconds on a
+  fresh clone. After a successful sign-in the page says "You're signed in" while the next page loads —
+  wait for it rather than entering the code again (a used code is refused).
+- Testing from a phone on the same Wi-Fi (e.g. `http://192.168.1.10:3000`): Next.js blocks its
+  development scripts for any address other than `localhost`, so buttons don't respond. Add the
+  computer's address to `allowedDevOrigins` in `frontend/next.config.ts`
+  (e.g. `allowedDevOrigins: ["192.168.1.10"]`) and restart `npm run dev`.
 
 ## Production
 

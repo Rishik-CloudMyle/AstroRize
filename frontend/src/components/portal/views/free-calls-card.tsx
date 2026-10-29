@@ -64,7 +64,7 @@ export default function FreeCallsCard({ freeCalls: f }: { freeCalls: FreeCalls }
         <div className="min-w-0 flex-1">
           <h2 className="m-0 mb-1 text-base font-bold">Free calls</h2>
           <p className="m-0 text-[12.5px] leading-[1.5] text-stone-500">
-            Customers use their weekly free minutes on free calls of {lengthsLabel(f.lengths)} (Chat or Voice) with astrologers who take part.
+            Customers use their weekly free minutes on free calls of {lengthsLabel(f.lengths)} (Voice calls) with astrologers who take part.
             You take one free call at a time; Astrorize pays you monthly for the free minutes you give.
           </p>
         </div>

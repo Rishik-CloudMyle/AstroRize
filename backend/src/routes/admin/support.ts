@@ -9,7 +9,7 @@ import { notify } from "../../lib/notifications.ts";
 import { displayName } from "../../lib/profile.ts";
 import { actorName, adminOf, pagesOf, requireCapability, requirePage } from "../../lib/rbac.ts";
 import { getSetting, putSetting } from "../../lib/settings.ts";
-import type { Consultation } from "../../generated/prisma/client.ts";
+import type { Consultation, Prisma } from "../../generated/prisma/client.ts";
 
 // Support & disputes: tickets, the metering evidence, and maker-checker remedies. On a complaint
 // Support proposes one remedy and a second person (Finance or a Super Admin) approves it:
@@ -27,6 +27,50 @@ import type { Consultation } from "../../generated/prisma/client.ts";
 export const supportRouter = Router();
 
 const MAKEGOOD_PROPOSED = "MAKEGOOD_PROPOSED";
+
+/**
+ * A ticket is closed once it is resolved (rejected, closed, or a free replacement call given) or a
+ * refund was approved. An approved remedy closes it whatever older rows say about `state`.
+ */
+const CLOSED_STATES = ["RESOLVED", "REFUND_INITIATED"];
+export const OPEN_TICKET = { state: { notIn: CLOSED_STATES }, refundState: { not: "INITIATED" } } satisfies Prisma.SupportTicketWhereInput;
+const isOpen = (t: { state: string; refundState: string }) => !CLOSED_STATES.includes(t.state) && t.refundState !== "INITIATED";
+
+/** The audit actions that close a ticket (their entry says when, by whom and why). */
+const CLOSING_ACTIONS = ["dispute.refund.approve", "dispute.makegood.approve", "dispute.reject", "dispute.close.covered"];
+
+/** How a closed ticket ended, for the Resolved list and the case file. */
+async function outcomes(tickets: { id: string; state: string; refundState: string; refundAmount: number; resolution: string | null }[]) {
+  const closed = tickets.filter((t) => !isOpen(t));
+  const entries = closed.length
+    ? await db.auditLog.findMany({ where: { object: { in: closed.map((t) => t.id) }, action: { in: CLOSING_ACTIONS } }, orderBy: { at: "desc" } })
+    : [];
+  const out = new Map<string, { label: string; note: string | null; on: string | null; by: string | null }>();
+  for (const t of closed) {
+    const entry = entries.find((e) => e.object === t.id);
+    const label =
+      t.resolution === "MAKE_GOOD"
+        ? "Free call given"
+        : t.resolution === "REFUND" || t.refundState === "INITIATED"
+          ? t.refundAmount > 0
+            ? `Refunded ${rupee(t.refundAmount)}`
+            : "Refunded"
+          : entry?.action === "dispute.close.covered"
+            ? "Closed · already remedied"
+            : "Rejected";
+    // The written reason (or what was given), after the state change in the audit entry.
+    const note = entry ? entry.diff.split(" · ").slice(1).join(" · ") || null : null;
+    out.set(t.id, { label, note, on: entry ? istDayMonth(entry.at) : null, by: entry?.actorName ?? null });
+  }
+  return out;
+}
+
+/** A refund or free replacement call already given for this ticket's session on another ticket. */
+function grantedElsewhere(t: { id: string; sessionRef: string }) {
+  if (!hasSession(t)) return null;
+  return db.supportTicket.findFirst({ where: { sessionRef: t.sessionRef, id: { not: t.id }, refundState: "INITIATED" }, orderBy: { createdAt: "asc" } });
+}
+
 const minutesKey = (ticketId: string) => `support.makegood.${ticketId}`;
 
 function slaLabel(due: Date, now: Date) {
@@ -100,8 +144,12 @@ async function shareOfSession(c: Pick<Consultation, "ref" | "astrologerId">) {
   return line ? (line.sharePct ?? 100) : null;
 }
 
+/** Reports raised without a session say "—": they share no session with anything. */
+const hasSession = (t: { sessionRef: string }) => t.sessionRef !== "—" && t.sessionRef.trim() !== "";
+
 /** Another ticket on the same session that already has a remedy proposed or granted. */
 function otherRemedy(t: { id: string; sessionRef: string }) {
+  if (!hasSession(t)) return null;
   return db.supportTicket.findFirst({ where: { sessionRef: t.sessionRef, id: { not: t.id }, refundState: { in: ["PROPOSED", "INITIATED"] } } });
 }
 
@@ -112,13 +160,19 @@ supportRouter.get("/support", async (req, res) => {
   requirePage(req, "support");
   const now = new Date();
   const tickets = await db.supportTicket.findMany({ orderBy: { createdAt: "desc" } });
+  const closed = await outcomes(tickets);
   res.json({
     tickets: tickets.map((t) => {
-      const sla = slaLabel(t.slaDueAt, now);
+      const outcome = closed.get(t.id) ?? null;
+      // A closed ticket has no SLA left to meet: its row says how it ended instead.
+      const sla = outcome ? { label: outcome.label, tone: "closed" } : slaLabel(t.slaDueAt, now);
       return {
         id: t.id,
         subject: t.subject,
         state: t.state,
+        /** False once resolved or a remedy was approved: it leaves the open queue and the nav badge. */
+        open: !outcome,
+        outcome,
         sla: sla.label,
         slaTone: sla.tone,
         slaDueAt: t.slaDueAt.toISOString(),
@@ -137,7 +191,7 @@ supportRouter.get("/support/:id", async (req, res) => {
   requirePage(req, "support");
   const t = await db.supportTicket.findUnique({ where: { id: String(req.params.id) } });
   if (!t) throw notFound("Ticket not found.");
-  const [file, proposedById, other, policy, minutes, credit, adjustment] = await Promise.all([
+  const [file, proposedById, other, policy, minutes, credit, adjustment, closed] = await Promise.all([
     caseFile(t),
     t.refundState === "NONE" ? null : refundProposerId(t.id),
     otherRemedy(t),
@@ -145,10 +199,12 @@ supportRouter.get("/support/:id", async (req, res) => {
     t.state === MAKEGOOD_PROPOSED || t.resolution === "MAKE_GOOD" ? proposedMinutes(t.id) : 0,
     t.resolution === "MAKE_GOOD" ? db.makeGoodCredit.findFirst({ where: { ticketId: t.id }, orderBy: { createdAt: "desc" } }) : null,
     t.resolution === "REFUND" ? db.earningsLine.findFirst({ where: { kind: "refund_adjustment", sessionRef: t.id } }) : null,
+    outcomes([t]),
   ]);
   const c = file.consultation;
   const astrologer = c ? await db.astrologer.findUnique({ where: { id: c.astrologerId }, select: { name: true } }) : null;
-  const open = t.refundState === "NONE" && t.state !== "RESOLVED";
+  const open = t.refundState === "NONE" && isOpen(t);
+  const granted = open ? await grantedElsewhere(t) : null;
   const otherLine = other ? `${other.resolution === "MAKE_GOOD" || other.state === MAKEGOOD_PROPOSED ? "A free replacement call" : "A refund"} is already ${other.refundState === "INITIATED" ? "approved" : "proposed"} for this session on ${other.id}` : null;
   // Why no refund can be proposed on this ticket (the propose route refuses for the same reasons).
   const refundBlocked = !open ? null : otherLine ?? (file.billed <= 0 ? "Nothing was billed for this session" : null);
@@ -164,6 +220,10 @@ supportRouter.get("/support/:id", async (req, res) => {
       refundState: t.refundState,
       /** REFUND | MAKE_GOOD once approved, else null. */
       resolution: t.resolution,
+      /** How it ended, once closed (label, the written reason or what was given, when, by whom). */
+      outcome: closed.get(t.id) ?? null,
+      /** Open with nothing proposed, and the session already had a remedy approved on another ticket: it can be closed as covered. */
+      coveredBy: granted ? { id: granted.id, remedy: remedyWord(granted) } : null,
       /** What is proposed (or was granted): a refund or a free replacement call. */
       remedy: t.refundState === "NONE" ? null : t.state === MAKEGOOD_PROPOSED || t.resolution === "MAKE_GOOD" ? "MAKE_GOOD" : "REFUND",
       proposedBy: t.proposedBy,
@@ -425,7 +485,7 @@ supportRouter.post("/support/:id/reject", async (req, res) => {
   const t = await db.supportTicket.findUnique({ where: { id: String(req.params.id) } });
   if (!t) throw notFound("Ticket not found.");
   if (t.refundState === "INITIATED") throw conflict(`A ${remedyWord(t)} was already approved on ${t.id}, so the dispute can't be rejected.`);
-  if (t.state === "RESOLVED") throw conflict(`${t.id} is already resolved.`);
+  if (!isOpen(t)) throw conflict(`${t.id} is already resolved.`);
   const withdrawn = t.refundState === "PROPOSED";
   const what = t.state === MAKEGOOD_PROPOSED ? "free replacement call" : `refund of ${rupee(t.refundAmount)}`;
   // Only if nobody approved it meanwhile.
@@ -436,6 +496,27 @@ supportRouter.post("/support/:id/reject", async (req, res) => {
   if (!count) throw conflict(`${t.id} was just updated by someone else. Reload and check it.`);
   await audit(admin, "dispute.reject", t.id, `${t.state} → RESOLVED${withdrawn ? ` · proposed ${what} withdrawn` : ""} · ${reason}`);
   res.json({ ok: true, withdrawn });
+});
+
+/**
+ * Closes a ticket whose session already had a refund or free replacement call approved on another
+ * ticket (one remedy per session, so nothing more can be given here). Support decides it is covered;
+ * the closing is audited with the ticket that covers it.
+ */
+supportRouter.post("/support/:id/close-covered", async (req, res) => {
+  requirePage(req, "support");
+  const admin = requireCapability(req, "dispute.refund.propose");
+  const t = await db.supportTicket.findUnique({ where: { id: String(req.params.id) } });
+  if (!t) throw notFound("Ticket not found.");
+  if (!isOpen(t)) throw conflict(`${t.id} is already resolved.`);
+  if (t.refundState !== "NONE") throw conflict(`A ${remedyWord(t)} is proposed on ${t.id}. Approve, decline or reject it instead.`);
+  const granted = await grantedElsewhere(t);
+  if (!granted) throw conflict(`Nothing has been given for ${t.sessionRef} on another ticket, so ${t.id} can't be closed as covered.`);
+  // Only if nobody proposed something or closed it meanwhile.
+  const { count } = await db.supportTicket.updateMany({ where: { id: t.id, refundState: "NONE", state: t.state }, data: { state: "RESOLVED" } });
+  if (!count) throw conflict(`${t.id} was just updated by someone else. Reload and check it.`);
+  await audit(admin, "dispute.close.covered", t.id, `${t.state} → RESOLVED · ${remedyWord(granted)} already given for ${t.sessionRef} on ${granted.id}`);
+  res.json({ ok: true, coveredBy: granted.id });
 });
 
 /**

@@ -64,8 +64,12 @@ export function PersonAvatar({ person, size = 36 }: { person: Pick<MessagePerson
   );
 }
 
+/** The astrologer or customer first, then the staff: tells apart conversations with the same colleagues. */
+const outsideFirst = (people: MessagePerson[]) => [...people].sort((a, b) => Number(a.kind === "staff") - Number(b.kind === "staff"));
+
 /** Two overlapping avatars for a group, one for a single person. */
-export function GroupAvatar({ people, size = 38 }: { people: MessagePerson[]; size?: number }) {
+export function GroupAvatar({ people: given, size = 38 }: { people: MessagePerson[]; size?: number }) {
+  const people = outsideFirst(given);
   if (people.length <= 1) return people[0] ? <PersonAvatar person={people[0]} size={size} /> : null;
   const small = Math.round(size * 0.64);
   return (
@@ -82,7 +86,7 @@ export function GroupAvatar({ people, size = 38 }: { people: MessagePerson[]; si
 
 /** "Neha Gupta", "Neha Gupta and Priya Nair", "Neha Gupta, Priya Nair and 2 others". */
 export function peopleTitle(people: MessagePerson[]): string {
-  const names = people.map((p) => p.name);
+  const names = outsideFirst(people).map((p) => p.name);
   if (names.length === 0) return "Only you";
   if (names.length === 1) return names[0];
   if (names.length === 2) return `${names[0]} and ${names[1]}`;

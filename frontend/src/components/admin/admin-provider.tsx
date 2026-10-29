@@ -1,14 +1,21 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import { ApiError } from "@/lib/api/client";
-import type { AdminSession } from "@/lib/admin/types";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { api, ApiError } from "@/lib/api/client";
+import type { AdminSession, NavCounts } from "@/lib/admin/types";
+
+/** How often the nav badges are re-read while the tab is visible (they are also re-read after every action). */
+const NAV_COUNTS_POLL_MS = 30_000;
 
 interface AdminUI {
   session: AdminSession;
   /** Short toast at the bottom of the screen, like the prototype's say(). */
   say: (message: string) => void;
+  /** The nav badges as last read. */
+  nav: NavCounts;
+  /** Re-reads the nav badges now (after an action changed what is waiting). */
+  refreshNav: () => void;
 }
 
 const AdminContext = createContext<AdminUI | null>(null);
@@ -24,13 +31,18 @@ export function useAdmin(): AdminUI {
   return useAdminContext();
 }
 
+/** The nav badges' counts and what each counts (tooltips), kept current. */
+export function useNavCounts(): NavCounts {
+  return useAdminContext().nav;
+}
+
 /**
  * Runs an API action: on success shows `done` (string, or built from the response) and
  * re-fetches the page's server data; on failure shows the API's message (e.g. a
  * separation-of-duties block) in the same toast. Resolves to the response, or null on error.
  */
 export function useAction() {
-  const { say } = useAdminContext();
+  const { say, refreshNav } = useAdminContext();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
@@ -41,6 +53,8 @@ export function useAction() {
         const res = await call();
         if (done) say(typeof done === "function" ? done(res) : done);
         if (refresh) router.refresh();
+        // The badges follow at once (a refresh re-reads them too, but not every action refreshes).
+        refreshNav();
         return res;
       } catch (e) {
         say(e instanceof ApiError ? e.message : "Something went wrong. Please try again.");
@@ -49,7 +63,7 @@ export function useAction() {
         setBusy(false);
       }
     },
-    [say, router],
+    [say, router, refreshNav],
   );
 
   return { run, busy };
@@ -65,7 +79,33 @@ export default function AdminProvider({ session, children }: { session: AdminSes
     timer.current = setTimeout(() => setToast(null), 4200);
   }, []);
 
-  const ui = useMemo<AdminUI>(() => ({ session, say }), [session, say]);
+  // Seeded from the session the layout read; a newer session (router.refresh) replaces it.
+  const fromSession = (s: AdminSession): NavCounts => ({ counts: s.counts, hints: s.hints ?? {} });
+  const [nav, setNav] = useState<{ from: AdminSession; counts: NavCounts }>(() => ({ from: session, counts: fromSession(session) }));
+  if (nav.from !== session) setNav({ from: session, counts: fromSession(session) });
+  // Only the newest answer counts if two reads overlap.
+  const seq = useRef(0);
+  const refreshNav = useCallback(() => {
+    const mine = ++seq.current;
+    api
+      .get<NavCounts>("/admin/nav-counts")
+      .then((res) => {
+        if (mine === seq.current) setNav((n) => ({ ...n, counts: res }));
+      })
+      .catch(() => {}); // A missed read is retried on the next tick.
+  }, []);
+  useEffect(() => {
+    const tick = () => document.visibilityState === "visible" && refreshNav();
+    const id = setInterval(tick, NAV_COUNTS_POLL_MS);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [refreshNav]);
+
+  const counts = nav.counts;
+  const ui = useMemo<AdminUI>(() => ({ session, say, nav: counts, refreshNav }), [session, say, counts, refreshNav]);
 
   return (
     <AdminContext.Provider value={ui}>

@@ -16,7 +16,7 @@ export function FreeCallBadge({ astrologer, className = "" }: { astrologer: Astr
   if (!astrologer.freeCall || !showsFreeCalls(session)) return null;
   return (
     <span
-      title="Takes free calls: use your weekly free minutes with them for Chat or Voice, or pay per minute"
+      title="Takes free calls: use your weekly free minutes with them for a Voice call, or pay per minute"
       className={`inline-flex h-[22px] items-center gap-1 whitespace-nowrap rounded-full bg-emerald-50 px-[9px] text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200 ${className}`}
     >
       🎁 Free call
@@ -55,7 +55,7 @@ export function WelcomeBanner({ className = "", showLink = true, showUsedUp = fa
       <div className="min-w-0 flex-[1_1_220px]">
         <b className="block text-[15px] text-emerald-900">{minutesHeadline(welcome)}</b>
         <span className="block text-[12.5px] leading-normal text-emerald-900/80">
-          Chat or Voice with astrologers marked “Free call”. When you start a consultation, choose “Use free minutes” and a length (
+          Voice calls with astrologers marked “Free call”. When you start a consultation, choose “Use free minutes” and a length (
           {lengthsLabel(fittingLengths(welcome))}) — the full length is used — or pay per minute.
         </span>
       </div>

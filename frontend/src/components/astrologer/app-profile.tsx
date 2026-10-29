@@ -105,7 +105,7 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
             {a.was && a.was > a.price && <s className="mt-1 block text-[12px] text-app-ink-3 tabular-nums">{rupee(a.was)}/min</s>}
           </div>
           <ul aria-label="Ways to consult" className="flex flex-wrap justify-end gap-x-2.5 gap-y-1 text-[11px] font-bold">
-            {(["Chat", "Voice", "Video"] as const).map((m) => (
+            {(["Voice", "Video"] as const).map((m) => (
               <li key={m} className={`inline-flex items-center gap-1 ${modeState === "on" ? "text-app-success" : modeState === "busy" ? "text-app-error" : "text-app-ink-3"}`}>
                 {m}
                 <i aria-hidden="true" className={`size-1.5 rounded-full ${MODE_DOT[modeState]}`} />
@@ -123,14 +123,14 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
         {makeGood ? (
           <p className="mt-3 rounded-app-card border border-[#a7f3d0] bg-app-success-bg px-3 py-2.5 text-[12.5px] leading-[1.45] text-app-success">
             <b className="block text-[13px]">🎁 Free replacement call · {makeGood.minutes} min</b>
-            We&apos;re sorry about session {makeGood.sessionRef}. Talk to {a.name} again free by Chat, Voice or Video — use it by {makeGood.validUntil}.
+            We&apos;re sorry about session {makeGood.sessionRef}. Talk to {a.name} again free by Voice or Video — use it by {makeGood.validUntil}.
           </p>
         ) : freeMinutesHere ? (
           <p className="mt-3 rounded-app-card border border-[#a7f3d0] bg-app-success-bg px-3 py-2.5 text-[12.5px] leading-[1.45] text-app-success">
             <b className="block text-[13px]">
               🎁 Free minutes: {welcome.weekly.remaining} of {welcome.weekly.total} left this week · resets {resetWeekday(welcome.weekly.resetsAt)}
             </b>
-            Use them here for Chat or Voice, or pay per minute — you choose when you start.
+            Use them here for a Voice call, or pay per minute — you choose when you start.
           </p>
         ) : null}
         {discount && (

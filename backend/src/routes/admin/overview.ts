@@ -6,7 +6,7 @@ import { ageLabel, byNameMatch, istDateKey, istDayMonth, istTime, rupee } from "
 import { walletTrialBalance } from "../../lib/ledger.ts";
 import { offerSummary } from "../../lib/campaigns.ts";
 import { adminOf, capabilitiesOf, pagesOf, requirePage, type PageKey } from "../../lib/rbac.ts";
-import { refundProposerId } from "./support.ts";
+import { OPEN_TICKET, refundProposerId } from "./support.ts";
 import { hostedLiveRoom } from "../../lib/presence.ts";
 import { configNumber, getSetting } from "../../lib/settings.ts";
 import { monitoringCounts } from "./monitoring.ts";
@@ -24,15 +24,7 @@ overviewRouter.get("/session", async (req, res) => {
   const admin = adminOf(req);
   // From the access matrix in force (defaults + the Super Admin's changes), so the nav follows a change at once.
   const pages = pagesOf(admin.adminRole);
-  // Open-work counts for the nav badges, only for pages this role can open.
-  const [hr, finance, support, compliance, trust] = await Promise.all([
-    pages.includes("hr") ? db.applicant.count() : 0,
-    // The same rows as the Finance part of "Work waiting on you", so badge and list agree.
-    pages.includes("finance") ? workFor(admin, new Date()).then((w) => w.filter((i) => i.page === "finance").length) : 0,
-    pages.includes("support") ? db.supportTicket.count({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] } } }) : 0,
-    pages.includes("compliance") ? db.liveRoom.count({ where: hostedLiveRoom() }) : 0,
-    pages.includes("trust") ? db.review.count({ where: { status: "FLAGGED" } }) : 0,
-  ]);
+  const { counts, hints } = await navCounts(admin);
   res.json({
     session: {
       id: admin.user.id,
@@ -42,10 +34,64 @@ overviewRouter.get("/session", async (req, res) => {
       role: admin.adminRole,
       pages,
       capabilities: capabilitiesOf(admin.adminRole),
-      counts: { hr, finance, support, compliance, trust },
+      counts,
+      hints,
     },
   });
 });
+
+/** The nav badges on their own: the console re-reads them after every action and every 30 seconds. */
+overviewRouter.get("/nav-counts", async (req, res) => {
+  res.json(await navCounts(adminOf(req)));
+});
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Open-work counts for the nav badges, only for pages this role can open, and what each one counts
+ * (the badge's tooltip). Only work waiting on this person: nothing waiting on someone else.
+ */
+async function navCounts(admin: Admin) {
+  const pages = pagesOf(admin.adminRole);
+  const caps = capabilitiesOf(admin.adminRole);
+  const now = new Date();
+  const [applications, prices, work, tickets, compliance, trust] = await Promise.all([
+    // Applications waiting on an HR decision: every open one except a portal applicant HR asked for
+    // more information (that waits on the astrologer until they send it again).
+    pages.includes("hr") ? db.applicant.count({ where: { NOT: { state: "Docs pending", astrologerId: { not: null } } } }) : 0,
+    pages.includes("hr") && caps.includes("price.approve") ? db.priceChange.count({ where: { status: "PENDING" } }) : 0,
+    // The same rows as "Work waiting on you", so badge and list agree.
+    pages.includes("finance") || pages.includes("support") ? workFor(admin, now) : [],
+    // Open tickets in Support's hands (a proposed remedy waits on its second approver).
+    pages.includes("support") ? db.supportTicket.count({ where: { ...OPEN_TICKET, refundState: "NONE" } }) : 0,
+    pages.includes("compliance") ? db.liveRoom.count({ where: hostedLiveRoom() }) : 0,
+    pages.includes("trust") ? db.review.count({ where: { status: "FLAGGED" } }) : 0,
+  ]);
+  const finance = work.filter((i) => i.page === "finance").length;
+  // Remedies this person can approve on the Support page (Finance counts them when they can open it).
+  const approvals = work.filter((i) => i.page === "support" && i.kind === "remedy").length;
+  const hints: Partial<Record<PageKey, string>> = {};
+  if (applications || prices) {
+    hints.hr = [
+      applications ? `${plural(applications, "application", "applications")} waiting on an HR decision` : "",
+      prices ? `${plural(prices, "price increase", "price increases")} to approve or reject` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  if (finance) hints.finance = `${plural(finance, "item", "items")} waiting on Finance`;
+  if (tickets || approvals) {
+    hints.support = [
+      tickets ? `${plural(tickets, "open ticket", "open tickets")} to work` : "",
+      approvals ? `${plural(approvals, "remedy", "remedies")} to approve` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  if (compliance) hints.compliance = `${plural(compliance, "live room", "live rooms")} on air now`;
+  if (trust) hints.trust = `${plural(trust, "flagged review", "flagged reviews")} to keep or remove`;
+  return { counts: { hr: applications + prices, finance, support: tickets + approvals, compliance, trust }, hints };
+}
 
 // ── Analytics, computed from the database on every request ──
 
@@ -159,7 +205,7 @@ async function analytics(now: Date) {
 }
 
 type Admin = ReturnType<typeof adminOf>;
-type WorkItem = { ico: string; title: string; sub: string; age: string; tone: string; page: PageKey; param: string | null };
+type WorkItem = { ico: string; title: string; sub: string; age: string; tone: string; page: PageKey; param: string | null; kind?: "remedy" };
 
 /**
  * What is waiting on this person: only work their department can do, and never a second-person
@@ -187,7 +233,7 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
       : [],
     can("finance", "wallet.refund.process") ? db.walletRefund.findMany({ where: { status: "PENDING" }, orderBy: { createdAt: "asc" } }) : [],
     can("support")
-      ? db.supportTicket.findMany({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] }, slaDueAt: { lt: now } }, orderBy: { slaDueAt: "asc" } })
+      ? db.supportTicket.findMany({ where: { ...OPEN_TICKET, slaDueAt: { lt: now } }, orderBy: { slaDueAt: "asc" } })
       : [],
     can("hr") ? db.applicant.findMany({ where: { submittedAt: { lt: slaCutoff } }, orderBy: { submittedAt: "asc" } }) : [],
     can("trust") ? db.review.findMany({ where: { status: "FLAGGED" }, orderBy: { createdAt: "asc" }, select: { createdAt: true } }) : [],
@@ -230,6 +276,7 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
       tone: "amber",
       page: pages.includes("finance") ? ("finance" as const) : ("support" as const),
       param: pages.includes("finance") ? null : `ticket=${t.id}`,
+      kind: "remedy" as const,
     })),
     ...(walletRefunds.length
       ? [
@@ -311,8 +358,8 @@ overviewRouter.get("/overview", async (req, res) => {
       db.consultation.count({ where: { status: "ACTIVE" } }),
       db.consultation.count({ where: { status: "ACTIVE", kind: "INSTANT" } }),
       monitoringCounts(),
-      has("support") ? db.supportTicket.count({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] } } }) : 0,
-      has("support") ? db.supportTicket.count({ where: { state: { notIn: ["RESOLVED", "REFUND_INITIATED"] }, slaDueAt: { lt: now } } }) : 0,
+      has("support") ? db.supportTicket.count({ where: OPEN_TICKET }) : 0,
+      has("support") ? db.supportTicket.count({ where: { ...OPEN_TICKET, slaDueAt: { lt: now } } }) : 0,
       has("hr") ? db.applicant.count() : 0,
       has("hr") ? db.applicant.count({ where: { submittedAt: { lt: slaCutoff } } }) : 0,
       has("finance") ? db.payoutBatch.findMany({ where: { state: "APPROVED" } }) : [],

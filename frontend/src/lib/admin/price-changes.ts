@@ -8,7 +8,7 @@ export type PriceChangeStatus = "PENDING" | "APPROVED" | "REJECTED" | "APPLIED" 
 
 export interface PriceChange {
   id: string;
-  /** ₹/min, chat & voice */
+  /** ₹/min, voice */
   from: number;
   to: number;
   kind: "increase" | "decrease";

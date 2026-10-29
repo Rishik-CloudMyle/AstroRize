@@ -37,6 +37,20 @@ export interface AdminSession {
   capabilities: string[];
   /** Open-work counts for the nav badges. */
   counts: Partial<Record<PageKey, number>>;
+  /** What each badge counts, e.g. "2 applications waiting on an HR decision" (its tooltip). */
+  hints: Partial<Record<PageKey, string>>;
+}
+
+/** The nav badges on their own (GET /admin/nav-counts): re-read after actions and every 30 seconds. */
+export type NavCounts = Pick<AdminSession, "counts" | "hints">;
+
+/** How a closed ticket ended: "Refunded ₹40", "Free call given", "Rejected" …, with the reason or what was given. */
+export interface TicketOutcome {
+  label: string;
+  note: string | null;
+  /** "22 Oct" */
+  on: string | null;
+  by: string | null;
 }
 
 export interface NavItem {
@@ -284,9 +298,8 @@ export interface AstrologerDetail {
   reviews: number;
   /** changedAt: when the astrologer last changed their own price in the portal ("22 Oct 2026"), or null */
   price: {
-    /** Chat & voice ₹/min */
+    /** Voice ₹/min (video adds the video premium) */
     value: number;
-    chat: string;
     voice: string;
     video: string;
     instant: string;
@@ -548,6 +561,9 @@ export interface Ticket {
   refundState: "NONE" | "PROPOSED" | "INITIATED";
   /** What was granted: REFUND | MAKE_GOOD, else null. */
   resolution: "REFUND" | "MAKE_GOOD" | null;
+  /** False once resolved or a remedy was approved: it's listed under Resolved, not in the open queue. */
+  open: boolean;
+  outcome: TicketOutcome | null;
 }
 
 export interface Evidence {
@@ -577,6 +593,10 @@ export interface SupportCase {
   resolution: "REFUND" | "MAKE_GOOD" | null;
   /** What is proposed or granted on this ticket (null when nothing is). */
   remedy: "REFUND" | "MAKE_GOOD" | null;
+  /** How it ended, once closed. */
+  outcome: TicketOutcome | null;
+  /** Open, nothing proposed, and the session already had a remedy approved on another ticket: it can be closed as covered. */
+  coveredBy: { id: string; remedy: string } | null;
   metering: { label: string; value: string }[];
   evidence: Evidence[];
   refund: {
@@ -692,11 +712,15 @@ export interface ModerationItem {
   text: string;
   /** Already soft-hidden when the queue loaded; minutes left on its undo window. */
   hiddenUndoLeft?: string;
+  /** Why it was soft-hidden (a reason code, or "Other — " and the moderator's own words). */
+  reason: string | null;
 }
 
 export interface TrustData {
   queue: ModerationItem[];
   reasonCodes: string[];
+  /** The "write your own" choice: its code and the length the written reason must have. */
+  otherReason: { code: string; min: number; max: number };
   undoWindow: string;
   /** Recommendation engine density gate: completed consultations so far vs the target (Config). */
   density: { value: number; target: number };

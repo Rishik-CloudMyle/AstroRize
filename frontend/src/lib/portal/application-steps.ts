@@ -141,11 +141,12 @@ export function buildWizardSteps(known: ApplicationKnown): WizardStep[] {
     {
       short: "Pricing",
       title: "Pricing request",
-      blurb: "Request a per-minute rate for each modality you want to offer. Emergency pricing is never set here.",
+      blurb: "Request a per-minute rate for voice and video calls. Emergency pricing is never set here.",
       typable: true,
       fields: [
         { label: "Voice ₹/min", value: rupee(known.price) },
-        { label: "Chat ₹/min", value: rupee(known.price) },
+        // Kept (hidden) so the fields keep their saved keys ("10-1" was Chat): paid chat isn't offered.
+        { label: "Chat ₹/min", value: "", hidden: true },
         { label: "Video ₹/min", value: rupee(known.videoRate) },
         { label: "Fixed Session interest", value: "", placeholder: "e.g. Yes — 15, 30, 45, 60 min" },
       ],

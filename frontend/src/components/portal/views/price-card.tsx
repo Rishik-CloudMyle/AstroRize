@@ -10,7 +10,7 @@ import { useAccount, useErrorToast, useToast } from "../portal-provider";
 import { M_INPUT, M_LABEL, M_PRIMARY, M_SECONDARY, Panel } from "../ui";
 
 /**
- * "Your price": the astrologer's own chat/voice price, what customers pay for each way of
+ * "Your price": the astrologer's own per-minute (voice) price, what customers pay for each way of
  * consulting, and a change form within the rules from the API (largest increase, price range,
  * one change per cooldown). A decrease applies at once; an increase waits for the Astrorize
  * team (shown here with a Withdraw button, then the decision and any reason). A change applies
@@ -33,7 +33,6 @@ export default function PriceCard({ pricing: p }: { pricing: Pricing }) {
   const videoPremium = p.rates.video - p.price;
   const multiplier = useAccount().astrologer.instantMultiplier;
   const ratesAt = (price: number) => ({
-    chat: price,
     voice: price,
     video: price + videoPremium,
     instant: Math.round(price * multiplier),
@@ -91,7 +90,6 @@ export default function PriceCard({ pricing: p }: { pricing: Pricing }) {
   }
 
   const rows: [string, number][] = [
-    ["Chat", p.rates.chat],
     ["Voice", p.rates.voice],
     ["Video", p.rates.video],
     ["Instant Call", p.rates.instant],
@@ -108,7 +106,7 @@ export default function PriceCard({ pricing: p }: { pricing: Pricing }) {
       </p>
 
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-[14px] border border-amber-200 bg-amber-50 px-3.5 py-3 max-lg:rounded-app-card max-lg:border-app-tint-3 max-lg:bg-app-tint max-lg:p-3">
-        <span className="text-xs font-semibold text-amber-800">Chat &amp; voice</span>
+        <span className="text-xs font-semibold text-amber-800">Voice</span>
         {discount && p.was && <span className="text-[13px] text-stone-400 line-through tabular-nums">{rupee(p.was)}</span>}
         <b className="text-[22px] text-amber-800 tabular-nums">{p.price > 0 ? `${rupee(p.price)}/min` : "Not set yet"}</b>
         {discount && (
@@ -117,7 +115,7 @@ export default function PriceCard({ pricing: p }: { pricing: Pricing }) {
       </div>
 
       {p.price > 0 && (
-        <dl className="mt-3 grid grid-cols-2 gap-2 min-[480px]:grid-cols-4">
+        <dl className="mt-3 grid grid-cols-3 gap-2">
           {rows.map(([label, rate]) => (
             <div key={label} className="rounded-xl border border-line bg-white px-3 py-2 max-lg:rounded-app-btn max-lg:border-app-line max-lg:bg-app-surface">
               <dt className="text-[11px] font-semibold text-stone-500 max-lg:text-[12px] max-lg:font-normal max-lg:text-app-ink-3">{label}</dt>
@@ -180,7 +178,7 @@ export default function PriceCard({ pricing: p }: { pricing: Pricing }) {
           }}
         >
           <label htmlFor="new-price" className={`mb-1.5 block text-xs font-semibold text-stone-600 ${M_LABEL}`}>
-            New chat &amp; voice price (₹/min)
+            New voice price (₹/min)
           </label>
           <div className="flex gap-2 max-lg:flex-col">
             <input
@@ -228,12 +226,12 @@ export default function PriceCard({ pricing: p }: { pricing: Pricing }) {
           {raising ? (
             <p className="mt-2 text-[13.5px] leading-[1.55] text-stone-600">
               The Astrorize team checks increases before customers see them. Until it&apos;s approved, customers keep paying {rupee(p.price)}/min. Once
-              approved they pay <b className="text-ink">{rupee(next.chat)}</b> for chat and voice, <b className="text-ink">{rupee(next.video)}</b> for video
+              approved they pay <b className="text-ink">{rupee(next.voice)}</b> for voice, <b className="text-ink">{rupee(next.video)}</b> for video
               and <b className="text-ink">{rupee(next.instant)}</b> for Instant Call, per minute.
             </p>
           ) : (
             <p className="mt-2 text-[13.5px] leading-[1.55] text-stone-600">
-              From now on customers pay <b className="text-ink">{rupee(next.chat)}</b> for chat and voice, <b className="text-ink">{rupee(next.video)}</b>{" "}
+              From now on customers pay <b className="text-ink">{rupee(next.voice)}</b> for voice, <b className="text-ink">{rupee(next.video)}</b>{" "}
               for video and <b className="text-ink">{rupee(next.instant)}</b> for Instant Call, per minute. Sessions already running keep their rate.
             </p>
           )}

@@ -4,7 +4,15 @@ import { istDate, istDateKey } from "./format.ts";
 // A customer's own profile ("A little about you" + "Birth details" in the app).
 // Only the customer and an astrologer whose live queue they joined ever see it.
 
-export const GENDERS = ["Woman", "Man", "Other", "Prefer not to say"] as const;
+export const GENDERS = ["Female", "Male", "Other", "Prefer not to say"] as const;
+
+/** Earlier profiles saved "Woman" / "Man"; those rows are left as they are and read as the new words. */
+const LEGACY_GENDERS: Record<string, (typeof GENDERS)[number]> = { Woman: "Female", Man: "Male" };
+
+/** The gender as shown everywhere (and as the profile form expects it). */
+export function genderLabel(g: string | null): string | null {
+  return g ? (LEGACY_GENDERS[g] ?? g) : null;
+}
 
 /** "YYYY-MM-DD" of a @db.Date column (stored at UTC midnight). */
 export function dateKey(d: Date): string {
@@ -35,7 +43,9 @@ export function ownProfileView(u: User) {
     firstName: u.firstName ?? "",
     lastName: u.lastName ?? "",
     email: u.email ?? "",
-    gender: u.gender,
+    /** The mobile number the customer signs in with (verified by a one-time code). Not editable here. */
+    phone: u.phone ?? "",
+    gender: genderLabel(u.gender),
     birthDate: u.birthDate ? dateKey(u.birthDate) : null,
     birthTime: u.birthTime,
     birthPlace: u.birthPlace ?? "",
@@ -71,7 +81,7 @@ export function queueSummary(u: ProfileFields) {
 
 /** One row of the astrologer's "Incoming" consultation requests. */
 export function consultSummary(u: ProfileFields) {
-  return { ...queueSummary(u), gender: u.gender, city: u.city };
+  return { ...queueSummary(u), gender: genderLabel(u.gender), city: u.city };
 }
 
 /** A conversation partner in the astrologer's Messages: summary plus a short "29 · Pune" line. */
@@ -86,7 +96,7 @@ export function queueProfile(u: ProfileFields) {
     ...queueSummary(u),
     firstName: u.firstName,
     lastName: u.lastName,
-    gender: u.gender,
+    gender: genderLabel(u.gender),
     birthDate: u.birthDate ? istDate(u.birthDate) : null,
     birthTime: u.birthTime,
     birthPlace: u.birthPlace,

@@ -169,12 +169,12 @@ export interface FreeCalls {
 
 /** Your price (GET /portal/dashboard → pricing, PATCH /portal/price). */
 export interface Pricing {
-  /** Chat and voice, ₹/min */
+  /** Voice, ₹/min (video adds the video premium) */
   price: number;
   /** Struck-through original price, or null */
   was: number | null;
   /** What customers pay per minute */
-  rates: { chat: number; voice: number; video: number; instant: number };
+  rates: { voice: number; video: number; instant: number };
   /** You can change it yourself (live profile with a price set) */
   editable: boolean;
   /** Range for your next change */
@@ -219,6 +219,8 @@ export interface WizardField {
   placeholder?: string;
   /** A declaration ticked with a checkbox (value "yes" when ticked) instead of typed */
   check?: boolean;
+  /** Not shown (a retired field kept only so the fields after it keep their saved keys) */
+  hidden?: boolean;
 }
 
 export interface WizardStep {
@@ -442,7 +444,7 @@ export interface LiveRoom {
   /** Consults from the room are charged at the standard rate (₹/min) */
   rate: number;
   /** A private consultation from the room in each mode (₹/min): video carries the video premium. */
-  rates: { chat: number; voice: number; video: number };
+  rates: { voice: number; video: number };
   /** The private consultation in progress, or null. */
   private: LiveHostPrivate | null;
   /** Newest first. */

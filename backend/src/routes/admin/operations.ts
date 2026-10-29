@@ -179,9 +179,8 @@ operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
       ratings: a.ratingDistribution.reduce((s, n) => s + n, 0),
       reviews,
       price: {
-        /** Chat & voice ₹/min as a number. */
+        /** Voice ₹/min as a number (video adds the video premium). */
         value: a.price,
-        chat: rupee(a.price),
         voice: rupee(a.price),
         video: rupee(rateFor(a.price, "VIDEO")),
         instant: rupee(instantRate(a.price, a.instantMultiplier)),
@@ -366,7 +365,7 @@ operationsRouter.post("/lifecycle/price-requests/:id/:action", async (req, res) 
   if (!result.ok) throw conflict(result.message);
   const { change, a, current } = result;
   if (action === "approve") {
-    await audit(admin, "price.change.approve", a.id, `${rupee(current)} → ${rupee(change.toPrice)}/min (chat & voice) · ${a.name}'s request of ${istDate(change.requestedAt)}`);
+    await audit(admin, "price.change.approve", a.id, `${rupee(current)} → ${rupee(change.toPrice)}/min (voice) · ${a.name}'s request of ${istDate(change.requestedAt)}`);
   } else {
     await audit(admin, "price.change.reject", a.id, `${rupee(change.fromPrice)} → ${rupee(change.toPrice)}/min refused · ${a.name} · ${reason}`);
   }

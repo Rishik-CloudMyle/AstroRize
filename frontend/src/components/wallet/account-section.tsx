@@ -1,5 +1,6 @@
 "use client";
 
+import { codeFrom } from "../account/otp-input";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
 import { rupee } from "@/lib/format";
@@ -356,7 +357,7 @@ function DeleteDialog({ onClose, onDone }: { onClose: () => void; onDone: (r: De
                     placeholder="••••••"
                     value={code}
                     onChange={(e) => {
-                      setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                      setCode(codeFrom(e.target.value));
                       setError("");
                     }}
                     className="mt-1.5 min-h-[52px] w-full rounded-xl border border-line bg-white px-3 text-center text-xl font-bold tracking-[.4em] text-ink outline-none focus:border-amber-500"

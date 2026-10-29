@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
 import { rateFor, rupee } from "@/lib/format";
-import type { ConsultMode, LiveRoom } from "@/lib/types";
+import type { LiveRoom, OfferedMode } from "@/lib/types";
 import { useAppUI, type QueueRequest } from "../app-provider";
 import { recheckAvailability } from "../astrologer/use-fresh-astrologer";
 import Modal from "../ui/modal";
@@ -13,13 +13,13 @@ import ModeIcon from "@/components/ui/mode-icon";
 /** Minutes of balance a consultation needs before it can start (same rule as every consultation). */
 const ELIGIBILITY_MINUTES = 5;
 
-/** A private consultation from a live is by voice or video (no chat — the client's call). */
-const MODES: { key: Exclude<ConsultMode, "chat">; title: string; body: string }[] = [
+/** A private consultation from a live is by voice or video (paid chat isn't offered anywhere). */
+const MODES: { key: OfferedMode; title: string; body: string }[] = [
   { key: "voice", title: "Voice Call", body: "Talk privately — only you hear them." },
   { key: "video", title: "Video Call", body: "Face to face, in a private call of its own." },
 ];
 
-const MODE_NAME: Record<ConsultMode, string> = { chat: "chat", voice: "voice call", video: "video call" };
+const MODE_NAME: Record<OfferedMode, string> = { voice: "voice call", video: "video call" };
 
 /**
  * Live room: join the consult queue for a private voice or video consultation (chat and Instant
@@ -30,21 +30,20 @@ const MODE_NAME: Record<ConsultMode, string> = { chat: "chat", voice: "voice cal
 export default function LiveQueueModal({ request, onClose }: { request: QueueRequest; onClose: () => void }) {
   const { toast } = useAppUI();
   const host = request.astrologer;
-  const [mode, setMode] = useState<ConsultMode | null>(null);
+  const [mode, setMode] = useState<OfferedMode | null>(null);
   // The rate shown for each mode — the same rates as a direct consultation. A rate the server
   // corrected (it changed since the page loaded) replaces the one shown for that mode.
-  const [rates, setRates] = useState<Record<ConsultMode, number>>(() => ({
-    chat: rateFor(host.price, "chat"),
+  const [rates, setRates] = useState<Record<OfferedMode, number>>(() => ({
     voice: rateFor(host.price, "voice"),
     video: rateFor(host.price, "video"),
   }));
   const quoted = mode ? rates[mode] : 0;
-  const [changedFrom, setChangedFrom] = useState<{ mode: ConsultMode; rate: number } | null>(null);
+  const [changedFrom, setChangedFrom] = useState<{ mode: OfferedMode; rate: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [short, setShort] = useState(false);
 
-  function choose(m: ConsultMode) {
+  function choose(m: OfferedMode) {
     setMode(m);
     setError("");
     setShort(false);

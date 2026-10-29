@@ -301,7 +301,7 @@ portalRouter.patch("/free-calls", async (req, res) => {
 });
 
 /**
- * The astrologer sets their own chat/voice price (lib/pricing.ts): within pricing.min_rate–max_rate,
+ * The astrologer sets their own voice price (lib/pricing.ts): within pricing.min_rate–max_rate,
  * once every pricing.change_cooldown_days, each increase at most pricing.max_increase_rupees.
  * A decrease applies at once (PriceChange APPLIED) to consultations requested from now on;
  * sessions already running keep their rate. An increase becomes a PENDING request that the
@@ -336,9 +336,9 @@ portalRouter.patch("/price", async (req, res) => {
   });
   if (!result.ok) throw result.problem.status === 409 ? conflict(result.problem.message) : badRequest(result.problem.message);
   if (result.applied) {
-    await audit(req.auth ?? null, "astrologer.price.update", a.id, `${rupee(result.from)} → ${rupee(price)}/min (chat & voice) · decrease, live at once · by the astrologer`);
+    await audit(req.auth ?? null, "astrologer.price.update", a.id, `${rupee(result.from)} → ${rupee(price)}/min (voice) · decrease, live at once · by the astrologer`);
   } else {
-    await audit(req.auth ?? null, "astrologer.price.request", a.id, `${rupee(result.from)} → ${rupee(price)}/min (chat & voice) · increase, waiting for approval · by the astrologer`);
+    await audit(req.auth ?? null, "astrologer.price.request", a.id, `${rupee(result.from)} → ${rupee(price)}/min (voice) · increase, waiting for approval · by the astrologer`);
   }
   res.json({ applied: result.applied, pricing: priceView(result.astrologer, policy, now, await priceRequestState(a.id)) });
 });
@@ -626,7 +626,8 @@ function slotClash(astrologerId: string, day: Date, start: string, end: string, 
 
 // ── Consultations ──
 
-const MODE_LABEL: Record<string, string> = { CHAT: "Chat", VOICE: "Voice", VIDEO: "Video" };
+// Past paid chats (no longer offered) read just "Consultation".
+const MODE_LABEL: Record<string, string> = { CHAT: "Consultation", VOICE: "Voice", VIDEO: "Video" };
 const modeLabel = (c: { kind: string; mode: string }) => (c.kind === "INSTANT" ? "Instant Call" : MODE_LABEL[c.mode] ?? c.mode);
 
 portalRouter.get("/consultations", async (req, res) => {

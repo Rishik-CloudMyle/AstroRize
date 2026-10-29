@@ -245,7 +245,6 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
                 <tbody>
                   {(
                     [
-                      ["Chat", a.price.chat],
                       ["Voice", a.price.voice],
                       ["Video", a.price.video],
                       [`Instant Call (×${a.price.multiplier})`, a.price.instant],
@@ -273,10 +272,10 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
             {a.price.pending && (
               <div className="mt-3 rounded-[14px] border border-amber-200 bg-amber-50 p-3.5">
                 <b className="block text-[13.5px] text-ink">
-                  Increase waiting: {a.price.chat} → ₹{a.price.pending.to.toLocaleString("en-IN")}/min
+                  Increase waiting: {a.price.voice} → ₹{a.price.pending.to.toLocaleString("en-IN")}/min
                 </b>
                 <span className="mt-0.5 block text-[12px] text-amber-900">
-                  Requested {a.price.pending.requestedOn}. Customers keep paying {a.price.chat}/min until it&apos;s approved.
+                  Requested {a.price.pending.requestedOn}. Customers keep paying {a.price.voice}/min until it&apos;s approved.
                 </span>
                 <div className="mt-2.5">
                   <DecideButtons
@@ -483,7 +482,7 @@ function FreeCallsSection({
           <div className="min-w-0 flex-1">
             <b className="block text-[13.5px] text-ink">{f.optedIn ? "Takes free calls" : "Doesn't take free calls"}</b>
             <span className="block text-[12px] text-[#78716c]">
-              Customers use their weekly free minutes ({f.weeklyMinutes} min a week; calls of {f.lengths.join(", ")} min, Chat or Voice) with
+              Customers use their weekly free minutes ({f.weeklyMinutes} min a week; Voice calls of {f.lengths.join(", ")} min) with
               astrologers who take part, one at a time. The astrologer can also switch this and set their capacity in the portal.
             </span>
           </div>

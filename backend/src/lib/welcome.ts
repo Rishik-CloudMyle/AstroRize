@@ -14,8 +14,11 @@ import { configNumber } from "./settings.ts";
 // compensates them monthly) and is never refunded; after it, the same session continues at the
 // astrologer's normal rate if the wallet allows, else it ends.
 
-/** Modes the free call can use (the spec's seed allow-list: Audio + Chat). */
-export const WELCOME_MODES = ["CHAT", "VOICE"] as const;
+/**
+ * Modes the free call can use: Voice (the spec's allow-list was Audio + Chat; paid chat is no
+ * longer offered, and Video and Instant Call stay paid).
+ */
+export const WELCOME_MODES = ["VOICE"] as const;
 
 /** The period an astrologer's free-call capacity counts over (Astrologer.freeCallsLimitPeriod). */
 export type CapacityPeriod = "DAY" | "WEEK";

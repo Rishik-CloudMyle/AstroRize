@@ -5,6 +5,16 @@
 // sits invisibly on top of them, so typing, pasting, autofill (one-time-code) and screen readers all
 // keep working on one ordinary <input>.
 
+/**
+ * The code from what was typed or pasted: digits only, at most six. A pasted message such as
+ * "Your Astrorize code is 482913. Valid for 5 minutes" gives its six-digit code, not its first six digits.
+ */
+export function codeFrom(raw: string): string {
+  const group = /(?:^|\D)(\d{6})(?=\D|$)/.exec(raw);
+  if (group && /\D/.test(raw)) return group[1];
+  return raw.replace(/\D/g, "").slice(0, 6);
+}
+
 export default function OtpInput({
   id,
   value,
@@ -30,7 +40,7 @@ export default function OtpInput({
         placeholder="••••••"
         value={value}
         aria-invalid={invalid || undefined}
-        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 6))}
+        onChange={(e) => onChange(codeFrom(e.target.value))}
         className={`peer ${className} max-lg:absolute max-lg:inset-0 max-lg:z-10 max-lg:m-0! max-lg:size-full max-lg:min-h-0 max-lg:opacity-0`}
       />
       <div

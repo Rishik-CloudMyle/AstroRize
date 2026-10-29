@@ -47,6 +47,10 @@ export const governanceRouter = Router();
 // ── Trust & reviews ──
 
 const REASON_CODES = ["R-01 Off-topic", "R-02 Abusive", "R-04 Policy violation", "R-07 Not a verified consultation"];
+/** "Other": the moderator writes the reason themselves (stored and audited like a preset one). */
+const OTHER_REASON = "Other";
+const OTHER_REASON_MIN = 10;
+const OTHER_REASON_MAX = 300;
 
 governanceRouter.get("/trust", async (req, res) => {
   requirePage(req, "trust");
@@ -72,12 +76,15 @@ governanceRouter.get("/trust", async (req, res) => {
         astro: r.astrologerName,
         text: r.text,
         status: r.status,
+        /** Why it was removed, while it is inside its undo window. */
+        reason: r.status === "SOFT_HIDDEN" ? r.removedReason : null,
         hiddenUndoLeft:
           r.status === "SOFT_HIDDEN" && r.hiddenAt
             ? `${Math.max(0, undoMins - Math.floor((now.getTime() - r.hiddenAt.getTime()) / 60000))} min`
             : undefined,
       })),
       reasonCodes: REASON_CODES,
+      otherReason: { code: OTHER_REASON, min: OTHER_REASON_MIN, max: OTHER_REASON_MAX },
       undoWindow: `${undoMins} min`,
       density,
       sampleFloor,
@@ -117,12 +124,23 @@ async function sampleFloorStatus() {
 
 governanceRouter.post("/reviews/:id/remove", async (req, res) => {
   const admin = requirePage(req, "trust");
-  const { reason } = z.object({ reason: z.enum(REASON_CODES as [string, ...string[]]) }).parse(req.body);
+  const body = z
+    .object({
+      reason: z.enum([OTHER_REASON, ...REASON_CODES] as [string, ...string[]], { error: "Choose a reason code." }),
+      note: z.string().trim().max(OTHER_REASON_MAX, `Keep your reason to ${OTHER_REASON_MAX} characters.`).optional(),
+    })
+    .parse(req.body);
+  if (body.reason === OTHER_REASON && (body.note ?? "").length < OTHER_REASON_MIN) {
+    throw badRequest(`Write your reason in at least ${OTHER_REASON_MIN} characters.`);
+  }
+  // A written reason is kept whole; a preset one is audited by its code, as before.
+  const reason = body.reason === OTHER_REASON ? `${OTHER_REASON} — ${body.note}` : body.reason;
+  const audited = body.reason === OTHER_REASON ? reason : reason.split(" ")[0];
   const r = await db.review.findUnique({ where: { id: String(req.params.id) } });
   if (!r) throw notFound("Review not found.");
   if (r.status === "SOFT_HIDDEN" || r.status === "REMOVED") throw conflict("This review is already hidden.");
   await db.review.update({ where: { id: r.id }, data: { status: "SOFT_HIDDEN", hiddenAt: new Date(), removedReason: reason, moderatedBy: actorName(admin) } });
-  await audit(admin, "review.remove", r.id, `${r.status} → SOFT_HIDDEN · ${reason.split(" ")[0]}`);
+  await audit(admin, "review.remove", r.id, `${r.status} → SOFT_HIDDEN · ${audited}`);
   res.json({ ok: true });
 });
 

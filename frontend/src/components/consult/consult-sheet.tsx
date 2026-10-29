@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef } from "react";
-import type { Astrologer, ConsultMode, WelcomeBenefit } from "@/lib/types";
+import type { Astrologer, ConsultMode, OfferedMode, WelcomeBenefit } from "@/lib/types";
 import { rateFor, rupee } from "@/lib/format";
 import { freeLength, freeLengthLong, resetWeekday } from "@/lib/free-calls";
 import { discountedRate, type ConsultDiscount } from "@/lib/offers";
@@ -10,15 +10,21 @@ import type { MakeGoodCredit } from "@/lib/makegood";
 import { Portrait } from "../astrologer/parts";
 import ModeIcon from "@/components/ui/mode-icon";
 
-// "Consult now" opens this sheet (the app's consult sheet, laid out for the web): Chat, Voice
-// Call and Video Call at the astrologer's rate, and Instant Call at its own rate. It follows the
+// "Consult now" opens this sheet (the app's consult sheet, laid out for the web): Voice Call and
+// Video Call at the astrologer's rate (paid chat isn't offered — customers chat free in Messages), and Instant Call at its own rate. It follows the
 // astrologer's availability while open: busy → every option is shown but disabled (for everyone,
 // including the customer who is in that call), live → join their room instead, offline → unavailable.
 // When the customer could talk free here (weekly free minutes with an astrologer marked "Free
 // call", or a free replacement call), they choose "Use free minutes" or "Paid call" first — nothing
 // is preselected, and a free call never starts unless they picked it (and, for free minutes, a length).
 
+/**
+ * What the sheet offers. A past or still-running chat consultation can be re-opened (resume), so
+ * "chat" stays in ConsultMode, but a new one is only ever Voice, Video or Instant Call.
+ */
 export type ConsultChoice = ConsultMode | "instant";
+/** A choice a new consultation can be started with: Voice, Video or Instant Call. */
+export type OfferedChoice = OfferedMode | "instant";
 /** How the customer pays for this consultation when a free option exists: their choice, null until made. */
 export type PayChoice = "free" | "paid";
 
@@ -38,8 +44,7 @@ export function multiplierLabel(a: Astrologer): string {
   return `${Math.round(m * 10) / 10}× standard`;
 }
 
-const ROWS: { key: ConsultChoice; title: string; body: string }[] = [
-  { key: "chat", title: "Chat", body: "Type back and forth. Best for a single, specific question." },
+const ROWS: { key: OfferedChoice; title: string; body: string }[] = [
   { key: "voice", title: "Voice Call", body: "A masked call — your number is never shown." },
   { key: "video", title: "Video Call", body: "Face to face. Needs a stable connection on both sides." },
   { key: "instant", title: "Instant Call", body: "Rings them straight away; they have 3 minutes to accept." },
@@ -87,7 +92,7 @@ export default function ConsultSheet({
   onFreeMinutes?: (minutes: number) => void;
   /** A free replacement call with this astrologer (offered on a complaint), or null. Takes the place of the welcome call and offers. */
   makeGood?: MakeGoodCredit | null;
-  /** A claimed consultation offer that applies to paid Chat, Voice and Video, or null */
+  /** A claimed consultation offer that applies to paid Voice and Video, or null */
   discount?: ConsultDiscount | null;
   /** A request is being placed */
   busy: boolean;
@@ -100,13 +105,13 @@ export default function ConsultSheet({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const state = a.availability;
-  // A free replacement call here: Chat, Voice or Video with this astrologer, free for its minutes.
+  // A free replacement call here: Voice or Video with this astrologer, free for its minutes.
   const replacement = !!makeGood && state === "on";
   // A welcome free call's length is the customer's choice (0 until chosen).
   const freeSecs = replacement ? makeGood.minutes * 60 : (freeMinutes ?? 0) * 60;
   // A free option here: the customer holds free minutes and the astrologer takes free calls right now (or a replacement call).
   const freeHere = replacement || (!!welcome && a.freeCall && state === "on");
-  /** The option can be free (Chat or Voice for free minutes; Chat, Voice or Video for a replacement call). */
+  /** The option can be free (Voice for free minutes; Voice or Video for a replacement call). */
   const canBeFree = (c: ConsultChoice | null) => freeHere && !!c && c !== "instant" && (replacement || welcome!.modes.includes(c));
   // Free only when the customer chose it.
   const payFree = freeHere && pay === "free";
@@ -119,7 +124,7 @@ export default function ConsultSheet({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // The offer's percent off for a choice: paid Chat, Voice or Video only (not a free call, not Instant Call).
+  // The offer's percent off for a choice: paid Voice or Video only (not a free call, not Instant Call).
   const pctFor = (c: ConsultChoice | null) => (discount && c && c !== "instant" && !isFree(c) ? discount.pct : 0);
   const selected = state === "on" ? choice : null;
   const rate = selected ? quotedRateFor(a, selected, pctFor(selected)) : 0;
@@ -130,8 +135,8 @@ export default function ConsultSheet({
   // A welcome free call needs its length chosen before it can start.
   const lengthMissing = free && !replacement && !freeMinutes;
   const eligible = payMissing ? false : free ? !lengthMissing : balance >= needed;
-  // The rate the "Paid call" option shows: the chosen way to talk's, else Chat's (with an offer's discount).
-  const paidRate = quotedRateFor(a, selected && selected !== "instant" ? selected : "chat", discount ? discount.pct : 0);
+  // The rate the "Paid call" option shows: the chosen way to talk's, else Voice's (with an offer's discount).
+  const paidRate = quotedRateFor(a, selected && selected !== "instant" ? selected : "voice", discount ? discount.pct : 0);
 
   return (
     <div
@@ -419,14 +424,14 @@ function SheetLead({
   if (replacement) {
     return (
       <p className="mt-0.5 text-[12.5px] text-stone-600">
-        <span className="font-bold text-emerald-700">Free replacement call · {freeLengthLong(freeSecs)}</span> · Chat, Voice or Video.
+        <span className="font-bold text-emerald-700">Free replacement call · {freeLengthLong(freeSecs)}</span> · Voice or Video.
       </p>
     );
   }
   if (freeHere && welcome) {
     return (
       <p className="mt-0.5 text-[12.5px] text-stone-600">
-        <span className="font-bold text-emerald-700">Takes free calls</span> · use {welcome.weekly.remaining} free minutes (Chat or Voice) or
+        <span className="font-bold text-emerald-700">Takes free calls</span> · use {welcome.weekly.remaining} free minutes (Voice) or
         pay per minute — your choice.
       </p>
     );
@@ -591,9 +596,9 @@ function PayChooser({
           </span>
           <span className="mt-0.5 block text-[12px] leading-snug text-stone-600">
             {replacement
-              ? `${replacement.minutes} min · Chat, Voice or Video`
+              ? `${replacement.minutes} min · Voice or Video`
               : welcome
-                ? `${welcome.weekly.remaining} of ${welcome.weekly.total} min left · Chat or Voice`
+                ? `${welcome.weekly.remaining} of ${welcome.weekly.total} min left · Voice`
                 : ""}
           </span>
         </button>

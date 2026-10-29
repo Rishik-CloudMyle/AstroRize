@@ -4,7 +4,7 @@ import { instantRate, rateFor } from "./billing.ts";
 import { istDate, rupee } from "./format.ts";
 import { configNumber } from "./settings.ts";
 
-// Astrologers set their own chat/voice per-minute price from the portal (client decision, Oct
+// Astrologers set their own (voice) per-minute price from the portal (client decision, Oct
 // 2026). Each increase is limited and needs approval (below), decreases are not, and there is a
 // cooldown between changes.
 // A new price applies to consultations requested after it; running ones keep the rate fixed
@@ -72,7 +72,6 @@ export function priceView(
     was: a.was,
     /** What customers pay per minute for each way of consulting. */
     rates: {
-      chat: rateFor(a.price, "CHAT"),
       voice: rateFor(a.price, "VOICE"),
       video: rateFor(a.price, "VIDEO"),
       instant: instantRate(a.price, a.instantMultiplier),
