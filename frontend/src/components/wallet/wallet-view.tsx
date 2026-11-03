@@ -19,6 +19,7 @@ import { Skeleton } from "../mobile/skeleton";
 import AccountSection, { ClosedNotice, type Closed } from "./account-section";
 import ProfileSection from "./profile-section";
 import { LockIcon, RAZORPAY_TRUST, payLabel, paymentPageHref, rechargeMessage, useRecharge, type Paid } from "./use-recharge";
+import CustomAmountField, { type CustomAmount, isCustomAmount, pickedDenomination } from "./custom-amount";
 import MobileWallet, { type Denomination } from "./wallet-mobile";
 
 const CLOSED_KEY = "astrorize.accountClosed";
@@ -177,7 +178,7 @@ export default function WalletView() {
         </div>
         <h2 className="mt-4 font-display text-[28px] font-semibold text-ink">Wallets are for customer accounts</h2>
         <p className="mx-auto mt-2 max-w-[42ch] text-sm leading-normal text-stone-600">
-          You&apos;re signed in as {session.role === "astrologer" ? "an astrologer account" : "an Astrorize staff account"}, so
+          You&apos;re signed in as {session.role === "astrologer" ? "an astrologer account" : "an AstroRize staff account"}, so
           there&apos;s no balance to show here — recharges and consultations happen on customer accounts.{" "}
           {session.role === "astrologer" ? "Your earnings and availability are in your portal." : "Your tools are in the admin console."}
         </p>
@@ -201,6 +202,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
   const { wallet } = session;
   const [denominations, setDenominations] = useState<Denomination[] | null>(null);
   const [gstRate, setGstRate] = useState(0);
+  const [custom, setCustom] = useState<CustomAmount | null>(null);
   const [denom, setDenom] = useState(1000);
   // Razorpay is connected (null until the amounts load).
   const [paymentsOn, setPaymentsOn] = useState<boolean | null>(null);
@@ -240,13 +242,16 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
   useEffect(() => {
     let cancelled = false;
     api
-      .get<{ denominations: Denomination[]; gstRate: number; payments?: { available: boolean } }>("/wallet/denominations")
+      .get<{ denominations: Denomination[]; gstRate: number; custom?: CustomAmount; payments?: { available: boolean } }>("/wallet/denominations")
       .then((res) => {
         if (cancelled) return;
         setDenominations(res.denominations);
         setGstRate(res.gstRate);
+        setCustom(res.custom ?? null);
         setPaymentsOn(res.payments?.available ?? false);
-        setDenom((d) => (res.denominations.some((x) => x.amount === d) ? d : (res.denominations[0]?.amount ?? 0)));
+        setDenom((d) =>
+          res.denominations.some((x) => x.amount === d) || isCustomAmount(d, res.custom ?? null) ? d : (res.denominations[0]?.amount ?? 0),
+        );
       })
       .catch((e) => !cancelled && setPayError(errorText(e)));
     if (loads === 0) sessionActions.refreshWallet().catch(() => {});
@@ -256,7 +261,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
   }, [loads]);
 
   const gst = Math.round(denom * gstRate);
-  const selected = denominations?.find((d) => d.amount === denom);
+  const selected = pickedDenomination(denominations, denom, custom);
 
   // Paid, failed or still pending: the payment's own page shows it (with the receipt).
   const recharge = useRecharge(
@@ -292,6 +297,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
       <Suspense fallback={null}>
         <MobileWallet
           denominations={denominations}
+          custom={custom}
           gstRate={gstRate}
           denom={denom}
           onPick={pick}
@@ -476,6 +482,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
               );
             })}
           </div>
+          {denominations && <CustomAmountField custom={custom} denom={denom} fixed={denominations.map((d) => d.amount)} onPick={pick} />}
           <div className="mt-4 border-t border-[#f3e9d8] pt-3.5">
             {[
               { label: "Recharge", value: rupee(denom) },

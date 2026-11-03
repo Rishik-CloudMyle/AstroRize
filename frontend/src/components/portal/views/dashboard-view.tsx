@@ -82,7 +82,7 @@ export default function DashboardView({ data }: { data: Dashboard }) {
       value: String(data.sessions),
       delta:
         (data.emergencySessions > 0 ? `${data.emergencySessions} emergency` : "no emergency calls") +
-        // Welcome campaign: free calls left today (Astrorize pays for the free minutes).
+        // Welcome campaign: free calls left today (AstroRize pays for the free minutes).
         (data.freeCalls?.enabled
           ? ` · ${data.freeCalls.remaining} of ${data.freeCalls.limit} free calls left ${data.freeCalls.period === "week" ? "this week" : "today"}`
           : ""),

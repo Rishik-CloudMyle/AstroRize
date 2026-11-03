@@ -54,7 +54,7 @@ const AUTO_CHECKS = 12;
 const TITLES = { PAID: "Payment successful", FAILED: "Payment failed", PENDING: "Payment pending" } as const;
 
 function summaryOf(p: PaymentReceipt): string {
-  if (p.status === "PAID") return `${rupee(p.amount)} has been added to your Astrorize wallet.`;
+  if (p.status === "PAID") return `${rupee(p.amount)} has been added to your AstroRize wallet.`;
   if (p.status === "FAILED") return "Nothing was charged and nothing was added to your wallet. If money did leave your account, your bank returns it automatically.";
   return "We'll confirm it automatically as soon as Razorpay does — you're never charged twice. If it doesn't go through, nothing is added and your bank returns any money taken.";
 }

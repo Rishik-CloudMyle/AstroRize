@@ -5,7 +5,7 @@ import { config } from "../config.ts";
 // token this server mints from the project's ServerSecret ("token04", ZEGO's official format —
 // same layout as ZEGOCLOUD/zego_server_assistant). The secret never leaves the server.
 //
-// Rooms used by Astrorize:
+// Rooms used by AstroRize:
 //   consult-<consultationId>   one-to-one consultation: the customer and the astrologer only
 //   live-<roomId>              an astrologer's public live: the host publishes, viewers only play
 //   livep-<consultationId>     a private consultation taken from a live: the host and that one
@@ -68,7 +68,7 @@ export function zegoToken(userId: string, privilege: RoomPrivilege, seconds = 36
   return "04" + Buffer.concat([expire, ivLen, Buffer.from(iv, "utf8"), encLen, encrypted]).toString("base64");
 }
 
-/** The ZEGO room ids Astrorize uses (see the list at the top). */
+/** The ZEGO room ids AstroRize uses (see the list at the top). */
 export const zegoRoom = {
   consult: (consultationId: string) => `consult-${consultationId}`,
   live: (roomId: string) => `live-${roomId}`,

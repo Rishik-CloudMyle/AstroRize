@@ -3,7 +3,7 @@
 import { api } from "./api/client";
 import { readResponse } from "./api/errors";
 
-// Browser client for Astrorize's astrology engine (/api/astro on the Node API). The shapes
+// Browser client for AstroRize's astrology engine (/api/astro on the Node API). The shapes
 // below mirror backend/src/lib/astro/* (kundli.ts, panchang.ts, matchmaking.ts, horoscope.ts).
 
 export type GrahaKey = "sun" | "moon" | "mars" | "mercury" | "jupiter" | "venus" | "saturn" | "rahu" | "ketu";
@@ -351,6 +351,10 @@ export interface Match {
   max: 36;
   verdict: "excellent" | "good" | "below-threshold";
   notes: string[];
+  /** Plain-language strengths, calculated from the kootas, Mangal dosha and the total (older shared results may lack them) */
+  pros?: string[];
+  /** Plain-language cautions, from the same data */
+  cons?: string[];
 }
 
 export interface MatchPersonInput {

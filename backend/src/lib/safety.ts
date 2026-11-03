@@ -14,7 +14,7 @@ export function containsContactDetails(text: string): boolean {
 }
 
 export const CONTACT_BLOCKED_NOTICE =
-  "Contact details cannot be shared through Astrorize. Keep the conversation on the platform so both of you stay protected.";
+  "Contact details cannot be shared through AstroRize. Keep the conversation on the platform so both of you stay protected.";
 
 /**
  * Simple in-memory rate limiter (per process). Good enough for one server; move to

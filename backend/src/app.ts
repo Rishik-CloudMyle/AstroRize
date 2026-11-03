@@ -35,7 +35,7 @@ export function createApp() {
   app.use(express.json({ limit: "100kb" }));
   app.use(cookieParser());
 
-  // Browsers may only call the API from the Astrorize website.
+  // Browsers may only call the API from the AstroRize website.
   app.use((req, res, next) => {
     const origin = req.headers.origin;
     if (origin === config.frontendOrigin) {
@@ -51,7 +51,7 @@ export function createApp() {
 
   // Opening the API address in a browser shows this instead of "Cannot GET /".
   app.get("/", (_req, res) => {
-    res.json({ name: "Astrorize API", status: "running", health: "/api/health", example: "/api/astrologers" });
+    res.json({ name: "AstroRize API", status: "running", health: "/api/health", example: "/api/astrologers" });
   });
 
   app.get("/api/health", async (_req, res) => {

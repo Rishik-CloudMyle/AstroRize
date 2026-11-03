@@ -41,7 +41,7 @@ export function bannerFor(status: AccountStatus): Banner {
   return { icon: stage.icon, title: stage.title, body: stageBody(status, stage.body), bg: stage.bg, border: stage.border, fg: stage.fg };
 }
 
-/** What a suspension means, preceded by why and since when Astrorize suspended the account. */
+/** What a suspension means, preceded by why and since when AstroRize suspended the account. */
 function suspensionBody(status: AccountStatus, meaning: string): string {
   const reason = status.suspensionReason?.trim();
   const since = status.suspendedOn ? `Since ${status.suspendedOn}. ` : "";
@@ -59,7 +59,7 @@ function stageBody(status: AccountStatus, fallback: string): string {
     return `HR asks: “${note}” Update your application and send it again from the last step.`;
   }
   if (status.lifecycle === "rejected" && note) {
-    return `Reason: ${/[.!?]$/.test(note) ? note : `${note}.`} If you have questions, contact Astrorize support.`;
+    return `Reason: ${/[.!?]$/.test(note) ? note : `${note}.`} If you have questions, contact AstroRize support.`;
   }
   return fallback;
 }

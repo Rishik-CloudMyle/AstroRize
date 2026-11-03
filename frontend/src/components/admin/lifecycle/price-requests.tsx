@@ -152,14 +152,17 @@ function DecideDialog({
   return (
     <AdminDialog
       title={approve ? `Approve ${rupee(c.to)}/min for ${name}?` : `Reject ${name}'s increase?`}
-      subtitle={`Requested ${c.requestedOn} · ${rupee(current)} → ${rupee(c.to)} per minute (chat & voice)`}
+      subtitle={`Requested ${c.requestedOn} · ${rupee(current)} → ${rupee(c.to)} per minute (${c.channel === "chat" ? "chat" : "calls"})`}
       onClose={onClose}
       width={480}
     >
       <form onSubmit={submit} noValidate>
         {approve ? (
           <p className="mt-0 mb-3 text-[13px] leading-normal text-[#57534e]">
-            Customers pay {rupee(c.to)}/min for chat and voice from now on (video and Instant Call follow). Consultations already running keep their
+            {c.channel === "chat"
+              ? `Customers pay ${rupee(c.to)}/min for chat from now on.`
+              : `Customers pay ${rupee(c.to)}/min for voice from now on (video and Instant Call follow, and chat too unless it has its own price).`}{" "}
+            Consultations already running keep their
             rate. {name} can&apos;t change their price again until the cooldown ends.
           </p>
         ) : (
@@ -240,7 +243,7 @@ export default function PriceRequestsView({ data }: { data: PriceRequests }) {
                     </span>
                   </div>
                   <div className="text-right">
-                    <div className={EYEBROW}>Chat &amp; voice /min</div>
+                    <div className={EYEBROW}>{p.channel === "chat" ? "Chat" : "Calls (voice)"} /min</div>
                     <div className="text-[15px] text-[#57534e]">
                       <Move from={p.astrologer.price} to={p.to} />
                     </div>

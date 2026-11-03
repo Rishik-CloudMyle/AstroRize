@@ -145,7 +145,7 @@ export function buildWizardSteps(known: ApplicationKnown): WizardStep[] {
       typable: true,
       fields: [
         { label: "Voice ₹/min", value: rupee(known.price) },
-        { label: "Chat ₹/min", value: rupee(known.price) },
+        { label: "Chat ₹/min", value: rupee(known.chatPrice) },
         { label: "Video ₹/min", value: rupee(known.videoRate) },
         { label: "Fixed Session interest", value: "", placeholder: "e.g. Yes — 15, 30, 45, 60 min" },
       ],

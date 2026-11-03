@@ -312,7 +312,7 @@ supportRouter.post("/support/:id/refund/approve", async (req, res) => {
     await notify(c.customerId, {
       kind: "refund.approved",
       title: `${rupee(outcome.refunded)} refunded to your wallet`,
-      body: `We've refunded ${rupee(outcome.refunded)} for session ${c.ref} (ticket ${t.id}). It's back in your Astrorize wallet.`,
+      body: `We've refunded ${rupee(outcome.refunded)} for session ${c.ref} (ticket ${t.id}). It's back in your AstroRize wallet.`,
       href: "/wallet",
     });
     const astro = outcome.taken ? await db.astrologer.findUnique({ where: { id: c.astrologerId }, select: { userId: true } }) : null;

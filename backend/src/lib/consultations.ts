@@ -348,7 +348,7 @@ export async function endConsultation(c: Consultation, endedBy: "user" | "astrol
               : fresh.origin === "LIVE"
                 ? `Live private · ${modeName.toLowerCase()}`
                 : modeName;
-      // A claimed offer's discount is paid by Astrorize: the astrologer earns their share of the
+      // A claimed offer's discount is paid by AstroRize: the astrologer earns their share of the
       // full price (the minutes at the list rate); `discount` is the part the customer didn't pay.
       const discount = fresh.listRate != null && fresh.listRate > fresh.rate ? s.billedMinutes * (fresh.listRate - fresh.rate) : 0;
       await writeEarnings(tx, {
@@ -365,7 +365,7 @@ export async function endConsultation(c: Consultation, endedBy: "user" | "astrol
     }
     // A free replacement call's free minutes have no line: the astrologer was paid for the original session.
     if (fresh.billingMode === COMPLIMENTARY && !restored) {
-      // The free minutes: the customer pays nothing, Astrorize pays the astrologer for them at the
+      // The free minutes: the customer pays nothing, AstroRize pays the astrologer for them at the
       // session's own rate × their share (paid in the free-call batch). A free call given back after
       // an early drop isn't used, so it isn't compensated.
       const used = Math.min(connectedSeconds, fresh.complimentarySeconds);

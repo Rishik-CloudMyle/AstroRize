@@ -279,7 +279,7 @@ export function ResultCard({
       </div>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3.5">
         <span className="text-[12.5px] text-stone-500">
-          {sharePath ? "Share this result with “Copy link”" : `Astrorize free ${tool.name.toLowerCase()}`}
+          {sharePath ? "Share this result with “Copy link”" : `AstroRize free ${tool.name.toLowerCase()}`}
         </span>
         <Link
           href="/astrologers"
@@ -370,7 +370,7 @@ export function FailedCard({ error, retry }: { error: string; retry: () => void 
 export function EngineLine({ engine, extra }: { engine: string; extra?: string }) {
   return (
     <p className="mt-3 text-[12px] text-stone-500">
-      Calculated by Astrorize&apos;s astrology engine ({engine}){extra ? ` · ${extra}` : ""}.
+      Calculated by AstroRize&apos;s astrology engine ({engine}){extra ? ` · ${extra}` : ""}.
     </p>
   );
 }

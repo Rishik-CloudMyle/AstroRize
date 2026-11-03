@@ -34,7 +34,7 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
   // The rate shown for each mode — the same rates as a direct consultation. A rate the server
   // corrected (it changed since the page loaded) replaces the one shown for that mode.
   const [rates, setRates] = useState<Record<ConsultMode, number>>(() => ({
-    chat: rateFor(host.price, "chat"),
+    chat: rateFor(host.price, "chat", host.chatPrice),
     voice: rateFor(host.price, "voice"),
     video: rateFor(host.price, "video"),
   }));

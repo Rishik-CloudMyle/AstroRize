@@ -21,10 +21,10 @@ export const CONFIG_KEYS: ConfigKeyRow[] = [
   ["wallet.promo.validity_months", false, "How long promotional credit remains spendable before it expires.", "12", "global", "1–36", "Applies to promotional credit given after the change; existing credit keeps its expiry date.", "finance"],
   ["payout.batch.min_approvers", true, "Number of distinct approvers required before a payout batch can be released. Approver and releaser must differ.", "2", "global", "1–4", "Dropping to 1 removes the second signature on payout batches. Approver and releaser must still differ.", "finance"],
   ["payout.hold_days.new_astrologer", false, "Days a newly onboarded astrologer's earnings are held before entering a payout batch.", "14", "global", "0–45", "Cutting it pays newly onboarded astrologers sooner; their earnings join an earlier payout batch.", "finance"],
-  ["earnings.share_pct.new", true, "Percent of what customers pay (consultations and gifts) a new astrologer keeps, for their first earnings.new_period_days days after activation. Astrorize keeps the rest.", "50", "global", "0–100", "Applies to earnings written after the change; past statement lines keep the share they were written with.", "finance"],
-  ["earnings.share_pct.standard", true, "Percent of what customers pay (consultations and gifts) an astrologer keeps once they are past the new-astrologer period. Astrorize keeps the rest.", "70", "global", "0–100", "Applies to earnings written after the change; past statement lines keep the share they were written with.", "finance"],
+  ["earnings.share_pct.new", true, "Percent of what customers pay (consultations and gifts) a new astrologer keeps, for their first earnings.new_period_days days after activation. AstroRize keeps the rest.", "50", "global", "0–100", "Applies to earnings written after the change; past statement lines keep the share they were written with.", "finance"],
+  ["earnings.share_pct.standard", true, "Percent of what customers pay (consultations and gifts) an astrologer keeps once they are past the new-astrologer period. AstroRize keeps the rest.", "70", "global", "0–100", "Applies to earnings written after the change; past statement lines keep the share they were written with.", "finance"],
   ["earnings.new_period_days", false, "Days after activation an astrologer keeps the new-astrologer share before moving to the standard share.", "90", "global", "0–365", "Lengthening it keeps astrologers on the new-astrologer share for longer; past lines are unchanged.", "finance"],
-  ["payout.free_calls.weekly", false, "Free-call compensation (Astrorize pays the astrologer for complimentary minutes) is paid per calendar month (0) or per Monday–Sunday week (1), in its own payout batch.", "0", "global", "0–1", "Switching changes the next cycle to prepare; compensation not yet batched joins the first batch of the new cycle.", "finance"],
+  ["payout.free_calls.weekly", false, "Free-call compensation (AstroRize pays the astrologer for complimentary minutes) is paid per calendar month (0) or per Monday–Sunday week (1), in its own payout batch.", "0", "global", "0–1", "Switching changes the next cycle to prepare; compensation not yet batched joins the first batch of the new cycle.", "finance"],
   ["payout.tds_pct", false, "TDS withheld, in percent, on what each astrologer is owed in a payout batch (earnings and free-call compensation).", "5", "global", "0–30", "Applies to batches prepared after the change; prepared batches keep their TDS.", "finance"],
   ["support.sla.first_response_mins", false, "Minutes a ticket may wait for its first human response before it is flagged as an SLA breach.", "30", "segment", "5–240", "Lowering it flags tickets as breached sooner on the Support queue.", "support"],
   ["support.refund.auto_approve_ceiling", true, "Refund value an agent may approve without a second reviewer.", "500", "global", "0–5000", "Raising it lets more refunds clear without a second reviewer.", "support"],
@@ -45,6 +45,7 @@ export const CONFIG_KEYS: ConfigKeyRow[] = [
   ["pricing.max_rate", false, "Highest chat/voice price (₹/min) an astrologer may set for themselves in the portal.", "500", "global", "10–5000", "Lowering it stops astrologers going above the new ceiling; existing prices stay until their next change.", "hr"],
   ["welcome.enabled", true, "Turns the welcome campaign on (1) or off (0): free consultations for customers with a verified mobile number.", "1", "global", "0–1", "Turning it off stops new free calls; customers keep this week's free minutes for when it is back on.", "consult"],
   ["welcome.weekly_free_minutes", true, "Free minutes each customer (verified mobile number) gets per week (Monday–Sunday, IST; resets Monday 00:00 IST). Each free call takes the whole length the customer chose, once the conversation starts.", "30", "global", "0–600", "Raising it gives every customer more free minutes per week, paid for by the platform (astrologers are compensated monthly); 0 stops new free calls.", "consult"],
+  ["welcome.joining_bonus_minutes", true, "One-time free minutes a new customer gets when their mobile number first joins (client: 5). Used for free calls after the week's free minutes; never resets. A number that joined before never gets it again, even on a new account.", "5", "global", "0–60", "Applies to numbers that join after the change; customers who already joined keep the bonus they got.", "consult"],
   ["welcome.free_call_length_1", true, "First free-call length the customer can choose, in minutes (0 = not offered).", "5", "global", "0–120", "Applies to calls requested after the change; calls already running keep their length.", "consult"],
   ["welcome.free_call_length_2", true, "Second free-call length the customer can choose, in minutes (0 = not offered).", "10", "global", "0–120", "Applies to calls requested after the change; calls already running keep their length.", "consult"],
   ["welcome.free_call_length_3", true, "Third free-call length the customer can choose, in minutes (0 = not offered).", "30", "global", "0–120", "Applies to calls requested after the change; calls already running keep their length.", "consult"],
@@ -70,12 +71,18 @@ export const DENOMINATIONS: { amount: number; bonus: number; enabled?: boolean }
   { amount: 10000, bonus: 0 },
 ];
 
-/** Live-room gift catalogue (client). `rank` is the list position. */
+/** Live-room gift catalogue (client, Nov 2026: ₹5–₹5,001). `rank` is the list position. */
 export const GIFTS: { icon: string; name: string; price: number; state: string }[] = [
+  { icon: "🌼", name: "Marigold", price: 5, state: "ACTIVE" },
+  { icon: "🪔", name: "Diya", price: 11, state: "ACTIVE" },
+  { icon: "🥥", name: "Coconut", price: 21, state: "ACTIVE" },
   { icon: "🪷", name: "Lotus", price: 51, state: "ACTIVE" },
+  { icon: "🌺", name: "Flower Garland", price: 101, state: "ACTIVE" },
+  { icon: "🐚", name: "Shankh", price: 301, state: "ACTIVE" },
   { icon: "🔔", name: "Divine Bell", price: 501, state: "ACTIVE" },
-  { icon: "👑", name: "Honor Crown", price: 1001, state: "PENDING ADMIN" },
-  { icon: "✦", name: "Eternal Gratitude", price: 5100, state: "ACTIVE" },
+  { icon: "👑", name: "Honour Crown", price: 1001, state: "ACTIVE" },
+  { icon: "🕉️", name: "Om Blessing", price: 2001, state: "ACTIVE" },
+  { icon: "✦", name: "Eternal Gratitude", price: 5001, state: "ACTIVE" },
 ];
 
 /**
@@ -85,6 +92,8 @@ export const GIFTS: { icon: string; name: string; price: number; state: string }
 export const REFERENCE_SETTINGS: Record<string, unknown> = {
   // Campaigns that breach the cashback floor are rejected (Finance can switch to "adjust").
   "finance.floorMode": "reject",
+  // Custom recharge amounts on the wallet page (client, Nov 2026): Finance can switch them off or change the range.
+  "wallet.customAmount": { enabled: true, min: 50, max: 50000 },
   // Astrologers whose payouts Finance has paused: none to begin with.
   "payout.paused": {},
   // Observer seats on the Live monitoring page (real leases are counted against it).

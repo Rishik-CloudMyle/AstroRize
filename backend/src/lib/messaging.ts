@@ -178,10 +178,10 @@ export async function historyWith(customerId: string, astrologerId: string) {
   return { consultations, lastConsultation: lastAt ? istDate(lastAt) : null };
 }
 
-// ── Astrorize team conversations ──
+// ── AstroRize team conversations ──
 // Started only by an admin, with other staff (one or several), or with one astrologer or one
 // customer (plus any staff). Every member can reply. Unread counts come from each member's
-// lastReadAt. These are with Astrorize staff, so contact details are not held back here.
+// lastReadAt. These are with AstroRize staff, so contact details are not held back here.
 
 export const directText = z
   .string()
@@ -228,15 +228,15 @@ export function staffSees(u: Person) {
   return { id: u.id, kind, name, initials: u.initials, photo, line };
 }
 
-/** Customer → "Astrorize support"; astrologer → "Astrorize team · Neha Gupta (Finance)". */
+/** Customer → "AstroRize support"; astrologer → "AstroRize team · Neha Gupta (Finance)". */
 function teamLabel(viewer: PersonKind, staff: Person | undefined): string {
-  if (viewer === "customer") return "Astrorize support";
-  return staff ? `Astrorize team · ${staff.name} (${departmentOf(staff)})` : "Astrorize team";
+  if (viewer === "customer") return "AstroRize support";
+  return staff ? `AstroRize team · ${staff.name} (${departmentOf(staff)})` : "AstroRize team";
 }
 
-/** The author of a staff message as an astrologer ("Neha Gupta · Finance") or a customer ("Neha · Astrorize support") sees it. */
+/** The author of a staff message as an astrologer ("Neha Gupta · Finance") or a customer ("Neha · AstroRize support") sees it. */
 function staffAuthor(viewer: PersonKind, u: Person): string {
-  return viewer === "customer" ? `${u.name.split(" ")[0]} · Astrorize support` : `${u.name} · ${departmentOf(u)}`;
+  return viewer === "customer" ? `${u.name.split(" ")[0]} · AstroRize support` : `${u.name} · ${departmentOf(u)}`;
 }
 
 /** Unread messages per conversation for this person (messages from others after they last read). */
@@ -269,7 +269,7 @@ async function threadsOf(userId: string) {
   });
 }
 
-/** Who speaks for Astrorize in a conversation: the admin who started it. */
+/** Who speaks for AstroRize in a conversation: the admin who started it. */
 const creatorOf = (t: { createdById: string; members: { userId: string; user: Person }[] }) =>
   t.members.find((m) => m.userId === t.createdById)?.user ?? t.members.find((m) => m.user.role === "ADMIN")?.user;
 
@@ -290,7 +290,7 @@ export async function staffConversations(userId: string) {
   });
 }
 
-/** The list for an astrologer or a customer: each conversation is with "the Astrorize team". */
+/** The list for an astrologer or a customer: each conversation is with "the AstroRize team". */
 export async function teamConversations(userId: string, viewer: Exclude<PersonKind, "staff">) {
   const [threads, unread] = await Promise.all([threadsOf(userId), directUnread(userId)]);
   return threads.map((t) => {

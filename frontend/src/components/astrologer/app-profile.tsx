@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { Astrologer } from "@/lib/types";
 import { RECOGNITION, percentages, rupee } from "@/lib/format";
-import { resetWeekday } from "@/lib/free-calls";
+import { bonusNote, resetWeekday } from "@/lib/free-calls";
 import { useMakeGood } from "@/lib/makegood";
 import { discountedRate, useConsultDiscount } from "@/lib/offers";
 import { usableWelcome, useSession } from "@/lib/session-store";
@@ -61,7 +61,7 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
     const url = `${window.location.origin}/astrologer/${a.slug}`;
     try {
       if (navigator.share) {
-        await navigator.share({ title: `${a.name} on Astrorize`, url });
+        await navigator.share({ title: `${a.name} on AstroRize`, url });
         return;
       }
       await navigator.clipboard.writeText(url);
@@ -128,7 +128,7 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
         ) : freeMinutesHere ? (
           <p className="mt-3 rounded-app-card border border-[#a7f3d0] bg-app-success-bg px-3 py-2.5 text-[12.5px] leading-[1.45] text-app-success">
             <b className="block text-[13px]">
-              🎁 Free minutes: {welcome.weekly.remaining} of {welcome.weekly.total} left this week · resets {resetWeekday(welcome.weekly.resetsAt)}
+              🎁 Free minutes: {welcome.weekly.remaining} of {welcome.weekly.total} left this week{bonusNote(welcome)} · resets {resetWeekday(welcome.weekly.resetsAt)}
             </b>
             Use them here for Chat or Voice, or pay per minute — you choose when you start.
           </p>

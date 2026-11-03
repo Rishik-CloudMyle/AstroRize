@@ -67,7 +67,7 @@ export function useCallMedia({
     answer: needsDevices ? answer : null,
     answerFailed: snap.answerFailed,
     reloadAnswer: () => session()?.loadAnswer(),
-    /** No room to join: ZEGO isn't set up on Astrorize yet. */
+    /** No room to join: ZEGO isn't set up on AstroRize yet. */
     notConfigured: answer?.available === false && answer.reason === "not_configured",
     available,
     wants: needsDevices ? wants : NONE,

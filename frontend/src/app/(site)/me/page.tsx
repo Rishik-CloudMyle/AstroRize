@@ -3,7 +3,7 @@ import { ProfileHubPage } from "@/components/account/profile-hub";
 
 export const metadata: Metadata = {
   title: "Profile",
-  description: "Your Astrorize account: wallet, messages, notifications, offers, free tools and legal information.",
+  description: "Your AstroRize account: wallet, messages, notifications, offers, free tools and legal information.",
   robots: { index: false },
 };
 

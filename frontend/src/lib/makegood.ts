@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api/client";
 import { useSession } from "./session-store";
 
-// Free replacement calls ("make-good"): after a complaint Astrorize may offer the customer free
+// Free replacement calls ("make-good"): after a complaint AstroRize may offer the customer free
 // minutes with the same astrologer instead of a refund. The astrologer's profile and consult sheet
 // show it, and a consultation started with it is free for those minutes (the API's rule).
 

@@ -78,12 +78,12 @@ export default function SignupView({ initialRole, next }: { initialRole: SignupR
       {!started && (
         <>
           <h1 className="m-0 font-display text-[30px] font-semibold text-ink max-lg:leading-tight">Create your account</h1>
-          <p className="mt-1 mb-4 text-[13px] text-stone-500 max-lg:text-[12px] max-lg:text-app-ink-2">Choose how you&rsquo;ll use Astrorize.</p>
+          <p className="mt-1 mb-4 text-[13px] text-stone-500 max-lg:text-[12px] max-lg:text-app-ink-2">Choose how you&rsquo;ll use AstroRize.</p>
           <div role="radiogroup" aria-label="Account type" className="grid grid-cols-2 gap-2.5">
             {(
               [
                 ["customer", "I want to consult an astrologer", "Chat, call or watch live"],
-                ["astrologer", "I'm an astrologer", "Apply to consult on Astrorize"],
+                ["astrologer", "I'm an astrologer", "Apply to consult on AstroRize"],
               ] as const
             ).map(([key, label, sub]) => {
               const on = role === key;
@@ -129,7 +129,7 @@ export default function SignupView({ initialRole, next }: { initialRole: SignupR
             Continue as guest
           </button>
           <p className="mt-1.5 mb-0 text-[11.5px] text-stone-500">Look around first — no account needed to browse.</p>
-          <p className="mt-3 mb-0 text-[12px] text-stone-500">Astrorize staff: ask your Super Admin for an account.</p>
+          <p className="mt-3 mb-0 text-[12px] text-stone-500">AstroRize staff: ask your Super Admin for an account.</p>
           <p className="mt-3 mb-0 text-xs leading-normal text-stone-500">
             By continuing you agree to our <Link href="/terms">Terms of Use</Link> and <Link href="/terms">Privacy Policy</Link>.
           </p>
@@ -184,8 +184,8 @@ function CustomerSignup({ next, onStarted }: { next: string | null; onStarted: (
       if (!created) {
         toast(
           user.reactivated
-            ? "Welcome back — your account is active again. This number already had an Astrorize account, so we've logged you in."
-            : "This number already has an Astrorize account, so we've logged you in.",
+            ? "Welcome back — your account is active again. This number already had an AstroRize account, so we've logged you in."
+            : "This number already has an AstroRize account, so we've logged you in.",
         );
         done();
         return;
@@ -328,7 +328,7 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
   }
 
   function skip() {
-    toast("Welcome to Astrorize! Add your details any time from Wallet & account.");
+    toast("Welcome to AstroRize! Add your details any time from Wallet & account.");
     onDone();
   }
 
@@ -374,7 +374,7 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
         }
       }
       void sessionActions.refreshUser().catch(() => {});
-      toast(`Welcome to Astrorize, ${result.profile.firstName}!`);
+      toast(`Welcome to AstroRize, ${result.profile.firstName}!`);
       onDone();
     } finally {
       setSaving(false);
@@ -384,7 +384,7 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
   if (!profile || !form) {
     return (
       <div className="mt-2" aria-busy={!loadError}>
-        <h1 className="m-0 font-display text-[30px] font-semibold text-ink max-lg:leading-tight">Welcome to Astrorize</h1>
+        <h1 className="m-0 font-display text-[30px] font-semibold text-ink max-lg:leading-tight">Welcome to AstroRize</h1>
         {loadError ? (
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <p role="alert" className="m-0 text-[13px] font-semibold text-rose-700">
@@ -413,7 +413,7 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
 
   return (
     <div>
-      <h1 className="m-0 mb-3 font-display text-[30px] font-semibold text-ink max-lg:leading-tight">Welcome to Astrorize</h1>
+      <h1 className="m-0 mb-3 font-display text-[30px] font-semibold text-ink max-lg:leading-tight">Welcome to AstroRize</h1>
       <p className="m-0 mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[12.5px] font-semibold text-emerald-800">
         ✓ Your account is ready. Tell us a little about you — or skip for now.
       </p>

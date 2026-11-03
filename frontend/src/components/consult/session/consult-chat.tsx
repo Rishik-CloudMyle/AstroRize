@@ -145,7 +145,7 @@ export function ConsultChat({
         )}
         {chat.loaded && count === 0 && (
           <p className={`mx-auto max-w-[34ch] py-8 text-center text-[13px] leading-[1.55] text-stone-400 ${L("max-lg:text-app-ink-2")}`}>
-            {chat.open ? `Say hello to ${peerName}. Messages stay on Astrorize — phone numbers and other contact details can't be shared.` : "No messages in this consultation."}
+            {chat.open ? `Say hello to ${peerName}. Messages stay on AstroRize — phone numbers and other contact details can't be shared.` : "No messages in this consultation."}
           </p>
         )}
         <ul className="flex flex-col gap-2">

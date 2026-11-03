@@ -1,7 +1,7 @@
 import type { WelcomeBenefit } from "./types";
 
 // Wording for the welcome free minutes. The numbers (minutes per week, the lengths a free call can
-// be) are set by Astrorize in the admin Config console and come from the API (GET /wallet → welcome).
+// be) are set by AstroRize in the admin Config console and come from the API (GET /wallet → welcome).
 
 /** Length of a free call: "5 min", "30 min", "1 hour", "1 h 30 min". */
 export function freeLength(secs: number): string {
@@ -28,9 +28,14 @@ export function resetWeekday(iso: string): string {
   return new Date(iso).toLocaleDateString("en-GB", { weekday: "short", timeZone: "Asia/Kolkata" });
 }
 
-/** "25 of 30 left this week · resets Mon". */
+/** " + 5 min joining bonus" while some of the one-time joining bonus is left, else "". */
+export function bonusNote(w: WelcomeBenefit): string {
+  return w.joining?.remaining > 0 ? ` + ${w.joining.remaining} min joining bonus` : "";
+}
+
+/** "25 of 30 left this week + 5 min joining bonus · resets Mon". */
 export function minutesLeft(w: WelcomeBenefit): string {
-  return `${w.weekly.remaining} of ${w.weekly.total} left this week · resets ${resetWeekday(w.weekly.resetsAt)}`;
+  return `${w.weekly.remaining} of ${w.weekly.total} left this week${bonusNote(w)} · resets ${resetWeekday(w.weekly.resetsAt)}`;
 }
 
 /** "Free minutes: 25 of 30 left this week · resets Mon". */

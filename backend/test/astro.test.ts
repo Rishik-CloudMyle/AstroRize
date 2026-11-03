@@ -1,4 +1,4 @@
-// Accuracy proof for the Astrorize astrology engine (lib/astro). No database, no network.
+// Accuracy proof for the AstroRize astrology engine (lib/astro). No database, no network.
 //   node test/astro.test.ts
 // Every reference value below comes from an independent published source, cited next to it.
 // Prints a table of measured errors and exits 1 if any check is outside its tolerance.

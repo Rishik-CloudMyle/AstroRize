@@ -3,9 +3,9 @@
 // placeholder values — replace them with the client's real details before launch.
 
 export const COMPANY = {
-  legalName: "Astrorize Private Limited",
+  legalName: "AstroRize Private Limited",
   cin: "U74999KA2026PTC000000",
-  address: ["Astrorize Private Limited", "Bengaluru, Karnataka 560001"],
+  address: ["AstroRize Private Limited", "Bengaluru, Karnataka 560001"],
   tagline: "Guidance and entertainment — not medical, legal or financial advice.",
   policyVersions: "Terms v3.1 · Privacy v2.4 · Refund & Cancellation v1.2",
 };
@@ -38,7 +38,7 @@ export const FOOTER_COLUMNS = [
   {
     title: "Company",
     links: [
-      { label: "About Astrorize", href: "/terms#scope" },
+      { label: "About AstroRize", href: "/terms#scope" },
       { label: "Careers", href: "/terms" },
       { label: "Press", href: "/terms" },
     ],

@@ -196,6 +196,8 @@ function MatchResult({ tool, match, engine }: { tool: Tool; match: Match; engine
         </div>
       </div>
 
+      {!!(match.pros?.length || match.cons?.length) && <ProsCons pros={match.pros ?? []} cons={match.cons ?? []} />}
+
       <div className="mt-7 grid gap-3 sm:grid-cols-2">
         <MoonCard person={match.boy} who="Boy" />
         <MoonCard person={match.girl} who="Girl" />
@@ -252,6 +254,48 @@ function MatchResult({ tool, match, engine }: { tool: Tool; match: Match; engine
       )}
       <EngineLine engine={engine} extra="sidereal (Lahiri)" />
     </ResultCard>
+  );
+}
+
+/** Pros and cons of the match, calculated from both people's details (client, Nov 2026). */
+function ProsCons({ pros, cons }: { pros: string[]; cons: string[] }) {
+  const column = (title: string, items: string[], good: boolean) => (
+    <section
+      aria-label={title}
+      className={`min-w-0 rounded-2xl border px-4 py-3.5 ${good ? "border-emerald-200 bg-emerald-50/70" : "border-rose-200 bg-rose-50/70"}`}
+    >
+      <h3 className={`flex items-center gap-2 text-[15px] font-bold ${good ? "text-emerald-800" : "text-rose-800"}`}>
+        <span
+          aria-hidden="true"
+          className={`grid size-6 place-items-center rounded-full text-[13px] text-white ${good ? "bg-emerald-600" : "bg-rose-600"}`}
+        >
+          {good ? "✓" : "!"}
+        </span>
+        {title}
+      </h3>
+      {items.length ? (
+        <ul className="mt-2.5 grid gap-2 text-[13.5px] leading-snug text-stone-700">
+          {items.map((t) => (
+            <li key={t} className="flex gap-2.5">
+              <span aria-hidden="true" className={`mt-[7px] size-[6px] shrink-0 rounded-full ${good ? "bg-emerald-500" : "bg-rose-500"}`} />
+              <span>{t}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2.5 text-[13.5px] text-stone-600">{good ? "No strong points stand out in this match." : "No major cautions in this match."}</p>
+      )}
+    </section>
+  );
+  return (
+    <div className="mt-7">
+      <SectionTitle>Pros and cons</SectionTitle>
+      <div className="grid items-start gap-3 md:grid-cols-2">
+        {column("Pros", pros, true)}
+        {column("Cons", cons, false)}
+      </div>
+      <p className="mt-2 text-[12px] text-stone-500">Worked out from the eight kootas, Mangal dosha and the total score above. An astrologer can read the full charts.</p>
+    </div>
   );
 }
 

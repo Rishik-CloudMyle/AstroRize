@@ -433,6 +433,7 @@ interface RawFinance {
   disputeRefunds: DisputeRefund[];
   denominations: number[];
   enabledDenominations: number[];
+  customAmount: { enabled: boolean; min: number; max: number };
   floorPct: number;
   floorMode: "reject" | "adjust";
 }
@@ -459,7 +460,7 @@ export async function getFinance(): Promise<FinanceData> {
       kpi(
         `Free-call cost · ${k.splitMonth}`,
         k.freeCallCost,
-        `${k.freeCallMinutes} free ${k.freeCallMinutes === 1 ? "minute" : "minutes"} Astrorize pays astrologers for`,
+        `${k.freeCallMinutes} free ${k.freeCallMinutes === 1 ? "minute" : "minutes"} AstroRize pays astrologers for`,
         "#78716c",
       ),
       kpi(
@@ -502,6 +503,7 @@ export async function getFinance(): Promise<FinanceData> {
     disputeRefunds: f.disputeRefunds,
     denominations: f.denominations,
     enabledDenominations: f.enabledDenominations,
+    customAmount: f.customAmount,
     floorPct: f.floorPct,
     floorMode: f.floorMode,
     floorModes: FLOOR_MODES,

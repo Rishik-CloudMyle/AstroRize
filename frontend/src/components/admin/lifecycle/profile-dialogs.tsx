@@ -730,8 +730,8 @@ export function ApplicationDialog({ id, onClose }: { id: string; onClose: () => 
             <Section title="Approve & activate">
               <form onSubmit={(e) => void activate(e)} noValidate className="rounded-[12px] border border-emerald-200 bg-emerald-50 p-3.5">
                 <p className="mt-0 mb-3 text-[12.5px] leading-[1.55] text-emerald-900">
-                  The astrologer goes live on the website at this rate for chat and voice (video and Instant Call are
-                  priced from it). They stay offline until they go online from their portal.
+                  The astrologer goes live on the website at this rate for calls and chat (video and Instant Call are
+                  priced from it; they can set a separate chat price from their portal). They stay offline until they go online from their portal.
                 </p>
                 <label htmlFor="activate-rate" className={EYEBROW}>
                   Per-minute rate (₹)

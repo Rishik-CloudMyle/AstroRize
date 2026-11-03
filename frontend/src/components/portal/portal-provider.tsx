@@ -145,7 +145,7 @@ export default function PortalProvider({ account, children }: { account: Account
         }
         if (changes.current !== startedAt) return;
         if (presenceRef.current !== "off" && res.presence === "off") {
-          toast("You're offline now — Astrorize didn't hear from your portal for a while (it was closed, the computer slept, or the connection dropped). Go online again when you're ready.", "error");
+          toast("You're offline now — AstroRize didn't hear from your portal for a while (it was closed, the computer slept, or the connection dropped). Go online again when you're ready.", "error");
           router.refresh();
         }
         setPresenceState(res.presence);

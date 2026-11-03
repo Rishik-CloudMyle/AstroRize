@@ -134,7 +134,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
           <ul aria-label="Ways to consult" className="flex flex-col gap-1.5">
             {OPTIONS.map((o) => {
               const instant = o.key === "instant";
-              const rate = o.key === "instant" ? a.instant : rateFor(a.price, o.key);
+              const rate = o.key === "instant" ? a.instant : rateFor(a.price, o.key, a.chatPrice);
               // Could be free (the customer picks free or paid in the sheet); the paid rate is shown either way.
               const free = freeOption && !blocked && (o.key === "chat" || o.key === "voice" || (!!makeGood && o.key === "video"));
               const pct = discount && !instant ? discount.pct : 0;

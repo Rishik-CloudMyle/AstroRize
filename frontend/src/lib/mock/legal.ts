@@ -16,7 +16,7 @@ export const LEGAL_SECTIONS = [
     id: "scope",
     title: "1 · Scope of service",
     highlight: false,
-    body: "Astrorize connects you with independent astrologers for guidance and entertainment. Astrologers are not employees, and their guidance is not medical, legal, financial or psychiatric advice. If you are in distress, use the helplines above.",
+    body: "AstroRize connects you with independent astrologers for guidance and entertainment. Astrologers are not employees, and their guidance is not medical, legal, financial or psychiatric advice. If you are in distress, use the helplines above.",
   },
   {
     id: "money",

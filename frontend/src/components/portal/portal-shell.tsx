@@ -45,7 +45,7 @@ function Brand() {
     <div className="flex items-center gap-2.5">
       <Image src="/assets/brand/logo-mark.png" alt="" width={36} height={36} className="size-9 flex-[0_0_36px] object-contain" priority />
       <div className="min-w-0">
-        <div className="font-display text-[20px] leading-none font-semibold">Astrorize</div>
+        <div className="font-display text-[20px] leading-none font-semibold">AstroRize</div>
         <div className="mt-0.5 text-[10px] font-bold tracking-[.1em] text-stone-400 uppercase">Astrologer portal</div>
       </div>
     </div>

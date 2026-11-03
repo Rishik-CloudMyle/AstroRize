@@ -603,7 +603,7 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
                   topic={room.title}
                   actions={
                     <>
-                      <LiveShareButton title={`${host.name} is live on Astrorize`} />
+                      <LiveShareButton title={`${host.name} is live on AstroRize`} />
                       <button
                         type="button"
                         onClick={() => setInfoOpen(true)}

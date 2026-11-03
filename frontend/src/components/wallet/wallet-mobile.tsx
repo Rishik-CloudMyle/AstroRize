@@ -28,6 +28,7 @@ import { HideTabBar } from "../mobile/tab-bar";
 import AccountSection, { type Closed } from "./account-section";
 import ProfileSection from "./profile-section";
 import { LockIcon, RAZORPAY_TRUST, payLabel, paymentPageHref, rechargeMessage, useRecharge } from "./use-recharge";
+import CustomAmountField, { type CustomAmount, pickedDenomination } from "./custom-amount";
 
 export interface Denomination {
   amount: number;
@@ -53,6 +54,7 @@ function go(view: View, extra: Record<string, string> = {}, replace = false) {
 
 export default function MobileWallet({
   denominations,
+  custom,
   gstRate,
   denom,
   onPick,
@@ -64,6 +66,8 @@ export default function MobileWallet({
   requesting,
 }: {
   denominations: Denomination[] | null;
+  /** Custom amounts Finance allows (null while loading). */
+  custom: CustomAmount | null;
   gstRate: number;
   denom: number;
   onPick: (amount: number) => void;
@@ -98,6 +102,7 @@ export default function MobileWallet({
       return (
         <AddMoney
           denominations={denominations}
+          custom={custom}
           gstRate={gstRate}
           denom={denom}
           onPick={onPick}
@@ -110,7 +115,7 @@ export default function MobileWallet({
         />
       );
     case "pay": {
-      const selected = denominations?.find((d) => d.amount === denom);
+      const selected = pickedDenomination(denominations, denom, custom);
       if (!chosen || !selected) return <ScreenSkeleton title="Secure payment" />;
       return (
         <SecurePayment selected={selected} gstRate={gstRate} onPaid={() => onPaid(selected.cashback > 0)} />
@@ -379,6 +384,7 @@ function TransactionDetail({ txRef }: { txRef: string }) {
 
 function AddMoney({
   denominations,
+  custom,
   gstRate,
   denom,
   onPick,
@@ -387,6 +393,7 @@ function AddMoney({
   onProceed,
 }: {
   denominations: Denomination[] | null;
+  custom: CustomAmount | null;
   gstRate: number;
   denom: number;
   onPick: (amount: number) => void;
@@ -394,7 +401,7 @@ function AddMoney({
   paymentsOn: boolean | null;
   onProceed: () => void;
 }) {
-  const selected = denominations?.find((d) => d.amount === denom);
+  const selected = pickedDenomination(denominations, denom, custom);
   const gst = Math.round(denom * gstRate);
   // A claimed cashback offer, if any recharge amount qualifies for one.
   const offer = denominations?.find((d) => d.cashback > 0);
@@ -462,6 +469,7 @@ function AddMoney({
             );
           })}
         </div>
+        {denominations && <CustomAmountField custom={custom} denom={denom} fixed={denominations.map((d) => d.amount)} onPick={onPick} variant="app" />}
       </div>
 
       {/* Pinned to the bottom (no tab bar on this screen). */}
@@ -522,7 +530,7 @@ function SecurePayment({ selected, gstRate, onPaid }: { selected: Denomination; 
         </span>
         <h2 className="mt-4 mb-1 font-display text-[28px] leading-tight font-semibold text-app-ink">Secure checkout</h2>
         <p className="m-0 text-[12px] leading-[1.45] text-app-ink-2">
-          You are paying {rupee(total)} to add {rupee(selected.amount)} to your Astrorize wallet.
+          You are paying {rupee(total)} to add {rupee(selected.amount)} to your AstroRize wallet.
         </p>
         <AppCard padding="lg" className="mt-3.5">
           <Rows
@@ -610,7 +618,7 @@ function Settings({
 
         <LogoutButton className={`${appButtonClass({ variant: "secondary", block: true })} mt-[22px]`} />
 
-        <SectionHeader title="Leave Astrorize" variant="link" className="mt-[22px]" />
+        <SectionHeader title="Leave AstroRize" variant="link" className="mt-[22px]" />
         <AccountSection onClosed={onClosed} variant="app" />
       </div>
     </>

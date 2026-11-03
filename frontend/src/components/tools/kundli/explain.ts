@@ -1,5 +1,5 @@
 // Plain-English help for every part of the Kundli result: what a chart or field is for and how to
-// read it. Astrorize's own wording; short, practical, no predictions and no remedies.
+// read it. AstroRize's own wording; short, practical, no predictions and no remedies.
 
 import type { VargaCode } from "@/lib/astro";
 

@@ -20,7 +20,7 @@ function dayLabel(iso: string): string {
 
 /**
  * Free calls (welcome campaign) on the dashboard: switch them on or off and choose how many to
- * take per day or per week, within Astrorize's maximum. One free call at a time.
+ * take per day or per week, within AstroRize's maximum. One free call at a time.
  */
 export default function FreeCallsCard({ freeCalls: f }: { freeCalls: FreeCalls }) {
   const router = useRouter();
@@ -65,7 +65,7 @@ export default function FreeCallsCard({ freeCalls: f }: { freeCalls: FreeCalls }
           <h2 className="m-0 mb-1 text-base font-bold">Free calls</h2>
           <p className="m-0 text-[12.5px] leading-[1.5] text-stone-500">
             Customers use their weekly free minutes on free calls of {lengthsLabel(f.lengths)} (Chat or Voice) with astrologers who take part.
-            You take one free call at a time; Astrorize pays you monthly for the free minutes you give.
+            You take one free call at a time; AstroRize pays you monthly for the free minutes you give.
           </p>
         </div>
         <button
@@ -83,7 +83,7 @@ export default function FreeCallsCard({ freeCalls: f }: { freeCalls: FreeCalls }
 
       {!f.campaignOn ? (
         <p className="mt-3 mb-0 rounded-xl bg-amber-50 px-3 py-2.5 text-[12.5px] text-amber-900">
-          Astrorize has paused free calls for now, so none start anywhere at the moment.
+          AstroRize has paused free calls for now, so none start anywhere at the moment.
         </p>
       ) : f.optedIn ? (
         <div className="mt-3 rounded-[14px] border border-emerald-200 bg-emerald-50 px-3.5 py-3 max-lg:rounded-app-btn max-lg:p-3">

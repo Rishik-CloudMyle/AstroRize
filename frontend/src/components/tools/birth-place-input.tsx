@@ -5,7 +5,7 @@ import { ApiError } from "@/lib/api/client";
 import { searchPlaces, suggestPlaces, type Place } from "@/lib/astro";
 import { inputBase } from "./tool-ui";
 
-// Birthplace picker. While typing it suggests places Astrorize has found before (our own cache);
+// Birthplace picker. While typing it suggests places AstroRize has found before (our own cache);
 // a new place is looked up on OpenStreetMap only when the person presses Search or Enter — the
 // OpenStreetMap (Nominatim) usage policy forbids per-keystroke lookups. Recently chosen places
 // are remembered in this browser for convenience.

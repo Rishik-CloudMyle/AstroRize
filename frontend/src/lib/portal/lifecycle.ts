@@ -14,5 +14,5 @@ export const LIFECYCLE: LifecycleStage[] = [
   { key: "pricing", label: "Pricing pending", icon: "⏳", bg: "#eff6ff", border: "#bfdbfe", fg: "#1e40af", title: "Pricing pending approval", body: "Your rates are agreed and awaiting Finance sign-off. You cannot go online until this clears." },
   { key: "training", label: "Training", icon: "🎓", bg: "#fffbeb", border: "#fde68a", fg: "#92400e", title: "Training stage", body: "HR will share the training to complete. Your account becomes active once HR approves it." },
   { key: "active", label: "Approved — Active", icon: "✓", bg: "#ecfdf5", border: "#a7f3d0", fg: "#047857", title: "Approved — Active", body: "You can go online, host live rooms and accept consultations." },
-  { key: "rejected", label: "Rejected", icon: "✕", bg: "#fff1f2", border: "#fecdd3", fg: "#be123c", title: "Application not approved", body: "HR did not approve this application. If you have questions, contact Astrorize support." },
+  { key: "rejected", label: "Rejected", icon: "✕", bg: "#fff1f2", border: "#fecdd3", fg: "#be123c", title: "Application not approved", body: "HR did not approve this application. If you have questions, contact AstroRize support." },
 ];

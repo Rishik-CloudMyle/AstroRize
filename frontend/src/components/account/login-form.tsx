@@ -112,8 +112,8 @@ export default function LoginForm({
             {onOtpStep
               ? `We sent a six-digit code to +91 ${phone.slice(0, 5)} ${phone.slice(5)}.`
               : method === "email"
-                ? "Customers, astrologers and Astrorize staff all sign in here."
-                : "One account everywhere — the same login works in the Astrorize app."}
+                ? "Customers, astrologers and AstroRize staff all sign in here."
+                : "One account everywhere — the same login works in the AstroRize app."}
           </p>
         </div>
         {closeButton}

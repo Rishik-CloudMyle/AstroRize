@@ -1,6 +1,6 @@
-# Astrorize
+# AstroRize
 
-Astrology consultation platform for Astrorize Private Limited, built by Cloudmyle.
+Astrology consultation platform for AstroRize Private Limited, built by Cloudmyle.
 
 | Folder | What it is | Runs on |
 | --- | --- | --- |

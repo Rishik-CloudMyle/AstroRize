@@ -123,13 +123,13 @@ authRouter.post("/otp/verify", async (req, res) => {
   let user = await db.user.findUnique({ where: { phone } });
   const created = !user;
   if (!user) {
-    const name = "Astrorize customer";
-    const { enabled } = await welcomePolicy();
+    const name = "AstroRize customer";
+    const { enabled, joiningBonusMinutes } = await welcomePolicy();
     user = await db.$transaction(async (tx) => {
       const u = await tx.user.create({
         data: { phone, name, initials: initialsOf(name), role: "CUSTOMER", wallet: { create: {} } },
       });
-      if (enabled) await grantWelcome(u.id, phone, tx);
+      if (enabled) await grantWelcome(u.id, phone, joiningBonusMinutes, tx);
       return u;
     });
   }

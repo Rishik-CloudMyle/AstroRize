@@ -284,7 +284,7 @@ export interface AstrologerDetail {
   reviews: number;
   /** changedAt: when the astrologer last changed their own price in the portal ("22 Oct 2026"), or null */
   price: {
-    /** Chat & voice ₹/min */
+    /** Call (voice) ₹/min */
     value: number;
     chat: string;
     voice: string;
@@ -453,7 +453,7 @@ export type BatchKind = "EARNINGS" | "FREE_CALLS";
 
 export interface PayoutBatch {
   id: string;
-  /** EARNINGS (customer-paid shares, half-monthly) | FREE_CALLS (free-call compensation, paid by Astrorize) */
+  /** EARNINGS (customer-paid shares, half-monthly) | FREE_CALLS (free-call compensation, paid by AstroRize) */
   kind: BatchKind;
   /** "Earnings · 1–15 Oct 2026" */
   cycle: string;
@@ -527,6 +527,8 @@ export interface FinanceData {
   disputeRefunds: DisputeRefund[];
   denominations: number[];
   enabledDenominations: number[];
+  /** Custom recharge amounts on the wallet page: on/off and the allowed range (₹) */
+  customAmount: { enabled: boolean; min: number; max: number };
   floorPct: number;
   floorMode: "reject" | "adjust";
   floorModes: { key: "reject" | "adjust"; label: string; body: string }[];

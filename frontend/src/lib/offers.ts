@@ -21,7 +21,7 @@ export interface Offer {
   flatAmount: number | null;
   minRecharge: number | null;
   maxBenefit: number | null;
-  /** "31 Oct 2026" — last day it can be claimed (null: until Astrorize ends it). */
+  /** "31 Oct 2026" — last day it can be claimed (null: until AstroRize ends it). */
   ends: string | null;
   claimValidDays: number;
   usesPerCustomer: number;

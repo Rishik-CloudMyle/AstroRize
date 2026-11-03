@@ -9,6 +9,7 @@ import { actorName, requireCapability, requirePage } from "../../lib/rbac.ts";
 import { duplicatePayments, grossVolume, walletTrialBalance } from "../../lib/ledger.ts";
 import { campaignCostThisMonth } from "../../lib/campaigns.ts";
 import { configNumber, getSetting, putSetting } from "../../lib/settings.ts";
+import { customAmountPolicy } from "../../lib/payments.ts";
 import { priceChangeView } from "../../lib/pricing.ts";
 import { lakh } from "./overview.ts";
 import { proposedMinutes, refundProposerId } from "./support.ts";
@@ -18,9 +19,10 @@ export const financeRouter = Router();
 financeRouter.get("/finance", async (req, res) => {
   requirePage(req, "finance");
   const now = new Date();
-  const [batches, denominations, floorPct, floorMode, kpis, proposed, candidates, split, tds, freeDays] = await Promise.all([
+  const [batches, denominations, customAmount, floorPct, floorMode, kpis, proposed, candidates, split, tds, freeDays] = await Promise.all([
     db.payoutBatch.findMany({ orderBy: { createdAt: "desc" }, include: { _count: { select: { lines: true } } } }),
     db.denomination.findMany({ orderBy: { amount: "asc" } }),
+    customAmountPolicy(),
     configNumber("wallet.cashback.floor_pct", 80),
     getSetting<"reject" | "adjust">("finance.floorMode", "reject"),
     Promise.all([grossVolume(), duplicatePayments(), walletTrialBalance()]),
@@ -60,7 +62,7 @@ financeRouter.get("/finance", async (req, res) => {
         astrologerShare: lakh(split.astrologerShare),
         freeCallCost: lakh(split.freeCallCost),
         freeCallMinutes: split.freeCallMinutes,
-        // What claimed campaign offers cost Astrorize this month (promotional credit and discounts).
+        // What claimed campaign offers cost AstroRize this month (promotional credit and discounts).
         campaignMonth: campaigns.month,
         campaignCost: lakh(campaigns.total),
         campaignCashback: rupee(campaigns.cashback),
@@ -105,6 +107,8 @@ financeRouter.get("/finance", async (req, res) => {
       ),
       denominations: denominations.map((d) => d.amount),
       enabledDenominations: denominations.filter((d) => d.enabled).map((d) => d.amount),
+      /** Custom recharge amounts on the wallet page: on/off and the allowed range. */
+      customAmount,
       floorPct,
       floorMode,
     },
@@ -177,6 +181,25 @@ financeRouter.patch("/denominations/:amount", async (req, res) => {
   await db.denomination.update({ where: { amount }, data: { enabled } });
   await audit(admin, "wallet.denomination.toggle", rupee(amount), enabled ? "OFF → ON" : "ON → OFF");
   res.json({ ok: true });
+});
+
+/** Custom recharge amounts on the wallet page: switch them on or off and set the range. Audited. */
+financeRouter.put("/settings/custom-amount", async (req, res) => {
+  requirePage(req, "finance");
+  const admin = requireCapability(req, "config.write");
+  const next = z
+    .object({
+      enabled: z.boolean(),
+      min: z.number().int("Enter the smallest amount in whole rupees.").min(1, "The smallest amount must be at least ₹1."),
+      max: z.number().int("Enter the largest amount in whole rupees.").max(100000, "The largest amount can be at most ₹1,00,000."),
+    })
+    .refine((v) => v.max >= v.min, { message: "The largest amount must be at least the smallest.", path: ["max"] })
+    .parse(req.body);
+  const before = await customAmountPolicy();
+  await putSetting("wallet.customAmount", next);
+  const show = (c: typeof next) => `${c.enabled ? "ON" : "OFF"} ${rupee(c.min)}–${rupee(c.max)}`;
+  await audit(admin, "wallet.custom_amount", "wallet.customAmount", `${show(before)} → ${show(next)}`);
+  res.json({ ok: true, customAmount: next });
 });
 
 financeRouter.put("/settings/floor-mode", async (req, res) => {

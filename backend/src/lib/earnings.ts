@@ -2,11 +2,11 @@
 //
 // The split (client decision, Oct 2026): an astrologer keeps a share of what customers pay —
 // `earnings.share_pct.new` (50%) for their first `earnings.new_period_days` (90) days after they
-// were activated, then `earnings.share_pct.standard` (70%). Astrorize keeps the rest. Gifts follow
-// the same split. Free (complimentary) minutes cost the customer nothing; Astrorize pays the
+// were activated, then `earnings.share_pct.standard` (70%). AstroRize keeps the rest. Gifts follow
+// the same split. Free (complimentary) minutes cost the customer nothing; AstroRize pays the
 // astrologer for them at the session's own rate × their share, on a separate PLATFORM-funded line
 // that is paid in its own FREE_CALLS batch (monthly, or weekly — `payout.free_calls.weekly`).
-// A claimed campaign discount (lib/campaigns.ts) is paid by Astrorize too: the consultation's line
+// A claimed campaign discount (lib/campaigns.ts) is paid by AstroRize too: the consultation's line
 // has the full-price gross, `discount` is the part the customer didn't pay, and it stays CUSTOMER-
 // funded (paid with the regular earnings).
 //
@@ -94,7 +94,7 @@ export interface EarningsInput {
   sharePct: number;
   fundedBy?: "CUSTOMER" | "PLATFORM";
   freeSeconds?: number;
-  /** ₹ of `gross` Astrorize paid because of a campaign discount (the customer paid gross − discount). */
+  /** ₹ of `gross` AstroRize paid because of a campaign discount (the customer paid gross − discount). */
   discount?: number;
 }
 
@@ -401,7 +401,7 @@ export const istMonthStart = (now: Date) => {
 
 /**
  * This month (IST) so far, split lines only: what customers paid, what astrologers keep of it, the
- * platform's share, and the free-call compensation Astrorize owes.
+ * platform's share, and the free-call compensation AstroRize owes.
  */
 export async function splitThisMonth(now = new Date()) {
   const since = istMonthStart(now);
@@ -413,7 +413,7 @@ export async function splitThisMonth(now = new Date()) {
   const of = (f: string) => rows.find((r) => r.fundedBy === f)?._sum;
   const customer = of("CUSTOMER");
   const platform = of("PLATFORM");
-  // What customers actually paid: a campaign discount is part of the gross but paid by Astrorize.
+  // What customers actually paid: a campaign discount is part of the gross but paid by AstroRize.
   const customerGross = (customer?.gross ?? 0) - (customer?.discount ?? 0);
   const astrologerShare = customer?.amount ?? 0;
   return {

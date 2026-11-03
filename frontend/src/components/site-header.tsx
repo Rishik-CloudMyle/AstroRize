@@ -26,13 +26,13 @@ export default function SiteHeader() {
         <Link href="/" className="flex min-w-0 items-center gap-2.5 hover:no-underline">
           <Image
             src="/assets/brand/logo-mark.png"
-            alt="Astrorize"
+            alt="AstroRize"
             width={40}
             height={40}
             priority
             className="size-10 shrink-0 object-contain"
           />
-          <span className="font-display text-[22px] font-semibold leading-none min-[380px]:text-[25px] tracking-[.01em] text-ink">Astrorize</span>
+          <span className="font-display text-[22px] font-semibold leading-none min-[380px]:text-[25px] tracking-[.01em] text-ink">AstroRize</span>
         </Link>
 
         <nav aria-label="Main" className="hidden flex-wrap items-center gap-1 lg:flex">

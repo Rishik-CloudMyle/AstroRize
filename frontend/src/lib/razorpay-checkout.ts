@@ -119,7 +119,7 @@ export async function openCheckout(order: RechargeOrder): Promise<CheckoutResult
       order_id: order.orderId,
       amount: order.totalPaise,
       currency: order.currency,
-      name: "Astrorize",
+      name: "AstroRize",
       description: `Wallet recharge ₹${order.amount.toLocaleString("en-IN")}`,
       prefill: order.prefill,
       theme: { color: "#f59e0b" },

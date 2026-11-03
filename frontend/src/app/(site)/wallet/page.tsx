@@ -4,7 +4,7 @@ import WalletView from "@/components/wallet/wallet-view";
 
 export const metadata: Metadata = {
   title: "Wallet & account",
-  description: "Your Astrorize wallet balance, recharges, transactions and data rights.",
+  description: "Your AstroRize wallet balance, recharges, transactions and data rights.",
   robots: { index: false },
 };
 

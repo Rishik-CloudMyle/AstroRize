@@ -1,6 +1,6 @@
 // Birthplace search: OpenStreetMap Nominatim, used within its usage policy
 // (https://operations.osmfoundation.org/policies/nominatim/):
-//  • identified with a User-Agent naming Astrorize plus a contact (GEOCODER_CONTACT);
+//  • identified with a User-Agent naming AstroRize plus a contact (GEOCODER_CONTACT);
 //  • at most one request per second from this server (requests queue up);
 //  • every answer is cached in the Place table under the normalised search text, so the same
 //    search never goes to Nominatim twice; searches with no result are remembered for a day;
@@ -43,7 +43,7 @@ export function normaliseQuery(q: string): string {
 
 const view = (p: Place): PlaceResult => ({ id: p.id, name: p.name, latitude: p.latitude, longitude: p.longitude, timezone: p.timezone });
 
-/** Astrorize's customers are in India: among equally good matches, Indian places come first. */
+/** AstroRize's customers are in India: among equally good matches, Indian places come first. */
 const inIndia = (p: Pick<Place, "name">) => (/,\s*India$/i.test(p.name) ? 0 : 1);
 
 /**
@@ -154,7 +154,7 @@ async function fetchNominatim(q: string): Promise<NominatimHit[]> {
   if (config.geocoderContact) url.searchParams.set("email", config.geocoderContact);
   const res = await fetch(url, {
     headers: {
-      "User-Agent": `Astrorize/1.0 (birthplace search${config.geocoderContact ? `; ${config.geocoderContact}` : ""})`,
+      "User-Agent": `AstroRize/1.0 (birthplace search${config.geocoderContact ? `; ${config.geocoderContact}` : ""})`,
       Accept: "application/json",
     },
     signal: AbortSignal.timeout(8000),

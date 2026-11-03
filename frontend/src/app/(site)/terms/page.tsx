@@ -7,7 +7,7 @@ import { COMPANY, GRIEVANCE_OFFICER } from "@/lib/mock/site";
 
 export const metadata: Metadata = {
   title: "Terms & Conditions",
-  description: "Astrorize terms of service: scope, money and metering, discounts, fixed sessions, AI content and grievance redressal.",
+  description: "AstroRize terms of service: scope, money and metering, discounts, fixed sessions, AI content and grievance redressal.",
 };
 
 export default function TermsPage() {
@@ -34,7 +34,7 @@ export default function TermsPage() {
           ))}
         </div>
         <p className="mt-2.5 text-[12.5px] leading-normal text-rose-900">
-          Astrorize is guidance and entertainment. It is not medical, legal, financial or psychiatric advice.
+          AstroRize is guidance and entertainment. It is not medical, legal, financial or psychiatric advice.
         </p>
       </div>
 

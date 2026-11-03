@@ -9,7 +9,7 @@ import { APP_CARD, M_SECONDARY, PageHeader, Panel, Th, tdClass } from "../ui";
 /** Your amount for one statement row (worked out by the API, fixed when the line was written). */
 function amountFor(row: StatementRow): { label: string; color: string } {
   if (row.kind === "welcome") {
-    // A free call recorded before Astrorize paid for free minutes: ₹0.
+    // A free call recorded before AstroRize paid for free minutes: ₹0.
     return { label: row.amount > 0 ? rupee(row.amount) : "₹0 · free call", color: "#78716c" };
   }
   if (row.kind === "adjustment") return { label: row.amount ? rupee(row.amount) : "—", color: "#be123c" };
@@ -20,13 +20,13 @@ function amountFor(row: StatementRow): { label: string; color: string } {
   return { label: rupee(row.amount), color: "#1c1917" };
 }
 
-/** "Paid by Astrorize" on free-call compensation, "Before split" on lines recorded before revenue sharing. */
+/** "Paid by AstroRize" on free-call compensation, "Before split" on lines recorded before revenue sharing. */
 function Tags({ row }: { row: StatementRow }) {
   return (
     <>
       {row.fundedBy === "PLATFORM" && (
         <span className="ml-0.5 inline-flex h-[20px] items-center rounded-full bg-emerald-50 px-2 align-middle text-[11px] font-bold whitespace-nowrap text-emerald-700">
-          Paid by Astrorize
+          Paid by AstroRize
         </span>
       )}
       {row.legacy && row.kind !== "adjustment" && (
@@ -61,7 +61,7 @@ function downloadCsv(data: Earnings) {
       r.gross,
       r.sharePct ?? (r.legacy ? "before split" : ""),
       r.amount,
-      r.fundedBy === "PLATFORM" ? "Astrorize (free-call compensation)" : "Customer",
+      r.fundedBy === "PLATFORM" ? "AstroRize (free-call compensation)" : "Customer",
     ]),
   ];
   const csv = rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
@@ -128,10 +128,10 @@ export default function EarningsView({ data }: { data: Earnings }) {
         <div className="relative mt-[18px] flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-[18px] py-3.5 max-lg:mt-3.5 max-lg:gap-2.5 max-lg:rounded-app-card max-lg:p-3">
           <span className="text-base text-rose-700">⏸</span>
           <div className="flex-1">
-            <b className="block text-sm text-rose-700">Your payouts are paused by Astrorize Finance</b>
+            <b className="block text-sm text-rose-700">Your payouts are paused by AstroRize Finance</b>
             <span className="mt-0.5 block text-[13px] leading-[1.5] break-words text-rose-900">
               {data.payoutPauseReason ? `Reason: ${data.payoutPauseReason}. ` : ""}Your earnings keep accruing and are paid in
-              the first payout after the pause ends. Message Astrorize if you have questions.
+              the first payout after the pause ends. Message AstroRize if you have questions.
             </span>
           </div>
         </div>
@@ -170,11 +170,11 @@ export default function EarningsView({ data }: { data: Earnings }) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="m-0 text-[17px] font-bold max-lg:text-[16px]">Free-call compensation</h2>
           <span className="inline-flex h-[24px] items-center rounded-full bg-emerald-50 px-2.5 text-[11.5px] font-bold text-emerald-700">
-            Paid by Astrorize · {free.cycle}
+            Paid by AstroRize · {free.cycle}
           </span>
         </div>
         <p className="mt-1.5 mb-0 text-[13px] leading-[1.55] text-stone-600">
-          Customers pay nothing for free-call minutes. Astrorize pays you for them at your session rate × your share, in a
+          Customers pay nothing for free-call minutes. AstroRize pays you for them at your session rate × your share, in a
           separate {free.cycle === "weekly" ? "weekly" : "monthly"} payout.
         </p>
         <div className="mt-3.5 grid grid-cols-2 gap-3 min-[700px]:grid-cols-4">
@@ -295,10 +295,10 @@ export default function EarningsView({ data }: { data: Earnings }) {
         </div>
         <p className="mt-3 mb-0 text-[11.5px] leading-[1.5] text-stone-500 max-lg:text-[12px] max-lg:text-app-ink-3">
           Your amount is the gross × your share, rounded down to the rupee. Free-call compensation lines are paid separately by
-          Astrorize and aren&apos;t in this period&apos;s totals.
+          AstroRize and aren&apos;t in this period&apos;s totals.
           {hasLegacy && " Lines marked “Before split” were recorded before revenue sharing began and count in full."}
           {hasRefunds &&
-            " A refund adjustment takes back your share of a refund Astrorize gave a customer after a complaint; it comes off your next payout (if it is more than that payout, the rest carries to the one after)."}
+            " A refund adjustment takes back your share of a refund AstroRize gave a customer after a complaint; it comes off your next payout (if it is more than that payout, the rest carries to the one after)."}
         </p>
       </Panel>
     </div>

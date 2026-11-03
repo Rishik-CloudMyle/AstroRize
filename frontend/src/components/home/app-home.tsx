@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api/client";
 import { rupee } from "@/lib/format";
-import { resetWeekday } from "@/lib/free-calls";
+import { bonusNote, resetWeekday } from "@/lib/free-calls";
 import type { Offer } from "@/lib/offers";
 import { usableWelcome, useSession } from "@/lib/session-store";
 import type { Astrologer, FeaturedReview, LiveRoom, Tool } from "@/lib/types";
@@ -56,7 +56,7 @@ export default function AppHome({
       {welcome && (
         <Link
           href="/astrologers?availability=Free%20call"
-          aria-label={`Free minutes: ${welcome.weekly.remaining} of ${welcome.weekly.total} left this week. Find astrologers taking free calls`}
+          aria-label={`Free minutes: ${welcome.weekly.remaining} of ${welcome.weekly.total} left this week${bonusNote(welcome)}. Find astrologers taking free calls`}
           className="mt-3.5 flex min-h-[64px] items-center gap-3 rounded-app-card border border-[#f3d9b8] bg-[linear-gradient(100deg,#fff4ea,#fffaf3_55%,#fdf1e6)] px-3 py-2.5 hover:no-underline"
         >
           <span aria-hidden="true" className="text-[30px] leading-none">🎁</span>
@@ -67,6 +67,9 @@ export default function AppHome({
             <b className="block font-display text-[22px] leading-[1.05] font-semibold text-app-ink">
               {welcome.weekly.remaining} of {welcome.weekly.total} min left
             </b>
+            {welcome.joining.remaining > 0 && (
+              <span className="block text-[11.5px] font-bold text-emerald-700">+ {welcome.joining.remaining} min joining bonus</span>
+            )}
             <span className="mt-0.5 block text-[11.5px] font-bold text-[#b45309]">Find astrologers taking free calls</span>
           </span>
           <span
@@ -332,31 +335,31 @@ function Spotlight({ astrologers, rooms, enabled }: { astrologers: Astrologer[];
   if (welcome) {
     slides.push({
       id: "welcome",
-      kicker: "Astrorize Spotlight",
+      kicker: "AstroRize Spotlight",
       title: "Free minutes every week",
-      lead: `${welcome.weekly.remaining} of ${welcome.weekly.total} min left this week · Chat or Voice`,
+      lead: `${welcome.weekly.remaining} of ${welcome.weekly.total} min left this week${bonusNote(welcome)} · Chat or Voice`,
       cta: "Find astrologers",
       href: "/astrologers?availability=Free%20call",
       art: "/assets/spotlight/spotlight-welcome.jpg",
     });
   } else if (session.ready && !session.loggedIn && astrologers.some((a) => a.freeCall)) {
-    // freeCall is only ever on while Astrorize's welcome free calls are switched on.
+    // freeCall is only ever on while AstroRize's welcome free calls are switched on.
     slides.push({
       id: "welcome",
-      kicker: "Astrorize Spotlight",
-      title: "Free minutes every week",
-      lead: "Free Chat or Voice minutes with astrologers marked “Free call”",
+      kicker: "AstroRize Spotlight",
+      title: "5 minutes free when you join",
+      lead: "Plus free minutes every week — Chat or Voice with astrologers marked “Free call”",
       cta: "Sign up free",
       href: "/signup",
       art: "/assets/spotlight/spotlight-welcome.jpg",
     });
   }
   for (const o of offers) {
-    slides.push({ id: `offer-${o.id}`, kicker: "Astrorize Offer", title: o.name, lead: o.summary, cta: "See offer", href: "/offers", art: "/assets/spotlight/spotlight-welcome.jpg" });
+    slides.push({ id: `offer-${o.id}`, kicker: "AstroRize Offer", title: o.name, lead: o.summary, cta: "See offer", href: "/offers", art: "/assets/spotlight/spotlight-welcome.jpg" });
   }
   slides.push({
     id: "panchang",
-    kicker: "Astrorize Spotlight",
+    kicker: "AstroRize Spotlight",
     title: "Read today’s Panchang",
     lead: "Tithi, nakshatra and the day’s timings — free.",
     cta: "Open Panchang",
@@ -365,7 +368,7 @@ function Spotlight({ astrologers, rooms, enabled }: { astrologers: Astrologer[];
   });
   slides.push({
     id: "live",
-    kicker: "Astrorize Spotlight",
+    kicker: "AstroRize Spotlight",
     title: rooms > 0 ? "Live Rooms are on air" : "Evening Live Rooms",
     lead:
       rooms > 0
@@ -390,7 +393,7 @@ function Spotlight({ astrologers, rooms, enabled }: { astrologers: Astrologer[];
   }
 
   return (
-    <section aria-roledescription="carousel" aria-label="Astrorize Spotlight" className="mt-3">
+    <section aria-roledescription="carousel" aria-label="AstroRize Spotlight" className="mt-3">
       <div
         ref={rail}
         onScroll={(e) => {

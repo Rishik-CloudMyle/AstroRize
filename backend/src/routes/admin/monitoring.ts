@@ -385,7 +385,7 @@ monitoringRouter.post("/suspensions/:id", async (req, res) => {
     await notify(
       a.userId,
       level === "none"
-        ? { kind: "account.restored", title: "Your account suspension was lifted", body: `You can take consultations and go live again. Note from Astrorize: ${reason}`, href: "/portal" }
+        ? { kind: "account.restored", title: "Your account suspension was lifted", body: `You can take consultations and go live again. Note from AstroRize: ${reason}`, href: "/portal" }
         : {
             kind: "account.suspended",
             title: `Your account was ${LEVEL_NAME[level]}`,

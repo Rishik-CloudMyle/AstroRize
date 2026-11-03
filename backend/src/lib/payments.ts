@@ -6,6 +6,7 @@ import { GST_RATE } from "./billing.ts";
 import { cashbackQuotes, useClaim } from "./campaigns.ts";
 import { HttpError, badRequest } from "./errors.ts";
 import { istDate, istTime, makeRef, rupee } from "./format.ts";
+import { getSetting } from "./settings.ts";
 import {
   RazorpayError,
   capturePayment,
@@ -40,11 +41,34 @@ const uniqueTxnRef = async (tx: Tx, prefix: string) => {
   }
 };
 
-/** Step 1: the Payment row and its Razorpay order. */
+/** Custom recharge amounts (client, Nov 2026): Finance switches them on and sets the range (Finance page). */
+export interface CustomAmount {
+  enabled: boolean;
+  /** Smallest and largest custom amount, whole rupees */
+  min: number;
+  max: number;
+}
+
+export const CUSTOM_AMOUNT_DEFAULT: CustomAmount = { enabled: true, min: 50, max: 50000 };
+
+export function customAmountPolicy(): Promise<CustomAmount> {
+  return getSetting<CustomAmount>("wallet.customAmount", CUSTOM_AMOUNT_DEFAULT);
+}
+
+/**
+ * Step 1: the Payment row and its Razorpay order. The amount is one of the enabled denominations
+ * (with its bonus), or a custom amount within Finance's range (no bonus).
+ */
 export async function createRecharge(userId: string, amount: number) {
   if (!razorpayConfigured()) throw new HttpError(503, NOT_CONNECTED, "payments_unavailable");
   const denom = await db.denomination.findUnique({ where: { amount } });
-  if (!denom?.enabled) throw badRequest("That recharge amount isn't available.");
+  if (!denom?.enabled) {
+    const custom = await customAmountPolicy();
+    if (!custom.enabled) throw badRequest("That recharge amount isn't available.");
+    if (amount < custom.min || amount > custom.max) {
+      throw badRequest(`Enter an amount from ${rupee(custom.min)} to ${rupee(custom.max)}.`);
+    }
+  }
   const gst = Math.round(amount * GST_RATE);
   const total = amount + gst;
   // A claimed cashback offer that fits this amount (its use is taken when the payment succeeds).
@@ -63,7 +87,7 @@ export async function createRecharge(userId: string, amount: number) {
       userId,
       amount,
       gst,
-      bonus: denom.bonus,
+      bonus: denom?.enabled ? denom.bonus : 0,
       cashback: offer?.cashback ?? 0,
       campaignClaimId: offer?.claimId ?? null,
       total,

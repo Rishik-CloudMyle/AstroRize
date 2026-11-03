@@ -12,7 +12,7 @@ import { purgeDaily } from "./lib/retention.ts";
 
 const app = createApp();
 const server = app.listen(config.port, () => {
-  console.log(`Astrorize API listening on http://localhost:${config.port}`);
+  console.log(`AstroRize API listening on http://localhost:${config.port}`);
   // Which Razorpay mode is on (never the keys themselves).
   if (!razorpayConfigured()) console.log("Razorpay isn't configured: recharges are off.");
   else if (config.isProduction && razorpayMode() === "test") console.warn("⚠ Razorpay TEST keys in production: no real money is collected.");

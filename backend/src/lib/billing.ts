@@ -12,8 +12,18 @@ export const GST_RATE = 0.18;
 
 export type Mode = "CHAT" | "VOICE" | "VIDEO";
 
-export function rateFor(price: number, mode: Mode): number {
+/**
+ * Per-minute rate by mode: chat at the astrologer's own chat price when they set one (client, Nov
+ * 2026), voice at their price, video at their price + the video premium.
+ */
+export function rateFor(price: number, mode: Mode, chatPrice?: number | null): number {
+  if (mode === "CHAT" && chatPrice) return chatPrice;
   return price + (mode === "VIDEO" ? VIDEO_PREMIUM : 0);
+}
+
+/** The astrologer's chat rate: their own chat price, or their call price when they haven't set one. */
+export function chatRate(a: { price: number; chatPrice: number | null }): number {
+  return rateFor(a.price, "CHAT", a.chatPrice);
 }
 
 /** Instant Call rate: the standard rate × the astrologer's multiplier. */

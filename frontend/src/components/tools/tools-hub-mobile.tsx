@@ -111,7 +111,7 @@ export default function ToolsHubMobile({ tools }: { tools: Tool[] }) {
       )}
 
       <p className="mt-3.5 mb-0 text-[12px] leading-[1.45] text-app-ink-2">
-        Calculated by Astrorize&apos;s own astrology engine (sidereal, Lahiri). Your Kundli needs a free account and is
+        Calculated by AstroRize&apos;s own astrology engine (sidereal, Lahiri). Your Kundli needs a free account and is
         saved privately to it; the other tools need no login.
       </p>
     </div>

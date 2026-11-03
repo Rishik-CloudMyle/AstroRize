@@ -52,7 +52,7 @@ export default function LoginPageView({ next, initialMethod }: { next: string | 
         setLeaving(true);
         const to = destinationFor(user.role, next);
         // A re-activated account already got its "Welcome back — active again" note.
-        if (user.role === "customer" && !user.reactivated) toast(`Welcome back${user.name && user.name !== "Astrorize customer" ? `, ${user.name.split(" ")[0]}` : ""}.`);
+        if (user.role === "customer" && !user.reactivated) toast(`Welcome back${user.name && user.name !== "AstroRize customer" ? `, ${user.name.split(" ")[0]}` : ""}.`);
         router.push(to);
       }}
       onGuest={() => router.push(destinationFor("customer", next))}

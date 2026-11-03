@@ -20,7 +20,7 @@ import { useCallMedia, type CallMedia, type Speaker } from "./use-call-media";
 // Billing starts only once BOTH sides have really joined: the call reports "joined"
 // (POST <base>/joined) when this side is in the conversation — on a voice or video call once its
 // own stream is published AND the other side's is playing; on a chat (or a call while voice/video
-// isn't set up on Astrorize) as soon as the window is open. Until the server says billing started,
+// isn't set up on AstroRize) as soon as the window is open. Until the server says billing started,
 // the caller passes `waiting` and the window says so.
 //
 // `appLook` (the customer's side): below 1024px the window takes the customer mobile app's screens —
@@ -151,7 +151,7 @@ export function SessionWindow({
     const box = `${noticeBox} ${where}`;
     return media.notConfigured ? (
     <div role="status" className={`${box} border-amber-300/40 bg-amber-300/10 leading-normal text-amber-100 ${LL("max-lg:border-app-tint-3 max-lg:bg-app-tint max-lg:text-app-ink-2")}`}>
-      <b className={LL("max-lg:text-app-ink")}>{kind === "video" ? "Video" : "Voice"} isn&apos;t connected on Astrorize yet</b> — use the chat here. The timer and billing work as usual.
+      <b className={LL("max-lg:text-app-ink")}>{kind === "video" ? "Video" : "Voice"} isn&apos;t connected on AstroRize yet</b> — use the chat here. The timer and billing work as usual.
       {kind !== "chat" && !drawer && (
         <button type="button" onClick={() => setDrawer(true)} className={`ml-1.5 font-bold text-amber-300 underline ${LL("max-lg:text-app-accent")}`}>
           Open chat
@@ -475,11 +475,11 @@ function SoundBlocked({ media, className = "" }: { media: CallMedia; className?:
 const PROBLEM_TEXT: Record<string, { title: string; body: string }> = {
   denied: {
     title: "Access is blocked",
-    body: "Your browser is blocking it for Astrorize. Click the camera or lock icon in the address bar (on a phone: browser settings → Site settings), choose Allow for the camera and microphone, then tap Try again.",
+    body: "Your browser is blocking it for AstroRize. Click the camera or lock icon in the address bar (on a phone: browser settings → Site settings), choose Allow for the camera and microphone, then tap Try again.",
   },
   no_device: { title: "No device found", body: "We couldn't find a camera or microphone. Connect one (or check it's switched on), then tap Try again." },
   in_use: { title: "Device is busy", body: "Another app or tab is using your camera or microphone. Close it, then tap Try again." },
-  insecure: { title: "Secure connection needed", body: "Calls only work on a secure (https) page. Reopen Astrorize from its normal address." },
+  insecure: { title: "Secure connection needed", body: "Calls only work on a secure (https) page. Reopen AstroRize from its normal address." },
   unsupported: { title: "This browser can't make calls", body: "Use a recent Chrome, Safari, Edge or Firefox to join voice and video calls." },
   unknown: { title: "Couldn't start your devices", body: "Something went wrong turning them on. Tap Try again." },
 };
@@ -515,7 +515,7 @@ function DevicesCard({ media, video, peerName, endNote, light }: { media: CallMe
           <b className={`mt-3 block text-[16px] text-paper ${LT("max-lg:text-app-ink")}`}>Turn on your {what}</b>
           <p className={`mt-1.5 text-[13.5px] leading-[1.55] text-stone-300 ${LT("max-lg:text-[13px] max-lg:text-app-ink-2")}`}>
             {media.notConfigured
-              ? `Check how you look before ${peerName} can see you. Video isn't connected on Astrorize yet, so this preview stays on your device — nothing is sent.`
+              ? `Check how you look before ${peerName} can see you. Video isn't connected on AstroRize yet, so this preview stays on your device — nothing is sent.`
               : video
                 ? `This is a video consultation: ${peerName} will see and hear you. Your browser will ask — choose Allow.`
                 : `So ${peerName} can hear you. Only the microphone is used — your camera is never turned on for a voice call.`}

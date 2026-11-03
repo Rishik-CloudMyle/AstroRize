@@ -40,10 +40,10 @@ export interface ConversationSummary {
   unread: number;
 }
 
-/** A conversation the Astrorize team started with the customer ("Astrorize support"), in GET /api/messages. */
+/** A conversation the AstroRize team started with the customer ("AstroRize support"), in GET /api/messages. */
 export interface SupportSummary {
   id: string;
-  /** Always "Astrorize support" for a customer. */
+  /** Always "AstroRize support" for a customer. */
   title: string;
   subject: string | null;
   preview: string;
@@ -55,7 +55,7 @@ export interface SupportSummary {
 export interface SupportMessage {
   id: string;
   from: "me" | "team";
-  /** "Neha · Astrorize support"; null for my own messages. */
+  /** "Neha · AstroRize support"; null for my own messages. */
   author: string | null;
   text: string;
   at: string;
@@ -69,7 +69,7 @@ export interface SupportDetail {
   messages: SupportMessage[];
 }
 
-/** Longest message in a conversation with the Astrorize team. */
+/** Longest message in a conversation with the AstroRize team. */
 export const MAX_SUPPORT_MESSAGE_LENGTH = 2000;
 
 /** GET /api/messages/search/astrologers?q= — listed astrologers to start a conversation with. */

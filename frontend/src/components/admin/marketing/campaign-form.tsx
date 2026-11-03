@@ -14,7 +14,7 @@ type Limits = Pick<MarketingData, "maxDiscountPct" | "floorPct" | "floorMode" | 
 
 const KINDS: { key: CampaignKind; title: string; body: string }[] = [
   { key: "RECHARGE_CASHBACK", title: "Recharge cashback", body: "A percent of a recharge back as promotional credit." },
-  { key: "CONSULT_DISCOUNT", title: "Consultation discount", body: "A percent off the per-minute price. Astrorize pays the discount." },
+  { key: "CONSULT_DISCOUNT", title: "Consultation discount", body: "A percent off the per-minute price. AstroRize pays the discount." },
   { key: "BONUS_CREDIT", title: "Bonus credit", body: "Flat promotional credit, added when the customer claims it." },
 ];
 

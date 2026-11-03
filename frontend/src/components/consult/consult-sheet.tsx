@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef } from "react";
 import type { Astrologer, ConsultMode, WelcomeBenefit } from "@/lib/types";
 import { rateFor, rupee } from "@/lib/format";
-import { freeLength, freeLengthLong, resetWeekday } from "@/lib/free-calls";
+import { bonusNote, freeLength, freeLengthLong, resetWeekday } from "@/lib/free-calls";
 import { discountedRate, type ConsultDiscount } from "@/lib/offers";
 import type { MakeGoodCredit } from "@/lib/makegood";
 import { Portrait } from "../astrologer/parts";
@@ -28,7 +28,7 @@ export type PayChoice = "free" | "paid";
  */
 export function quotedRateFor(a: Astrologer, choice: ConsultChoice, discountPct = 0): number {
   if (choice === "instant") return a.instant;
-  const rate = rateFor(a.price, choice);
+  const rate = rateFor(a.price, choice, a.chatPrice);
   return discountPct > 0 ? discountedRate(rate, discountPct) : rate;
 }
 
@@ -426,7 +426,7 @@ function SheetLead({
   if (freeHere && welcome) {
     return (
       <p className="mt-0.5 text-[12.5px] text-stone-600">
-        <span className="font-bold text-emerald-700">Takes free calls</span> · use {welcome.weekly.remaining} free minutes (Chat or Voice) or
+        <span className="font-bold text-emerald-700">Takes free calls</span> · use {welcome.remaining} free minutes (Chat or Voice) or
         pay per minute — your choice.
       </p>
     );
@@ -516,7 +516,7 @@ function ChoiceDetail({
           <b className="block text-[14px] text-emerald-800">
             {discount.pct}% off applied · {rupee(rate)}/min instead of {rupee(quotedRateFor(a, choice))}
           </b>
-          Your offer “{discount.name}” — fixed for this whole session, paid by Astrorize. It&apos;s used once the call connects.
+          Your offer “{discount.name}” — fixed for this whole session, paid by AstroRize. It&apos;s used once the call connects.
         </div>
       )}
       {eligible ? (
@@ -593,7 +593,7 @@ function PayChooser({
             {replacement
               ? `${replacement.minutes} min · Chat, Voice or Video`
               : welcome
-                ? `${welcome.weekly.remaining} of ${welcome.weekly.total} min left · Chat or Voice`
+                ? `${welcome.remaining} free min left · Chat or Voice`
                 : ""}
           </span>
         </button>
@@ -620,7 +620,7 @@ function PayChooser({
                   role="radio"
                   aria-checked={on}
                   disabled={!l.fits}
-                  title={l.fits ? undefined : `Only ${welcome.weekly.remaining} free minutes left this week`}
+                  title={l.fits ? undefined : `Only ${welcome.remaining} free minutes left`}
                   onClick={() => onFreeMinutes?.(l.minutes)}
                   className={`min-h-11 min-w-[72px] rounded-full border-2 px-4 text-[14px] font-bold tabular-nums transition-colors disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400 disabled:line-through ${
                     on ? "border-emerald-700 bg-emerald-700 text-white" : "border-emerald-300 bg-white text-emerald-800 hover:border-emerald-600"
@@ -632,7 +632,7 @@ function PayChooser({
             })}
           </div>
           <span className="mt-2 block">
-            {welcome.weekly.remaining} of {welcome.weekly.total} free minutes left this week · resets {resetWeekday(welcome.weekly.resetsAt)}. The full
+            {welcome.weekly.remaining} of {welcome.weekly.total} free minutes left this week{bonusNote(welcome)} · resets {resetWeekday(welcome.weekly.resetsAt)}. The full
             length you choose is used once the call starts, even if you end it sooner (a call that never starts uses nothing).
           </span>
         </div>

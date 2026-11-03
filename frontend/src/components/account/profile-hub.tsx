@@ -30,7 +30,7 @@ function maskedPhone(phone: string): string | null {
   return `+91 XXXXX ${digits.slice(-4)}`;
 }
 
-/** The footer's "T&C" column plus "About Astrorize": every legal page stays one tap away on phones. */
+/** The footer's "T&C" column plus "About AstroRize": every legal page stays one tap away on phones. */
 const LEGAL_LINKS = [
   ...(FOOTER_COLUMNS.find((c) => c.title === "T&C")?.links ?? []),
   ...(FOOTER_COLUMNS.find((c) => c.title === "Company")?.links.filter((l) => l.label.startsWith("About")) ?? []),
@@ -121,7 +121,7 @@ export default function ProfileHub() {
       <>
         <AppCard padding="lg" className="mt-4 text-center">
           <Image src="/assets/brand/logo-mark.png" alt="" width={56} height={56} className="mx-auto size-14 object-contain" />
-          <h2 className="mt-2 mb-1 font-display text-[24px] leading-tight font-semibold text-app-ink">Welcome to Astrorize</h2>
+          <h2 className="mt-2 mb-1 font-display text-[24px] leading-tight font-semibold text-app-ink">Welcome to AstroRize</h2>
           <p className="m-0 text-[13px] leading-[1.45] text-app-ink-2">Log in to see your wallet, messages and notifications.</p>
           <AppButton block className="mt-4" onClick={() => openLogin()}>
             Log in

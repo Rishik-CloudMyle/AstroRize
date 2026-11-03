@@ -38,7 +38,7 @@ export default async function MarketingPage() {
         <span className="text-[16px] text-amber-800">ⓘ</span>
         <span className="flex-1 text-[13px] leading-[1.5] text-amber-900">
           <b>Claim first, then use.</b> Customers are told about a live offer in their notifications and claim it on the Offers
-          page. A claimed cashback is added at their next recharge, a discount at their next consultation (Astrorize pays it —
+          page. A claimed cashback is added at their next recharge, a discount at their next consultation (AstroRize pays it —
           the astrologer still earns on the full price), and a bonus credit straight away. Legacy campaigns are listed only.
         </span>
       </div>

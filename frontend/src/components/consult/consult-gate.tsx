@@ -30,9 +30,9 @@ export function useConsultGate(astrologer: Astrologer): ConsultGate {
   return { kind: "ok" };
 }
 
-/** "an astrologer account" / "an Astrorize staff account" */
+/** "an astrologer account" / "an AstroRize staff account" */
 export function staffAccountName(role: Exclude<Role, "customer">): string {
-  return role === "astrologer" ? "an astrologer account" : "an Astrorize staff account";
+  return role === "astrologer" ? "an astrologer account" : "an AstroRize staff account";
 }
 
 /** One-line reason, for toasts and button tooltips. */

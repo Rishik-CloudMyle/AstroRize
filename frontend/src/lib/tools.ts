@@ -1,7 +1,7 @@
 import type { Tool } from "./types";
 
 // The free tools (from the prototype's logic.js → TOOLS): names, art and descriptions.
-// Results come from Astrorize's astrology engine (/api/astro, see lib/astro.ts); numerology
+// Results come from AstroRize's astrology engine (/api/astro, see lib/astro.ts); numerology
 // and tarot are worked out in the browser.
 const TOOLS: Tool[] = [
   {

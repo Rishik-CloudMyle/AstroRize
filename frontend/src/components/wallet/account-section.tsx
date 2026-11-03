@@ -445,7 +445,7 @@ export function ClosedNotice({ closed, onLogin }: { closed: Closed; onLogin: () 
       </div>
       <h2 className="mt-4 font-display text-[28px] font-semibold text-ink">Your account has been deleted</h2>
       <p className="mx-auto mt-2 max-w-[44ch] text-sm leading-normal text-stone-600">
-        Your personal details have been erased and you&apos;ve been logged out everywhere. Thank you for being with Astrorize.
+        Your personal details have been erased and you&apos;ve been logged out everywhere. Thank you for being with AstroRize.
       </p>
       {closed.refund ? (
         <div className="mx-auto mt-5 max-w-[400px] rounded-2xl border border-line bg-cream px-4 py-3.5 text-left text-[13.5px]">

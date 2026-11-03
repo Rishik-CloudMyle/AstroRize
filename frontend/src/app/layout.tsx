@@ -55,8 +55,8 @@ const jetbrains = localFont({
 
 export const metadata: Metadata = {
   title: {
-    default: "Astrorize — Talk to a verified astrologer",
-    template: "%s · Astrorize",
+    default: "AstroRize — Talk to India's Best Astrologers",
+    template: "%s · AstroRize",
   },
   description:
     "Consult verified astrologers by chat, voice or video. Pay by the minute, first 60 seconds free, masked calls and one charge after the session ends.",

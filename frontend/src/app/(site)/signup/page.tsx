@@ -4,14 +4,14 @@ import SignupView from "./signup-view";
 
 export const metadata: Metadata = {
   title: "Sign up",
-  description: "Create your Astrorize account to consult verified astrologers, or apply to join Astrorize as an astrologer.",
+  description: "Create your AstroRize account to consult verified astrologers, or apply to join AstroRize as an astrologer.",
 };
 
 export default async function SignupPage(props: PageProps<"/signup">) {
   const { as, next } = await props.searchParams;
   return (
     <AuthShell
-      eyebrow="Join Astrorize"
+      eyebrow="Join AstroRize"
       title="Guidance from verified astrologers, whenever you need it."
       points={[
         "Sign up with your mobile number — no password needed.",

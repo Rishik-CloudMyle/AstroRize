@@ -66,7 +66,7 @@ import {
 } from "../lib/welcome.ts";
 import { effectivePresence, syncPresence } from "../lib/presence.ts";
 import { cashbackQuotes, discountQuote, discountedRate } from "../lib/campaigns.ts";
-import { NOT_CONNECTED, createRecharge, paymentReceipt, paymentRefsFor, paymentResult, reconcile, settle, type Settled } from "../lib/payments.ts";
+import { NOT_CONNECTED, createRecharge, customAmountPolicy, paymentReceipt, paymentRefsFor, paymentResult, reconcile, settle, type Settled } from "../lib/payments.ts";
 import { RazorpayError, checkoutSignatureValid, fetchPayment, razorpayConfigured } from "../lib/razorpay.ts";
 import { astrologerView } from "./catalog.ts";
 import { configNumber } from "../lib/settings.ts";
@@ -140,6 +140,8 @@ customerRouter.get("/wallet/denominations", async (req, res) => {
       cashbackFrom: quotes[i]?.name ?? null,
     })),
     gstRate: GST_RATE,
+    /** Any whole amount in this range can be recharged too (no bonus), while Finance has it on. */
+    custom: await customAmountPolicy(),
     /** Razorpay is connected (otherwise the website says recharges aren't available yet). */
     payments: { available: razorpayConfigured(), provider: "razorpay" },
   });
@@ -412,7 +414,7 @@ customerRouter.post("/consultations", async (req, res) => {
   const astrologer = await availableAstrologer(astrologerId);
   // The rate is fixed now and the whole session is billed at it. A claimed consultation offer
   // lowers it — never together with a free call or a free replacement call.
-  const listRate = rateFor(astrologer.price, mode as Mode);
+  const listRate = rateFor(astrologer.price, mode as Mode, astrologer.chatPrice);
   const offer = welcome || makeGoodCreditId ? null : await discountQuote(me.user.id);
   const rate = offer ? discountedRate(listRate, offer.pct) : listRate;
   if (quotedRate !== undefined && quotedRate !== rate) {
@@ -870,7 +872,7 @@ customerRouter.delete("/me/photo", async (req, res) => {
 
 // ── Astrologer Messenger ──
 // Free direct messages with an astrologer (text, photos and short videos). One conversation per astrologer; any
-// listed astrologer can be messaged. Conversations started by the Astrorize team sit alongside.
+// listed astrologer can be messaged. Conversations started by the AstroRize team sit alongside.
 
 const START_RULE = "This astrologer isn't taking new messages right now.";
 
@@ -882,7 +884,7 @@ const messengerAstrologer = (a: Pick<Astrologer, "id" | "slug" | "name" | "initi
   photo: a.photo,
 });
 
-/** My conversations, latest first, and those with Astrorize support. */
+/** My conversations, latest first, and those with AstroRize support. */
 customerRouter.get("/messages", async (req, res) => {
   const [threads, support] = await Promise.all([
     db.messageThread.findMany({
@@ -943,7 +945,7 @@ customerRouter.get("/messages/search/astrologers", async (req, res) => {
   });
 });
 
-// Conversations the Astrorize team started with this customer ("Astrorize support").
+// Conversations the AstroRize team started with this customer ("AstroRize support").
 
 customerRouter.get("/messages/support/:id", async (req, res) => {
   const me = auth(req).user;

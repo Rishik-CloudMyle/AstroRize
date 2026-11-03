@@ -161,7 +161,7 @@ export default function ProfileView({ data }: { data: ProfileData }) {
 
         <div className="relative rounded-[20px] border border-amber-200 bg-amber-50 p-5 max-lg:rounded-app-card max-lg:border-app-tint-3 max-lg:bg-app-tint max-lg:p-4">
           <h2 className="m-0 mb-1 text-base font-bold">What customers see</h2>
-          <p className="mb-3.5 text-[12.5px] text-amber-800">This is exactly how your card appears to customers on Astrorize.</p>
+          <p className="mb-3.5 text-[12.5px] text-amber-800">This is exactly how your card appears to customers on AstroRize.</p>
           <div className="az-panel rounded-[20px] border border-line-warm p-3.5 shadow-[0_8px_20px_rgba(90,62,40,.07)]">
             <div className="flex items-start gap-3">
               <span className="relative size-[72px] flex-[0_0_72px]">

@@ -57,7 +57,7 @@ const opensItself = (s: Consultations["session"]) => !!s && (s.astrologerJoined 
 function FreeBadge({ className = "" }: { className?: string }) {
   return (
     <span
-      title="The customer's free call: Astrorize pays you for the free minutes (monthly, at your rate × your share); any paid minutes after them earn as usual."
+      title="The customer's free call: AstroRize pays you for the free minutes (monthly, at your rate × your share); any paid minutes after them earn as usual."
       className={`inline-flex h-[22px] items-center rounded-full bg-emerald-700 px-2 text-[10.5px] font-extrabold tracking-[.04em] text-white ${className}`}
     >
       🎁 FREE CALL

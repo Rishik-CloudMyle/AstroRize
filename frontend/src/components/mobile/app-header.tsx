@@ -1,11 +1,11 @@
 // The top bar of the phone/tablet app look (< 1024px), as on the prototype's Home
-// (.home-head): the gold logo mark and "Astrorize" in the display serif on the left, round
+// (.home-head): the gold logo mark and "AstroRize" in the display serif on the left, round
 // controls on the right (wallet chip, notification bell…). Sticky, on the page background.
 // Hidden at ≥ 1024px (lg:hidden): desktop keeps its own header.
 //
 // <AppHeader href="/" kicker="Astrologer portal" actions={<>…</>}>{below}</AppHeader>
 //   href     where the brand links (default "/")
-//   kicker   optional small caps line under "Astrorize" (the portal says "Astrologer portal")
+//   kicker   optional small caps line under "AstroRize" (the portal says "Astrologer portal")
 //   actions  the right-hand controls (use WalletChip / HeaderIconButton / NotificationBell variant="app")
 //   children optional full-width strip under the bar (e.g. the "consultation in progress" bar)
 //
@@ -33,7 +33,7 @@ export function AppHeader({
         <Link href={href} className="flex min-w-0 flex-1 items-center gap-2 text-app-ink hover:text-app-ink hover:no-underline">
           <Image src="/assets/brand/logo-mark.png" alt="" width={36} height={36} priority className="size-9 shrink-0 object-contain" />
           <span className="min-w-0">
-            <span className="block truncate font-display text-[20px] leading-tight font-semibold tracking-[.01em]">Astrorize</span>
+            <span className="block truncate font-display text-[20px] leading-tight font-semibold tracking-[.01em]">AstroRize</span>
             {kicker && <span className="block truncate text-[10px] leading-tight font-bold tracking-[.1em] text-app-ink-3 uppercase">{kicker}</span>}
           </span>
         </Link>

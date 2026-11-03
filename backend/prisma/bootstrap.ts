@@ -100,7 +100,7 @@ async function settings() {
 }
 
 async function main() {
-  console.log("Bootstrapping Astrorize reference data…");
+  console.log("Bootstrapping AstroRize reference data…");
   await configKeys();
   await denominations();
   await gifts();

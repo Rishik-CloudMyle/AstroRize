@@ -11,7 +11,7 @@ export default function SiteFooter() {
         <div className="col-span-2 min-w-0 md:col-span-1">
           <div className="flex items-center gap-2.5">
             <Image src="/assets/brand/logo-mark.png" alt="" width={36} height={36} className="size-9 shrink-0 object-contain" />
-            <span className="font-display text-[23px] font-semibold text-[#f8f4ec]">Astrorize</span>
+            <span className="font-display text-[23px] font-semibold text-[#f8f4ec]">AstroRize</span>
           </div>
           <p className="mt-3 max-w-[38ch] text-[13px] leading-relaxed text-muted">
             {COMPANY.legalName}. {COMPANY.tagline}

@@ -347,7 +347,7 @@ export class CallSession {
   /**
    * This side is really in the conversation: on a voice or video call once its own stream is
    * published AND the other side's is playing; on a chat (or a call while voice/video isn't set up
-   * on Astrorize) once the window has been open. Reported once per stretch — minimising or moving
+   * on AstroRize) once the window has been open. Reported once per stretch — minimising or moving
    * between pages doesn't report again; a call that dropped and came back does (the server's
    * record is idempotent and never moves when billing started).
    */

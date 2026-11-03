@@ -1,7 +1,7 @@
 {
   "name": "astrorize",
   "private": true,
-  "description": "Astrorize: public website + astrologer portal + admin console (frontend/) and the Node API (backend/).",
+  "description": "AstroRize: public website + astrologer portal + admin console (frontend/) and the Node API (backend/).",
   "scripts": {
     "setup": "npm install && npm install --prefix backend && npm install --prefix frontend",
     "db": "npm run db:dev --prefix backend",

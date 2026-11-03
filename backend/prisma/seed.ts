@@ -5,7 +5,7 @@
 
 import { db } from "../src/db.ts";
 import { hashPassword } from "../src/lib/password.ts";
-import { grantWelcome } from "../src/lib/welcome.ts";
+import { grantWelcome, welcomePolicy } from "../src/lib/welcome.ts";
 import { GST_RATE } from "../src/lib/billing.ts";
 import { istDateKey } from "../src/lib/format.ts";
 import { CONFIG_KEYS, DENOMINATIONS, GIFTS, REFERENCE_SETTINGS } from "./reference-data.ts";
@@ -151,7 +151,7 @@ async function main() {
   // Welcome benefit: each customer with a verified mobile number holds one free call.
   for (const u of [customer, ...queueCustomers]) {
     const phone = (await db.user.findUniqueOrThrow({ where: { id: u.id }, select: { phone: true } })).phone;
-    if (phone) await grantWelcome(u.id, phone);
+    if (phone) await grantWelcome(u.id, phone, (await welcomePolicy()).joiningBonusMinutes);
   }
 
   // Every listed astrologer has their own portal login, so each can come online and go live.
@@ -215,7 +215,7 @@ async function main() {
       id: "vikram", slug: "vikram-sethi", userId: vikramUser.id, name: "Vikram Sethi", initials: "VS", greeting: "Vikram", gender: "Male",
       recognition: "FRESH", presence: "OFF", skills: ["Vastu", "Palmistry"], languages: ["Hindi", "Punjabi"], years: 4, rating: null, consults: 24,
       price: 15, was: null, eta: null, photo: "/assets/avatars/astro-vikram.jpg", ratingDistribution: [16, 5, 2, 1, 0],
-      about: "New on Astrorize. Vastu walkthroughs for homes and small commercial spaces.",
+      about: "New on AstroRize. Vastu walkthroughs for homes and small commercial spaces.",
     },
     {
       id: "lalita", slug: "dr-lalita-bose", userId: lalitaUser.id, name: "Dr. Lalita Bose", initials: "LB", greeting: "Lalita", gender: "Female",
@@ -310,7 +310,7 @@ async function main() {
       ["CUSTOMER", "Namaste. When is a good muhurat for registering property?"],
       ["ASTROLOGER", "Let us look at your chart properly. Book a 15-minute voice consult and I will give you two windows."],
       ["CUSTOMER", "Sure. Can I call you on 98765 •••••"],
-      ["SYSTEM", "Contact details cannot be shared through Astrorize. Keep the conversation on the platform so both of you stay protected.", true],
+      ["SYSTEM", "Contact details cannot be shared through AstroRize. Keep the conversation on the platform so both of you stay protected.", true],
     ]],
     [queueCustomers[0]!, [["CUSTOMER", "thank you 🙏"]]],
     [queueCustomers[1]!, [["CUSTOMER", "can we move the fixed session?"]]],

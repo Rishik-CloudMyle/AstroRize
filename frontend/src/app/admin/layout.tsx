@@ -6,8 +6,8 @@ import { getSession } from "@/lib/admin/api";
 import { getEnvironment, NAV, ROLE_LABELS } from "@/lib/admin/constants";
 
 export const metadata: Metadata = {
-  title: { default: "Admin console", template: "%s · Admin · Astrorize" },
-  description: "Astrorize admin console.",
+  title: { default: "Admin console", template: "%s · Admin · AstroRize" },
+  description: "AstroRize admin console.",
   robots: { index: false, follow: false },
 };
 

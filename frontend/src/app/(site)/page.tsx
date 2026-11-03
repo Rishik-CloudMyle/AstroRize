@@ -4,6 +4,7 @@ import LiveBand from "@/components/home/live-band";
 import AppHome from "@/components/home/app-home";
 import AvailableNow from "@/components/home/available-now";
 import HeroSky, { ShootingStars, Sparkles } from "@/components/home/hero-sky";
+import PromoBanner from "@/components/home/promo-banner";
 import { consultationLabel } from "@/components/home/review-text";
 import Voices from "@/components/home/voices";
 import LiveRoomCard from "@/components/live-room-card";
@@ -30,10 +31,13 @@ export default async function HomePage() {
       <AppHome astrologers={astrologers} rooms={rooms} tools={tools} reviews={reviews} />
     </div>
     <div className="max-lg:hidden">
+      {/* ---------- Marketing banner (client, Nov 2026): offers first, the rest of the home page below it ---------- */}
+      <PromoBanner />
+
       {/* ---------- Hero ----------
           Wide screens (1440px+): text | who is available | wheel. Laptops: the available list sits
           under the text, beside the wheel. Tablets and phones: text, list, wheel, one under another. */}
-      <section className="relative overflow-hidden border-b border-line-warm bg-[radial-gradient(ellipse_at_74%_50%,#fff9ea_0%,#fdf0d3_45%,#f8e2b4_100%)]">
+      <section className="relative mt-5 overflow-hidden border-y border-line-warm bg-[radial-gradient(ellipse_at_74%_50%,#fff9ea_0%,#fdf0d3_45%,#f8e2b4_100%)]">
         <Sparkles className="absolute inset-0" />
         <ShootingStars className="absolute inset-0 size-full" />
         <div className="relative mx-auto grid max-w-[1240px] items-center gap-x-12 gap-y-8 px-4 pb-10 pt-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-y-7 lg:pb-9 lg:pt-8 min-[90rem]:grid-cols-[minmax(0,1fr)_272px_auto] min-[90rem]:gap-x-9 min-[90rem]:pb-10 min-[90rem]:pt-10">
@@ -45,7 +49,7 @@ export default async function HomePage() {
               data-sky-avoid
               className="mt-[18px] text-balance font-display text-[42px] font-semibold leading-[1.02] tracking-[-.02em] text-ink sm:text-[52px] lg:mt-4 lg:text-[56px] min-[90rem]:text-[54px]"
             >
-              Talk To A Verified Astrologer, Today
+              Talk to India&apos;s Best Astrologers
             </h1>
             <p data-sky-avoid className="mt-[18px] max-w-[44ch] text-pretty text-base leading-normal text-stone-600 sm:text-[17px] lg:mt-4">
               Pay by the minute. Masked calls, so your number stays private. Wallet money is held, never nibbled — you see

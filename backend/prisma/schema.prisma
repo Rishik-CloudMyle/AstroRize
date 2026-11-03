@@ -1,4 +1,4 @@
-// Astrorize database schema (PostgreSQL).
+// AstroRize database schema (PostgreSQL).
 // Money is stored in whole rupees (Int). Times are stored in UTC and shown in IST.
 
 generator client {
@@ -108,6 +108,9 @@ model WelcomeBenefit {
   revokeReason   String?
   /// Times it came back after a call dropped early through no fault of the customer (bounded).
   faultRestores  Int       @default(0)
+  /// One-time joining bonus (free minutes) given when this mobile number first joined: Config
+  /// welcome.joining_bonus_minutes at that moment. Used after the week's free minutes; never resets.
+  bonusMinutes   Int       @default(0)
   updatedAt      DateTime  @updatedAt
   uses           FreeCallUse[]
 
@@ -123,6 +126,8 @@ model PriceChange {
   astrologer     Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
   fromPrice      Int
   toPrice        Int
+  /// CALL (the voice price, which video and Instant Call follow) | CHAT (the separate chat price)
+  channel        String     @default("CALL")
   /// PENDING | APPROVED | REJECTED | APPLIED (a decrease, live at once) | WITHDRAWN (by the astrologer)
   status         String     @default("PENDING")
   requestedAt    DateTime   @default(now())
@@ -148,8 +153,10 @@ model FreeCallUse {
   usedAt         DateTime       @default(now())
   /// Set when the call dropped early through no fault of the customer and the use was given back.
   restoredAt     DateTime?
-  /// Free minutes this call took from the customer's weekly allowance (the length they chose).
+  /// Free minutes this call took (the length they chose), from the week's minutes and then the joining bonus.
   minutes        Int            @default(0)
+  /// The part of `minutes` taken from the one-time joining bonus (the rest is from the week's minutes).
+  bonusMinutes   Int            @default(0)
 
   @@index([identityKey, usedAt])
 }
@@ -280,8 +287,12 @@ model Astrologer {
   years               Int
   rating              Float?
   consults            Int         @default(0)
-  /// Standard per-minute rate for chat and voice (₹). Video adds the video premium.
+  /// Standard per-minute rate for calls (voice) (₹), and for chat unless chatPrice is set. Video adds the video premium.
   price               Int
+  /// Per-minute chat rate (₹) when the astrologer set chat apart from calls (client, Nov 2026); null = same as price.
+  chatPrice           Int?
+  /// Last time the chat price actually changed (its own once-every-N-days cooldown), or null.
+  chatPriceChangedAt  DateTime?
   /// Original rate shown struck through when discounted (₹), or null.
   was                 Int?
   /// Instant Call rate = price × this multiplier.
@@ -698,11 +709,11 @@ model EarningsLine {
   sharePct     Int?
   /// The astrologer's earnings from this line, ₹ (gross × sharePct / 100, rounded down).
   amount       Int?
-  /// CUSTOMER (paid from a customer's wallet) | PLATFORM (Astrorize pays: free-call compensation).
+  /// CUSTOMER (paid from a customer's wallet) | PLATFORM (AstroRize pays: free-call compensation).
   fundedBy     String     @default("CUSTOMER")
   /// Complimentary seconds this line compensates (free-call compensation lines).
   freeSeconds  Int        @default(0)
-  /// ₹ of `gross` that Astrorize paid because of a campaign discount (the customer paid gross − discount).
+  /// ₹ of `gross` that AstroRize paid because of a campaign discount (the customer paid gross − discount).
   discount     Int        @default(0)
   /// The payout batch that pays this line, once batched.
   payoutBatchId String?
@@ -865,7 +876,7 @@ model Campaign {
   state    String
   rank     Int    @default(0)
   /// RECHARGE_CASHBACK (percent back as promotional credit on a recharge) | CONSULT_DISCOUNT
-  /// (percent off the per-minute price, paid by Astrorize) | BONUS_CREDIT (flat promotional credit on claim).
+  /// (percent off the per-minute price, paid by AstroRize) | BONUS_CREDIT (flat promotional credit on claim).
   kind        String    @default("RECHARGE_CASHBACK")
   /// What customers read on the offer.
   description String    @default("")

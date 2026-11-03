@@ -127,7 +127,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
     void run(async () => {
       await api.post("/portal/live/start", d);
       setPresence("live");
-      toast("You're live. Customers on Astrorize are being told right now.");
+      toast("You're live. Customers on AstroRize are being told right now.");
     });
 
   const saveDetails = (d: LiveDetails) =>

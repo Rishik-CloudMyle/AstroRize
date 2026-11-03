@@ -125,7 +125,7 @@ export default function MessengerView({ slug, supportId }: { slug?: string; supp
         </div>
         <h2 className={NOTE_TITLE}>Messages here are for customer accounts</h2>
         <p className={`${NOTE_BODY} max-w-[42ch]`}>
-          You&apos;re signed in as {session.role === "astrologer" ? "an astrologer account" : "an Astrorize staff account"}.{" "}
+          You&apos;re signed in as {session.role === "astrologer" ? "an astrologer account" : "an AstroRize staff account"}.{" "}
           {session.role === "astrologer"
             ? "Your conversations with customers are in the Messages section of your portal."
             : "Your tools are in the admin console."}
@@ -326,7 +326,7 @@ function SignedInMessenger({ slug, supportId }: { slug?: string; supportId?: str
   );
 }
 
-/** Round "A" mark for conversations with the Astrorize team. */
+/** Round "A" mark for conversations with the AstroRize team. */
 function SupportBadge({ size }: { size: number }) {
   return (
     <span
@@ -661,7 +661,7 @@ function Conversation({
   );
 }
 
-/** A conversation the Astrorize team started with this customer. Opening it marks it read. */
+/** A conversation the AstroRize team started with this customer. Opening it marks it read. */
 function SupportConversation({ id, onChange }: { id: string; onChange: () => void }) {
   const [detail, setDetail] = useState<SupportDetail | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -749,18 +749,18 @@ function SupportConversation({ id, onChange }: { id: string; onChange: () => voi
       aria-label={`Conversation with ${detail.title}`}
       className={`flex h-[calc(100dvh-200px)] min-h-[440px] flex-col rounded-[22px] border border-line bg-paper lg:h-[620px] ${THREAD_SCREEN}`}
     >
-      <ThreadBar title={detail.title} subtitle={detail.subject ?? "A message from the Astrorize team"} />
+      <ThreadBar title={detail.title} subtitle={detail.subject ?? "A message from the AstroRize team"} />
       <header className="flex items-center gap-3 border-b border-line-soft px-4 py-3 sm:px-5 max-lg:hidden">
         <SupportBadge size={42} />
         <span className="min-w-0">
           <b className="block truncate text-[15px] text-plum">{detail.title}</b>
-          <span className="block truncate text-[12px] text-stone-500">{detail.subject ?? "A message from the Astrorize team"}</span>
+          <span className="block truncate text-[12px] text-stone-500">{detail.subject ?? "A message from the AstroRize team"}</span>
         </span>
       </header>
 
       <div ref={scroller} className={`flex flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 ${THREAD_SCROLL}`} aria-live="polite">
         <p className="mx-auto max-w-[44ch] rounded-full bg-cream px-3.5 py-1.5 text-center text-[11.5px] leading-normal text-stone-500 max-lg:mx-0 max-lg:max-w-none max-lg:rounded-none max-lg:bg-transparent max-lg:p-0 max-lg:text-left max-lg:text-[12px] max-lg:text-app-ink-2">
-          You&apos;re talking with the Astrorize team. We will never ask for your password or OTP.
+          You&apos;re talking with the AstroRize team. We will never ask for your password or OTP.
         </p>
         {detail.messages.map((m) => (
           <div
@@ -796,7 +796,7 @@ function SupportConversation({ id, onChange }: { id: string; onChange: () => voi
             onChange={(e) => setDraft(e.target.value)}
             maxLength={MAX_SUPPORT_MESSAGE_LENGTH}
             placeholder="Reply"
-            aria-label="Reply to Astrorize support"
+            aria-label="Reply to AstroRize support"
             className={`h-12 min-w-0 flex-1 rounded-full border border-line bg-white px-4 text-[14.5px] text-ink outline-none focus:border-amber-400 ${COMPOSER_INPUT}`}
           />
           <button

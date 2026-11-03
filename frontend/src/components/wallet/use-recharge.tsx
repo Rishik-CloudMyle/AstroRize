@@ -122,7 +122,7 @@ const METHOD_NAMES: Record<string, string> = { upi: "UPI", card: "Card", netbank
 export const methodName = (method: string) => METHOD_NAMES[method] ?? method;
 
 export const RAZORPAY_TRUST =
-  "Payments are processed securely by Razorpay — UPI, cards, netbanking and wallets. Astrorize never sees your card details or UPI PIN.";
+  "Payments are processed securely by Razorpay — UPI, cards, netbanking and wallets. AstroRize never sees your card details or UPI PIN.";
 
 /** Small padlock for the trust line. */
 export function LockIcon({ className = "size-3.5" }: { className?: string }) {

@@ -39,7 +39,7 @@ function Brand({ onNavigate }: { onNavigate?: () => void }) {
         className="h-[34px] w-[34px] flex-[0_0_34px] object-contain"
       />
       <div className="min-w-0">
-        <div className="font-display text-[19px] leading-none font-semibold text-[#f8f4ec]">Astrorize</div>
+        <div className="font-display text-[19px] leading-none font-semibold text-[#f8f4ec]">AstroRize</div>
         <div className="mt-0.5 text-[9.5px] font-bold tracking-[.1em] text-[#78716c] uppercase">Admin console</div>
       </div>
     </Link>

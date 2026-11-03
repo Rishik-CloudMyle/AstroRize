@@ -25,7 +25,7 @@ export default async function FreeToolsPage() {
       <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Free tools" }]} />
       <h1 className="font-display text-[38px] font-semibold leading-tight text-ink sm:text-[42px]">Free tools</h1>
       <p className="mt-1.5 max-w-[62ch] text-[14.5px] leading-normal text-stone-600">
-        All free. Results are calculated by Astrorize&apos;s own astrology engine from real planetary positions (sidereal,
+        All free. Results are calculated by AstroRize&apos;s own astrology engine from real planetary positions (sidereal,
         Lahiri). Your Kundli needs a free account and is saved privately to it; the other tools need no login, and
         horoscope, daily insight, panchang and tarot results have a link you can share.
       </p>

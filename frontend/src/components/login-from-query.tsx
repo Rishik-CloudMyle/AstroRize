@@ -6,7 +6,7 @@ import { useAppUI } from "./app-provider";
 
 const NOTICES: Record<string, string> = {
   portal: "Log in with your astrologer account email to open the astrologer portal.",
-  admin: "Log in with your Astrorize staff email to open the admin console.",
+  admin: "Log in with your AstroRize staff email to open the admin console.",
 };
 
 /**

@@ -10,9 +10,13 @@ import { configNumber } from "./settings.ts";
 // each free call the customer chooses a length (Config welcome.free_call_length_1/_2/_3, e.g. 5, 10
 // or 30 min) that fits in what is left this week; the WHOLE chosen length is taken from the pool
 // once the conversation starts (Consultation.billingStartedAt — both sides really connected), even
-// if the call ends earlier. Free time earns the astrologer nothing from the customer (Astrorize
+// if the call ends earlier. Free time earns the astrologer nothing from the customer (AstroRize
 // compensates them monthly) and is never refunded; after it, the same session continues at the
 // astrologer's normal rate if the wallet allows, else it ends.
+//
+// Joining bonus (client, Nov 2026): every mobile number also gets a one-time bonus of free minutes
+// when it first joins (Config welcome.joining_bonus_minutes, e.g. 5). It is used for free calls like
+// the weekly minutes — after them, so the minutes that expire go first — and never resets.
 
 /** Modes the free call can use (the spec's seed allow-list: Audio + Chat). */
 export const WELCOME_MODES = ["CHAT", "VOICE"] as const;
@@ -30,9 +34,10 @@ function lengthsOf(values: number[]): number[] {
 
 /** Policy, from the Config console (Admin-approved changes, versioned there). */
 export async function welcomePolicy() {
-  const [enabled, weekly, len1, len2, len3, reminder, dailyLimit, minMeaningful, maxRestores, maxPerDay, maxPerWeek] = await Promise.all([
+  const [enabled, weekly, joining, len1, len2, len3, reminder, dailyLimit, minMeaningful, maxRestores, maxPerDay, maxPerWeek] = await Promise.all([
     configNumber("welcome.enabled", 1),
     configNumber("welcome.weekly_free_minutes", 30),
+    configNumber("welcome.joining_bonus_minutes", 5),
     configNumber("welcome.free_call_length_1", 5),
     configNumber("welcome.free_call_length_2", 10),
     configNumber("welcome.free_call_length_3", 30),
@@ -47,6 +52,8 @@ export async function welcomePolicy() {
     enabled: enabled === 1,
     /** Free minutes each customer (mobile number) gets per Mon–Sun week (IST). */
     weeklyMinutes: Math.max(0, Math.floor(weekly)),
+    /** One-time free minutes a new mobile number gets when it joins. */
+    joiningBonusMinutes: Math.max(0, Math.floor(joining)),
     /** Lengths a free call can be (minutes), smallest first. */
     lengths: lengthsOf([len1, len2, len3]),
     reminderSeconds: reminder,
@@ -109,11 +116,12 @@ export function identityKey(phone: string): string {
 const ELIGIBLE = ["GRANTED", "CONSUMED"];
 
 /**
- * Grants the welcome benefit to a customer who has just verified their mobile number. Idempotent:
- * a number that ever had one (even on a deleted account) gets no new row — its weekly minutes keep
- * counting the calls already taken; a returning number is re-linked to the new account unless revoked.
+ * Grants the welcome benefit to a customer who has just verified their mobile number, with the
+ * one-time joining bonus. Idempotent: a number that ever had one (even on a deleted account) gets no
+ * new row and no second bonus — its minutes keep counting the calls already taken; a returning number
+ * is re-linked to the new account unless revoked.
  */
-export async function grantWelcome(userId: string, phone: string, tx: Prisma.TransactionClient = db) {
+export async function grantWelcome(userId: string, phone: string, bonusMinutes: number, tx: Prisma.TransactionClient = db) {
   const key = identityKey(phone);
   const existing = await tx.welcomeBenefit.findUnique({ where: { identityKey: key } });
   if (existing) {
@@ -122,7 +130,8 @@ export async function grantWelcome(userId: string, phone: string, tx: Prisma.Tra
     }
     return existing;
   }
-  return tx.welcomeBenefit.create({ data: { identityKey: key, userId } });
+  // `bonusMinutes` is the policy's joiningBonusMinutes, read by the caller before its transaction.
+  return tx.welcomeBenefit.create({ data: { identityKey: key, userId, bonusMinutes: Math.max(0, Math.floor(bonusMinutes)) } });
 }
 
 /** The customer's benefit, or null. */
@@ -130,13 +139,16 @@ export function benefitOf(userId: string) {
   return db.welcomeBenefit.findUnique({ where: { userId } });
 }
 
-/** Free minutes this person has used this week (Mon–Sun, IST; minutes given back after an early drop don't count). */
-export async function weeklyMinutesOf(client: Tx | typeof db, key: string, policy: Policy, now = new Date()) {
+/**
+ * Free minutes this person has used this week (Mon–Sun, IST; minutes given back after an early drop
+ * don't count, nor minutes taken from the joining bonus).
+ */
+export async function weeklyMinutesOf(client: Tx | typeof db, key: string, policy: Pick<Policy, "weeklyMinutes">, now = new Date()) {
   const { _sum } = await client.freeCallUse.aggregate({
     where: { identityKey: key, restoredAt: null, usedAt: { gte: periodStart("WEEK", now) } },
-    _sum: { minutes: true },
+    _sum: { minutes: true, bonusMinutes: true },
   });
-  const used = _sum.minutes ?? 0;
+  const used = (_sum.minutes ?? 0) - (_sum.bonusMinutes ?? 0);
   return {
     total: policy.weeklyMinutes,
     used,
@@ -144,6 +156,13 @@ export async function weeklyMinutesOf(client: Tx | typeof db, key: string, polic
     /** Monday 00:00 IST: the minutes start again. */
     resetsAt: periodEnd("WEEK", now),
   };
+}
+
+/** What is left of this person's one-time joining bonus (minutes given back after an early drop count as left). */
+export async function bonusMinutesOf(client: Tx | typeof db, b: { identityKey: string; bonusMinutes: number }) {
+  const { _sum } = await client.freeCallUse.aggregate({ where: { identityKey: b.identityKey, restoredAt: null }, _sum: { bonusMinutes: true } });
+  const used = _sum.bonusMinutes ?? 0;
+  return { total: b.bonusMinutes, used, remaining: Math.max(0, b.bonusMinutes - used) };
 }
 
 /** The lengths (minutes) that fit in `remaining`. */
@@ -165,15 +184,16 @@ export async function welcomeAvailability(
   if (!policy.lengths.includes(minutes)) {
     return { ok: false, code: "WEL_LENGTH_INVALID", message: `Choose a free call of ${policy.lengths.map((m) => `${m}`).join(", ")} minutes.` };
   }
-  const { remaining, resetsAt } = await weeklyMinutesOf(tx, b.identityKey, policy);
+  const [week, bonus] = await Promise.all([weeklyMinutesOf(tx, b.identityKey, policy), bonusMinutesOf(tx, b)]);
+  const remaining = week.remaining + bonus.remaining;
   if (minutes <= remaining) return { ok: true, id: b.id };
   const fits = lengthsThatFit(policy, remaining);
   return {
     ...none,
     code: "WEL_MINUTES_SHORT",
     message: fits.length
-      ? `You have ${remaining} free minute${remaining === 1 ? "" : "s"} left this week — choose ${fits.map((m) => `${m} min`).join(" or ")}.`
-      : `You've used this week's free minutes — they reset on ${istDate(resetsAt)}. You can still consult at the normal rate.`,
+      ? `You have ${remaining} free minute${remaining === 1 ? "" : "s"} left — choose ${fits.map((m) => `${m} min`).join(" or ")}.`
+      : `You've used this week's free minutes — they reset on ${istDate(week.resetsAt)}. You can still consult at the normal rate.`,
   };
 }
 
@@ -333,17 +353,25 @@ export function releaseWelcome(tx: Tx | typeof db, consultationId: string) {
 }
 
 /**
- * The free call's conversation started (billingStartedAt): the WHOLE chosen length is taken from the
- * person's weekly minutes (a FreeCallUse row, once per consultation) even if the call ends earlier,
- * and the benefit is free for their next one. Safe to run twice.
+ * The free call's conversation started (billingStartedAt): the WHOLE chosen length is taken — from
+ * the person's weekly minutes, then from their joining bonus — as a FreeCallUse row (once per
+ * consultation) even if the call ends earlier, and the benefit is free for their next one. Safe to run twice.
  */
 export async function consumeWelcome(tx: Tx | typeof db, consultationId: string, at = new Date()) {
-  const b = await tx.welcomeBenefit.findFirst({ where: { consultationId, status: "RESERVED" }, select: { identityKey: true } });
+  const b = await tx.welcomeBenefit.findFirst({ where: { consultationId, status: "RESERVED" }, select: { identityKey: true, bonusMinutes: true } });
   if (!b) return;
   const c = await tx.consultation.findUnique({ where: { id: consultationId }, select: { astrologerId: true, complimentarySeconds: true } });
   if (!c) return;
   const minutes = Math.ceil(c.complimentarySeconds / 60);
-  await tx.freeCallUse.createMany({ data: [{ identityKey: b.identityKey, consultationId, astrologerId: c.astrologerId, usedAt: at, minutes }], skipDuplicates: true });
+  // Read through `tx`: this runs inside the consultation's transaction, which a query on the shared client would wait behind.
+  const setting = await tx.configKey.findUnique({ where: { key: "welcome.weekly_free_minutes" }, select: { value: true } });
+  const weeklyMinutes = Math.max(0, Math.floor(Number(setting?.value ?? 30) || 0));
+  const [week, bonus] = await Promise.all([weeklyMinutesOf(tx, b.identityKey, { weeklyMinutes }, at), bonusMinutesOf(tx, b)]);
+  const bonusMinutes = Math.min(bonus.remaining, Math.max(0, minutes - week.remaining));
+  await tx.freeCallUse.createMany({
+    data: [{ identityKey: b.identityKey, consultationId, astrologerId: c.astrologerId, usedAt: at, minutes, bonusMinutes }],
+    skipDuplicates: true,
+  });
   await tx.welcomeBenefit.updateMany({ where: { consultationId, status: "RESERVED" }, data: { status: "GRANTED", consumedAt: at } });
 }
 
@@ -390,8 +418,10 @@ export async function welcomeView(userId: string) {
   }
   const policy = await welcomePolicy();
   const eligible = ELIGIBLE.includes(b.status);
-  const week = await weeklyMinutesOf(db, b.identityKey, policy);
-  const remaining = eligible ? week.remaining : 0;
+  const [week, bonus] = await Promise.all([weeklyMinutesOf(db, b.identityKey, policy), bonusMinutesOf(db, b)]);
+  const weekLeft = eligible ? week.remaining : 0;
+  const bonusLeft = eligible ? bonus.remaining : 0;
+  const remaining = weekLeft + bonusLeft;
   const fits = lengthsThatFit(policy, remaining);
   const status = b.status === "RESERVED" ? "reserved" : b.status === "REVOKED" ? "revoked" : fits.length ? "granted" : "consumed";
   return {
@@ -406,11 +436,15 @@ export async function welcomeView(userId: string) {
     weekly: {
       total: week.total,
       used: week.used,
-      remaining,
+      remaining: weekLeft,
       /** ISO time they reset: Monday 00:00 IST. */
       resetsAt: week.resetsAt.toISOString(),
     },
-    /** The lengths a free call can be (minutes, smallest first); `fits` = it fits in what is left this week. The whole length is used. */
+    /** The one-time joining bonus (used after the week's minutes; never resets). */
+    joining: { total: bonus.total, used: bonus.used, remaining: bonusLeft },
+    /** Free minutes the customer can use now: this week's plus the joining bonus. */
+    remaining,
+    /** The lengths a free call can be (minutes, smallest first); `fits` = it fits in the free minutes left. The whole length is used. */
     lengths: policy.lengths.map((minutes) => ({ minutes, fits: minutes <= remaining })),
   };
 }

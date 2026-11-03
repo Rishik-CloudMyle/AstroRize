@@ -5,7 +5,7 @@ import OffersView from "@/components/offers/offers-view";
 
 export const metadata: Metadata = {
   title: "Offers",
-  description: "Astrorize offers: recharge cashback, consultation discounts and bonus credit. Claim an offer and it applies automatically.",
+  description: "AstroRize offers: recharge cashback, consultation discounts and bonus credit. Claim an offer and it applies automatically.",
 };
 
 export default function OffersPage() {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Astrologer } from "@/lib/types";
-import { FREE_CALL_DIRECTORY, fittingLengths, lengthsLabel, minutesHeadline, resetDay } from "@/lib/free-calls";
+import { FREE_CALL_DIRECTORY, bonusNote, fittingLengths, lengthsLabel, minutesHeadline, resetDay } from "@/lib/free-calls";
 import { showsFreeCalls, usableWelcome, useSession } from "@/lib/session-store";
 
 // The weekly free minutes on the website: a "Free call" badge on astrologers who take free calls
@@ -38,9 +38,9 @@ export function WelcomeBanner({ className = "", showLink = true, showUsedUp = fa
     return (
       <div role="status" className={`rounded-[20px] border border-line bg-white px-4 py-3.5 text-[13px] text-stone-600 sm:px-5 ${className}`}>
         <b className="text-ink">
-          Free minutes: {held.weekly.remaining} of {held.weekly.total} left this week.
+          Free minutes: {held.weekly.remaining} of {held.weekly.total} left this week{bonusNote(held)}.
         </b>{" "}
-        {held.weekly.remaining > 0 ? "That's less than the shortest free call. " : ""}Your free minutes reset on {resetDay(held.weekly.resetsAt)}.
+        {held.remaining > 0 ? "That's less than the shortest free call. " : ""}Your free minutes reset on {resetDay(held.weekly.resetsAt)}.
       </div>
     );
   }

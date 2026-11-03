@@ -6,6 +6,7 @@ import { PANEL, TD, TH } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
 import { BATCH_SORTS, sortRows } from "@/lib/admin/sort";
 import type { BatchKind, FinanceData, PayoutBatch, PrepareCandidate } from "@/lib/admin/types";
+import CustomAmountControl from "./custom-amount";
 
 const HEADS: [string, "left" | "right"][] = [
   ["Batch", "left"],
@@ -241,7 +242,7 @@ export default function FinanceView({ data }: { data: FinanceData }) {
           <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">No payout batches yet.</p>
         )}
         <p className="mt-3 mb-0 text-[11.5px] text-[#78716c]">
-          Gross is what astrologers are owed before TDS — their share of what customers paid, or Astrorize&apos;s free-call
+          Gross is what astrologers are owed before TDS — their share of what customers paid, or AstroRize&apos;s free-call
           compensation. A batch takes every unbatched line up to the end of its cycle; paused astrologers and new astrologers
           still in their payout hold are left for a later batch.
         </p>
@@ -275,6 +276,11 @@ export default function FinanceView({ data }: { data: FinanceData }) {
               );
             })}
           </div>
+          <CustomAmountControl
+            key={`${data.customAmount.enabled}-${data.customAmount.min}-${data.customAmount.max}`}
+            value={data.customAmount}
+            canConfigure={canConfigure}
+          />
         </div>
 
         <div className={`${PANEL} relative p-5`}>

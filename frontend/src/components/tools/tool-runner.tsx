@@ -12,7 +12,7 @@ import PanchangTool from "./panchang-tool";
 import { Field, FormCard, Panel, ResultCard, inputClass } from "./tool-ui";
 
 // Picks the tool for /free-tools/[tool]. Kundli, horoscope, daily insight, matchmaking and
-// panchang are calculated by Astrorize's astrology engine (the API); numerology and tarot are
+// panchang are calculated by AstroRize's astrology engine (the API); numerology and tarot are
 // worked out here in the browser.
 
 export default function ToolRunner({ tool }: { tool: Tool }) {

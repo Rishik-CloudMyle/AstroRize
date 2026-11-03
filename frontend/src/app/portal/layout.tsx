@@ -4,8 +4,8 @@ import PortalShell from "@/components/portal/portal-shell";
 import { getAccount } from "@/lib/portal/data";
 
 export const metadata: Metadata = {
-  title: { default: "Astrologer portal", template: "%s · Astrologer portal · Astrorize" },
-  description: "Astrorize astrologer portal: availability, consultations, live, earnings and profile.",
+  title: { default: "Astrologer portal", template: "%s · Astrologer portal · AstroRize" },
+  description: "AstroRize astrologer portal: availability, consultations, live, earnings and profile.",
   robots: { index: false, follow: false },
 };
 

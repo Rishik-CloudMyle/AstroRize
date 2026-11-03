@@ -38,8 +38,8 @@ export async function assertContactsFree(email: string, phone: string) {
     db.user.findUnique({ where: { email }, select: { id: true } }),
     db.user.findUnique({ where: { phone }, select: { id: true } }),
   ]);
-  if (byEmail) throw conflict("An Astrorize account already uses this email. Log in instead, or use a different email.");
-  if (byPhone) throw conflict("An Astrorize account already uses this mobile number. Log in instead, or use a different number.");
+  if (byEmail) throw conflict("An AstroRize account already uses this email. Log in instead, or use a different email.");
+  if (byPhone) throw conflict("An AstroRize account already uses this mobile number. Log in instead, or use a different number.");
 }
 
 function slugify(text: string): string {

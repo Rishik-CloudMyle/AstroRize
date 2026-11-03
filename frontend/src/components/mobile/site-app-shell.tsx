@@ -21,7 +21,7 @@ import TabBar from "./tab-bar";
 const UNREAD_POLL_MS = 60_000;
 
 /**
- * Unread replies across the customer's conversations (astrologers + Astrorize support), from
+ * Unread replies across the customer's conversations (astrologers + AstroRize support), from
  * GET /api/messages — the same count the Messages page shows. Checked on load, every minute while
  * the tab is visible, when the tab comes back, and on every page change (opening a conversation
  * marks it read on the server). 0 when signed out or not a customer.

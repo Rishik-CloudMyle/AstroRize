@@ -100,7 +100,7 @@ function LivePreview({ room: initialRoom, host, onJoined }: { room: LiveRoom; ho
         <Image src={room.thumb} alt="" fill priority sizes="(min-width: 1024px) 560px, 100vw" className={`object-cover ${ended ? "opacity-40 grayscale" : ""}`} />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.45)_0%,rgba(28,25,23,.05)_45%,rgba(28,25,23,.7)_100%)]" />
         <div className="absolute inset-x-0 top-0">
-          <LiveTopBar name={host.name} photo={host.photo} viewers={room.viewers} topic={room.topic} ended={ended} actions={<LiveShareButton title={`${host.name} is live on Astrorize`} />} />
+          <LiveTopBar name={host.name} photo={host.photo} viewers={room.viewers} topic={room.topic} ended={ended} actions={<LiveShareButton title={`${host.name} is live on AstroRize`} />} />
         </div>
         <div className="absolute inset-x-3.5 top-3.5 flex flex-wrap items-center gap-2 max-lg:hidden">
           {ended ? (

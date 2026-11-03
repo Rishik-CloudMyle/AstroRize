@@ -26,8 +26,10 @@ export interface Astrologer {
   /** null when there are not enough verified consultations yet */
   rating: number | null;
   consults: number;
-  /** Effective per-minute rate, in rupees */
+  /** Effective per-minute rate for calls (voice), in rupees */
   price: number;
+  /** Per-minute chat rate, in rupees (the astrologer's own chat price, or the same as `price`) */
+  chatPrice: number;
   /** Original rate before discount, or null if there is no discount */
   was: number | null;
   /** Instant Call per-minute rate */
@@ -192,7 +194,7 @@ export interface Transaction {
 export interface WelcomeBenefit {
   /** granted (a free call fits in this week's minutes) | reserved (one is being requested) | consumed (none left this week) | revoked */
   status: "granted" | "reserved" | "consumed" | "revoked";
-  /** This Mon–Sun week's (IST) free minutes (set by Astrorize) */
+  /** This Mon–Sun week's (IST) free minutes (set by AstroRize) */
   weekly: {
     total: number;
     used: number;
@@ -200,7 +202,11 @@ export interface WelcomeBenefit {
     /** ISO time they reset: Monday 00:00 IST */
     resetsAt: string;
   };
-  /** The lengths a free call can be (minutes, smallest first); `fits` = fits in what is left this week. The whole length is used. */
+  /** The one-time joining bonus a new mobile number gets (used after the week's minutes; never resets) */
+  joining: { total: number; used: number; remaining: number };
+  /** Free minutes the customer can use now: this week's plus the joining bonus */
+  remaining: number;
+  /** The lengths a free call can be (minutes, smallest first); `fits` = fits in the free minutes left. The whole length is used. */
   lengths: { minutes: number; fits: boolean }[];
   /** True while a free call can be started (at least one length fits). */
   available: boolean;

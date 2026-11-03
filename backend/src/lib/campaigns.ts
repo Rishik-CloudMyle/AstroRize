@@ -2,7 +2,7 @@
 //
 // Three kinds: RECHARGE_CASHBACK (a percent of a recharge back as promotional credit, optionally
 // from a minimum recharge and up to a cap), CONSULT_DISCOUNT (a percent off the per-minute price of
-// a consultation — Astrorize pays the discount, the astrologer still earns their share of the full
+// a consultation — AstroRize pays the discount, the astrologer still earns their share of the full
 // price) and BONUS_CREDIT (flat promotional credit, credited when claimed).
 //
 // "Claim first, then use": a customer claims an offer on /offers; only claimed, unexpired, unused
@@ -391,7 +391,7 @@ export async function sweepCampaigns(now = new Date()) {
 
 // ── Finance ──
 
-/** What campaigns cost Astrorize since the start of this IST month. */
+/** What campaigns cost AstroRize since the start of this IST month. */
 export async function campaignCostThisMonth(now = new Date()) {
   const start = new Date(`${istDateKey(now).slice(0, 7)}-01T00:00:00+05:30`);
   const [cashback, bonus, discount] = await Promise.all([

@@ -27,7 +27,7 @@ export default async function RecordingPage() {
     <div>
       <PageTitle
         title="Recording & retention"
-        sub="What Astrorize keeps from consultations and lives, and for how long. Changes are recorded in the audit log."
+        sub="What AstroRize keeps from consultations and lives, and for how long. Changes are recorded in the audit log."
       />
 
       <div className="mt-[18px] flex items-start gap-3 rounded-2xl border border-line bg-cream px-[18px] py-3.5">

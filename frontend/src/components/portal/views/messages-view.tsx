@@ -21,7 +21,7 @@ const initialsOf = (t: CustomerThread) => t.customer?.initials ?? t.alias.replac
 /** Something the astrologer hasn't opened yet (a customer's or the team's new messages). */
 const needsAttention = (t: Thread) => t.unread > 0;
 
-/** Round "A" mark for conversations with the Astrorize team. */
+/** Round "A" mark for conversations with the AstroRize team. */
 function TeamAvatar({ size }: { size: number }) {
   return (
     <span
@@ -171,7 +171,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
         );
         setDraft("");
         router.refresh();
-        toast("Sent to the Astrorize team.");
+        toast("Sent to the AstroRize team.");
         return;
       }
       // The API holds back contact details and answers with the notice instead (a caption too).
@@ -201,7 +201,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
       );
       setDraft("");
       router.refresh();
-      toast(res.blocked ? "Message blocked — contact details cannot be shared through Astrorize." : "Sent.");
+      toast(res.blocked ? "Message blocked — contact details cannot be shared through AstroRize." : "Sent.");
     } catch (e) {
       showError(e);
     } finally {
@@ -232,7 +232,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
         <Panel className="mt-5 p-5 max-lg:mt-3.5">
           <b className="text-[15px]">No messages yet</b>
           <p className="mt-1 text-[12.5px] leading-[1.5] text-stone-500">
-            Customers can message you here, and so can the Astrorize team. New messages appear on their own.
+            Customers can message you here, and so can the AstroRize team. New messages appear on their own.
           </p>
         </Panel>
       </div>
@@ -246,7 +246,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
         <TeamAvatar size={40} />
         <span className="min-w-0 text-left">
           <b className="block truncate text-[14.5px] text-ink">{thread.title}</b>
-          <span className="block truncate text-[11.5px] text-stone-500">{thread.subject ?? "A message from the Astrorize team"}</span>
+          <span className="block truncate text-[11.5px] text-stone-500">{thread.subject ?? "A message from the AstroRize team"}</span>
         </span>
       </>
     ) : (
@@ -327,7 +327,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
                         <span
                           className="size-2 shrink-0 rounded-full bg-urgent"
                           role="img"
-                          aria-label={t.kind === "team" ? "New message from the Astrorize team" : "New message from the customer"}
+                          aria-label={t.kind === "team" ? "New message from the AstroRize team" : "New message from the customer"}
                         />
                       )}
                     </span>
@@ -385,7 +385,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
           >
             {thread.kind === "team" && (
               <p className="mx-auto max-w-[46ch] rounded-full bg-cream px-3.5 py-1.5 text-center text-[11.5px] leading-normal text-stone-500">
-                A conversation with the Astrorize team. Customers can&apos;t see it.
+                A conversation with the AstroRize team. Customers can&apos;t see it.
               </p>
             )}
             {thread.kind === "team"
@@ -453,8 +453,8 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 maxLength={thread.kind === "team" ? MAX_SUPPORT_MESSAGE_LENGTH : MAX_MESSAGE_LENGTH}
-                placeholder={thread.kind === "team" ? "Reply to the Astrorize team…" : attach.file ? "Add a caption (optional)" : "Type a message…"}
-                aria-label={thread.kind === "team" ? "Reply to the Astrorize team" : attach.file ? "Caption" : "Message"}
+                placeholder={thread.kind === "team" ? "Reply to the AstroRize team…" : attach.file ? "Add a caption (optional)" : "Type a message…"}
+                aria-label={thread.kind === "team" ? "Reply to the AstroRize team" : attach.file ? "Caption" : "Message"}
                 className="h-[46px] min-w-0 flex-1 rounded-xl border border-line bg-white px-3.5 text-sm text-ink outline-none max-lg:h-11 max-lg:rounded-app-input max-lg:border-app-line max-lg:bg-app-surface max-lg:px-3 max-lg:text-[16px] max-lg:focus:border-app-selected"
               />
               <button

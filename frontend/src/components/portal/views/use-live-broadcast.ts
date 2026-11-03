@@ -20,7 +20,7 @@ export function useLiveBroadcast(live: boolean) {
   const session = () => getLiveBroadcast();
   const micOn = snap?.micOn ?? true;
   return {
-    /** Live video isn't set up on Astrorize yet: nothing is broadcast. */
+    /** Live video isn't set up on AstroRize yet: nothing is broadcast. */
     notConfigured: snap?.answer?.available === false,
     answerFailed: snap?.answerFailed ?? false,
     reloadAnswer: () => session()?.loadAnswer(),

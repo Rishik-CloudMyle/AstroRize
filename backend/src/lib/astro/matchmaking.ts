@@ -64,6 +64,10 @@ export interface Match {
   /** Traditional reading of the total: 28+ excellent, 18+ good (acceptable by tradition), below 18 not advised. */
   verdict: "excellent" | "good" | "below-threshold";
   notes: string[];
+  /** Plain-language strengths of this match, from the kootas, Mangal dosha and the total (client, Nov 2026). */
+  pros: string[];
+  /** Plain-language cautions of this match, from the same data. */
+  cons: string[];
 }
 
 const DOSHA_HOUSES = new Set([1, 2, 4, 7, 8, 12]);
@@ -185,15 +189,75 @@ export function scoreKootas(boy: { moonLongitude: number }, girl: { moonLongitud
   ];
 }
 
+/**
+ * Pros and cons in plain words, from the calculated kootas: a koota scoring at least three-quarters
+ * of its points is a pro, one scoring a quarter or less is a con (the ones in between are neither).
+ * Mangal dosha and the total add their own line; a dosha that tradition cancels says so.
+ */
+export function prosAndCons(
+  boy: PersonMoon,
+  girl: PersonMoon,
+  kootas: Koota[],
+  total: number,
+  cancelled: { nadi: boolean; bhakoot: boolean },
+): { pros: string[]; cons: string[] } {
+  const pros: string[] = [];
+  const cons: string[] = [];
+  const pts = (k: Koota) => `${k.name} ${k.points}/${k.max}`;
+  const LINES: Record<string, (k: Koota) => [pro: string, con: string]> = {
+    varna: (k) => [`Similar outlook on values and personal growth (${pts(k)}).`, `Different outlooks on values and duty — worth talking through (${pts(k)}).`],
+    vashya: (k) => [`Strong natural attraction and influence on each other (${pts(k)}).`, `Little natural pull between ${k.boy} and ${k.girl} signs; closeness may take effort (${pts(k)}).`],
+    tara: (k) => [`Birth stars support each other's health and wellbeing (${pts(k)}).`, `Birth stars are unfavourable for each other's wellbeing (${pts(k)}).`],
+    yoni: (k) => [`Good physical and emotional compatibility — ${k.boy} and ${k.girl} yoni (${pts(k)}).`, `Physical temperaments clash — ${k.boy} and ${k.girl} yoni (${pts(k)}).`],
+    maitri: (k) =>
+      k.boy === k.girl
+        ? [`Both Moon signs are ruled by ${k.boy} — easy mental understanding (${pts(k)}).`, `Moon-sign lords are not friendly (${pts(k)}).`]
+        : [`Moon-sign lords ${k.boy} and ${k.girl} are friendly — easy mental understanding (${pts(k)}).`, `Moon-sign lords ${k.boy} and ${k.girl} are not friendly — differences of opinion are likely (${pts(k)}).`],
+    gana: (k) => [`Matching temperaments — ${k.boy} and ${k.girl} gana (${pts(k)}).`, `Different temperaments — ${k.boy} and ${k.girl} gana may cause friction (${pts(k)}).`],
+    bhakoot: (k) => [
+      `Moon signs ${k.boy} and ${k.girl} sit well together for family harmony and finances (${pts(k)}).`,
+      cancelled.bhakoot
+        ? `Bhakoot dosha between ${k.boy} and ${k.girl}, though tradition treats it as cancelled here (${pts(k)}).`
+        : `Bhakoot dosha: ${k.boy} and ${k.girl} fall 2/12, 5/9 or 6/8 apart, which tradition links to strain on family and finances (${pts(k)}).`,
+    ],
+    nadi: (k) => [
+      `Different nadis (${k.boy} and ${k.girl}) — favourable for health and children (${pts(k)}).`,
+      cancelled.nadi
+        ? `Same nadi (${k.boy}), though tradition treats this Nadi dosha as cancelled here (${pts(k)}).`
+        : `Same nadi (${k.boy}) — Nadi dosha, the strongest caution in guna milan, for health and children (${pts(k)}).`,
+    ],
+  };
+  for (const k of kootas) {
+    const line = LINES[k.key];
+    if (!line) continue;
+    const share = k.points / k.max;
+    if (share >= 0.75) pros.push(line(k)[0]);
+    else if (share <= 0.25) cons.push(line(k)[1]);
+  }
+
+  const boyM = boy.mangal.present;
+  const girlM = girl.mangal.present;
+  if (!boyM && !girlM) pros.push("Neither has Mangal dosha.");
+  else if (boyM && girlM) pros.push("Both have Mangal dosha, which tradition treats as cancelling out.");
+  else cons.push(`Mangal dosha for ${boyM ? boy.name : girl.name} only — usually checked further by an astrologer.`);
+
+  if (total >= 28) pros.unshift(`Excellent overall score: ${total} of 36 gunas.`);
+  else if (total >= 18) pros.unshift(`Acceptable overall score: ${total} of 36 gunas (18 or more is traditionally fine).`);
+  else cons.unshift(`Low overall score: ${total} of 36 gunas — below the traditional 18.`);
+  return { pros, cons };
+}
+
 export function matchmaking(boyIn: MatchPerson, girlIn: MatchPerson): Match {
   const boy = personMoon(boyIn, "Boy");
   const girl = personMoon(girlIn, "Girl");
   const kootas = scoreKootas(boy, girl);
   const total = kootas.reduce((s, k) => s + k.points, 0);
   const notes: string[] = [];
+  const cancelled = { nadi: false, bhakoot: false };
 
   const nadi = kootas.find((k) => k.key === "nadi")!;
   if (nadi.points === 0) {
+    cancelled.nadi = true;
     if (boy.moonSign.index === girl.moonSign.index && boy.nakshatra.index !== girl.nakshatra.index) {
       notes.push("Nadi dosha: both Moons share a sign but not a nakshatra, which tradition treats as a cancellation.");
     } else if (boy.nakshatra.index === girl.nakshatra.index && boy.moonSign.index !== girl.moonSign.index) {
@@ -201,6 +265,7 @@ export function matchmaking(boyIn: MatchPerson, girlIn: MatchPerson): Match {
     } else if (boy.nakshatra.index === girl.nakshatra.index && boy.nakshatra.pada !== girl.nakshatra.pada) {
       notes.push("Nadi dosha: same nakshatra in different padas, which some traditions treat as a cancellation.");
     } else {
+      cancelled.nadi = false;
       notes.push("Nadi dosha: both have the same nadi.");
     }
   }
@@ -208,9 +273,9 @@ export function matchmaking(boyIn: MatchPerson, girlIn: MatchPerson): Match {
   if (bhakoot.points === 0) {
     const bL = boy.moonSign.lord;
     const gL = girl.moonSign.lord;
+    cancelled.bhakoot = bL === gL || (relation(bL, gL) === "friend" && relation(gL, bL) === "friend");
     if (bL === gL) notes.push("Bhakoot dosha: both Moon signs share a lord, which tradition treats as a cancellation.");
-    else if (relation(bL, gL) === "friend" && relation(gL, bL) === "friend")
-      notes.push("Bhakoot dosha: the Moon-sign lords are mutual friends, which tradition treats as a cancellation.");
+    else if (cancelled.bhakoot) notes.push("Bhakoot dosha: the Moon-sign lords are mutual friends, which tradition treats as a cancellation.");
     else notes.push("Bhakoot dosha: the Moon signs fall 2/12, 5/9 or 6/8 from each other.");
   }
   if (boy.mangal.present && girl.mangal.present) notes.push("Both have Mangal dosha, which tradition treats as cancelling out.");
@@ -220,6 +285,6 @@ export function matchmaking(boyIn: MatchPerson, girlIn: MatchPerson): Match {
   }
 
   const verdict = total >= 28 ? "excellent" : total >= 18 ? "good" : "below-threshold";
-  return { boy, girl, kootas, total, max: 36, verdict, notes };
+  return { boy, girl, kootas, total, max: 36, verdict, notes, ...prosAndCons(boy, girl, kootas, total, cancelled) };
 }
 

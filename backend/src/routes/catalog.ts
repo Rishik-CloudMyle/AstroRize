@@ -3,7 +3,7 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { db } from "../db.ts";
 import { HttpError, badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
-import { instantRate } from "../lib/billing.ts";
+import { chatRate, instantRate } from "../lib/billing.ts";
 import { istDate, istTime, percentages, rupee } from "../lib/format.ts";
 import { effectivePresence, hostedLiveRoom, touchViewer, viewerCount } from "../lib/presence.ts";
 import { announceJoin, chatLineView, giftBalance, sendGift, sessionFeed } from "../lib/live.ts";
@@ -36,6 +36,8 @@ export function astrologerView(a: AstrologerWithReviews, freeCall = false) {
     rating: a.rating,
     consults: a.consults,
     price: a.price,
+    /** Chat rate (₹/min): the astrologer's own chat price, or the same as `price`. */
+    chatPrice: chatRate(a),
     was: a.was,
     instant: instantRate(a.price, a.instantMultiplier),
     /** Instant Call rate = price × this. */

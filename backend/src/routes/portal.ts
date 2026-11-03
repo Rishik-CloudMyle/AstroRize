@@ -2,7 +2,7 @@ import express, { Router, type NextFunction, type Request, type Response } from 
 import { z } from "zod";
 import { db } from "../db.ts";
 import { audit } from "../lib/audit.ts";
-import { MAX_SESSION_SECONDS, VIDEO_PREMIUM, instantRate } from "../lib/billing.ts";
+import { MAX_SESSION_SECONDS, VIDEO_PREMIUM, chatRate, instantRate } from "../lib/billing.ts";
 import { META, draftValues, metaValues, missingFor, nextApplicantId, submittedOn, wizardValues } from "../lib/application.ts";
 import {
   INCOMING_WINDOW_SECS,
@@ -20,7 +20,7 @@ import {
 } from "../lib/consultations.ts";
 import { MAKE_GOOD } from "../lib/makegood.ts";
 import { COMPLIMENTARY, capacityOf, capacityProblem, capacityView, periodName, releaseWelcome, welcomePolicy } from "../lib/welcome.ts";
-import { priceProblem, priceRequestState, priceView, pricingPolicy } from "../lib/pricing.ts";
+import { type PriceChannel, channelName, channelPrice, priceProblem, priceRequestState, priceUpdate, priceView, pricingPolicy } from "../lib/pricing.ts";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
 import { ageLabel, istDate, istDateKey, istDayMonth, istTime, makeRef, rupee, weekdayLabel } from "../lib/format.ts";
 import { consultSummary, displayName, messageSummary, queueProfile, queueSummary } from "../lib/profile.ts";
@@ -118,6 +118,7 @@ portalRouter.get("/account", async (req, res) => {
         rating: a.rating,
         consults: a.consults,
         price: a.price,
+        chatPrice: chatRate(a),
         was: a.was,
         instantMultiplier: a.instantMultiplier,
         bio: a.about,
@@ -135,7 +136,7 @@ portalRouter.get("/account", async (req, res) => {
       },
       counts: {
         consultations: requests,
-        // Conversations with customer messages the astrologer hasn't opened yet, plus Astrorize
+        // Conversations with customer messages the astrologer hasn't opened yet, plus AstroRize
         // team conversations with unread messages. Opening a conversation clears it (POST …/read).
         messages: threads.filter((t) => unreadFrom(t.messages, "CUSTOMER", t.astrologerReadAt) > 0).length + teamUnread.size,
         compliance: notices,
@@ -158,7 +159,13 @@ function legacyValue(a: Astrologer, l: Pick<EarningsLine, "kind" | "minutes" | "
   if (l.kind === "gift") return l.gifts;
   const rate =
     rates.get(l.sessionRef) ??
-    (l.kind === "video" ? a.price + VIDEO_PREMIUM : l.kind === "emergency" ? instantRate(a.price, a.instantMultiplier) : a.price);
+    (l.kind === "video"
+      ? a.price + VIDEO_PREMIUM
+      : l.kind === "emergency"
+        ? instantRate(a.price, a.instantMultiplier)
+        : l.kind === "chat"
+          ? chatRate(a)
+          : a.price);
   return l.minutes * rate;
 }
 
@@ -301,55 +308,66 @@ portalRouter.patch("/free-calls", async (req, res) => {
 });
 
 /**
- * The astrologer sets their own chat/voice price (lib/pricing.ts): within pricing.min_rate–max_rate,
+ * The astrologer sets their own call price, or their separate chat price (`channel`: call | chat;
+ * lib/pricing.ts): within pricing.min_rate–max_rate,
  * once every pricing.change_cooldown_days, each increase at most pricing.max_increase_rupees.
  * A decrease applies at once (PriceChange APPLIED) to consultations requested from now on;
  * sessions already running keep their rate. An increase becomes a PENDING request that the
- * Astrorize team approves or rejects (Astrologer lifecycle → Price requests); the price stays as
+ * AstroRize team approves or rejects (Astrologer lifecycle → Price requests); the price stays as
  * it is until then. One open request at a time. Audited.
  */
 portalRouter.patch("/price", async (req, res) => {
   const a = await me(req);
-  const { price } = z.object({ price: z.number("Enter your price in whole rupees.") }).parse(req.body);
+  const body = z
+    .object({ price: z.number("Enter your price in whole rupees."), channel: z.enum(["call", "chat"]).default("call") })
+    .parse(req.body);
+  const { price } = body;
+  const channel: PriceChannel = body.channel === "chat" ? "CHAT" : "CALL";
   const policy = await pricingPolicy();
   const now = new Date();
   const result = await db.$transaction(async (tx) => {
     // Two tabs (or a double click) at once: only the first counts; staff deciding a request wait too.
     await lockKey(tx, `price:${a.id}`);
     const fresh = await tx.astrologer.findUniqueOrThrow({ where: { id: a.id } });
-    const open = await tx.priceChange.findFirst({ where: { astrologerId: a.id, status: "PENDING" } });
+    const open = await tx.priceChange.findFirst({ where: { astrologerId: a.id, channel, status: "PENDING" } });
     if (open) {
       return {
         ok: false as const,
-        problem: { status: 409 as const, message: `Your increase to ${rupee(open.toPrice)}/min is waiting for approval. Withdraw it first if you want a different price.` },
+        problem: {
+          status: 409 as const,
+          message: `Your ${channelName(channel)} price increase to ${rupee(open.toPrice)}/min is waiting for approval. Withdraw it first if you want a different price.`,
+        },
       };
     }
-    const problem = priceProblem(fresh, price, policy, now);
+    const current = channelPrice(fresh, channel);
+    const problem = priceProblem(current, price, policy, now);
     if (problem) return { ok: false as const, problem };
-    if (price > fresh.price) {
-      await tx.priceChange.create({ data: { astrologerId: a.id, fromPrice: fresh.price, toPrice: price, status: "PENDING", requestedAt: now } });
-      return { ok: true as const, from: fresh.price, applied: false, astrologer: fresh };
+    if (price > current.price) {
+      await tx.priceChange.create({ data: { astrologerId: a.id, channel, fromPrice: current.price, toPrice: price, status: "PENDING", requestedAt: now } });
+      return { ok: true as const, from: current.price, applied: false, astrologer: fresh };
     }
-    const astrologer = await tx.astrologer.update({ where: { id: a.id }, data: { price, priceChangedAt: now } });
-    await tx.priceChange.create({ data: { astrologerId: a.id, fromPrice: fresh.price, toPrice: price, status: "APPLIED", requestedAt: now, decidedAt: now } });
-    return { ok: true as const, from: fresh.price, applied: true, astrologer };
+    const astrologer = await tx.astrologer.update({ where: { id: a.id }, data: priceUpdate(channel, price, now) });
+    await tx.priceChange.create({ data: { astrologerId: a.id, channel, fromPrice: current.price, toPrice: price, status: "APPLIED", requestedAt: now, decidedAt: now } });
+    return { ok: true as const, from: current.price, applied: true, astrologer };
   });
   if (!result.ok) throw result.problem.status === 409 ? conflict(result.problem.message) : badRequest(result.problem.message);
   if (result.applied) {
-    await audit(req.auth ?? null, "astrologer.price.update", a.id, `${rupee(result.from)} → ${rupee(price)}/min (chat & voice) · decrease, live at once · by the astrologer`);
+    await audit(req.auth ?? null, "astrologer.price.update", a.id, `${rupee(result.from)} → ${rupee(price)}/min (${channelName(channel)}) · decrease, live at once · by the astrologer`);
   } else {
-    await audit(req.auth ?? null, "astrologer.price.request", a.id, `${rupee(result.from)} → ${rupee(price)}/min (chat & voice) · increase, waiting for approval · by the astrologer`);
+    await audit(req.auth ?? null, "astrologer.price.request", a.id, `${rupee(result.from)} → ${rupee(price)}/min (${channelName(channel)}) · increase, waiting for approval · by the astrologer`);
   }
   res.json({ applied: result.applied, pricing: priceView(result.astrologer, policy, now, await priceRequestState(a.id)) });
 });
 
-/** The astrologer withdraws their open increase request (the price stays as it is; no cooldown starts). */
+/** The astrologer withdraws their open increase request for one price (it stays as it is; no cooldown starts). */
 portalRouter.post("/price/withdraw", async (req, res) => {
   const a = await me(req);
+  const body = z.object({ channel: z.enum(["call", "chat"]).default("call") }).parse(req.body ?? {});
+  const channel: PriceChannel = body.channel === "chat" ? "CHAT" : "CALL";
   const now = new Date();
   const withdrawn = await db.$transaction(async (tx) => {
     await lockKey(tx, `price:${a.id}`);
-    const open = await tx.priceChange.findFirst({ where: { astrologerId: a.id, status: "PENDING" } });
+    const open = await tx.priceChange.findFirst({ where: { astrologerId: a.id, channel, status: "PENDING" } });
     if (!open) return null;
     return tx.priceChange.update({
       where: { id: open.id },
@@ -357,7 +375,7 @@ portalRouter.post("/price/withdraw", async (req, res) => {
     });
   });
   if (!withdrawn) throw conflict("There's no price request waiting any more — it may just have been decided. Reload to see the latest.");
-  await audit(req.auth ?? null, "astrologer.price.withdraw", a.id, `${rupee(withdrawn.fromPrice)} → ${rupee(withdrawn.toPrice)}/min request withdrawn · by the astrologer`);
+  await audit(req.auth ?? null, "astrologer.price.withdraw", a.id, `${rupee(withdrawn.fromPrice)} → ${rupee(withdrawn.toPrice)}/min (${channelName(channel)}) request withdrawn · by the astrologer`);
   const fresh = await db.astrologer.findUniqueOrThrow({ where: { id: a.id } });
   res.json({ pricing: priceView(fresh, await pricingPolicy(), now, await priceRequestState(a.id)) });
 });
@@ -442,6 +460,7 @@ portalRouter.get("/application", async (req, res) => {
         years: a.years,
         skills: a.skills,
         price: a.price,
+        chatPrice: chatRate(a),
         videoRate: a.price + VIDEO_PREMIUM,
       },
       // What still stops it going to HR (empty = ready), and where it stands once sent.
@@ -661,7 +680,7 @@ portalRouter.get("/consultations", async (req, res) => {
       /** The session window to open: chat, voice, or video (Instant Call is a video call). */
       window: windowOf(active),
       instant: active.kind === "INSTANT",
-      /** A free call: the first freeSeconds are paid by Astrorize (monthly compensation); paid minutes after it earn as usual. */
+      /** A free call: the first freeSeconds are paid by AstroRize (monthly compensation); paid minutes after it earn as usual. */
       free,
       /** A free replacement call (make-good on a complaint): its free minutes are not paid to you — you were paid for the original session. */
       makeGood: active.billingMode === MAKE_GOOD,
@@ -794,7 +813,7 @@ portalRouter.get("/incoming", async (req, res) => {
       free: false,
       makeGood: false,
       freeMinutes: null,
-      rate: queued?.rate ?? liveRate(a.price),
+      rate: queued?.rate ?? liveRate(a),
       // A live request has no deadline: it waits in the queue (the console shows it too).
       secondsLeft: null,
       windowSecs: null,
@@ -930,7 +949,7 @@ portalRouter.get("/live", async (req, res) => {
   });
   const askedFor = (e: { consultationId: string | null }) => {
     const c = queued.find((q) => q.id === e.consultationId);
-    return { consultMode: (c?.mode.toLowerCase() ?? "voice") as "chat" | "voice" | "video", rate: c?.rate ?? liveRate(a.price) };
+    return { consultMode: (c?.mode.toLowerCase() ?? "voice") as "chat" | "voice" | "video", rate: c?.rate ?? liveRate(a) };
   };
   const now = new Date();
   const secs = Math.max(0, Math.floor((Date.now() - room.startedAt.getTime()) / 1000));
@@ -968,9 +987,9 @@ portalRouter.get("/live", async (req, res) => {
       waiting: entries.length,
       pollQuestion: room.pollQuestion,
       pollOptions: room.pollOptions,
-      rate: liveRate(a.price),
+      rate: liveRate(a),
       /** What a private consultation from this live costs in each mode (₹/min). */
-      rates: liveRates(a.price),
+      rates: liveRates(a),
       /** The private consultation in progress (connecting or in session), or null. */
       private: inPrivate,
       announcements: announcements.map(announcementView),
@@ -1200,7 +1219,7 @@ portalRouter.post("/live/poll", async (req, res) => {
 // ── Messages ──
 
 // Conversations with customers. The astrologer sees each customer's real name, and on request
-// their profile, only for customers in their own conversations. Conversations the Astrorize
+// their profile, only for customers in their own conversations. Conversations the AstroRize
 // team started with the astrologer are in the same list (kind "team").
 portalRouter.get("/messages", async (req, res) => {
   const a = await me(req);
@@ -1242,7 +1261,7 @@ portalRouter.get("/messages", async (req, res) => {
   res.json({ threads: all });
 });
 
-/** Reply in a conversation the Astrorize team started. */
+/** Reply in a conversation the AstroRize team started. */
 portalRouter.post("/team-messages/:id", async (req, res) => {
   await me(req);
   const { text } = z.object({ text: directText }).parse(req.body);
@@ -1370,7 +1389,7 @@ portalRouter.get("/earnings", async (req, res) => {
       sharePct: v.sharePct,
       amount: v.amount,
       legacy: v.legacy,
-      /** CUSTOMER (paid by the customer) | PLATFORM (free-call compensation, paid by Astrorize) */
+      /** CUSTOMER (paid by the customer) | PLATFORM (free-call compensation, paid by AstroRize) */
       fundedBy: l.fundedBy === "PLATFORM" ? "PLATFORM" : "CUSTOMER",
       freeSeconds: l.freeSeconds,
     };
