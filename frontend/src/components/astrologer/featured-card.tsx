@@ -42,7 +42,10 @@ export default function FeaturedCard({ astrologer: a }: { astrologer: Astrologer
             <span className="text-[10px] font-semibold text-mauve">/min</span>
             <DiscountBadge astrologer={a} className="h-[18px] px-1.5 text-[9px]" />
           </div>
-          <div className="mt-0.5 text-[10px] text-mauve">{priceNote(a)}</div>
+          <div className="mt-0.5 text-[10px] text-mauve">
+            {priceNote(a)}
+            {a.chatPrice !== a.price && <span className="tabular-nums"> · Chat {rupee(a.chatPrice)}/min</span>}
+          </div>
         </div>
         {a.availability === "on" ? (
           <Link

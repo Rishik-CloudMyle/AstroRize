@@ -30,7 +30,7 @@ function terms(o: Offer): string[] {
     if (o.maxBenefit) t.push(`Up to ${rupee(o.maxBenefit)} cashback per recharge`);
     t.push("Cashback is promotional credit, used before your service balance");
   } else if (o.kind === "CONSULT_DISCOUNT") {
-    t.push("Off the per-minute price of Voice and Video consultations");
+    t.push("Off the per-minute price of Chat, Voice and Video consultations");
     t.push("Not with free minutes or Instant Call");
   } else {
     t.push("Added to your promotional balance when you claim it");

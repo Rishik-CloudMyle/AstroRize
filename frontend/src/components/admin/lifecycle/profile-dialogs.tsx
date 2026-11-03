@@ -245,6 +245,7 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
                 <tbody>
                   {(
                     [
+                      [a.price.chatSeparate ? "Chat" : "Chat (same as voice)", a.price.chat],
                       ["Voice", a.price.voice],
                       ["Video", a.price.video],
                       [`Instant Call (×${a.price.multiplier})`, a.price.instant],
@@ -269,24 +270,25 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
                 ? `Last changed on ${a.price.changedAt} (the astrologer's own change).`
                 : "Not changed by the astrologer yet — this is the price set at onboarding."}
             </p>
-            {a.price.pending && (
-              <div className="mt-3 rounded-[14px] border border-amber-200 bg-amber-50 p-3.5">
-                <b className="block text-[13.5px] text-ink">
-                  Increase waiting: {a.price.voice} → ₹{a.price.pending.to.toLocaleString("en-IN")}/min
-                </b>
-                <span className="mt-0.5 block text-[12px] text-amber-900">
-                  Requested {a.price.pending.requestedOn}. Customers keep paying {a.price.voice}/min until it&apos;s approved.
-                </span>
-                <div className="mt-2.5">
-                  <DecideButtons
-                    change={a.price.pending}
-                    name={a.name}
-                    current={a.price.value}
-                    problem={null}
-                    onDone={() => void load()}
-                  />
+            {(
+              [
+                [a.price.pending, "Calls (voice)", a.price.voice, a.price.value],
+                [a.price.pendingChat, "Chat", a.price.chat, a.price.chatValue],
+              ] as const
+            ).map(([pending, label, shown, value]) =>
+              pending ? (
+                <div key={pending.id} className="mt-3 rounded-[14px] border border-amber-200 bg-amber-50 p-3.5">
+                  <b className="block text-[13.5px] text-ink">
+                    {label} increase waiting: {shown} → ₹{pending.to.toLocaleString("en-IN")}/min
+                  </b>
+                  <span className="mt-0.5 block text-[12px] text-amber-900">
+                    Requested {pending.requestedOn}. Customers keep paying {shown}/min until it&apos;s approved.
+                  </span>
+                  <div className="mt-2.5">
+                    <DecideButtons change={pending} name={a.name} current={value} problem={null} onDone={() => void load()} />
+                  </div>
                 </div>
-              </div>
+              ) : null,
             )}
             {a.price.history.length > 0 && (
               <div className="mt-3">
@@ -413,8 +415,9 @@ Reason (optional):`, "");
 }
 
 /**
- * Welcome campaign for one astrologer (HR): take part in free calls or not, and their own daily
- * limit (blank = the campaign default). Each change is saved straight away and audited.
+ * Welcome campaign for one astrologer (HR): take part in free calls or not (the astrologer can
+ * switch it too, in the portal). How many free calls each astrologer takes and their lengths are
+ * the same for everyone and set in the Config console. Each change is saved straight away and audited.
  */
 function FreeCallsSection({
   id,
@@ -428,35 +431,12 @@ function FreeCallsSection({
   onSaved: () => void;
 }) {
   const { run, busy } = useAction();
-  const savedPeriod = f.period === "week" ? "WEEK" : "DAY";
-  const [limit, setLimit] = useState(f.ownLimit === null ? "" : String(f.ownLimit));
-  const [period, setPeriod] = useState<"DAY" | "WEEK">(savedPeriod);
-  const [error, setError] = useState<string | null>(null);
-  const savedLimit = f.ownLimit === null ? "" : String(f.ownLimit);
-  const max = period === "WEEK" ? f.maxPerWeek : f.maxPerDay;
-  const per = period === "WEEK" ? "week" : "day";
   const path = `/admin/lifecycle/astrologers/${encodeURIComponent(id)}/free-calls`;
 
   const toggle = async () => {
     const res = await run(
       () => api.patch(path, { enabled: !f.optedIn }),
       !f.optedIn ? `${name} now takes free calls.` : `${name} no longer takes free calls.`,
-      false,
-    );
-    if (res) onSaved();
-  };
-
-  const saveLimit = async () => {
-    const trimmed = limit.trim();
-    const value = trimmed === "" ? null : Number(trimmed);
-    if (value !== null && (!Number.isInteger(value) || value < 0 || value > max)) {
-      setError(`Enter a whole number from 0 to ${max} per ${per}, or leave it blank for the default (${f.defaultLimit} per day).`);
-      return;
-    }
-    setError(null);
-    const res = await run(
-      () => api.patch(path, value === null ? { dailyLimit: null } : { dailyLimit: value, period }),
-      value === null ? `Limit set to the campaign default (${f.defaultLimit} per day).` : `Limit set to ${value} free calls per ${per}.`,
       false,
     );
     if (res) onSaved();
@@ -482,8 +462,8 @@ function FreeCallsSection({
           <div className="min-w-0 flex-1">
             <b className="block text-[13.5px] text-ink">{f.optedIn ? "Takes free calls" : "Doesn't take free calls"}</b>
             <span className="block text-[12px] text-[#78716c]">
-              Customers use their weekly free minutes ({f.weeklyMinutes} min a week; Voice calls of {f.lengths.join(", ")} min) with
-              astrologers who take part, one at a time. The astrologer can also switch this and set their capacity in the portal.
+              Customers use their weekly free minutes ({f.weeklyMinutes} min a week; Chat or Voice calls of {f.lengths.join(", ")} min) with
+              astrologers who take part, one at a time. The astrologer can also switch this in the portal.
             </span>
           </div>
         </div>
@@ -492,55 +472,16 @@ function FreeCallsSection({
             The welcome campaign is switched off in Config, so no free calls start anywhere right now.
           </p>
         )}
-        <div className="mt-3 flex flex-wrap items-end gap-2.5">
-          <label className="min-w-0">
-            <span className={EYEBROW}>Limit</span>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              max={max}
-              value={limit}
-              placeholder={`Default ${f.defaultLimit}/day`}
-              onChange={(e) => {
-                setLimit(e.target.value);
-                setError(null);
-              }}
-              className="mt-1 block h-10 w-[150px] rounded-[10px] border border-line bg-white px-3 text-[13.5px] tabular-nums"
-            />
-          </label>
-          <label className="min-w-0">
-            <span className={EYEBROW}>Per</span>
-            <select
-              value={period}
-              onChange={(e) => {
-                setPeriod(e.target.value === "WEEK" ? "WEEK" : "DAY");
-                setError(null);
-              }}
-              disabled={limit.trim() === ""}
-              className="mt-1 block h-10 rounded-[10px] border border-line bg-white px-3 text-[13.5px] disabled:opacity-60"
-            >
-              <option value="DAY">Day</option>
-              <option value="WEEK">Week (Mon–Sun)</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            onClick={() => void saveLimit()}
-            disabled={busy || (limit.trim() === savedLimit && (limit.trim() === "" || period === savedPeriod))}
-            className="h-10 rounded-[10px] border-0 bg-ink px-4 text-[13px] font-bold text-white disabled:opacity-50"
-          >
-            Save limit
-          </button>
-          <span className="pb-2.5 text-[12px] text-[#78716c]">
-            {f.used} of {f.limit} used {f.period === "week" ? "this week" : "today"} (IST) · up to {f.maxPerDay}/day or {f.maxPerWeek}/week
-          </span>
-        </div>
-        {error && (
-          <p role="alert" className="mt-2 mb-0 text-[12.5px] font-semibold text-rose-700">
-            {error}
-          </p>
-        )}
+        <p className="mt-3 mb-0 text-[12px] text-[#78716c]">
+          <span className="tabular-nums">
+            {f.usedToday} of {f.perDay} taken today · {f.usedThisWeek} of {f.perWeek} this week (IST).
+          </span>{" "}
+          The number of free calls and their lengths are the same for every astrologer — change them in the{" "}
+          <Link href="/admin/config?key=welcome.daily_limit_default" className="font-semibold text-amber-800 underline underline-offset-2">
+            Config console
+          </Link>{" "}
+          (welcome.*).
+        </p>
       </div>
     </Section>
   );

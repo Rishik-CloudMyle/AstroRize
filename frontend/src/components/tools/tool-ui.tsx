@@ -277,10 +277,9 @@ export function ResultCard({
           .
         </div>
       </div>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3.5">
-        <span className="text-[12.5px] text-stone-500">
-          {sharePath ? "Share this result with “Copy link”" : `AstroRize free ${tool.name.toLowerCase()}`}
-        </span>
+      {/* No "AstroRize free …" line here: the page already says the tool is free (client, Nov 2026). */}
+      <div className={`mt-4 flex flex-wrap items-center gap-3.5 ${sharePath ? "justify-between" : "justify-end"}`}>
+        {sharePath && <span className="text-[12.5px] text-stone-500">Share this result with “Copy link”</span>}
         <Link
           href="/astrologers"
           className={`az-cta inline-flex h-11 w-full items-center justify-center rounded-full px-5 text-sm font-bold hover:text-cta-ink hover:no-underline sm:w-auto ${APP_CTA} max-lg:text-[15px]`}

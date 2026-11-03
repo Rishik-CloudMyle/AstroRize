@@ -89,7 +89,7 @@ export default function ConsultJourney({
   onClose,
 }: {
   astrologer: Astrologer;
-  /** Pre-selected way to talk (never chat: paid chat is no longer offered). */
+  /** Pre-selected way to talk (Chat, Voice or Video). */
   initialMode: OfferedMode | null;
   /** A consultation already under way (Instant Call waiting, or re-opened after a reload). */
   resume: ConsultationView | null;
@@ -145,7 +145,7 @@ export default function ConsultJourney({
 
   const balance = totalBalance(session);
   const welcome = usableWelcome(session);
-  // A free replacement call with this astrologer (offered on a complaint): Voice or Video, free
+  // A free replacement call with this astrologer (offered on a complaint): Chat, Voice or Video, free
   // for its minutes. It stands alone — never with the welcome free call or an offer's discount.
   const makeGood = useMakeGood(fresh.id);
   const makeGoodHere = !!makeGood && fresh.availability === "on";
@@ -153,14 +153,18 @@ export default function ConsultJourney({
   const freeHere = makeGoodHere || (!!welcome && fresh.freeCall && fresh.availability === "on");
   // Free only when the customer picked it.
   const useMakeGoodCall = makeGoodHere && pay === "free" && !!mode;
-  // This request uses the customer's weekly free minutes (Voice with a taking-part astrologer).
+  // This request uses the customer's free minutes (Chat or Voice with a taking-part astrologer).
   const useFree =
     !makeGoodHere && pay === "free" && !!welcome && fresh.freeCall && fresh.availability === "on" && !!mode && welcome.modes.includes(mode);
   // Where this choice could be free, free or paid hasn't been chosen yet.
   const payMissing = freeHere && pay === null && !!mode && (makeGoodHere || !!welcome?.modes.includes(mode));
   // Only a length that still fits in this week's free minutes counts as chosen.
-  const freeLength = useFree && welcome.lengths.some((l) => l.minutes === freeMinutes && l.fits) ? freeMinutes : null;
-  // A claimed consultation offer: percent off paid Voice and Video (the API applies the same rule).
+  // Until the customer picks one, the shortest length that fits is chosen (the admin's first length, 5 min by default).
+  const pickedFree = freeMinutes ?? welcome?.lengths.find((l) => l.fits)?.minutes ?? null;
+  // Shown as chosen in the sheet as soon as "Use free minutes" is picked, before the mode is.
+  const shownFreeLength = pay === "free" && welcome?.lengths.some((l) => l.minutes === pickedFree && l.fits) ? pickedFree : null;
+  const freeLength = useFree ? shownFreeLength : null;
+  // A claimed consultation offer: percent off paid Chat, Voice and Video (the API applies the same rule).
   const discount = useConsultDiscount();
   const discountPct = discount && mode && !useFree && !useMakeGoodCall ? discount.pct : 0;
   // Once placed, always the session's own rate; before that, the rate the sheet shows.
@@ -659,10 +663,10 @@ export default function ConsultJourney({
           setPay(p);
           setError("");
           setRateChange(null);
-          // Free minutes cover Voice only (a replacement call: Voice or Video): drop a choice they don't cover.
-          if (p === "free" && (choice === "instant" || (choice === "video" && !makeGoodHere))) setChoice(null);
+          // Free minutes cover Chat and Voice (a replacement call: Chat, Voice or Video): drop a choice they don't cover.
+          if (p === "free" && choice && (choice === "instant" || !(makeGoodHere || welcome?.modes.includes(choice)))) setChoice(null);
         }}
-        freeMinutes={freeLength}
+        freeMinutes={shownFreeLength}
         onFreeMinutes={(m) => {
           setFreeMinutes(m);
           setError("");

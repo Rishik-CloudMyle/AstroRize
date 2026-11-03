@@ -81,7 +81,7 @@ export default function SignupView({ initialRole, next }: { initialRole: SignupR
           <div role="radiogroup" aria-label="Account type" className="grid grid-cols-2 gap-2.5">
             {(
               [
-                ["customer", "I want to consult an astrologer", "Call, message or watch live"],
+                ["customer", "I want to consult an astrologer", "Chat, call or watch live"],
                 ["astrologer", "I'm an astrologer", "Apply to consult on AstroRize"],
               ] as const
             ).map(([key, label, sub]) => {

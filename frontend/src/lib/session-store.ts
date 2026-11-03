@@ -22,6 +22,8 @@ export interface Session {
   phone: string;
   user: { name: string; initials: string };
   wallet: WalletState;
+  /** A temporary block on the account (repeated contact sharing), while it lasts. */
+  block: AccountBlock | null;
 }
 
 /** The person as /api/auth/me and the sign-in endpoints describe them. */
@@ -39,7 +41,19 @@ export interface ApiUser {
   reactivated?: boolean;
   /** Set by a mobile sign-in that created the account (a first sign-in). */
   created?: boolean;
+  /** A temporary block for repeated contact sharing, while it lasts. */
+  block?: AccountBlock | null;
 }
+
+/** A temporary block: until when ("10 Nov 2026, 17:05 IST") and why. */
+export interface AccountBlock {
+  until: string;
+  untilLabel: string;
+  reason: string;
+}
+
+/** Fired on window when the API refuses something because the account is blocked (code "account_blocked"). */
+export const ACCOUNT_BLOCKED_EVENT = "astrorize:account-blocked";
 
 /** Fired on window when a sign-in re-activates a paused account; the app shows a short note. */
 export const REACTIVATED_EVENT = "astrorize:reactivated";
@@ -82,6 +96,7 @@ const LOGGED_OUT: Session = {
   phone: "",
   user: { name: "", initials: "" },
   wallet: EMPTY_WALLET,
+  block: null,
 };
 
 let state: Session = LOGGED_OUT;
@@ -105,6 +120,7 @@ function fromUser(user: ApiUser | null): Session {
     phone: user.phone ?? "",
     user: { name: user.name, initials: user.initials },
     wallet: EMPTY_WALLET,
+    block: user.block ?? null,
   };
 }
 
@@ -122,6 +138,8 @@ async function applyUser(user: ApiUser | null) {
 function start() {
   if (started || typeof window === "undefined") return;
   started = true;
+  // A refusal because the account was just blocked: re-read the person so the banner shows.
+  window.addEventListener(ACCOUNT_BLOCKED_EVENT, () => void sessionActions.refreshUser().catch(() => {}));
   api
     .get<{ user: ApiUser | null }>("/auth/me")
     .then(({ user }) => applyUser(user))

@@ -2,12 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api/client";
 import { rupee } from "@/lib/format";
-import { bonusNote, resetWeekday } from "@/lib/free-calls";
-import type { Offer } from "@/lib/offers";
-import { usableWelcome, useSession } from "@/lib/session-store";
 import type { Astrologer, FeaturedReview, LiveRoom, Tool } from "@/lib/types";
 import AppAstroCard, { AppVerifiedTick, STAR_ICON } from "../astrologer/app-astro-card";
 import { useBelowDesktop, useCurrentAstrologers } from "../directory/use-current-astrologers";
@@ -20,10 +15,11 @@ import SectionHeader from "../mobile/section-header";
 import { consultationLabel } from "./review-text";
 
 // The home page on phones and tablets (< 1024px), laid out like the client's customer app Home:
-// search, the Spotlight banner, Live Now, Astrologers for you, Free tools and customer reviews.
-// Everything is real: spotlight slides come from the customer's own free call, open offers and
-// real features; live rooms, astrologers and reviews from the API. Rendered inside `lg:hidden`
-// (the desktop home is unchanged), so it polls only while it is the visible layout.
+// search, Live Now, Astrologers for you, Free tools and customer reviews. The marketing banner
+// (promo-banner.tsx) sits above it, edge to edge on every screen size, in place of the app's
+// Spotlight card. Everything is real: live rooms, astrologers and reviews come from the API.
+// Rendered inside `lg:hidden` (the desktop home is unchanged), so it polls only while it is the
+// visible layout.
 
 export interface HomeRoom {
   room: LiveRoom;
@@ -43,43 +39,11 @@ export default function AppHome({
 }) {
   const below = useBelowDesktop();
   const astrologers = useCurrentAstrologers(initial, below);
-  const session = useSession();
-  const welcome = usableWelcome(session);
   const featured = astrologers.slice(0, 3);
 
   return (
-    <div className="bg-app-bg px-4 pt-1 pb-6">
+    <div className="bg-app-bg px-4 pt-3.5 pb-6">
       <SearchPill href="/astrologers?focus=search" placeholder="Search astrologers" />
-
-      <Spotlight astrologers={astrologers} rooms={rooms.length} enabled={below} />
-
-      {welcome && (
-        <Link
-          href="/astrologers?availability=Free%20call"
-          aria-label={`Free minutes: ${welcome.weekly.remaining} of ${welcome.weekly.total} left this week${bonusNote(welcome)}. Find astrologers taking free calls`}
-          className="mt-3.5 flex min-h-[64px] items-center gap-3 rounded-app-card border border-[#f3d9b8] bg-[linear-gradient(100deg,#fff4ea,#fffaf3_55%,#fdf1e6)] px-3 py-2.5 hover:no-underline"
-        >
-          <span aria-hidden="true" className="text-[30px] leading-none">🎁</span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-[9px] font-bold tracking-[.12em] text-[#c2410c] uppercase">
-              Free minutes · resets {resetWeekday(welcome.weekly.resetsAt)}
-            </span>
-            <b className="block font-display text-[22px] leading-[1.05] font-semibold text-app-ink">
-              {welcome.weekly.remaining} of {welcome.weekly.total} min left
-            </b>
-            {welcome.joining.remaining > 0 && (
-              <span className="block text-[11.5px] font-bold text-emerald-700">+ {welcome.joining.remaining} min joining bonus</span>
-            )}
-            <span className="mt-0.5 block text-[11.5px] font-bold text-[#b45309]">Find astrologers taking free calls</span>
-          </span>
-          <span
-            aria-hidden="true"
-            className="grid size-9 shrink-0 place-items-center rounded-full bg-[linear-gradient(180deg,#f7c75e,#e2a83e)] text-[16px] font-bold text-app-ink shadow-[0_4px_10px_rgba(226,168,62,.35)]"
-          >
-            →
-          </span>
-        </Link>
-      )}
 
       {/* ---------- Live Now ---------- */}
       <section aria-labelledby="app-live-title" className="mt-[22px]">
@@ -158,7 +122,7 @@ export default function AppHome({
       {tools.length > 0 && (
         <section aria-labelledby="app-tools-title" className="mt-[22px]">
           <SectionHeader title={<span id="app-tools-title">Free tools</span>} href="/free-tools" linkLabel="Explore Self, Find Clarity" variant="chip" />
-          <ul className="grid grid-cols-4 gap-2">
+          <ul className="grid grid-cols-4 gap-2 max-[359px]:grid-cols-2">
             {tools.map((t) => (
               <li key={t.id}>
                 <ToolTile href={`/free-tools/${t.id}`} name={t.name} art={t.art} fade={TOOL_FADE[t.id]} />
@@ -219,7 +183,7 @@ function ToolTile({ href, name, art, fade = "rgba(252,244,228,.95)" }: { href: s
       className="relative block h-[100px] w-full overflow-hidden rounded-app-card bg-[#f6efe4] text-[#241832] shadow-[0_6px_14px_rgba(62,38,18,.07)] after:pointer-events-none after:absolute after:inset-0 after:z-[3] after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_rgba(240,228,208,.82)] hover:text-[#241832] hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-selected"
     >
       {art ? (
-        <Image src={art} alt="" fill sizes="(min-width: 1024px) 1px, (max-width: 640px) 25vw, 200px" className="object-cover" />
+        <Image src={art} alt="" fill sizes="(min-width: 1024px) 1px, (max-width: 359px) 50vw, (max-width: 640px) 25vw, 200px" className="object-cover" />
       ) : (
         <span aria-hidden="true" className="absolute inset-0 grid place-items-center bg-[linear-gradient(180deg,#fbf8ff,#f3ecfc)] pb-5">
           <span className="grid size-[42px] grid-cols-2 gap-1.5">
@@ -230,7 +194,7 @@ function ToolTile({ href, name, art, fade = "rgba(252,244,228,.95)" }: { href: s
         </span>
       )}
       <span className="absolute inset-x-0 bottom-0 z-[1] block pt-[18px] pr-[5px] pb-1.5 pl-1.5" style={{ background: `linear-gradient(to top, ${fade} 38%, transparent)` }}>
-        <b className="block truncate pr-[17px] text-[clamp(8.5px,2.6vw,10px)] leading-[1.15] font-bold tracking-[-.05em]">{name}</b>
+        <b className="block truncate pr-[17px] text-[clamp(8.5px,2.6vw,10px)] leading-[1.15] max-[359px]:text-[12px] font-bold tracking-[-.05em]">{name}</b>
         <span
           aria-hidden="true"
           className="absolute right-[5px] bottom-1.5 grid size-4 place-items-center rounded-full bg-[#c9a227] text-[9px] leading-none font-bold text-white shadow-[0_2px_6px_rgba(40,24,12,.14)]"
@@ -307,169 +271,4 @@ function LiveCard({ room, host }: HomeRoom) {
       </div>
     </article>
   );
-}
-
-interface Slide {
-  id: string;
-  kicker: string;
-  title: string;
-  lead: string;
-  cta: string;
-  href: string;
-  art: string;
-}
-
-/**
- * The Spotlight carousel: the customer's weekly free minutes (or, for visitors, the free minutes
- * every customer gets, while astrologers are taking free calls), open offers, then today's Panchang and the Live Rooms.
- * Swipe or use the dots; it never moves by itself.
- */
-function Spotlight({ astrologers, rooms, enabled }: { astrologers: Astrologer[]; rooms: number; enabled: boolean }) {
-  const session = useSession();
-  const welcome = usableWelcome(session);
-  const offers = useOpenOffers(enabled && session.ready);
-  const rail = useRef<HTMLDivElement>(null);
-  const [index, setIndex] = useState({ key: "", at: 0 });
-
-  const slides: Slide[] = [];
-  if (welcome) {
-    slides.push({
-      id: "welcome",
-      kicker: "AstroRize Spotlight",
-      title: "Free minutes every week",
-      lead: `${welcome.weekly.remaining} of ${welcome.weekly.total} min left this week${bonusNote(welcome)} · Voice calls`,
-      cta: "Find astrologers",
-      href: "/astrologers?availability=Free%20call",
-      art: "/assets/spotlight/spotlight-welcome.jpg",
-    });
-  } else if (session.ready && !session.loggedIn && astrologers.some((a) => a.freeCall)) {
-    // freeCall is only ever on while AstroRize's welcome free calls are switched on.
-    slides.push({
-      id: "welcome",
-      kicker: "AstroRize Spotlight",
-      title: "5 minutes free when you join",
-      lead: "Plus free Voice minutes every week with astrologers marked “Free call”",
-      cta: "Sign up free",
-      href: "/signup",
-      art: "/assets/spotlight/spotlight-welcome.jpg",
-    });
-  }
-  for (const o of offers) {
-    slides.push({ id: `offer-${o.id}`, kicker: "AstroRize Offer", title: o.name, lead: o.summary, cta: "See offer", href: "/offers", art: "/assets/spotlight/spotlight-welcome.jpg" });
-  }
-  slides.push({
-    id: "panchang",
-    kicker: "AstroRize Spotlight",
-    title: "Read today’s Panchang",
-    lead: "Tithi, nakshatra and the day’s timings — free.",
-    cta: "Open Panchang",
-    href: "/free-tools/panchang",
-    art: "/assets/spotlight/spotlight-panchang.jpg",
-  });
-  slides.push({
-    id: "live",
-    kicker: "AstroRize Spotlight",
-    title: rooms > 0 ? "Live Rooms are on air" : "Evening Live Rooms",
-    lead:
-      rooms > 0
-        ? `${rooms === 1 ? "1 astrologer is" : `${rooms} astrologers are`} live now. Join as a viewer, consult only if you choose.`
-        : "Astrologers go live through the day. Join as a viewer, consult only if you choose.",
-    cta: "Open Live Room",
-    href: "/live",
-    art: "/assets/spotlight/spotlight-live.jpg",
-  });
-
-  // A slide added or removed (the free call or an offer loaded): start again from the first one.
-  const key = slides.map((s) => s.id).join("|");
-  useEffect(() => {
-    rail.current?.scrollTo({ left: 0 });
-  }, [key]);
-  const current = index.key === key ? Math.min(index.at, slides.length - 1) : 0;
-
-  function go(i: number) {
-    const el = rail.current;
-    if (!el) return;
-    el.scrollTo({ left: i * el.clientWidth, behavior: "smooth" });
-  }
-
-  return (
-    <section aria-roledescription="carousel" aria-label="AstroRize Spotlight" className="mt-3">
-      <div
-        ref={rail}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          setIndex({ key, at: Math.round(el.scrollLeft / Math.max(1, el.clientWidth)) });
-        }}
-        className="flex snap-x snap-mandatory overflow-x-auto rounded-[24px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        {slides.map((s, i) => (
-          <Link
-            key={s.id}
-            href={s.href}
-            aria-roledescription="slide"
-            aria-label={`${i + 1} of ${slides.length}: ${s.title}`}
-            className="relative flex aspect-[790/346] max-h-[220px] min-h-[150px] w-full sm:max-h-[360px] flex-none snap-start overflow-hidden rounded-[24px] bg-[#fffefb] text-app-ink hover:text-app-ink hover:no-underline"
-          >
-            <span className="relative z-[2] flex min-w-0 flex-[1_1_66%] flex-col items-start py-3.5 pr-2 pl-4 sm:py-7 sm:pl-8">
-              <span className="inline-flex items-center gap-1.5 text-[9px] font-bold tracking-[.14em] text-app-selected uppercase">
-                <svg viewBox="0 0 12 12" aria-hidden="true" className="size-2.5 text-app-primary">
-                  <path fill="currentColor" d="M6 0.4 7.15 4.5 11.6 6 7.15 7.5 6 11.6 4.85 7.5 0.4 6l4.45-1.5z" />
-                </svg>
-                {s.kicker}
-              </span>
-              <b className="my-1.5 line-clamp-2 font-display text-[20px] leading-[1.1] font-semibold tracking-[-.03em] sm:my-3 sm:text-[38px]">{s.title}</b>
-              <span className="line-clamp-2 text-[12px] leading-[1.35] text-app-ink-2 sm:text-[16px]">{s.lead}</span>
-              <span className="mt-auto inline-flex h-[34px] items-center justify-center gap-1.5 rounded-full bg-[#fbbf24] px-3.5 text-[13px] font-bold text-app-on-primary sm:h-11 sm:px-5 sm:text-[15px]">
-                {s.cta} <span aria-hidden="true">→</span>
-              </span>
-            </span>
-            <span aria-hidden="true" className="pointer-events-none relative w-[34%] flex-none overflow-hidden">
-              <Image src={s.art} alt="" fill sizes="(min-width: 1024px) 1px, (max-width: 640px) 35vw, 300px" className="object-cover object-[70%_42%]" priority={i === 0} />
-              <span className="absolute inset-0 bg-[linear-gradient(90deg,#fffefb_0%,rgba(255,254,251,.42)_16%,transparent_38%)]" />
-            </span>
-          </Link>
-        ))}
-      </div>
-      {slides.length > 1 && (
-        <div className="mt-1.5 flex justify-center gap-0.5">
-          {slides.map((s, i) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => go(i)}
-              aria-label={`Show spotlight ${i + 1} of ${slides.length}`}
-              aria-current={i === current ? "true" : undefined}
-              className="grid size-6 place-items-center"
-            >
-              <span className={`block h-1.5 rounded-full transition-all ${i === current ? "w-4 bg-app-ink-3" : "w-1.5 bg-app-line"}`} />
-            </button>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-/** Offers anyone can still claim (or the customer has claimed and can still use). Empty on any error. */
-function useOpenOffers(enabled: boolean): Offer[] {
-  const [offers, setOffers] = useState<Offer[]>([]);
-  const session = useSession();
-  const who = session.loggedIn ? session.user.name : "";
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    api
-      .get<{ offers: Offer[] }>("/offers")
-      .then((r) => {
-        if (cancelled) return;
-        setOffers(r.offers.filter((o) => o.open && o.eligible && (!o.claim || o.claim.status === "ACTIVE")).slice(0, 3));
-      })
-      .catch(() => {
-        // No offer slides; the rest of the Spotlight stays.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, who]);
-  return offers;
 }

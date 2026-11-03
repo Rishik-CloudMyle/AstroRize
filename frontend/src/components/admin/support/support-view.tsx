@@ -57,11 +57,15 @@ export default function SupportView({
   const stage = caseFile ? stageOf(caseFile) : "none";
   // Without dispute.refund.approve (e.g. Support by default) the department may propose but not approve.
   const isSupport = !session.capabilities.includes("dispute.refund.approve");
+  // Proposing, rejecting and closing as covered (Support, Finance and the Super Admin by default).
+  const canPropose = session.capabilities.includes("dispute.refund.propose");
   // Same person, not same short name; older proposals without a recorded id fall back to the name.
   const isProposer = caseFile?.proposedById
     ? caseFile.proposedById === session.id
     : !!caseFile?.proposedBy && caseFile.proposedBy === session.actor;
-  const approveBlocked = isSupport || isProposer;
+  // A Super Admin may decide their own proposal (audited as self-approved); anyone else needs a second person.
+  const selfBlocked = isProposer && session.role !== "super";
+  const approveBlocked = isSupport || selfBlocked;
   const billed = caseFile?.refund.billed ?? "—";
   // What is proposed (or was granted) on this ticket: a refund or a free replacement call.
   const makeGood = caseFile?.remedy === "MAKE_GOOD";
@@ -292,7 +296,7 @@ export default function SupportView({
               {makeGood
                 ? `Instead of money back: free minutes with ${mg?.astrologer ?? "the same astrologer"}. They keep their earnings from the original session and aren't paid for these minutes.`
                 : `A refund is capped at the billed amount of ${billed} and returns to the wallet in the same bucket composition it was spent from. The astrologer's share of it is taken back from their next payout${
-                    caseFile?.refund.astrologerSharePct != null ? ` (${caseFile.refund.astrologerSharePct}% share)` : ""
+                    caseFile?.refund.astrologerSharePct != null ? ` (${caseFile.refund.astrologerSharePct}% share, rounded up to whole rupees)` : ""
                   }.`}
             </p>
             {!makeGood && (
@@ -332,7 +336,7 @@ export default function SupportView({
               </div>
             )}
             <div className="mt-4 flex flex-wrap items-center gap-2.5">
-              {!settled && (
+              {!settled && canPropose && (
                 <button
                   type="button"
                   onClick={() => setAsking("reject")}
@@ -341,10 +345,13 @@ export default function SupportView({
                   Reject with reason
                 </button>
               )}
-              {stage === "none" && caseFile?.refundBlocked && (
+              {stage === "none" && !canPropose && (
+                <BlockedAction className="h-[42px] px-4 text-[12.5px]">Your role can&rsquo;t propose a remedy</BlockedAction>
+              )}
+              {stage === "none" && canPropose && caseFile?.refundBlocked && (
                 <BlockedAction className="h-[42px] px-4 text-[12.5px]">{caseFile.refundBlocked}</BlockedAction>
               )}
-              {stage === "none" && !caseFile?.refundBlocked && (
+              {stage === "none" && canPropose && !caseFile?.refundBlocked && (
                 <button
                   type="button"
                   onClick={() => setProposing("refund")}
@@ -353,10 +360,10 @@ export default function SupportView({
                   Propose refund — needs a second approver
                 </button>
               )}
-              {stage === "none" && caseFile?.makeGoodBlocked && caseFile.makeGoodBlocked !== caseFile.refundBlocked && (
+              {stage === "none" && canPropose && caseFile?.makeGoodBlocked && caseFile.makeGoodBlocked !== caseFile.refundBlocked && (
                 <BlockedAction className="h-[42px] px-4 text-[12.5px]">{caseFile.makeGoodBlocked}</BlockedAction>
               )}
-              {stage === "none" && caseFile && !caseFile.makeGoodBlocked && (
+              {stage === "none" && canPropose && caseFile && !caseFile.makeGoodBlocked && (
                 <button
                   type="button"
                   onClick={() => setProposing("makegood")}
@@ -365,7 +372,7 @@ export default function SupportView({
                   Offer a free replacement call instead
                 </button>
               )}
-              {stage === "none" && caseFile?.coveredBy && session.capabilities.includes("dispute.refund.propose") && (
+              {stage === "none" && caseFile?.coveredBy && canPropose && (
                 <button
                   type="button"
                   disabled={busy}
@@ -388,11 +395,9 @@ export default function SupportView({
                 >
                   {isSupport
                     ? `Approve — blocked for ${session.role === "support" ? "Support" : "your department"}`
-                    : isProposer
+                    : selfBlocked
                       ? "Approve — blocked, you proposed this"
-                      : makeGood
-                        ? "Approve free replacement call"
-                        : "Approve refund"}
+                      : `${makeGood ? "Approve free replacement call" : "Approve refund"}${isProposer ? " (your own — self-approval is audited)" : ""}`}
                 </button>
               )}
               {stage === "proposed" && !approveBlocked && (
@@ -469,7 +474,11 @@ export default function SupportView({
         <AmountDialog
           title={`Propose a refund on ${tkt.id}`}
           subtitle={`Session ${tkt.session} · billed ${billed}`}
-          intro="A second person (Finance or a Super Admin) approves it before any money moves. The full amount is suggested; enter less for a partial refund."
+          intro={
+            session.role === "super"
+              ? "Finance or a Super Admin approves it before any money moves — you may approve it yourself (recorded as self-approved). The full amount is suggested; enter less for a partial refund."
+              : "Someone other than you (Finance or a Super Admin) approves it before any money moves. The full amount is suggested; enter less for a partial refund."
+          }
           label="Refund amount"
           unit="₹"
           initial={caseFile.refund.billedValue}

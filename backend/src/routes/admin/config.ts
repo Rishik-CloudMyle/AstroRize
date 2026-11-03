@@ -4,7 +4,7 @@ import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { istDate } from "../../lib/format.ts";
-import { actorName, requireCapability, requirePage } from "../../lib/rbac.ts";
+import { actorName, requireCapability, requirePage, secondPerson } from "../../lib/rbac.ts";
 
 // Config console: every operational setting, changed by draft → second approver → new version.
 export const configRouter = Router();
@@ -149,7 +149,8 @@ configRouter.post("/config/changes/:id/approve", async (req, res) => {
   const admin = requireCapability(req, "config.write");
   const change = await db.configChange.findUnique({ where: { id: String(req.params.id) } });
   if (!change || change.status !== "SUBMITTED") throw notFound("No change waiting for approval.");
-  if (change.draftedById === admin.user.id) throw forbidden("Blocked — you drafted this change. A different approver is required.");
+  // Two-person rule; a Super Admin may approve their own draft (audited as self-approved).
+  const self = secondPerson(admin, change.draftedById === admin.user.id, "Blocked — you drafted this change. A different approver is required.");
   const k = await db.configKey.findUniqueOrThrow({ where: { key: change.key } });
   // The draft was made against the value then in force; if that changed (e.g. a rollback), it must be redrafted.
   if (Number(k.value) !== Number(change.fromValue)) {
@@ -165,7 +166,7 @@ configRouter.post("/config/changes/:id/approve", async (req, res) => {
     if (!count) throw conflict("This change was just approved or rejected by someone else.");
     await tx.configKey.update({ where: { key: k.key }, data: { value: change.toValue, version, updatedAt: new Date() } });
   });
-  await audit(admin, "config.change.approve", k.key, `${change.fromValue} → ${change.toValue} (v${version})`);
+  await audit(admin, "config.change.approve", k.key, `${change.fromValue} → ${change.toValue} (v${version})${self}`);
   res.json({ detail: await keyView(k.key) });
 });
 

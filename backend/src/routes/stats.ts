@@ -10,7 +10,7 @@ export const statsRouter = Router();
 
 /** How far back the "Just now" feed looks. */
 const EVENTS_WINDOW_MS = 6 * 3600_000;
-const MODE_WORD: Record<string, string> = { VOICE: "voice", VIDEO: "video" };
+const MODE_WORD: Record<string, string> = { CHAT: "chat", VOICE: "voice", VIDEO: "video" };
 
 statsRouter.get("/now", async (_req, res) => {
   const now = new Date();

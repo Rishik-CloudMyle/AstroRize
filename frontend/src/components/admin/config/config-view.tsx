@@ -61,6 +61,8 @@ export default function ConfigView({
       ? pending.draftedById === session.id
       : pending.draftedBy === actor
     : true;
+  // A Super Admin may approve their own draft (audited as self-approved); anyone else needs a second person.
+  const selfBlocked = isMaker && session.role !== "super";
 
   const f = filter.trim().toLowerCase();
   const sortedKeys = sortRows(data.keys, CONFIG_SORTS, sort);
@@ -168,7 +170,7 @@ export default function ConfigView({
   const draftNote = approved
     ? "Live now"
     : stage === "submitted"
-      ? `Drafted by ${maker} · awaiting a different approver`
+      ? `Drafted by ${maker} · awaiting ${session.role === "super" ? "approval" : "a different approver"}`
       : typedOk
         ? "Not yet submitted"
         : "Enter a valid value above";
@@ -412,7 +414,13 @@ export default function ConfigView({
               <div className="text-[10.5px] font-bold tracking-[.08em] text-blue-800 uppercase">Effective at</div>
               <b className="mt-1 block text-[17px] text-blue-800">{effective}</b>
               <span className="text-[11px] text-blue-700">
-                {pending ? "Live as soon as a different person approves" : "A second person must approve first"}
+                {session.role === "super"
+                  ? pending
+                    ? "Live as soon as it is approved"
+                    : "Needs approval (you may approve your own)"
+                  : pending
+                    ? "Live as soon as a different person approves"
+                    : "A second person must approve first"}
               </span>
             </div>
             <div className="rounded-[14px] bg-cream p-3.5">
@@ -449,11 +457,11 @@ export default function ConfigView({
                 <button
                   type="button"
                   onClick={approve}
-                  aria-disabled={isMaker}
+                  aria-disabled={selfBlocked}
                   className="h-11 rounded-xl border-0 px-[22px] text-[13.5px] font-bold"
-                  style={{ background: isMaker ? "#f5f5f4" : "#047857", color: isMaker ? "#78716c" : "#fff" }}
+                  style={{ background: selfBlocked ? "#f5f5f4" : "#047857", color: selfBlocked ? "#78716c" : "#fff" }}
                 >
-                  {isMaker ? "Approve — blocked, you drafted this" : "Approve"}
+                  {selfBlocked ? "Approve — blocked, you drafted this" : isMaker ? "Approve your own draft (audited)" : "Approve"}
                 </button>
               )}
               {approved && (

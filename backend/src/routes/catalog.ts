@@ -1,15 +1,17 @@
 import { randomUUID } from "node:crypto";
+import { assertNotBlocked } from "../lib/account-blocks.ts";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { db } from "../db.ts";
 import { HttpError, badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
-import { CHAT_RETIRED_CODE, CHAT_RETIRED_MESSAGE, instantRate } from "../lib/billing.ts";
+import { chatRate, instantRate } from "../lib/billing.ts";
 import { istDate, istTime, percentages, rupee } from "../lib/format.ts";
 import { effectivePresence, hostedLiveRoom, touchViewer, viewerCount } from "../lib/presence.ts";
-import { announceJoin, chatLineView, giftBalance, sendGift, sessionFeed } from "../lib/live.ts";
+import { announceJoin, chatLineView, giftBalance, sendGift, sendProfileGift, sessionFeed } from "../lib/live.ts";
 import { connectPrivate, customerPrivateView, expireUnanswered, joinQueue, leaveQueue, liveMedia, myRequest, privateInRoom } from "../lib/live-consult.ts";
-import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "../lib/safety.ts";
-import { freeCallOpen } from "../lib/welcome.ts";
+import { flagContactAttempt } from "../lib/contact-flags.ts";
+import { contactBlockedNotice, findContactDetails, rateLimit } from "../lib/safety.ts";
+import { freeCallOpen, welcomePolicy } from "../lib/welcome.ts";
 import { requireRole, requireUser } from "../middleware/auth.ts";
 import type { Astrologer, LiveRoom, Review } from "../generated/prisma/client.ts";
 
@@ -37,6 +39,8 @@ export function astrologerView(a: AstrologerWithReviews, freeCall = false) {
     consults: a.consults,
     price: a.price,
     was: a.was,
+    /** Chat rate (₹/min): the astrologer's own chat price, or the same as `price`. */
+    chatPrice: chatRate(a),
     instant: instantRate(a.price, a.instantMultiplier),
     /** Instant Call rate = price × this. */
     instantMultiplier: a.instantMultiplier,
@@ -66,11 +70,50 @@ catalogRouter.get("/astrologers", async (_req, res) => {
   res.json({ astrologers: list.map((a) => astrologerView(a, free.has(a.id))), total: list.length });
 });
 
+/**
+ * The free minutes the website advertises to visitors (the home banner's "N minutes free when you
+ * join"): read from Config so the copy always matches what a new mobile number really gets.
+ */
+catalogRouter.get("/welcome-offer", async (_req, res) => {
+  const { enabled, joiningBonusMinutes, weeklyMinutes } = await welcomePolicy();
+  res.json({ enabled, joiningBonusMinutes, weeklyMinutes });
+});
+
 catalogRouter.get("/astrologers/:slug", async (req, res) => {
   const a = await db.astrologer.findUnique({ where: { slug: req.params.slug }, include: { reviews: visibleReviews } });
   if (!a || a.lifecycle !== "active") throw notFound("No astrologer at this address.");
   const free = await freeCallOpen([a]);
   res.json({ astrologer: astrologerView(a, free.has(a.id)) });
+});
+
+/** The gift catalogue for an astrologer's profile (live or not), and what the signed-in customer can spend on gifts. */
+catalogRouter.get("/astrologers/:slug/gifts", async (req, res) => {
+  const a = await db.astrologer.findUnique({ where: { slug: req.params.slug }, select: { lifecycle: true, suspension: true } });
+  if (!a || a.lifecycle !== "active" || a.suspension === "full") throw notFound("No astrologer at this address.");
+  const gifts = await db.gift.findMany({ where: { state: "ACTIVE", price: { gt: 0 } }, orderBy: [{ rank: "asc" }, { price: "asc" }] });
+  const balance = req.auth?.role === "customer" ? await giftBalance(req.auth.user.id) : null;
+  res.json({ gifts: gifts.map((g) => ({ id: g.id, icon: g.icon, name: g.name, price: g.price })), balance });
+});
+
+/**
+ * Sends a gift to an astrologer from their profile, live or offline, paid from the customer's
+ * service balance like a live gift. Repeating a request id never charges twice.
+ */
+catalogRouter.post("/astrologers/:slug/gifts", async (req, res) => {
+  const auth = requireRole(req, "customer");
+  // A temporarily blocked account (repeated contact sharing) can't do this until the block ends.
+  assertNotBlocked(auth);
+  const requestIdField = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/, "Invalid request id.");
+  const { giftId, requestId } = z
+    .object({ giftId: z.string({ error: "Choose a gift." }).min(1, "Choose a gift.").max(64), requestId: requestIdField.optional() })
+    .parse(req.body);
+  const header = req.get("idempotency-key");
+  const key = requestId ?? (header ? requestIdField.parse(header) : randomUUID());
+  rateLimit(`gift:${auth.user.id}`, 10, 60_000, "You're sending gifts too quickly. Wait a minute and try again.");
+  const a = await db.astrologer.findUnique({ where: { slug: String(req.params.slug) }, select: { id: true } });
+  if (!a) throw notFound("No astrologer at this address.");
+  const result = await sendProfileGift(a.id, auth.user, giftId, key);
+  res.status(result.replayed ? 200 : 201).json({ ...result, balance: await giftBalance(auth.user.id) });
 });
 
 // ── Live rooms ──
@@ -194,12 +237,22 @@ catalogRouter.post("/live-rooms/:id/join", async (req, res) => {
 
 catalogRouter.post("/live-rooms/:id/chat", async (req, res) => {
   const auth = requireUser(req);
+  assertNotBlocked(auth);
   const { text } = z
     .object({ text: z.string({ error: "Write a message first." }).trim().min(1, "Write a message first.").max(200, "Messages can be up to 200 characters.") })
     .parse(req.body);
   rateLimit(`chat:${auth.user.id}`, 5, 10_000, "You're sending messages too quickly. Wait a few seconds.");
-  if (containsContactDetails(text)) throw badRequest(CONTACT_BLOCKED_NOTICE);
   const room = await liveRoomOr404(String(req.params.id));
+  // Public chat: no personal details at all (the FREE policy). Never posted; the attempt is
+  // flagged for Trust & reviews (staff watching a room aren't flagged).
+  const contact = findContactDetails(text, "FREE");
+  if (contact.length) {
+    if (auth.role !== "admin") {
+      const side = auth.role === "astrologer" ? "ASTROLOGER" : "CUSTOMER";
+      await flagContactAttempt({ userId: auth.user.id, name: auth.user.name, side, place: "live", ref: room.id, kinds: contact, text });
+    }
+    throw badRequest(contactBlockedNotice(contact, "FREE", "live chat"));
+  }
   const msg = await db.chatMessage.create({
     data: { roomId: room.id, author: auth.user.name, text, userId: auth.user.id, kind: "message", photo: auth.user.photoUrl },
   });
@@ -222,6 +275,7 @@ catalogRouter.get("/live-rooms/:id/gifts", async (req, res) => {
  */
 catalogRouter.post("/live-rooms/:id/gifts", async (req, res) => {
   const auth = requireRole(req, "customer");
+  assertNotBlocked(auth);
   const requestIdField = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/, "Invalid request id.");
   const { giftId, requestId } = z
     .object({ giftId: z.string({ error: "Choose a gift." }).min(1, "Choose a gift.").max(64), requestId: requestIdField.optional() })
@@ -264,14 +318,12 @@ catalogRouter.post("/live-rooms/:id/reactions", async (req, res) => {
 /**
  * Join the room's consult queue. Consultations from a live are always private (the astrologer's
  * video stays on for everyone; the conversation is only with the customer being consulted), by
- * voice or video (`mode`; Instant Call isn't offered from a live, and paid chat isn't offered at all). The
+ * chat, voice or video (`mode`; chat at the astrologer's chat price; Instant Call isn't offered from a live). The
  * page sends the rate it showed for that mode (`quotedRate`); that rate is locked for this request.
  */
 catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
   const auth = requireRole(req, "customer");
-  // Paid chat is no longer offered anywhere (customers chat free in Messages).
-  const asked = (req.body as { mode?: unknown } | undefined)?.mode;
-  if (typeof asked === "string" && asked.toUpperCase() === "CHAT") throw new HttpError(400, CHAT_RETIRED_MESSAGE, CHAT_RETIRED_CODE);
+  assertNotBlocked(auth);
   // Older pages sent `mode: "PUBLIC" | "PRIVATE"` (and `consent`): there is no public option, and
   // such a request is the voice consultation those pages offered.
   const { quotedRate, mode } = z
@@ -279,7 +331,7 @@ catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
       quotedRate: z.number().int().nonnegative().optional(),
       mode: z.preprocess(
         (m) => (typeof m !== "string" ? m : ["PUBLIC", "PRIVATE"].includes(m.toUpperCase()) ? undefined : m.toUpperCase()),
-        z.enum(["VOICE", "VIDEO"], { message: "A private consultation from a live is by voice or video." }).optional(),
+        z.enum(["CHAT", "VOICE", "VIDEO"], { message: "A private consultation from a live is by chat, voice or video." }).optional(),
       ),
     })
     .parse(req.body ?? {});
@@ -330,6 +382,7 @@ catalogRouter.post("/live-rooms/:id/queue/leave", async (req, res) => {
  */
 catalogRouter.post("/live-rooms/:id/private/connect", async (req, res) => {
   const auth = requireRole(req, "customer");
+  assertNotBlocked(auth);
   const room = await liveRoomOr404(String(req.params.id));
   await expireUnanswered(room.id);
   const mine = await customerPrivateView(room.id, auth.user.id);

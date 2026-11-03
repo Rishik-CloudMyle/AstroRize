@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Astrologer, LiveGift, LiveRoom, Settlement } from "@/lib/types";
 import { ApiError, api } from "@/lib/api/client";
+import { reportContactAttempt } from "@/lib/contact-attempt";
+import { contactBlockedNotice, findContactDetails } from "@/lib/contact-filter";
 import { discountLabel, rupee } from "@/lib/format";
 import { consultationActions, useOpenConsultation } from "@/lib/consultation-store";
 import { useSession } from "@/lib/session-store";
@@ -210,6 +212,13 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
     if (!text || sending || ended) return;
     if (!session.loggedIn) {
       openLogin({ notice: "Log in to chat in the room." });
+      return;
+    }
+    // Public chat: no personal details at all. Said here at once; the API checks too.
+    const contact = findContactDetails(text, "FREE");
+    if (contact.length) {
+      toast(contactBlockedNotice(contact, "FREE", "live chat"));
+      reportContactAttempt("live", room.id, text);
       return;
     }
     setSending(true);
@@ -463,7 +472,7 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
         <p className="mt-2 text-[12.5px] font-semibold text-stone-600">You asked for a {PRIVATE_TITLE[req.mode].toLowerCase()}.</p>
       )}
       <p className="mt-2 text-[11.5px] leading-[1.45] text-stone-500">
-        Consultations from a live are private — by voice or video. The room keeps seeing the video, never you.
+        Consultations from a live are private — by chat, voice or video. The room keeps seeing the video, never you.
       </p>
       {room.queue.inQueue ? (
         <button

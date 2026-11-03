@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { apiGet, apiGetOr404 } from "@/lib/api/server";
+import type { WelcomeOffer } from "@/components/home/promo-banner";
 import type { Astrologer, FeaturedReview, LiveRoom } from "@/lib/types";
 
 // Data the public website reads from the Node API. Each call forwards the
@@ -31,5 +32,14 @@ export const getFeaturedReviews = cache(async (): Promise<FeaturedReview[]> => {
     return reviews;
   } catch {
     return [];
+  }
+});
+
+/** What a new mobile number gets on joining (the home banner's free-minutes slide); null if the API can't say. */
+export const getWelcomeOffer = cache(async (): Promise<WelcomeOffer | null> => {
+  try {
+    return await apiGet<WelcomeOffer>("/welcome-offer");
+  } catch {
+    return null;
   }
 });

@@ -197,6 +197,9 @@ export default function ProfileView({ data }: { data: ProfileData }) {
                   <>
                     <span className="text-[17px] font-bold text-plum">{rupee(me.price)}</span>
                     <span className="text-[10px] font-semibold text-mauve">/min</span>
+                    {me.chatPrice !== me.price && (
+                      <span className="text-[10px] font-semibold text-mauve tabular-nums">· Chat {rupee(me.chatPrice)}/min</span>
+                    )}
                   </>
                 ) : (
                   <span className="text-[13px] font-bold text-mauve">Rate not set yet</span>

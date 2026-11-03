@@ -5,7 +5,7 @@ import { audit } from "../../lib/audit.ts";
 import { conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { closesOn, cycleOf, freeCallsCycleDays, prepareBatch, prepareCandidates, prepareDiff, splitThisMonth, tdsPct } from "../../lib/earnings.ts";
 import { istDayMonth, istTime, rupee } from "../../lib/format.ts";
-import { actorName, requireCapability, requirePage } from "../../lib/rbac.ts";
+import { actorName, requireCapability, requirePage, secondPerson } from "../../lib/rbac.ts";
 import { duplicatePayments, grossVolume, walletTrialBalance } from "../../lib/ledger.ts";
 import { campaignCostThisMonth } from "../../lib/campaigns.ts";
 import { configNumber, getSetting, putSetting } from "../../lib/settings.ts";
@@ -153,20 +153,20 @@ financeRouter.post("/payouts/:id/approve", async (req, res) => {
   res.json({ ok: true, actor: actorName(admin) });
 });
 
-/** Approver and releaser must be different people. */
+/** Approver and releaser must be different people — except a Super Admin, who may release what they approved (audited). */
 financeRouter.post("/payouts/:id/release", async (req, res) => {
   requirePage(req, "finance");
   const admin = requireCapability(req, "payout.release", "Your role can approve payouts but not release them.");
   const b = await db.payoutBatch.findUnique({ where: { id: String(req.params.id) } });
   if (!b) throw notFound("Payout batch not found.");
   if (b.state !== "APPROVED") throw conflict(`${b.id} must be approved before it can be released.`);
-  if (b.approvedById === admin.user.id) throw forbidden(`Blocked — you approved ${b.id}. Release requires a different actor.`);
+  const self = secondPerson(admin, b.approvedById === admin.user.id, `Blocked — you approved ${b.id}. Release requires a different actor.`);
   const { count } = await db.payoutBatch.updateMany({
     where: { id: b.id, state: "APPROVED", approvedById: b.approvedById },
     data: { state: "RELEASED", releasedById: admin.user.id, releasedByName: actorName(admin), releasedAt: new Date() },
   });
   if (!count) throw conflict(`${b.id} was just released by someone else.`);
-  await audit(admin, "payout.batch.release", b.id, "APPROVED → RELEASED");
+  await audit(admin, "payout.batch.release", b.id, `APPROVED → RELEASED${self}`);
   // RazorpayX isn't connected yet, so no transfer reference exists; the client says so.
   res.json({ ok: true, actor: actorName(admin) });
 });

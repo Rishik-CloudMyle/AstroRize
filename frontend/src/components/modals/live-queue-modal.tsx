@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
 import { rateFor, rupee } from "@/lib/format";
-import type { LiveRoom, OfferedMode } from "@/lib/types";
+import type { LiveRoom, LiveMode } from "@/lib/types";
 import { useAppUI, type QueueRequest } from "../app-provider";
 import { recheckAvailability } from "../astrologer/use-fresh-astrologer";
 import Modal from "../ui/modal";
@@ -13,37 +13,39 @@ import ModeIcon from "@/components/ui/mode-icon";
 /** Minutes of balance a consultation needs before it can start (same rule as every consultation). */
 const ELIGIBILITY_MINUTES = 5;
 
-/** A private consultation from a live is by voice or video (paid chat isn't offered anywhere). */
-const MODES: { key: OfferedMode; title: string; body: string }[] = [
+/** A private consultation from a live is by chat, voice or video. */
+const MODES: { key: LiveMode; title: string; body: string }[] = [
+  { key: "chat", title: "Chat", body: "Message privately — nobody in the room sees it." },
   { key: "voice", title: "Voice Call", body: "Talk privately — only you hear them." },
   { key: "video", title: "Video Call", body: "Face to face, in a private call of its own." },
 ];
 
-const MODE_NAME: Record<OfferedMode, string> = { voice: "voice call", video: "video call" };
+const MODE_NAME: Record<LiveMode, string> = { chat: "chat", voice: "voice call", video: "video call" };
 
 /**
- * Live room: join the consult queue for a private voice or video consultation (chat and Instant
- * Call aren't offered from a live). The room keeps seeing the astrologer's video; the conversation is
+ * Live room: join the consult queue for a private chat, voice or video consultation (Instant Call
+ * isn't offered from a live). The room keeps seeing the astrologer's video; the conversation is
  * only with this customer, who is never shown to the room. The rate shown for the chosen mode is
  * the rate they pay if accepted.
  */
 export default function LiveQueueModal({ request, onClose }: { request: QueueRequest; onClose: () => void }) {
   const { toast } = useAppUI();
   const host = request.astrologer;
-  const [mode, setMode] = useState<OfferedMode | null>(null);
+  const [mode, setMode] = useState<LiveMode | null>(null);
   // The rate shown for each mode — the same rates as a direct consultation. A rate the server
   // corrected (it changed since the page loaded) replaces the one shown for that mode.
-  const [rates, setRates] = useState<Record<OfferedMode, number>>(() => ({
+  const [rates, setRates] = useState<Record<LiveMode, number>>(() => ({
+    chat: rateFor(host.price, "chat", host.chatPrice),
     voice: rateFor(host.price, "voice"),
     video: rateFor(host.price, "video"),
   }));
   const quoted = mode ? rates[mode] : 0;
-  const [changedFrom, setChangedFrom] = useState<{ mode: OfferedMode; rate: number } | null>(null);
+  const [changedFrom, setChangedFrom] = useState<{ mode: LiveMode; rate: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [short, setShort] = useState(false);
 
-  function choose(m: OfferedMode) {
+  function choose(m: LiveMode) {
     setMode(m);
     setError("");
     setShort(false);
@@ -84,7 +86,7 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
       </h2>
       <p className="mt-1.5 text-[13px] leading-normal text-stone-600">
         One-to-one, during the live. Everyone keeps seeing the astrologer&apos;s video with a “private consultation in progress”
-        banner and no sound. Your voice and video are never shown to the room.
+        banner and no sound. Your messages, voice and video are never shown to the room.
       </p>
 
       <div role="radiogroup" aria-label="How would you like to consult?" className="mt-4 flex flex-col gap-2">
@@ -123,7 +125,7 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
           )}
           <p className="text-[12px] leading-[1.45] text-stone-600">
             You need {rupee(quoted * ELIGIBILITY_MINUTES)} (five minutes at {rupee(quoted)}/min) in your wallet. Billing starts only
-            when you join the call, and you pay for the minutes you&apos;re connected.
+            when you both join{mode === "chat" ? " the chat" : " the call"}, and you pay for the minutes you&apos;re connected.
           </p>
         </div>
       )}

@@ -1,14 +1,18 @@
 import AccessDenied from "@/components/admin/access-denied";
+import ContactFlags from "@/components/admin/trust/contact-flags";
 import ModerationQueue from "@/components/admin/trust/moderation-queue";
 import { PageTitle, PANEL } from "@/components/admin/ui";
 import { allowed } from "@/lib/admin/guard";
-import { getTrust } from "@/lib/admin/api";
+import { getContactFlags, getTrust } from "@/lib/admin/api";
+import type { ContactFlagShow } from "@/lib/admin/types";
 
 export const metadata = { title: "Trust & reviews" };
 
-export default async function TrustPage() {
+export default async function TrustPage({ searchParams }: PageProps<"/admin/trust">) {
   if (!(await allowed("trust"))) return <AccessDenied />;
-  const data = await getTrust();
+  const sp = await searchParams;
+  const show: ContactFlagShow = sp.flags === "reviewed" || sp.flags === "all" ? sp.flags : "open";
+  const [data, flags] = await Promise.all([getTrust(), getContactFlags(show)]);
   const { density, sampleFloor } = data;
   const pct = Math.min(100, (density.value / density.target) * 100);
   const gatePassed = density.value >= density.target;
@@ -16,11 +20,23 @@ export default async function TrustPage() {
 
   return (
     <div>
-      <PageTitle title="Trust & reviews" sub="Flagged reviews to keep or remove with a reason, and the rating sample floor." />
+      <PageTitle
+        title="Trust & reviews"
+        sub="Flagged reviews to keep or remove with a reason, off-platform contact attempts, and the rating sample floor."
+      />
 
       <div className={`${PANEL} relative mt-[18px] p-5`}>
         <h2 className="mt-0 mb-3.5 text-[16px] font-bold">Moderation queue</h2>
         <ModerationQueue data={data} />
+      </div>
+
+      <div id="contact-attempts" className={`${PANEL} relative mt-4 p-5`}>
+        <h2 className="mt-0 mb-1 text-[16px] font-bold">Off-platform contact attempts</h2>
+        <p className="mt-0 mb-3.5 text-[12px] text-[#78716c]">
+          Messages that were stopped because they shared a phone number, email, link, social or payment app, UPI ID or
+          home address — in free chat, a paid consultation&rsquo;s chat or live chat. The detail itself is never shown.
+        </p>
+        <ContactFlags data={flags} />
       </div>
 
       <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] items-start gap-4">

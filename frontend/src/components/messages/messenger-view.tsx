@@ -25,6 +25,8 @@ import { useHydrated, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 import { AppTopbar } from "../mobile/page-title";
 import { ATTACH_LIMITS, AttachButton, AttachmentChip, MessageMedia, uploadFile, useAttachment } from "./message-media";
+import { reportContactAttempt } from "@/lib/contact-attempt";
+import { contactBlockedNotice, findContactDetails } from "@/lib/contact-filter";
 
 const errorText = (e: unknown) =>
   e instanceof ApiError ? e.message : "Something went wrong. Check your connection and try again.";
@@ -491,6 +493,13 @@ function Conversation({
     const text = draft.trim();
     const file = attach.file;
     if ((!text && !file) || sending || attach.preparing || !detail?.canMessage) return;
+    // Free chat: no personal details at all. Said here at once (nothing is sent); the API checks too.
+    const contact = text ? findContactDetails(text, "FREE") : [];
+    if (contact.length) {
+      setSendError(contactBlockedNotice(contact, "FREE"));
+      reportContactAttempt("messages", slug, text);
+      return;
+    }
     setSending(true);
     setSendError("");
     attach.setError("");
@@ -638,7 +647,10 @@ function Conversation({
             />
             <input
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setSendError("");
+              }}
               maxLength={MAX_MESSAGE_LENGTH}
               placeholder={attach.file ? "Add a caption (optional)" : "Message"}
               aria-label={attach.file ? "Caption" : `Message ${a.name}`}
@@ -653,7 +665,7 @@ function Conversation({
             </button>
           </div>
           <p className="mt-1.5 px-1 text-[11px] leading-normal text-stone-500 max-lg:text-app-ink-3">
-            {ATTACH_LIMITS} Phone numbers, emails and other contact details are not delivered.
+            {ATTACH_LIMITS} Phone numbers, emails, links, social media handles, UPI IDs and home addresses can&apos;t be shared here.
           </p>
         </form>
       )}

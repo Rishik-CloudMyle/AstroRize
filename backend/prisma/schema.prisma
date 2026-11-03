@@ -44,6 +44,12 @@ model User {
   active       Boolean    @default(true)
   lastLoginAt  DateTime?
   createdAt    DateTime   @default(now())
+  /// Temporary block for repeatedly sharing contact details (lib/account-blocks.ts): no messages,
+  /// chats, calls, live chat/queue or gifts until then. Null = not blocked.
+  blockedUntil DateTime?
+  blockReason  String?
+  /// When the latest block began (kept after it ends: attempts before it don't count towards a new one).
+  blockedAt    DateTime?
 
   // Customer profile (all optional). Shown to an astrologer only when the customer
   // asks to join that astrologer's live consult queue.
@@ -126,6 +132,9 @@ model PriceChange {
   astrologer     Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
   fromPrice      Int
   toPrice        Int
+  /// Which price: "CHAT" (the separate chat price, client Nov 2026) or null = calls (voice; video and
+  /// Instant Call follow it). Nullable so rows from before chat had its own price need no change.
+  channel        String?
   /// PENDING | APPROVED | REJECTED | APPLIED (a decrease, live at once) | WITHDRAWN (by the astrologer)
   status         String     @default("PENDING")
   requestedAt    DateTime   @default(now())
@@ -285,8 +294,12 @@ model Astrologer {
   years               Int
   rating              Float?
   consults            Int         @default(0)
-  /// Standard per-minute rate for chat and voice (₹). Video adds the video premium.
+  /// Standard per-minute rate for calls (voice) (₹), and for chat unless chatPrice is set. Video adds the video premium.
   price               Int
+  /// Per-minute chat rate (₹) when the astrologer set chat apart from calls (client, Nov 2026); null = same as price.
+  chatPrice           Int?
+  /// Last time the chat price actually changed (its own once-every-N-days cooldown), or null.
+  chatPriceChangedAt  DateTime?
   /// Original rate shown struck through when discounted (₹), or null.
   was                 Int?
   /// Instant Call rate = price × this multiplier.
@@ -304,6 +317,8 @@ model Astrologer {
   /// Why staff suspended the account (shown to the astrologer), and when.
   suspensionReason    String?
   suspendedAt         DateTime?
+  /// End of a temporary suspension placed by a contact-sharing block (lifted by itself then); null = until staff lift it.
+  suspendedUntil      DateTime?
   /// Popularity ranking used for the default directory order.
   rank                Int         @default(0)
   createdAt           DateTime    @default(now())

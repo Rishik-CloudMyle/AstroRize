@@ -9,14 +9,14 @@ import { useFreshAstrologer } from "./use-fresh-astrologer";
 import ModeIcon from "@/components/ui/mode-icon";
 
 const MODES: { key: OfferedChoice; label: string }[] = [
+  { key: "chat", label: "Chat" },
   { key: "voice", label: "Voice" },
   { key: "video", label: "Video" },
   { key: "instant", label: "Instant" },
 ];
 
 /**
- * Voice / Video / Instant on an astrologer card (paid chat isn't offered — customers chat free in
- * Messages). Each one starts that kind of consultation
+ * Chat / Voice / Video / Instant on an astrologer card. Each one starts that kind of consultation
  * straight away (sign-in first if needed, then the price and balance check before anything is
  * billed); Instant opens the Instant Call rate confirmation. Disabled, with the reason, when the
  * astrologer can't take it right now.
@@ -44,7 +44,7 @@ export default function ModeOptions({ astrologer: initial }: { astrologer: Astro
   }
 
   return (
-    <div className="mt-2.5 grid grid-cols-3 gap-1">
+    <div className="mt-2.5 grid grid-cols-4 gap-1">
       {MODES.map((m) => {
         const instant = m.key === "instant";
         return (

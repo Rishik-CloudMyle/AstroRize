@@ -92,6 +92,18 @@ export default function CampaignsTable({ campaigns, limits }: { campaigns: Campa
       );
     }
     if (waiting) {
+      // Two-person rule: whoever submitted it can't approve it — except a Super Admin (audited as self-approved).
+      const ownSubmission = c.submittedById === session.id;
+      if (canApprove && ownSubmission && session.role !== "super") {
+        return (
+          <>
+            <span className="inline-flex h-[30px] items-center rounded-[9px] border border-dashed border-stone-300 bg-stone-100 px-3 text-[11.5px] font-bold text-muted">
+              You submitted this — another approver activates it
+            </span>
+            {endBtn}
+          </>
+        );
+      }
       return (
         <>
           {canApprove ? (

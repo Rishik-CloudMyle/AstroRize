@@ -20,8 +20,13 @@ export function bannerFor(status: AccountStatus): Banner {
   if (status.suspension === "partial") {
     return {
       icon: "⚠",
-      title: "Account partially suspended",
-      body: suspensionBody(status, "You cannot start new sessions or go live. Your profile and earnings remain readable, and you can respond to the open compliance notice."),
+      title: status.suspendedUntil ? "Account blocked for a while" : "Account partially suspended",
+      body: suspensionBody(
+        status,
+        status.suspendedUntil
+          ? "Until then you can't take sessions, go live or send messages. Your profile and earnings remain readable. Sharing phone numbers, emails, links or other contact details isn't allowed on AstroRize."
+          : "You cannot start new sessions or go live. Your profile and earnings remain readable, and you can respond to the open compliance notice.",
+      ),
       bg: "#fff1f2",
       border: "#fecdd3",
       fg: "#be123c",
@@ -44,7 +49,11 @@ export function bannerFor(status: AccountStatus): Banner {
 /** What a suspension means, preceded by why and since when AstroRize suspended the account. */
 function suspensionBody(status: AccountStatus, meaning: string): string {
   const reason = status.suspensionReason?.trim();
-  const since = status.suspendedOn ? `Since ${status.suspendedOn}. ` : "";
+  const since = status.suspendedOn
+    ? `Since ${status.suspendedOn}${status.suspendedUntil ? `, until ${status.suspendedUntil} (it ends by itself)` : ""}. `
+    : status.suspendedUntil
+      ? `Until ${status.suspendedUntil} (it ends by itself). `
+      : "";
   return reason ? `${since}Reason: ${/[.!?]$/.test(reason) ? reason : `${reason}.`} ${meaning}` : `${since}${meaning}`;
 }
 

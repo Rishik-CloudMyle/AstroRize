@@ -26,6 +26,7 @@ import SectionHeader from "../mobile/section-header";
 import { Skeleton } from "../mobile/skeleton";
 import { HideTabBar } from "../mobile/tab-bar";
 import AccountSection, { type Closed } from "./account-section";
+import { BillingIssueAction, BillingIssues, canRaiseIssue } from "./billing-issue";
 import ProfileSection from "./profile-section";
 import { LockIcon, RAZORPAY_TRUST, payLabel, paymentPageHref, rechargeMessage, useRecharge } from "./use-recharge";
 import CustomAmountField, { type CustomAmount, pickedDenomination } from "./custom-amount";
@@ -290,6 +291,7 @@ function Transactions() {
     <>
       <AppTopbar title="Transactions" />
       <div className="px-4 pt-3 pb-8">
+        <BillingIssues className="mb-5" />
         {all.length > 0 && (
           <ChipRow label="Show" className="mb-3">
             <Chip on={filter === "all"} onClick={() => setFilter("all")}>
@@ -370,6 +372,7 @@ function TransactionDetail({ txRef }: { txRef: string }) {
             View payment receipt
           </AppButton>
         )}
+        {t && canRaiseIssue(t) && <BillingIssueAction txRef={t.ref} />}
         {t && (
           <p className="mt-3 mb-0 text-[12px] leading-[1.45] text-app-ink-3">
             Keep the transaction ID handy if you need to ask us about this payment.
@@ -482,7 +485,11 @@ function AddMoney({
           <b className="text-app-ink">Pay {rupee(denom + gst)}</b>
         </div>
         <AppButton block className="mt-2" disabled={!selected || paymentsOn === false} onClick={onProceed}>
-          {paymentsOn === false ? "Payments aren't connected yet" : `Proceed to payment · ${rupee(denom + gst)}`}
+          {paymentsOn === false
+            ? "Payments aren't connected yet"
+            : !selected && denominations
+              ? "Choose an amount to add"
+              : `Proceed to payment · ${rupee(denom + gst)}`}
         </AppButton>
         <p className="mt-1.5 mb-0 text-[11.5px] leading-[1.4] text-app-ink-3">
           {paymentsOn === false

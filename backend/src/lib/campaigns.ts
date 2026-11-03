@@ -461,3 +461,9 @@ export async function campaignCostThisMonth(now = new Date()) {
   const d = discount._sum.discount ?? 0;
   return { month: now.toLocaleDateString("en-GB", { month: "short", timeZone: "Asia/Kolkata" }).slice(0, 3), cashback: c, bonus: b, discount: d, total: c + b + d };
 }
+
+/** Who submitted a campaign for approval (the latest submit entry in the audit log), or null. */
+export async function campaignSubmitterId(campaignId: string): Promise<string | null> {
+  const entry = await db.auditLog.findFirst({ where: { action: "campaign.submit", object: campaignId }, orderBy: { at: "desc" }, select: { actorId: true } });
+  return entry?.actorId ?? null;
+}

@@ -12,10 +12,16 @@ import ToolCard from "@/components/tool-card";
 import { STEPS, TRUST_STRIP } from "@/lib/mock/home";
 import { APP_STORE_URL, PLAY_STORE_URL } from "@/lib/mock/site";
 import { getTools } from "@/lib/tools";
-import { getAstrologers, getFeaturedReviews, getLiveRooms } from "./data";
+import { getAstrologers, getFeaturedReviews, getLiveRooms, getWelcomeOffer } from "./data";
 
 export default async function HomePage() {
-  const [{ astrologers, total }, liveRooms, tools, reviews] = await Promise.all([getAstrologers(), getLiveRooms(), getTools(), getFeaturedReviews()]);
+  const [{ astrologers, total }, liveRooms, tools, reviews, welcomeOffer] = await Promise.all([
+    getAstrologers(),
+    getLiveRooms(),
+    getTools(),
+    getFeaturedReviews(),
+    getWelcomeOffer(),
+  ]);
   // Real published reviews only: the newest three as cards, any others rotate in "In their words".
   const testimonials = reviews.slice(0, 3);
   const voices = reviews.slice(3);
@@ -26,18 +32,19 @@ export default async function HomePage() {
 
   return (
     <>
+    {/* ---------- Marketing banner (client, Nov 2026): edge to edge, straight under the header on
+        every screen size; the rest of the home page sits below it ---------- */}
+    <PromoBanner welcomeOffer={welcomeOffer} />
+
     {/* Phones and tablets: the app's Home screen. */}
     <div className="lg:hidden">
       <AppHome astrologers={astrologers} rooms={rooms} tools={tools} reviews={reviews} />
     </div>
     <div className="max-lg:hidden">
-      {/* ---------- Marketing banner (client, Nov 2026): offers first, the rest of the home page below it ---------- */}
-      <PromoBanner />
-
       {/* ---------- Hero ----------
           Wide screens (1440px+): text | who is available | wheel. Laptops: the available list sits
           under the text, beside the wheel. Tablets and phones: text, list, wheel, one under another. */}
-      <section className="relative mt-5 overflow-hidden border-y border-line-warm bg-[radial-gradient(ellipse_at_74%_50%,#fff9ea_0%,#fdf0d3_45%,#f8e2b4_100%)]">
+      <section className="relative overflow-hidden border-b border-line-warm bg-[radial-gradient(ellipse_at_74%_50%,#fff9ea_0%,#fdf0d3_45%,#f8e2b4_100%)]">
         <Sparkles className="absolute inset-0" />
         <ShootingStars className="absolute inset-0 size-full" />
         <div className="relative mx-auto grid max-w-[1240px] items-center gap-x-12 gap-y-8 px-4 pb-10 pt-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-y-7 lg:pb-9 lg:pt-8 min-[90rem]:grid-cols-[minmax(0,1fr)_272px_auto] min-[90rem]:gap-x-9 min-[90rem]:pb-10 min-[90rem]:pt-10">

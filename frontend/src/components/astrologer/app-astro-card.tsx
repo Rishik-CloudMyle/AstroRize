@@ -10,7 +10,7 @@ import { useAppUI } from "../app-provider";
 // The astrologer card of the phone/tablet app look (< 1024px) — the client prototype's
 // `.astro-card-std` (Home "Astrologers for you", Consult list, Complimentary list):
 // availability badge + recognition on the top rail, the ringed portrait, name, skills,
-// languages and experience, the rating/consults pill, the three ways to consult (Voice, Video, Instant — paid chat isn't offered) as status tiles,
+// languages and experience, the rating/consults pill, the four ways to consult (Chat, Voice, Video, Instant) as status tiles,
 // and the price with one call to action. Desktop never renders it.
 //
 // The tiles only show status (as in the app). "Consult Now" opens the consult sheet, which
@@ -19,7 +19,16 @@ import { useAppUI } from "../app-provider";
 
 type TileKind = "on" | "busy" | "instant" | "off";
 
-const TILE_ICON: Record<"voice" | "video" | "instant", React.ReactNode> = {
+const TILE_ICON: Record<"chat" | "voice" | "video" | "instant", React.ReactNode> = {
+  chat: (
+    <svg viewBox="0 0 32 32" aria-hidden="true" className="size-[21px]">
+      <circle cx="16" cy="16" r="16" fill="#22A06B" />
+      <path fill="#fff" d="M9.2 11.6c0-1.5 1.2-2.7 2.7-2.7h8.2c1.5 0 2.7 1.2 2.7 2.7v6.1c0 1.5-1.2 2.7-2.7 2.7h-4.6L11.4 22v-2.2c-1.3-.5-2.2-1.7-2.2-3.2z" />
+      <circle cx="13.2" cy="14.6" r="1.15" fill="#22A06B" />
+      <circle cx="16" cy="14.6" r="1.15" fill="#22A06B" />
+      <circle cx="18.8" cy="14.6" r="1.15" fill="#22A06B" />
+    </svg>
+  ),
   voice: (
     <svg viewBox="0 0 32 32" aria-hidden="true" className="size-[21px]">
       <circle cx="16" cy="16" r="16" fill="#7C5CDB" />
@@ -130,7 +139,7 @@ export function AppVerifiedTick({ size = 14 }: { size?: number }) {
   );
 }
 
-function tileKind(a: Astrologer, mode: "voice" | "video" | "instant"): TileKind {
+function tileKind(a: Astrologer, mode: "chat" | "voice" | "video" | "instant"): TileKind {
   if (a.availability === "busy") return mode === "instant" ? "off" : "busy";
   if (a.availability !== "on") return "off";
   return mode === "instant" ? "instant" : "on";
@@ -159,8 +168,8 @@ export default function AppAstroCard({ astrologer: a }: { astrologer: Astrologer
   const session = useSession();
   const freeTag = a.freeCall && showsFreeCalls(session);
   const skills = a.skills.slice(0, 3).join(" • ");
-  const modes = (["voice", "video", "instant"] as const).map((m) => ({ mode: m, kind: tileKind(a, m) }));
-  const label = { voice: "Voice", video: "Video", instant: "Instant" };
+  const modes = (["chat", "voice", "video", "instant"] as const).map((m) => ({ mode: m, kind: tileKind(a, m) }));
+  const label = { chat: "Chat", voice: "Voice", video: "Video", instant: "Instant" };
   const st = a.availability;
 
   return (
@@ -228,7 +237,7 @@ export default function AppAstroCard({ astrologer: a }: { astrologer: Astrologer
             <b className="font-bold text-[#2a1848] tabular-nums">{consultsShort(a.consults)}</b> Verified Consults
           </span>
         </div>
-        <ul aria-label="Ways to consult" className="grid grid-cols-3 gap-1">
+        <ul aria-label="Ways to consult" className="grid grid-cols-4 gap-1">
           {modes.map(({ mode, kind }) => (
             <li key={mode} className={`flex min-w-0 flex-col items-center gap-px text-center ${kind === "off" ? "opacity-[.48]" : ""}`}>
               <span className="grid size-[21px] place-items-center">{TILE_ICON[mode]}</span>
@@ -248,6 +257,9 @@ export default function AppAstroCard({ astrologer: a }: { astrologer: Astrologer
             </span>
             {a.was && a.was > a.price && <s className="text-[11px] font-medium text-[#b0a8b8] tabular-nums">{rupee(a.was)}</s>}
           </div>
+          {a.chatPrice !== a.price && (
+            <div className="mt-px text-[10px] font-semibold text-[#8a8296] tabular-nums">Chat {rupee(a.chatPrice)}/min</div>
+          )}
           {st === "busy" && (
             <div className="mt-0.5 text-[10px] text-[#8a8296]">In consultation{a.eta ? ` ${a.eta}` : ""}</div>
           )}

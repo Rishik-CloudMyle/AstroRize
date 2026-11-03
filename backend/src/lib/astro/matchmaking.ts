@@ -213,7 +213,10 @@ export function prosAndCons(
       k.boy === k.girl
         ? [`Both Moon signs are ruled by ${k.boy} — easy mental understanding (${pts(k)}).`, `Moon-sign lords are not friendly (${pts(k)}).`]
         : [`Moon-sign lords ${k.boy} and ${k.girl} are friendly — easy mental understanding (${pts(k)}).`, `Moon-sign lords ${k.boy} and ${k.girl} are not friendly — differences of opinion are likely (${pts(k)}).`],
-    gana: (k) => [`Matching temperaments — ${k.boy} and ${k.girl} gana (${pts(k)}).`, `Different temperaments — ${k.boy} and ${k.girl} gana may cause friction (${pts(k)}).`],
+    gana: (k) => [
+      k.boy === k.girl ? `Matching temperaments — both ${k.boy} gana (${pts(k)}).` : `Compatible temperaments — ${k.boy} and ${k.girl} gana (${pts(k)}).`,
+      `Different temperaments — ${k.boy} and ${k.girl} gana may cause friction (${pts(k)}).`,
+    ],
     bhakoot: (k) => [
       `Moon signs ${k.boy} and ${k.girl} sit well together for family harmony and finances (${pts(k)}).`,
       cancelled.bhakoot
@@ -239,7 +242,15 @@ export function prosAndCons(
   const girlM = girl.mangal.present;
   if (!boyM && !girlM) pros.push("Neither has Mangal dosha.");
   else if (boyM && girlM) pros.push("Both have Mangal dosha, which tradition treats as cancelling out.");
-  else cons.push(`Mangal dosha for ${boyM ? boy.name : girl.name} only — usually checked further by an astrologer.`);
+  else {
+    const who = boyM ? boy : girl;
+    // The classical cancellations (Mars in its own sign, exalted, with Jupiter or the Moon) soften it.
+    cons.push(
+      who.mangal.cancellations.length
+        ? `Mangal dosha for ${who.name} only, though reduced: ${who.mangal.cancellations.map((c) => c.replace(/\.$/, "")).join("; ")} — worth confirming with an astrologer.`
+        : `Mangal dosha for ${who.name} only — usually checked further by an astrologer.`,
+    );
+  }
 
   if (total >= 28) pros.unshift(`Excellent overall score: ${total} of 36 gunas.`);
   else if (total >= 18) pros.unshift(`Acceptable overall score: ${total} of 36 gunas (18 or more is traditionally fine).`);

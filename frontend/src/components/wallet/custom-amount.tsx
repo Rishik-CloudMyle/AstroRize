@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { rupee } from "@/lib/format";
 import type { Denomination } from "./wallet-mobile";
 
@@ -27,8 +27,10 @@ export function pickedDenomination(list: Denomination[] | null, amount: number, 
 }
 
 /**
- * "Or enter an amount": typing a valid amount selects it (onPick); choosing a fixed amount clears
- * the field. Nothing is shown while Finance has custom amounts off.
+ * "Or enter an amount": typing a valid amount selects it (onPick); while the typed amount is out of
+ * range, or once the typed amount is deleted, nothing is selected (onPick(0): the Pay button stays
+ * off rather than paying an amount the field doesn't show). Choosing a fixed amount clears the field.
+ * Nothing is shown while Finance has custom amounts off.
  */
 export default function CustomAmountField({
   custom,
@@ -49,27 +51,47 @@ export default function CustomAmountField({
   const [text, setText] = useState("");
   const [problem, setProblem] = useState("");
 
-  // A fixed amount was chosen: the typed one no longer applies.
-  useEffect(() => {
-    if (fixed.includes(denom)) {
+  // The amount this field last selected (null: none yet).
+  const [picked, setPicked] = useState<number | null>(null);
+
+  // Something else chose the amount (a fixed amount was tapped): the typed one no longer applies.
+  // Compared with what the field itself picked, so typing 5000 isn't wiped on the way past a fixed
+  // 500. Reset while rendering, not in an effect.
+  const [seenDenom, setSeenDenom] = useState(denom);
+  if (denom !== seenDenom) {
+    setSeenDenom(denom);
+    if (denom !== picked && fixed.includes(denom)) {
       setText("");
       setProblem("");
+      setPicked(null);
     }
-  }, [denom, fixed]);
+  }
 
   if (!custom?.enabled) return null;
+
+  function select(amount: number) {
+    setPicked(amount);
+    onPick(amount);
+  }
 
   function change(value: string) {
     const digits = value.replace(/[^\d]/g, "").slice(0, 7);
     setText(digits);
-    if (!digits) return setProblem("");
     const amount = Number(digits);
+    if (!digits) {
+      // Emptied: drop the amount this field had chosen (a fixed amount tapped since stays chosen).
+      setProblem("");
+      if (picked !== null && denom === picked) select(0);
+      return;
+    }
     if (amount < custom!.min || amount > custom!.max) {
       setProblem(`Enter an amount from ${rupee(custom!.min)} to ${rupee(custom!.max)}.`);
+      // The customer is typing their own amount: no other amount stays chosen behind the error.
+      if (denom !== 0) select(0);
       return;
     }
     setProblem("");
-    onPick(amount);
+    select(amount);
   }
 
   const app = variant === "app";

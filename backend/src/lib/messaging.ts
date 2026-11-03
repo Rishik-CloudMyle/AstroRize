@@ -18,7 +18,8 @@ import {
   type MediaType,
 } from "./media.ts";
 import { ROLE_LABELS, type AdminRoleKey } from "./rbac.ts";
-import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "./safety.ts";
+import { flagThreadAttempt } from "./contact-flags.ts";
+import { contactBlockedNotice, findContactDetails, rateLimit } from "./safety.ts";
 
 // Astrologer Messenger: free direct messages between a customer and an astrologer — text, and
 // photos or short videos (kept private to the two of them). One conversation per
@@ -79,15 +80,19 @@ export function checkSendRate(userId: string) {
 }
 
 /**
- * Saves a message from one side. Contact details are never delivered: the sender gets the
- * notice instead (stored as blocked, without the original text).
+ * Saves a message from one side. This is the free chat, so no personal details at all (FREE
+ * policy: phone, email, links, social apps/handles, UPI): such a message is never delivered — the
+ * sender gets a notice naming what was found instead (stored as blocked, without the original text).
  */
 export async function postMessage(threadId: string, sender: Side, text: string) {
-  const blocked = containsContactDetails(text);
+  const found = findContactDetails(text, "FREE");
+  const blocked = found.length > 0;
   const message = await db.message.create({
-    data: blocked ? { threadId, sender, text: CONTACT_BLOCKED_NOTICE, blocked: true } : { threadId, sender, text },
+    data: blocked ? { threadId, sender, text: contactBlockedNotice(found, "FREE"), blocked: true } : { threadId, sender, text },
   });
   await db.messageThread.update({ where: { id: threadId }, data: { updatedAt: message.createdAt } });
+  // An off-platform contact attempt: flagged for Trust & reviews (masked).
+  if (blocked) await flagThreadAttempt(threadId, sender, found, text);
   return { blocked, message: messageView(message, sender) };
 }
 
@@ -139,7 +144,7 @@ export function checkChatFile(body: unknown): ChatFile {
  * database write fails.
  */
 export async function postAttachment(threadId: string, sender: Side, caption: string, file: ChatFile) {
-  if (caption && containsContactDetails(caption)) return postMessage(threadId, sender, caption);
+  if (caption && findContactDetails(caption, "FREE").length) return postMessage(threadId, sender, caption);
   const name = await savePrivateFile(file.buf, file.type);
   try {
     const message = await db.$transaction(async (tx) => {

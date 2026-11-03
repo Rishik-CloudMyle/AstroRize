@@ -3,11 +3,10 @@
 export type RecognitionKey = "premium" | "trusted" | "proven" | "rising" | "fresh";
 export type AvailabilityKey = "on" | "busy" | "live" | "off";
 export type ConsultMode = "chat" | "voice" | "video";
-/**
- * The ways a NEW consultation can be started. Paid chat is no longer offered (customers chat free
- * in Messages); "chat" stays in ConsultMode only so past chat consultations still show and resume.
- */
-export type OfferedMode = Exclude<ConsultMode, "chat">;
+/** The ways a consultation can be started: paid Chat (back since Nov 2026), Voice or Video. */
+export type OfferedMode = ConsultMode;
+/** A private consultation from a live room: chat (at the astrologer's chat price), voice or video. */
+export type LiveMode = ConsultMode;
 
 export interface Review {
   name: string;
@@ -31,8 +30,10 @@ export interface Astrologer {
   /** null when there are not enough verified consultations yet */
   rating: number | null;
   consults: number;
-  /** Effective per-minute rate, in rupees */
+  /** Effective per-minute rate for calls (voice), in rupees */
   price: number;
+  /** Per-minute chat rate, in rupees (the astrologer's own chat price, or the same as `price`) */
+  chatPrice: number;
   /** Original rate before discount, or null if there is no discount */
   was: number | null;
   /** Instant Call per-minute rate */

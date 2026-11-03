@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
+import { reportContactAttempt } from "@/lib/contact-attempt";
+import { contactBlockedNotice, findContactDetails } from "@/lib/contact-filter";
 
 // The written conversation inside a consultation, for either side: the whole window in a Chat
-// session, a drawer during Voice and Video. Polled; contact details never reach the other side
-// (the sender sees why instead).
+// session, a drawer during Voice and Video. Polled; phone numbers never reach the other side
+// (the sender sees why instead) — a consultation is paid, so emails, links etc. may be shared.
 
 const POLL_MS = 2500;
 
@@ -89,7 +91,13 @@ export function useConsultChat(base: string, active: boolean, visible: boolean) 
     [base, merge],
   );
 
-  return { lines, open, loaded, failed, unread, send };
+  /** Reports a message the filter stopped here (the consultation id is the last part of `base`). */
+  const reportBlocked = useCallback(
+    (text: string) => reportContactAttempt("consultation", decodeURIComponent(base.split("/").pop() ?? ""), text),
+    [base],
+  );
+
+  return { lines, open, loaded, failed, unread, send, reportBlocked };
 }
 
 export type ConsultChatState = ReturnType<typeof useConsultChat>;
@@ -127,6 +135,12 @@ export function ConsultChat({
   async function submit() {
     const text = draft.trim();
     if (!text || sending || !chat.open) return;
+    // A consultation's chat (paid): only phone numbers are kept out. Said here at once; the API checks too.
+    const contact = findContactDetails(text, "PAID");
+    if (contact.length) {
+      chat.reportBlocked(text);
+      return setError(contactBlockedNotice(contact, "PAID"));
+    }
     setSending(true);
     setError("");
     const problem = await chat.send(text);
@@ -145,7 +159,7 @@ export function ConsultChat({
         )}
         {chat.loaded && count === 0 && (
           <p className={`mx-auto max-w-[34ch] py-8 text-center text-[13px] leading-[1.55] text-stone-400 ${L("max-lg:text-app-ink-2")}`}>
-            {chat.open ? `Say hello to ${peerName}. Messages stay on AstroRize — phone numbers and other contact details can't be shared.` : "No messages in this consultation."}
+            {chat.open ? `Say hello to ${peerName}. Messages stay on AstroRize — phone numbers can't be shared.` : "No messages in this consultation."}
           </p>
         )}
         <ul className="flex flex-col gap-2">
@@ -203,7 +217,10 @@ export function ConsultChat({
               rows={1}
               value={draft}
               maxLength={1000}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setError("");
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();

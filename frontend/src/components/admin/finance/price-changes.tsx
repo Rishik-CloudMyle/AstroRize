@@ -5,7 +5,7 @@ import { Chip, PANEL, TD, TH } from "@/components/admin/ui";
 import type { PriceChange, PriceChangeAstrologer, PriceChangeStatus } from "@/lib/admin/price-changes";
 import { PRICE_STATUS, rupee } from "@/lib/admin/price-status";
 
-// "Price changes" on the Finance page (read-only): astrologers' own (voice) price changes in
+// "Price changes" on the Finance page (read-only): astrologers' own call (voice) and chat price changes in
 // the last 30 days. Decreases go live at once; increases are approved or rejected on the
 // Astrologer lifecycle page (price.approve), not here.
 
@@ -45,7 +45,7 @@ export default function PriceChangesPanel({ changes }: { changes: Row[] }) {
       <div className="min-w-0">
         <h2 className="m-0 text-[16px] font-bold">Price changes</h2>
         <span className="mt-1 block text-[12px] text-[#78716c]">
-          Astrologers&apos; own voice prices, last 30 days. Decreases go live at once; increases are approved on the Astrologer lifecycle
+          Astrologers&apos; own call (voice) and chat prices, last 30 days. Decreases go live at once; increases are approved on the Astrologer lifecycle
           page. New prices apply to consultations requested after the change.
         </span>
       </div>
@@ -99,7 +99,7 @@ export default function PriceChangesPanel({ changes }: { changes: Row[] }) {
                         {rupee(Math.abs(diff))}
                       </span>
                     </td>
-                    <td className={`${TD} px-2.5 py-[10px] text-[#57534e]`}>{c.kind === "increase" ? "Increase" : "Decrease"}</td>
+                    <td className={`${TD} px-2.5 py-[10px] text-[#57534e]`}>{c.kind === "increase" ? "Increase" : "Decrease"} · {c.channel === "chat" ? "chat" : "calls"}</td>
                     <td className={`${TD} px-2.5 py-[10px]`}>
                       <Chip bg={s.bg} fg={s.fg}>
                         {s.label}

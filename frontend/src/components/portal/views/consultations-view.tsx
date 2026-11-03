@@ -272,7 +272,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
             {data.freeCalls.remaining} of {data.freeCalls.limit} free calls left {data.freeCalls.period === "week" ? "this week" : "today"}
           </b>
           <span className="text-[12px] text-emerald-900/75">
-            Customers can use their weekly free minutes with you, one free call at a time. Change how many you take on your dashboard.
+            Customers can use their free minutes with you, one free call at a time. Switch free calls on or off on your dashboard.
           </span>
         </div>
       )}

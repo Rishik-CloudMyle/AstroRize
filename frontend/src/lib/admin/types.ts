@@ -301,13 +301,20 @@ export interface AstrologerDetail {
     /** Voice ₹/min (video adds the video premium) */
     value: number;
     voice: string;
+    /** Chat ₹/min ("₹40") and as a number: the separate chat price, or the voice price while chat follows it */
+    chat: string;
+    chatValue: number;
+    /** The astrologer set a chat price of its own */
+    chatSeparate: boolean;
     video: string;
     instant: string;
     multiplier: number;
     was: string | null;
     changedAt: string | null;
-    /** An increase waiting for approval, or null */
+    /** An increase of the call (voice) price waiting for approval, or null */
     pending: PriceChange | null;
+    /** An increase of the chat price waiting for approval, or null */
+    pendingChat: PriceChange | null;
     /** Recent decided changes, newest first (empty for changes made before approvals existed) */
     history: PriceChange[];
   };
@@ -329,21 +336,18 @@ export interface AstrologerDetail {
     optedIn: boolean;
     /** The campaign itself is switched on (Config "welcome.enabled") */
     campaignOn: boolean;
-    /** Their own number, or null for the campaign default (per day) */
-    ownLimit: number | null;
-    /** day | week — the period their capacity counts over */
+    /** Free calls per IST day and per Mon–Sun week, the same for every astrologer (Config) */
+    perDay: number;
+    perWeek: number;
+    /** The period that runs out first; `limit`, `used` and `resetsAt` are for it */
     period: "day" | "week";
-    /** Capacity in force (capped to the admin maximum for the period) */
     limit: number;
-    isDefault: boolean;
-    defaultLimit: number;
     /** Free calls connected this period (today, or this Mon–Sun week, IST) */
     used: number;
+    usedToday: number;
+    usedThisWeek: number;
     remaining: number;
     resetsAt: string;
-    /** Highest capacity that may be set per day / per week (Config) */
-    maxPerDay: number;
-    maxPerWeek: number;
     /** Lengths a customer can choose for a free call (minutes, Config) */
     lengths: number[];
     /** Free minutes each customer gets per Mon–Sun week (Config) */
@@ -427,6 +431,8 @@ export interface Campaign {
   open: boolean;
   claims: number;
   used: number;
+  /** User id of who submitted it for approval (while it waits); they can't approve it unless a Super Admin. */
+  submittedById: string | null;
 }
 
 export interface Gift {
@@ -728,6 +734,60 @@ export interface TrustData {
   density: { value: number; target: number };
   /** Sample floor (Config trust.rating.min_consults_to_publish) and how many public astrologers are below it. */
   sampleFloor: { floor: number; below: number; total: number };
+}
+
+/** One off-platform contact attempt the contact filter stopped (Trust & reviews). */
+export interface ContactFlag {
+  id: string;
+  /** "3 Nov 14:05:12" (IST) */
+  at: string;
+  who: {
+    name: string;
+    side: "Customer" | "Astrologer";
+    /** The sender's account (null for older flags without one). */
+    userId: string | null;
+    /** Their current block's end ("10 Nov 2026, 17:05 IST"), while it lasts. */
+    blockedUntil: string | null;
+  };
+  where: { label: string; detail: string };
+  kinds: ("phone" | "email" | "link" | "social" | "upi" | "address")[];
+  /** The message with the detail hidden (the original is never stored). */
+  snippet: string;
+  /** How many attempts this person has made in all. */
+  attempts: number;
+  reviewed: { by: string; at: string } | null;
+}
+
+export type ContactFlagShow = "open" | "reviewed" | "all";
+
+export interface ContactFlagsData {
+  flags: ContactFlag[];
+  show: ContactFlagShow;
+  /** Not yet reviewed, and all flags ever. */
+  open: number;
+  total: number;
+  /** The most one list shows. */
+  limit: number;
+  /** Accounts blocked now for repeated contact sharing. */
+  blocked: BlockedAccount[];
+  /** This person may block, extend and lift (account.contact_block). */
+  canBlock: boolean;
+  /** The automatic rule (Config moderation.*): N attempts within D days → blocked for B days. */
+  policy: { after: number; windowDays: number; blockDays: number };
+}
+
+/** An account blocked for repeated off-platform contact attempts. */
+export interface BlockedAccount {
+  userId: string;
+  name: string;
+  side: "Customer" | "Astrologer";
+  /** "10 Nov 2026, 17:05 IST" */
+  untilLabel: string;
+  reason: string;
+  /** When and by whom it was blocked or last extended ("System" = automatic). */
+  since: string | null;
+  by: string | null;
+  attempts: number;
 }
 
 // ── RBAC ──

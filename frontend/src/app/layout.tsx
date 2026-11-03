@@ -59,7 +59,7 @@ export const metadata: Metadata = {
     template: "%s · AstroRize",
   },
   description:
-    "Consult verified astrologers by voice or video call. Pay by the minute, first 60 seconds free, masked calls and one charge after the session ends.",
+    "Consult verified astrologers by chat, voice or video. Pay by the minute, first 60 seconds free, masked calls and one charge after the session ends.",
   icons: { icon: "/assets/brand/logo-mark.png" },
 };
 

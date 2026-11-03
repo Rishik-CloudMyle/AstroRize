@@ -17,6 +17,7 @@
     "postinstall": "prisma generate",
     "test": "node --env-file=.env test/smoke.ts",
     "test:astro": "node test/astro.test.ts",
+    "test:contact": "node test/contact-filter.test.ts",
     "test:razorpay": "node test/razorpay.test.ts"
   },
   "dependencies": {

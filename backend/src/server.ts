@@ -1,6 +1,7 @@
 import { createApp } from "./app.ts";
 import { config } from "./config.ts";
 import { db } from "./db.ts";
+import { sweepExpiredBlocks } from "./lib/account-blocks.ts";
 import { sweepCampaigns } from "./lib/campaigns.ts";
 import { sweepAbandonedConsultations } from "./lib/consultations.ts";
 import { isDatabaseDown } from "./lib/errors.ts";
@@ -43,6 +44,11 @@ const sweeper = setInterval(() => {
     .then(() => purgeDaily())
     .catch((e: unknown) => {
       if (!isDatabaseDown(e)) console.error("Retention purge failed:", e);
+    })
+    // Temporary account blocks (repeated contact sharing) whose time is up end.
+    .then(() => sweepExpiredBlocks())
+    .catch((e: unknown) => {
+      if (!isDatabaseDown(e)) console.error("Account block sweep failed:", e);
     })
     // Campaigns: close ended ones, expire old claims, announce new offers, the daily offers notice.
     .then(() => sweepCampaigns())

@@ -4,6 +4,7 @@ import { db } from "../db.ts";
 import { HttpError, badRequest, conflict, notFound } from "./errors.ts";
 import { rupee } from "./format.ts";
 import { CONTACT_BLOCKED_NOTICE, containsContactDetails } from "./safety.ts";
+import { notify } from "./notifications.ts";
 import { getSetting } from "./settings.ts";
 import { sharePctFor, sharePolicy, writeEarnings } from "./earnings.ts";
 import type { ChatMessage, GiftSend, LiveRoom, User } from "../generated/prisma/client.ts";
@@ -181,6 +182,84 @@ export async function sendGift(roomId: string, user: Pick<User, "id" | "name" | 
     if ((e as { code?: string }).code === "P2002") {
       const again = await db.giftSend.findUnique({ where: { ref }, include: withSender });
       if (again && again.userId === user.id) return { gift: giftView(again), replayed: true };
+      throw conflict("Something went wrong sending this gift. Please try again.");
+    }
+    throw e;
+  }
+}
+
+/**
+ * A customer sends a gift from the catalogue straight to an astrologer, from their profile, live
+ * or not (client, Nov 2026). Charged and split exactly like a live gift: in one database
+ * transaction the service balance is debited (never below what an ongoing consultation needs),
+ * the wallet ledger gets a "Gift sent" line, the astrologer's earnings get a gift line and the
+ * astrologer is notified. The wallet reference doubles as the request's idempotency key.
+ */
+export async function sendProfileGift(astrologerId: string, user: Pick<User, "id" | "name">, giftId: string, requestId: string) {
+  const ref = giftRef(user.id, requestId);
+  const replay = async () => {
+    const prior = await db.transaction.findUnique({ where: { ref } });
+    if (!prior) return null;
+    if (prior.userId !== user.id || prior.type !== "Gift sent") throw conflict("Something went wrong sending this gift. Please try again.");
+    const line = await db.earningsLine.findFirst({ where: { sessionRef: ref, kind: "gift" }, select: { mode: true, gifts: true } });
+    const name = line?.mode.replace(/^Profile gift · /, "") ?? "Gift";
+    const gift = await db.gift.findFirst({ where: { name }, select: { icon: true } });
+    return { gift: { name, icon: gift?.icon ?? "🎁", price: line?.gifts ?? -prior.amount }, replayed: true };
+  };
+  const prior = await replay();
+  if (prior) return prior;
+
+  const gift = await db.gift.findUnique({ where: { id: giftId } });
+  if (!gift || gift.state !== "ACTIVE" || gift.price <= 0) throw badRequest("This gift isn't available right now. Choose another one.");
+  const shares = await sharePolicy();
+
+  try {
+    const sent = await db.$transaction(async (tx) => {
+      const astrologer = await tx.astrologer.findFirst({
+        where: { id: astrologerId, lifecycle: "active", suspension: { not: "full" } },
+        select: { id: true, userId: true, activatedAt: true, createdAt: true },
+      });
+      if (!astrologer) throw notFound("This astrologer isn't taking gifts right now.");
+      const debited = await tx.$executeRaw`
+        UPDATE "Wallet" SET "service" = "service" - ${gift.price}
+        WHERE "userId" = ${user.id} AND "service" - GREATEST(0, "held" - "promo") >= ${gift.price}`;
+      if (!debited) return null;
+      const txn = await tx.transaction.create({ data: { userId: user.id, type: "Gift sent", ref, bucket: "Service", amount: -gift.price } });
+      await writeEarnings(tx, {
+        astrologerId: astrologer.id,
+        date: txn.createdAt,
+        sessionRef: ref,
+        kind: "gift",
+        mode: `Profile gift · ${gift.name}`,
+        minutes: 0,
+        gifts: gift.price,
+        gross: gift.price,
+        sharePct: sharePctFor(astrologer, txn.createdAt, shares),
+      });
+      if (astrologer.userId) {
+        await notify(
+          astrologer.userId,
+          {
+            kind: "gift.received",
+            title: `${user.name} sent you a ${gift.icon} ${gift.name}`,
+            body: `A ${rupee(gift.price)} gift from your profile. Your share is added to your earnings.`,
+            href: "/portal/earnings",
+          },
+          tx,
+        );
+      }
+      return { name: gift.name, icon: gift.icon, price: gift.price };
+    });
+    if (!sent) {
+      const short = gift.price - (await giftBalance(user.id));
+      throw new HttpError(409, `Needs ${rupee(Math.max(1, short))} more in service balance.`, "insufficient_balance");
+    }
+    return { gift: sent, replayed: false };
+  } catch (e) {
+    // The same request ran twice at once: the other one sent it (and charged once).
+    if ((e as { code?: string }).code === "P2002") {
+      const again = await replay();
+      if (again) return again;
       throw conflict("Something went wrong sending this gift. Please try again.");
     }
     throw e;

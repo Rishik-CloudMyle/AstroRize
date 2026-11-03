@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import AccountBlockBanner from "./account-block-banner";
 import AppProvider from "./app-provider";
 import LiveNotifier from "./live-notifier";
 import LoginFromQuery from "./login-from-query";
@@ -17,6 +18,7 @@ export default function SiteChrome({ children }: { children: React.ReactNode }) 
       <AppProvider>
         <SiteHeader />
         <SiteAppHeader />
+        <AccountBlockBanner />
         <main className="flex-1">{children}</main>
         <SiteFooter />
         <Suspense fallback={<SiteTabBar search={null} />}>

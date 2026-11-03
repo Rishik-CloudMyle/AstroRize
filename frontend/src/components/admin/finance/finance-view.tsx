@@ -173,7 +173,8 @@ export default function FinanceView({ data }: { data: FinanceData }) {
               {batches.map((p) => {
                 const st = p.state;
                 // Same person, not same short name: a department can have several people.
-                const sameActor = st === "APPROVED" && p.approvedById === session.id;
+                // A Super Admin may release a batch they approved themselves (audited as self-approved).
+                const sameActor = st === "APPROVED" && p.approvedById === session.id && session.role !== "super";
                 // What this person can't do here, and why (the API refuses it too).
                 const blocked =
                   st === "DRAFT" && !canApprove

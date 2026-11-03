@@ -13,8 +13,8 @@ import { SessionWindow } from "../consult/session/session-window";
 import { releaseCallSession } from "@/lib/media/call-session";
 
 // The customer's private consultation inside a live room, in the mode they chose when joining the
-// queue: voice or video (a chat queued before paid chat was withdrawn still opens here). It opens
-// the same session window as a one-to-one consultation (its own private room — never the live's). The live video keeps playing behind it without sound,
+// queue: chat, voice or video. It opens the same session window as a one-to-one consultation (its
+// own private room — never the live's). The live video keeps playing behind it without sound,
 // and nothing of the customer's (messages, voice or video) is ever shown to the room.
 
 /** "Private video call" — what the customer is joining. */

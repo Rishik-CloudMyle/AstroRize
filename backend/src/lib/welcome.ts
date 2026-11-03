@@ -19,12 +19,12 @@ import { configNumber } from "./settings.ts";
 // the weekly minutes — after them, so the minutes that expire go first — and never resets.
 
 /**
- * Modes the free call can use: Voice (the spec's allow-list was Audio + Chat; paid chat is no
- * longer offered, and Video and Instant Call stay paid).
+ * Modes the free call can use: Chat and Voice (client, Nov 2026 — free minutes work for the paid
+ * Chat consultation as well as Voice; Video and Instant Call stay paid).
  */
-export const WELCOME_MODES = ["VOICE"] as const;
+export const WELCOME_MODES = ["CHAT", "VOICE"] as const;
 
-/** The period an astrologer's free-call capacity counts over (Astrologer.freeCallsLimitPeriod). */
+/** The periods an astrologer's free-call capacity counts over (IST day, Mon–Sun week). */
 export type CapacityPeriod = "DAY" | "WEEK";
 /** IST calendar periods: the customer's free minutes count per WEEK (Mon–Sun). */
 type Period = CapacityPeriod;
@@ -37,7 +37,7 @@ function lengthsOf(values: number[]): number[] {
 
 /** Policy, from the Config console (Admin-approved changes, versioned there). */
 export async function welcomePolicy() {
-  const [enabled, weekly, joining, len1, len2, len3, reminder, dailyLimit, minMeaningful, maxRestores, maxPerDay, maxPerWeek] = await Promise.all([
+  const [enabled, weekly, joining, len1, len2, len3, reminder, dailyLimit, minMeaningful, maxRestores, maxPerWeek] = await Promise.all([
     configNumber("welcome.enabled", 1),
     configNumber("welcome.weekly_free_minutes", 30),
     configNumber("welcome.joining_bonus_minutes", 5),
@@ -48,7 +48,6 @@ export async function welcomePolicy() {
     configNumber("welcome.daily_limit_default", 5),
     configNumber("welcome.min_meaningful_seconds", 30),
     configNumber("welcome.max_fault_restores", 2),
-    configNumber("welcome.astrologer_max_per_day", 10),
     configNumber("welcome.astrologer_max_per_week", 50),
   ]);
   return {
@@ -60,11 +59,11 @@ export async function welcomePolicy() {
     /** Lengths a free call can be (minutes), smallest first. */
     lengths: lengthsOf([len1, len2, len3]),
     reminderSeconds: reminder,
+    /** Free calls each astrologer who takes part may take per IST day. */
     dailyLimitDefault: Math.max(0, Math.floor(dailyLimit)),
     minMeaningfulSeconds: minMeaningful,
     maxFaultRestores: maxRestores,
-    /** Most free calls an astrologer may offer per day / per week (their own setting is capped to it). */
-    maxPerDay: Math.max(0, Math.floor(maxPerDay)),
+    /** Most free calls each astrologer who takes part may take per Mon–Sun week (IST). */
     maxPerWeek: Math.max(0, Math.floor(maxPerWeek)),
   };
 }
@@ -211,89 +210,88 @@ const NOT_CONNECTED = ["REJECTED", "TIMED_OUT", "CANCELLED"];
 const FREE_IN_FLIGHT = ["REQUESTED", "CONNECTING", "ACTIVE"];
 
 /**
- * Free calls an astrologer takes per day or per week: their own setting (portal or HR), else the
- * campaign's daily default — never more than the admin maximum for that period.
+ * Free calls each astrologer who takes part may take: the same for everyone, set only by AstroRize
+ * in the Config console (user decision, Nov 2026 — admins set the lengths and how often; astrologers
+ * only switch free calls on or off). Per IST day (welcome.daily_limit_default) and per Mon–Sun week
+ * (welcome.astrologer_max_per_week). Any per-astrologer number stored before
+ * (Astrologer.freeCallsDailyLimit / freeCallsLimitPeriod) is no longer used.
  */
-export function capacityOf(a: Pick<Astrologer, "freeCallsDailyLimit" | "freeCallsLimitPeriod">, policy: Policy) {
-  const own = a.freeCallsDailyLimit !== null;
-  const period: CapacityPeriod = own && a.freeCallsLimitPeriod === "WEEK" ? "WEEK" : "DAY";
-  const max = period === "WEEK" ? policy.maxPerWeek : policy.maxPerDay;
-  return { limit: Math.min(a.freeCallsDailyLimit ?? policy.dailyLimitDefault, max), period, isDefault: !own };
+export function capacityOf(policy: Policy) {
+  return { perDay: policy.dailyLimitDefault, perWeek: policy.maxPerWeek };
 }
 
-type CapacityFields = Pick<Astrologer, "id" | "freeCallsDailyLimit" | "freeCallsLimitPeriod">;
-
 /**
- * Free calls counted against each astrologer's capacity this period (their IST day or Mon–Sun
- * week): those whose conversation started in it, plus those requested and about to start, so two
- * customers can't both take the last one. Also says which astrologers have a free call in flight.
+ * Free calls counted against each astrologer's capacity today and this Mon–Sun week (IST): those
+ * whose conversation started in it, plus those requested and about to start, so two customers
+ * can't both take the last one. Also says which astrologers have a free call in flight.
  */
-async function quotaUsed(client: Tx | typeof db, astrologers: CapacityFields[], policy: Policy, now = new Date()) {
-  const used = new Map<string, number>();
+async function quotaUsed(client: Tx | typeof db, astrologerIds: string[], now = new Date()) {
+  const today = new Map<string, number>();
+  const week = new Map<string, number>();
   const inFlight = new Set<string>();
-  if (!astrologers.length) return { used, inFlight };
+  if (!astrologerIds.length) return { today, week, inFlight };
   const weekStart = periodStart("WEEK", now);
+  const dayStart = periodStart("DAY", now);
   const rows = await client.consultation.findMany({
     where: {
-      astrologerId: { in: astrologers.map((a) => a.id) },
+      astrologerId: { in: astrologerIds },
       billingMode: COMPLIMENTARY,
       OR: [{ billingStartedAt: { gte: weekStart } }, { status: { in: FREE_IN_FLIGHT } }],
     },
     select: { astrologerId: true, status: true, billingStartedAt: true },
   });
-  const startOf = new Map(astrologers.map((a) => [a.id, periodStart(capacityOf(a, policy).period, now)]));
+  const add = (m: Map<string, number>, id: string) => m.set(id, (m.get(id) ?? 0) + 1);
   for (const r of rows) {
-    if (FREE_IN_FLIGHT.includes(r.status)) inFlight.add(r.astrologerId);
-    const counts = r.billingStartedAt ? r.billingStartedAt >= startOf.get(r.astrologerId)! : FREE_IN_FLIGHT.includes(r.status);
-    if (counts) used.set(r.astrologerId, (used.get(r.astrologerId) ?? 0) + 1);
+    const flying = FREE_IN_FLIGHT.includes(r.status);
+    if (flying) inFlight.add(r.astrologerId);
+    if (r.billingStartedAt ? r.billingStartedAt >= weekStart : flying) add(week, r.astrologerId);
+    if (r.billingStartedAt ? r.billingStartedAt >= dayStart : flying) add(today, r.astrologerId);
   }
-  return { used, inFlight };
+  return { today, week, inFlight };
 }
 
-/** Free calls an astrologer has TAKEN (the conversation started) in their current capacity period (IST day or week). */
-export async function freeCallsUsed(a: CapacityFields, policy: Policy, now = new Date()): Promise<number> {
-  const start = periodStart(capacityOf(a, policy).period, now);
-  return db.consultation.count({ where: { astrologerId: a.id, billingMode: COMPLIMENTARY, billingStartedAt: { gte: start } } });
+/** What stops one more free call with an astrologer: today's or this week's capacity, or null. */
+function capacityFull(id: string, used: Awaited<ReturnType<typeof quotaUsed>>, policy: Policy): CapacityPeriod | null {
+  const { perDay, perWeek } = capacityOf(policy);
+  if ((used.today.get(id) ?? 0) >= perDay) return "DAY";
+  if ((used.week.get(id) ?? 0) >= perWeek) return "WEEK";
+  return null;
 }
 
 /**
- * An astrologer's free calls as the portal and the admin record show them: taking part, their
- * capacity and period, how many are used this period, and the admin maximums for setting it.
+ * An astrologer's free calls as the portal and the admin record show them: taking part, the
+ * capacity AstroRize sets for everyone, how many are taken today and this week, and the lengths.
  */
 export async function capacityView(a: Astrologer, policy: Policy, now = new Date()) {
-  const cap = capacityOf(a, policy);
-  const used = await freeCallsUsed(a, policy, now);
+  const { perDay, perWeek } = capacityOf(policy);
+  const [today, week] = await Promise.all([
+    db.consultation.count({ where: { astrologerId: a.id, billingMode: COMPLIMENTARY, billingStartedAt: { gte: periodStart("DAY", now) } } }),
+    db.consultation.count({ where: { astrologerId: a.id, billingMode: COMPLIMENTARY, billingStartedAt: { gte: periodStart("WEEK", now) } } }),
+  ]);
+  // The period that runs out first is the one shown ("3 of 5 left today").
+  const weekBinds = perWeek - week < perDay - today;
   return {
     /** Taking free calls right now: the campaign is on and the astrologer takes part. */
     enabled: policy.enabled && a.freeCallsEnabled,
-    /** The astrologer's own switch (portal or HR). */
+    /** The astrologer's own switch (portal, or HR). */
     optedIn: a.freeCallsEnabled,
     campaignOn: policy.enabled,
-    /** Their own number, or null for the campaign default (per day). */
-    ownLimit: a.freeCallsDailyLimit,
-    /** day | week */
-    period: periodName(cap.period),
-    limit: cap.limit,
-    isDefault: cap.isDefault,
-    defaultLimit: policy.dailyLimitDefault,
-    /** Taken this period (today, or this Mon–Sun week, IST). */
-    used,
-    remaining: Math.max(0, cap.limit - used),
-    resetsAt: periodEnd(cap.period, now).toISOString(),
-    maxPerDay: policy.maxPerDay,
-    maxPerWeek: policy.maxPerWeek,
-    /** Lengths a customer can choose for a free call (minutes), and their weekly free minutes. */
+    /** Free calls per IST day and per Mon–Sun week, the same for every astrologer (set by AstroRize). */
+    perDay,
+    perWeek,
+    /** day | week: the period that runs out first; `limit`, `used` and `resetsAt` are for it. */
+    period: weekBinds ? ("week" as const) : ("day" as const),
+    limit: weekBinds ? perWeek : perDay,
+    used: weekBinds ? week : today,
+    usedToday: today,
+    usedThisWeek: week,
+    remaining: Math.max(0, Math.min(perDay - today, perWeek - week)),
+    resetsAt: periodEnd(weekBinds ? "WEEK" : "DAY", now).toISOString(),
+    /** Lengths a customer can choose for a free call (minutes), their weekly free minutes and joining bonus. */
     lengths: policy.lengths,
     weeklyMinutes: policy.weeklyMinutes,
+    joiningBonusMinutes: policy.joiningBonusMinutes,
   };
-}
-
-/** Validates a capacity someone wants to set (portal or HR): a whole number within the admin maximum for its period. */
-export function capacityProblem(limit: number, period: CapacityPeriod, policy: Policy): string | null {
-  const max = period === "WEEK" ? policy.maxPerWeek : policy.maxPerDay;
-  if (!Number.isInteger(limit) || limit < 0) return "Enter the number of free calls as a whole number.";
-  if (limit > max) return `You can offer at most ${max} free calls per ${periodName(period)}.`;
-  return null;
 }
 
 /** Why a free call can't be taken with this astrologer right now (code + message), or null. */
@@ -307,16 +305,16 @@ export async function freeCallRefusal(
     return { code: "WEL_ASTROLOGER_NOT_PARTICIPATING", message: `${a.name} doesn't take free calls. Choose an astrologer marked “Free call”.` };
   }
   if (effectivePresence(a) !== "ON") return { code: "WEL_ASTROLOGER_UNAVAILABLE", message: `${a.name} isn't available for a free call right now.` };
-  const { used, inFlight } = await quotaUsed(client, [a], policy);
+  const used = await quotaUsed(client, [a.id]);
   // One free call at a time per astrologer.
-  if (inFlight.has(a.id)) {
+  if (used.inFlight.has(a.id)) {
     return { code: "WEL_ASTROLOGER_BUSY", message: `${a.name} is busy with another free call. Try again in a few minutes — you have not been charged.` };
   }
-  const { limit, period } = capacityOf(a, policy);
-  if ((used.get(a.id) ?? 0) >= limit) {
+  const full = capacityFull(a.id, used, policy);
+  if (full) {
     return {
       code: "WEL_DAILY_LIMIT",
-      message: `${a.name} has taken all of ${period === "WEEK" ? "this week's" : "today's"} free calls. Try another astrologer marked “Free call”.`,
+      message: `${a.name} has taken all of ${full === "WEEK" ? "this week's" : "today's"} free calls. Try another astrologer marked “Free call”.`,
     };
   }
   return null;
@@ -329,9 +327,9 @@ export async function freeCallOpen(astrologers: Astrologer[]): Promise<Set<strin
   if (!candidates.length) return open;
   const policy = await welcomePolicy();
   if (!policy.enabled) return open;
-  const { used, inFlight } = await quotaUsed(db, candidates, policy);
+  const used = await quotaUsed(db, candidates.map((a) => a.id));
   for (const a of candidates) {
-    if (!inFlight.has(a.id) && (used.get(a.id) ?? 0) < capacityOf(a, policy).limit) open.add(a.id);
+    if (!used.inFlight.has(a.id) && !capacityFull(a.id, used, policy)) open.add(a.id);
   }
   return open;
 }
@@ -433,7 +431,7 @@ export async function welcomeView(userId: string) {
     /** True while a free call can be started: the campaign is on and at least one length fits. */
     available: policy.enabled && eligible && fits.length > 0,
     reminderSeconds: policy.reminderSeconds,
-    /** Modes it can be used for (Video and Instant Call stay paid). */
+    /** Modes it can be used for: chat and voice (Video and Instant Call stay paid). */
     modes: WELCOME_MODES.map((m) => m.toLowerCase()),
     /** This Mon–Sun week's (IST) free minutes. */
     weekly: {

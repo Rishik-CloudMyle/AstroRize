@@ -4,7 +4,8 @@ import { db } from "../../db.ts";
 import { Prisma } from "../../generated/prisma/client.ts";
 import { ageLabel, byNameMatch, istDateKey, istDayMonth, istTime, rupee } from "../../lib/format.ts";
 import { walletTrialBalance } from "../../lib/ledger.ts";
-import { offerSummary } from "../../lib/campaigns.ts";
+import { openFlagCount } from "../../lib/contact-flags.ts";
+import { campaignSubmitterId, offerSummary } from "../../lib/campaigns.ts";
 import { adminOf, capabilitiesOf, pagesOf, requirePage, type PageKey } from "../../lib/rbac.ts";
 import { OPEN_TICKET, refundProposerId } from "./support.ts";
 import { hostedLiveRoom } from "../../lib/presence.ts";
@@ -55,7 +56,7 @@ async function navCounts(admin: Admin) {
   const pages = pagesOf(admin.adminRole);
   const caps = capabilitiesOf(admin.adminRole);
   const now = new Date();
-  const [applications, prices, work, tickets, compliance, trust] = await Promise.all([
+  const [applications, prices, work, tickets, compliance, flaggedReviews, contactFlags] = await Promise.all([
     // Applications waiting on an HR decision: every open one except a portal applicant HR asked for
     // more information (that waits on the astrologer until they send it again).
     pages.includes("hr") ? db.applicant.count({ where: { NOT: { state: "Docs pending", astrologerId: { not: null } } } }) : 0,
@@ -66,7 +67,10 @@ async function navCounts(admin: Admin) {
     pages.includes("support") ? db.supportTicket.count({ where: { ...OPEN_TICKET, refundState: "NONE" } }) : 0,
     pages.includes("compliance") ? db.liveRoom.count({ where: hostedLiveRoom() }) : 0,
     pages.includes("trust") ? db.review.count({ where: { status: "FLAGGED" } }) : 0,
+    // Off-platform contact attempts nobody has marked reviewed yet.
+    pages.includes("trust") ? openFlagCount() : 0,
   ]);
+  const trust = flaggedReviews + contactFlags;
   const finance = work.filter((i) => i.page === "finance").length;
   // Remedies this person can approve on the Support page (Finance counts them when they can open it).
   const approvals = work.filter((i) => i.page === "support" && i.kind === "remedy").length;
@@ -89,7 +93,14 @@ async function navCounts(admin: Admin) {
       .join(" · ");
   }
   if (compliance) hints.compliance = `${plural(compliance, "live room", "live rooms")} on air now`;
-  if (trust) hints.trust = `${plural(trust, "flagged review", "flagged reviews")} to keep or remove`;
+  if (trust) {
+    hints.trust = [
+      flaggedReviews ? `${plural(flaggedReviews, "flagged review", "flagged reviews")} to keep or remove` : "",
+      contactFlags ? `${plural(contactFlags, "contact attempt", "contact attempts")} to review` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
   return { counts: { hr: applications + prices, finance, support: tickets + approvals, compliance, trust }, hints };
 }
 
@@ -209,7 +220,8 @@ type WorkItem = { ico: string; title: string; sub: string; age: string; tone: st
 
 /**
  * What is waiting on this person: only work their department can do, and never a second-person
- * step on something they did themselves (approve ≠ release, draft ≠ approve, propose ≠ approve).
+ * step on something they did themselves (approve ≠ release, draft ≠ approve, propose ≠ approve,
+ * submit ≠ approve) — except for a Super Admin, who may decide their own (client decision, Nov 2026).
  * The Finance nav badge counts the Finance rows, so the two always agree.
  */
 async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
@@ -217,16 +229,23 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
   const caps = capabilitiesOf(admin.adminRole);
   const can = (page: PageKey, cap?: string) => pages.includes(page) && (!cap || caps.includes(cap));
   const me = admin.user.id;
+  const isSuper = admin.adminRole === "super";
   const slaDays = await configNumber("hr.application.review_sla_days", 5);
   const slaCutoff = new Date(now.getTime() - slaDays * 86400000);
 
   const [drafts, approved, configs, proposed, walletRefunds, breached, overSla, flagged, campaignsToApprove, campaignDrafts, priceRequests] = await Promise.all([
     can("finance", "payout.approve") ? db.payoutBatch.findMany({ where: { state: "DRAFT" }, orderBy: { createdAt: "asc" } }) : [],
     can("finance", "payout.release")
-      ? db.payoutBatch.findMany({ where: { state: "APPROVED", OR: [{ approvedById: null }, { approvedById: { not: me } }] }, orderBy: { approvedAt: "asc" } })
+      ? db.payoutBatch.findMany({
+          where: { state: "APPROVED", ...(isSuper ? {} : { OR: [{ approvedById: null }, { approvedById: { not: me } }] }) },
+          orderBy: { approvedAt: "asc" },
+        })
       : [],
     can("config", "config.write")
-      ? db.configChange.findMany({ where: { status: "SUBMITTED", OR: [{ draftedById: null }, { draftedById: { not: me } }] }, orderBy: { createdAt: "asc" } })
+      ? db.configChange.findMany({
+          where: { status: "SUBMITTED", ...(isSuper ? {} : { OR: [{ draftedById: null }, { draftedById: { not: me } }] }) },
+          orderBy: { createdAt: "asc" },
+        })
       : [],
     caps.includes("dispute.refund.approve") && (pages.includes("finance") || pages.includes("support"))
       ? db.supportTicket.findMany({ where: { refundState: "PROPOSED" }, orderBy: { createdAt: "asc" } })
@@ -246,7 +265,10 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
   ]);
   // A refund this person proposed needs someone else (compared by person, as the approve route does).
   const mine = await Promise.all(proposed.map((t) => refundProposerId(t.id)));
-  const toApprove = proposed.filter((t, i) => (mine[i] ? mine[i] !== me : t.proposedBy !== (admin.user.actorName ?? admin.user.name)));
+  const toApprove = isSuper ? proposed : proposed.filter((t, i) => (mine[i] ? mine[i] !== me : t.proposedBy !== (admin.user.actorName ?? admin.user.name)));
+  // A campaign this person submitted needs someone else to approve it (a Super Admin may approve their own).
+  const submitters = isSuper ? [] : await Promise.all(campaignsToApprove.map((c) => campaignSubmitterId(c.id)));
+  const campaignsDue = isSuper ? campaignsToApprove : campaignsToApprove.filter((_, i) => submitters[i] !== me);
   const refundsDue = walletRefunds.reduce((s, r) => s + r.amount, 0);
 
   return [
@@ -340,7 +362,7 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
           },
         ]
       : []),
-    ...campaignsToApprove.map((c) => ({ ico: "◈", title: `Campaign ${c.id} awaiting approval`, sub: `${c.name} · ${offerSummary(c)}`, age: "—", tone: "plain", page: "marketing" as const, param: null })),
+    ...campaignsDue.map((c) => ({ ico: "◈", title: `Campaign ${c.id} awaiting approval`, sub: `${c.name} · ${offerSummary(c)}`, age: "—", tone: "plain", page: "marketing" as const, param: null })),
     ...campaignDrafts.map((c) => ({ ico: "◈", title: `Campaign ${c.id} is still a draft`, sub: `${c.name} · submit it for Admin approval`, age: "—", tone: "plain", page: "marketing" as const, param: null })),
   ];
 }

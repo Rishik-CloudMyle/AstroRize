@@ -1,7 +1,6 @@
 import type { FeaturedReview } from "@/lib/types";
 
-// Reviews of past (retired) paid chats read just "Consultation".
-const MODE_LABEL: Record<string, string> = { voice: "Voice", video: "Video" };
+const MODE_LABEL: Record<string, string> = { chat: "Chat", voice: "Voice", video: "Video" };
 
 /** "Voice consultation" */
 export function consultationLabel(r: FeaturedReview): string {

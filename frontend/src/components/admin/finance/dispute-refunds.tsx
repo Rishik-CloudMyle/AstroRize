@@ -7,9 +7,10 @@ import { BlockedAction, PANEL, TD, TH } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
 import type { DisputeRefund } from "@/lib/admin/types";
 
-// "Dispute refunds to approve" on the Finance page: Support proposes a refund — or a free replacement
-// call with the same astrologer instead — on a ticket, and a second person with dispute.refund.approve
-// (Finance or a Super Admin) approves it here. A refund goes back to the customer's wallet in the
+// "Dispute refunds to approve" on the Finance page: Support or Finance proposes a refund — or a free
+// replacement call with the same astrologer instead — on a ticket, and a second person with
+// dispute.refund.approve (Finance or a Super Admin) approves it here. A Super Admin may approve their
+// own proposal (audited as self-approved); anyone else needs a different person. A refund goes back to the customer's wallet in the
 // buckets it was paid from, capped at what was billed, and the astrologer's share of it is taken back
 // from their next payout. A free replacement call gives the customer free minutes; no money moves.
 
@@ -26,6 +27,7 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
   const { session } = useAdmin();
   const { run } = useAction();
   const canApprove = session.capabilities.includes("dispute.refund.approve");
+  const isSuper = session.role === "super";
   const [declining, setDeclining] = useState<DisputeRefund | null>(null);
 
   const approve = (r: DisputeRefund) =>
@@ -45,9 +47,9 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
         <div className="min-w-0">
           <h2 className="m-0 text-[16px] font-bold">Dispute refunds to approve</h2>
           <span className="mt-1 block text-[12px] text-[#78716c]">
-            Refunds Support proposed on a ticket. A second person approves; the money returns to the customer&rsquo;s wallet,
-            never more than was billed, and the astrologer&rsquo;s share of it comes off their next payout. Support may offer a free
-            replacement call with the same astrologer instead. Audited.
+            Refunds Support or Finance proposed on a ticket (Support &amp; disputes page). Someone other than the proposer approves —
+            or a Super Admin; the money returns to the customer&rsquo;s wallet, never more than was billed, and the astrologer&rsquo;s
+            share of it comes off their next payout. A free replacement call with the same astrologer can be offered instead. Audited.
           </span>
         </div>
         <span className="text-[12.5px] font-bold text-[#b45309] tabular-nums">
@@ -56,7 +58,7 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
       </div>
 
       {refunds.length === 0 ? (
-        <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">No proposed refunds. They appear here when Support proposes one.</p>
+        <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">No proposed refunds. They appear here when one is proposed on a ticket.</p>
       ) : (
         // Scrolls inside the card on narrow windows, never the page.
         <div className="mt-3.5 overflow-x-auto">
@@ -73,6 +75,8 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
             <tbody>
               {refunds.map((r) => {
                 const mine = r.proposedById ? r.proposedById === session.id : r.proposedBy === session.actor;
+                // A Super Admin may decide their own proposal; anyone else needs a second person.
+                const blockedMine = mine && !isSuper;
                 return (
                   <tr key={r.id}>
                     <td className={`${TD} px-2.5 py-[11px]`}>
@@ -89,8 +93,8 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
                     <td className={`${TD} px-2.5 py-[11px] text-right whitespace-nowrap`}>
                       {!canApprove ? (
                         <BlockedAction className="h-[30px] px-3 text-[11.5px]">Finance approves refunds</BlockedAction>
-                      ) : mine ? (
-                        <BlockedAction className="h-[30px] px-3 text-[11.5px]">You proposed this</BlockedAction>
+                      ) : blockedMine ? (
+                        <BlockedAction className="h-[30px] px-3 text-[11.5px]">You proposed this — another person approves</BlockedAction>
                       ) : (
                         <span className="inline-flex gap-1.5">
                           <button
@@ -99,6 +103,7 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
                             className="h-[30px] rounded-[9px] border-0 bg-emerald-700 px-3 text-[12px] font-bold text-white"
                           >
                             {r.kind === "MAKE_GOOD" ? "Approve free call" : "Approve refund"}
+                            {mine ? " (your own)" : ""}
                           </button>
                           <button
                             type="button"

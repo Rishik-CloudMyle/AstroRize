@@ -13,6 +13,8 @@ import { IconBack, IconSearch } from "../../mobile/icons";
 import { HideTabBar } from "../../mobile/tab-bar";
 import { Avatar, PersonProfileDialog } from "./live-queue-people";
 import { ATTACH_LIMITS, AttachButton, AttachmentChip, MessageMedia, uploadFile, useAttachment } from "../../messages/message-media";
+import { reportContactAttempt } from "@/lib/contact-attempt";
+import { contactBlockedNotice, findContactDetails } from "@/lib/contact-filter";
 
 /** The customer's real name; only older conversations not linked to an account show the alias. */
 const customerName = (t: CustomerThread) => t.customer?.name ?? `Customer ${t.alias}`;
@@ -65,6 +67,8 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
   const [selectedId, setSelectedId] = usePortalState<string | null>("thread", null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
+  // Why the typed message can't go to a customer (contact details in free chat), or "".
+  const [contactError, setContactError] = useState("");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const attach = useAttachment();
@@ -144,6 +148,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
       attach.setError("");
     }
     setSelectedId(id);
+    setContactError("");
     // Below 1024px the conversation opens full screen over the list.
     setMobileOpen(true);
   };
@@ -152,6 +157,14 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
     const text = draft.trim();
     const file = thread?.kind === "customer" ? attach.file : null;
     if ((!text && !file) || !thread || busy || attach.preparing) return;
+    if (thread.kind === "customer" && text) {
+      // Free chat with a customer: no personal details at all. Said here at once; the API checks too.
+      const contact = findContactDetails(text, "FREE");
+      if (contact.length) {
+        reportContactAttempt("messages", thread.id, text);
+        return setContactError(contactBlockedNotice(contact, "FREE"));
+      }
+    }
     setBusy(true);
     version.current++;
     try {
@@ -201,7 +214,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
       );
       setDraft("");
       router.refresh();
-      toast(res.blocked ? "Message blocked — contact details cannot be shared through AstroRize." : "Sent.");
+      toast(res.blocked ? "Message blocked — contact details can't be shared in free chat." : "Sent.");
     } catch (e) {
       showError(e);
     } finally {
@@ -434,9 +447,9 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
               send();
             }}
           >
-            {thread.kind === "customer" && attach.error && (
+            {thread.kind === "customer" && (attach.error || contactError) && (
               <p role="alert" className="mb-2 text-[12.5px] font-semibold text-rose-700">
-                {attach.error}
+                {attach.error || contactError}
               </p>
             )}
             {thread.kind === "customer" && attach.file && <AttachmentChip file={attach.file} progress={progress} onRemove={attach.clear} />}
@@ -451,7 +464,10 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
               )}
               <input
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  setContactError("");
+                }}
                 maxLength={thread.kind === "team" ? MAX_SUPPORT_MESSAGE_LENGTH : MAX_MESSAGE_LENGTH}
                 placeholder={thread.kind === "team" ? "Reply to the AstroRize team…" : attach.file ? "Add a caption (optional)" : "Type a message…"}
                 aria-label={thread.kind === "team" ? "Reply to the AstroRize team" : attach.file ? "Caption" : "Message"}
@@ -465,7 +481,11 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
                 {attach.preparing ? "Preparing…" : busy && progress !== null ? "Sending…" : "Send"}
               </button>
             </div>
-            {thread.kind === "customer" && <p className="mt-1.5 px-1 text-[11px] leading-normal text-stone-500 max-lg:text-app-ink-3">{ATTACH_LIMITS}</p>}
+            {thread.kind === "customer" && (
+              <p className="mt-1.5 px-1 text-[11px] leading-normal text-stone-500 max-lg:text-app-ink-3">
+                {ATTACH_LIMITS} Phone numbers, emails, links, social media handles, UPI IDs and home addresses can&apos;t be shared here.
+              </p>
+            )}
           </form>
         </Panel>
       </div>

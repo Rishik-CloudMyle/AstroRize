@@ -21,7 +21,7 @@ import CustomerCallWatcher from "./consult/call-watcher";
 
 export interface ConsultRequest {
   astrologer: Astrologer;
-  /** Pre-select voice or video when the customer clicked that button (paid chat isn't offered). */
+  /** Pre-select chat, voice or video when the customer clicked that button. */
   mode?: OfferedMode;
   /** Re-open a consultation that is already under way (waiting, connecting or in session). */
   resume?: ConsultationView;

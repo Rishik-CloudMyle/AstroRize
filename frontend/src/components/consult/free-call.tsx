@@ -16,7 +16,7 @@ export function FreeCallBadge({ astrologer, className = "" }: { astrologer: Astr
   if (!astrologer.freeCall || !showsFreeCalls(session)) return null;
   return (
     <span
-      title="Takes free calls: use your weekly free minutes with them for a Voice call, or pay per minute"
+      title="Takes free calls: use your free minutes with them for a Chat or Voice consultation, or pay per minute"
       className={`inline-flex h-[22px] items-center gap-1 whitespace-nowrap rounded-full bg-emerald-50 px-[9px] text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200 ${className}`}
     >
       🎁 Free call
@@ -55,14 +55,14 @@ export function WelcomeBanner({ className = "", showLink = true, showUsedUp = fa
       <div className="min-w-0 flex-[1_1_220px]">
         <b className="block text-[15px] text-emerald-900">{minutesHeadline(welcome)}</b>
         <span className="block text-[12.5px] leading-normal text-emerald-900/80">
-          Voice calls with astrologers marked “Free call”. When you start a consultation, choose “Use free minutes” and a length (
+          Chat or Voice with astrologers marked “Free call”. When you start a consultation, choose “Use free minutes” and a length (
           {lengthsLabel(fittingLengths(welcome))}) — the full length is used — or pay per minute.
         </span>
       </div>
       {showLink && (
         <Link
           href={FREE_CALL_DIRECTORY}
-          className="inline-flex min-h-10 shrink-0 items-center rounded-full border border-emerald-700 bg-white px-4 text-[13.5px] font-bold text-emerald-800 hover:bg-emerald-50 hover:text-emerald-900 hover:no-underline"
+          className="inline-flex min-h-10 max-w-full shrink items-center rounded-full border border-emerald-700 bg-white px-4 py-1.5 text-[13.5px] leading-tight font-bold text-emerald-800 hover:bg-emerald-50 hover:text-emerald-900 hover:no-underline"
         >
           Find astrologers taking free calls ›
         </Link>

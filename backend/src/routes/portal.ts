@@ -1,8 +1,9 @@
 import express, { Router, type NextFunction, type Request, type Response } from "express";
+import { assertNotBlocked, blockEndLabel } from "../lib/account-blocks.ts";
 import { z } from "zod";
 import { db } from "../db.ts";
 import { audit } from "../lib/audit.ts";
-import { MAX_SESSION_SECONDS, VIDEO_PREMIUM, instantRate } from "../lib/billing.ts";
+import { MAX_SESSION_SECONDS, VIDEO_PREMIUM, chatRate, instantRate } from "../lib/billing.ts";
 import { META, draftValues, metaValues, missingFor, nextApplicantId, submittedOn, wizardValues } from "../lib/application.ts";
 import {
   INCOMING_WINDOW_SECS,
@@ -19,8 +20,18 @@ import {
   settlementView,
 } from "../lib/consultations.ts";
 import { MAKE_GOOD } from "../lib/makegood.ts";
-import { COMPLIMENTARY, capacityOf, capacityProblem, capacityView, periodName, releaseWelcome, welcomePolicy } from "../lib/welcome.ts";
-import { priceProblem, priceRequestState, priceView, pricingPolicy } from "../lib/pricing.ts";
+import { COMPLIMENTARY, capacityView, releaseWelcome, welcomePolicy } from "../lib/welcome.ts";
+import {
+  type PriceChannel,
+  channelColumn,
+  channelName,
+  channelPrice,
+  priceProblem,
+  priceRequestState,
+  priceUpdate,
+  priceView,
+  pricingPolicy,
+} from "../lib/pricing.ts";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
 import { ageLabel, istDate, istDateKey, istDayMonth, istTime, makeRef, rupee, weekdayLabel } from "../lib/format.ts";
 import { consultSummary, displayName, messageSummary, queueProfile, queueSummary } from "../lib/profile.ts";
@@ -45,7 +56,8 @@ import {
   unreadFrom,
   visibleTo,
 } from "../lib/messaging.ts";
-import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "../lib/safety.ts";
+import { flagContactAttempt } from "../lib/contact-flags.ts";
+import { contactBlockedNotice, findContactDetails, rateLimit } from "../lib/safety.ts";
 import { consultMessageBody, consultationFor, listMessages, mediaFor, sendMessage, windowOf } from "../lib/consult-room.ts";
 import { canWork, effectivePresence, endLiveRoom, goOffline, goOnline, markSeen, syncPresence, viewerCount } from "../lib/presence.ts";
 import {
@@ -118,6 +130,7 @@ portalRouter.get("/account", async (req, res) => {
         rating: a.rating,
         consults: a.consults,
         price: a.price,
+        chatPrice: chatRate(a),
         was: a.was,
         instantMultiplier: a.instantMultiplier,
         bio: a.about,
@@ -128,6 +141,8 @@ portalRouter.get("/account", async (req, res) => {
         // Why staff suspended the account and since when (shown in the suspended banner).
         suspensionReason: a.suspension !== "none" ? a.suspensionReason : null,
         suspendedOn: a.suspension !== "none" && a.suspendedAt ? istDate(a.suspendedAt) : null,
+        // A temporary suspension (a contact-sharing block) ends by itself at this time.
+        suspendedUntil: a.suspension !== "none" && a.suspendedUntil ? blockEndLabel(a.suspendedUntil) : null,
         // Where the application stands, for the banner: when it went to HR and HR's latest note.
         submittedOn: submittedOn(meta),
         note: meta[META.note] ?? null,
@@ -158,7 +173,13 @@ function legacyValue(a: Astrologer, l: Pick<EarningsLine, "kind" | "minutes" | "
   if (l.kind === "gift") return l.gifts;
   const rate =
     rates.get(l.sessionRef) ??
-    (l.kind === "video" ? a.price + VIDEO_PREMIUM : l.kind === "emergency" ? instantRate(a.price, a.instantMultiplier) : a.price);
+    (l.kind === "video"
+      ? a.price + VIDEO_PREMIUM
+      : l.kind === "emergency"
+        ? instantRate(a.price, a.instantMultiplier)
+        : l.kind === "chat"
+          ? chatRate(a)
+          : a.price);
   return l.minutes * rate;
 }
 
@@ -180,7 +201,7 @@ async function sessionRates(astrologerId: string, lines: Pick<EarningsLine, "ses
   return new Map(sessions.map((c) => [c.ref, c.rate]));
 }
 
-/** Free calls (welcome campaign) for the portal: taking part, capacity per day or week, and what is left. */
+/** Free calls (welcome campaign) for the portal: taking part, AstroRize's capacity per day and week, and what is left. */
 async function freeCallsView(a: Astrologer) {
   return capacityView(a, await welcomePolicy());
 }
@@ -259,97 +280,87 @@ portalRouter.get("/dashboard", async (req, res) => {
 });
 
 /**
- * The astrologer's free calls: take part or not, and how many they take per day or per week
- * (within the admin maximum). Each change is audited.
+ * The astrologer's free calls: take part or not. Lengths and how many free calls each astrologer
+ * takes are set by AstroRize for everyone (Config welcome.*), not here. Each change is audited.
  */
 portalRouter.patch("/free-calls", async (req, res) => {
   const a = await me(req);
-  const input = z
-    .object({
-      enabled: z.boolean().optional(),
-      limit: z.number("Enter the number of free calls as a whole number.").optional(),
-      period: z.enum(["DAY", "WEEK"]).optional(),
-    })
-    .parse(req.body);
+  const { enabled } = z.object({ enabled: z.boolean({ error: "Choose on or off." }) }).parse(req.body);
   const policy = await welcomePolicy();
-  const data: { freeCallsEnabled?: boolean; freeCallsDailyLimit?: number; freeCallsLimitPeriod?: string } = {};
-  if (input.enabled !== undefined && input.enabled !== a.freeCallsEnabled) data.freeCallsEnabled = input.enabled;
-  if (input.limit !== undefined || input.period !== undefined) {
-    // Changing only one of the two keeps the other as it stands now.
-    const current = capacityOf(a, policy);
-    const period = input.period ?? current.period;
-    const limit = input.limit ?? current.limit;
-    const problem = capacityProblem(limit, period, policy);
-    if (problem) throw badRequest(problem);
-    if (limit !== a.freeCallsDailyLimit) data.freeCallsDailyLimit = limit;
-    if (period !== a.freeCallsLimitPeriod) data.freeCallsLimitPeriod = period;
-  }
-  if (Object.keys(data).length) {
-    await db.astrologer.update({ where: { id: a.id }, data });
-    const actor = req.auth ?? null;
-    if (data.freeCallsEnabled !== undefined) {
-      await audit(actor, "astrologer.free_calls.update", a.id, `${a.freeCallsEnabled ? "on" : "off"} → ${data.freeCallsEnabled ? "on" : "off"} · by the astrologer`);
-    }
-    if (data.freeCallsDailyLimit !== undefined || data.freeCallsLimitPeriod !== undefined) {
-      const label = (n: number | null, p: string) => (n === null ? "campaign default" : `${n} per ${periodName(p === "WEEK" ? "WEEK" : "DAY")}`);
-      const newLimit = data.freeCallsDailyLimit ?? a.freeCallsDailyLimit;
-      await audit(actor, "astrologer.free_calls.limit", a.id, `${label(a.freeCallsDailyLimit, a.freeCallsLimitPeriod)} → ${label(newLimit, data.freeCallsLimitPeriod ?? a.freeCallsLimitPeriod)} · by the astrologer`);
-    }
+  if (enabled !== a.freeCallsEnabled) {
+    await db.astrologer.update({ where: { id: a.id }, data: { freeCallsEnabled: enabled } });
+    await audit(req.auth ?? null, "astrologer.free_calls.update", a.id, `${a.freeCallsEnabled ? "on" : "off"} → ${enabled ? "on" : "off"} · by the astrologer`);
   }
   const fresh = await db.astrologer.findUniqueOrThrow({ where: { id: a.id } });
   res.json({ freeCalls: await capacityView(fresh, policy) });
 });
 
 /**
- * The astrologer sets their own voice price (lib/pricing.ts): within pricing.min_rate–max_rate,
+ * The astrologer sets their own call (voice) price, or their separate chat price (`channel`: call |
+ * chat; lib/pricing.ts): within pricing.min_rate–max_rate,
  * once every pricing.change_cooldown_days, each increase at most pricing.max_increase_rupees.
  * A decrease applies at once (PriceChange APPLIED) to consultations requested from now on;
  * sessions already running keep their rate. An increase becomes a PENDING request that the
  * AstroRize team approves or rejects (Astrologer lifecycle → Price requests); the price stays as
- * it is until then. One open request at a time. Audited.
+ * it is until then. One open request per price at a time. Audited.
  */
 portalRouter.patch("/price", async (req, res) => {
   const a = await me(req);
-  const { price } = z.object({ price: z.number("Enter your price in whole rupees.") }).parse(req.body);
+  const body = z
+    .object({ price: z.number("Enter your price in whole rupees."), channel: z.enum(["call", "chat"]).default("call") })
+    .parse(req.body);
+  const { price } = body;
+  const channel: PriceChannel = body.channel === "chat" ? "CHAT" : "CALL";
+  const ch = channelColumn(channel);
+  const what = channel === "CHAT" ? "chat" : "voice";
   const policy = await pricingPolicy();
   const now = new Date();
   const result = await db.$transaction(async (tx) => {
     // Two tabs (or a double click) at once: only the first counts; staff deciding a request wait too.
     await lockKey(tx, `price:${a.id}`);
     const fresh = await tx.astrologer.findUniqueOrThrow({ where: { id: a.id } });
-    const open = await tx.priceChange.findFirst({ where: { astrologerId: a.id, status: "PENDING" } });
+    const open = await tx.priceChange.findFirst({ where: { astrologerId: a.id, channel: ch, status: "PENDING" } });
     if (open) {
       return {
         ok: false as const,
-        problem: { status: 409 as const, message: `Your increase to ${rupee(open.toPrice)}/min is waiting for approval. Withdraw it first if you want a different price.` },
+        problem: {
+          status: 409 as const,
+          message: `Your ${channelName(ch)} price increase to ${rupee(open.toPrice)}/min is waiting for approval. Withdraw it first if you want a different price.`,
+        },
       };
     }
-    const problem = priceProblem(fresh, price, policy, now);
+    // The price this change is for: the call price, or the chat price (the call price while chat follows it).
+    const current = channelPrice(fresh, channel);
+    const problem = priceProblem(current, price, policy, now);
     if (problem) return { ok: false as const, problem };
-    if (price > fresh.price) {
-      await tx.priceChange.create({ data: { astrologerId: a.id, fromPrice: fresh.price, toPrice: price, status: "PENDING", requestedAt: now } });
-      return { ok: true as const, from: fresh.price, applied: false, astrologer: fresh };
+    if (price > current.price) {
+      await tx.priceChange.create({ data: { astrologerId: a.id, channel: ch, fromPrice: current.price, toPrice: price, status: "PENDING", requestedAt: now } });
+      return { ok: true as const, from: current.price, applied: false, astrologer: fresh };
     }
-    const astrologer = await tx.astrologer.update({ where: { id: a.id }, data: { price, priceChangedAt: now } });
-    await tx.priceChange.create({ data: { astrologerId: a.id, fromPrice: fresh.price, toPrice: price, status: "APPLIED", requestedAt: now, decidedAt: now } });
-    return { ok: true as const, from: fresh.price, applied: true, astrologer };
+    const astrologer = await tx.astrologer.update({ where: { id: a.id }, data: priceUpdate(channel, price, now) });
+    await tx.priceChange.create({
+      data: { astrologerId: a.id, channel: ch, fromPrice: current.price, toPrice: price, status: "APPLIED", requestedAt: now, decidedAt: now },
+    });
+    return { ok: true as const, from: current.price, applied: true, astrologer };
   });
   if (!result.ok) throw result.problem.status === 409 ? conflict(result.problem.message) : badRequest(result.problem.message);
   if (result.applied) {
-    await audit(req.auth ?? null, "astrologer.price.update", a.id, `${rupee(result.from)} → ${rupee(price)}/min (voice) · decrease, live at once · by the astrologer`);
+    await audit(req.auth ?? null, "astrologer.price.update", a.id, `${rupee(result.from)} → ${rupee(price)}/min (${what}) · decrease, live at once · by the astrologer`);
   } else {
-    await audit(req.auth ?? null, "astrologer.price.request", a.id, `${rupee(result.from)} → ${rupee(price)}/min (voice) · increase, waiting for approval · by the astrologer`);
+    await audit(req.auth ?? null, "astrologer.price.request", a.id, `${rupee(result.from)} → ${rupee(price)}/min (${what}) · increase, waiting for approval · by the astrologer`);
   }
   res.json({ applied: result.applied, pricing: priceView(result.astrologer, policy, now, await priceRequestState(a.id)) });
 });
 
-/** The astrologer withdraws their open increase request (the price stays as it is; no cooldown starts). */
+/** The astrologer withdraws their open increase request for one price (it stays as it is; no cooldown starts). */
 portalRouter.post("/price/withdraw", async (req, res) => {
   const a = await me(req);
+  const body = z.object({ channel: z.enum(["call", "chat"]).default("call") }).parse(req.body ?? {});
+  const ch = channelColumn(body.channel === "chat" ? "CHAT" : "CALL");
   const now = new Date();
   const withdrawn = await db.$transaction(async (tx) => {
     await lockKey(tx, `price:${a.id}`);
-    const open = await tx.priceChange.findFirst({ where: { astrologerId: a.id, status: "PENDING" } });
+    const open = await tx.priceChange.findFirst({ where: { astrologerId: a.id, channel: ch, status: "PENDING" } });
     if (!open) return null;
     return tx.priceChange.update({
       where: { id: open.id },
@@ -357,7 +368,7 @@ portalRouter.post("/price/withdraw", async (req, res) => {
     });
   });
   if (!withdrawn) throw conflict("There's no price request waiting any more — it may just have been decided. Reload to see the latest.");
-  await audit(req.auth ?? null, "astrologer.price.withdraw", a.id, `${rupee(withdrawn.fromPrice)} → ${rupee(withdrawn.toPrice)}/min request withdrawn · by the astrologer`);
+  await audit(req.auth ?? null, "astrologer.price.withdraw", a.id, `${rupee(withdrawn.fromPrice)} → ${rupee(withdrawn.toPrice)}/min (${ch ? "chat" : "voice"}) request withdrawn · by the astrologer`);
   const fresh = await db.astrologer.findUniqueOrThrow({ where: { id: a.id } });
   res.json({ pricing: priceView(fresh, await pricingPolicy(), now, await priceRequestState(a.id)) });
 });
@@ -626,8 +637,7 @@ function slotClash(astrologerId: string, day: Date, start: string, end: string, 
 
 // ── Consultations ──
 
-// Past paid chats (no longer offered) read just "Consultation".
-const MODE_LABEL: Record<string, string> = { CHAT: "Consultation", VOICE: "Voice", VIDEO: "Video" };
+const MODE_LABEL: Record<string, string> = { CHAT: "Chat", VOICE: "Voice", VIDEO: "Video" };
 const modeLabel = (c: { kind: string; mode: string }) => (c.kind === "INSTANT" ? "Instant Call" : MODE_LABEL[c.mode] ?? c.mode);
 
 portalRouter.get("/consultations", async (req, res) => {
@@ -795,7 +805,7 @@ portalRouter.get("/incoming", async (req, res) => {
       free: false,
       makeGood: false,
       freeMinutes: null,
-      rate: queued?.rate ?? liveRate(a.price),
+      rate: queued?.rate ?? liveRate(a),
       // A live request has no deadline: it waits in the queue (the console shows it too).
       secondsLeft: null,
       windowSecs: null,
@@ -900,6 +910,8 @@ portalRouter.get("/consultations/:id/messages", async (req, res) => {
 
 portalRouter.post("/consultations/:id/messages", async (req, res) => {
   const a = await me(req);
+  // A temporarily blocked account (repeated contact sharing) can't send until the block ends.
+  assertNotBlocked(req.auth as AuthContext);
   const { text } = consultMessageBody.parse(req.body);
   const c = await consultationFor(String(req.params.id), "ASTROLOGER", a.id);
   res.status(201).json(await sendMessage(c, "ASTROLOGER", (req.auth as AuthContext).user.id, text));
@@ -931,7 +943,7 @@ portalRouter.get("/live", async (req, res) => {
   });
   const askedFor = (e: { consultationId: string | null }) => {
     const c = queued.find((q) => q.id === e.consultationId);
-    return { consultMode: (c?.mode.toLowerCase() ?? "voice") as "chat" | "voice" | "video", rate: c?.rate ?? liveRate(a.price) };
+    return { consultMode: (c?.mode.toLowerCase() ?? "voice") as "chat" | "voice" | "video", rate: c?.rate ?? liveRate(a) };
   };
   const now = new Date();
   const secs = Math.max(0, Math.floor((Date.now() - room.startedAt.getTime()) / 1000));
@@ -969,9 +981,9 @@ portalRouter.get("/live", async (req, res) => {
       waiting: entries.length,
       pollQuestion: room.pollQuestion,
       pollOptions: room.pollOptions,
-      rate: liveRate(a.price),
+      rate: liveRate(a),
       /** What a private consultation from this live costs in each mode (₹/min). */
-      rates: liveRates(a.price),
+      rates: liveRates(a),
       /** The private consultation in progress (connecting or in session), or null. */
       private: inPrivate,
       announcements: announcements.map(announcementView),
@@ -1130,13 +1142,19 @@ function announcementView(n: { id: string; text: string; createdAt: Date }) {
 
 portalRouter.post("/live/announcements", async (req, res) => {
   const a = await me(req);
+  assertNotBlocked(req.auth as AuthContext);
   const { text } = z
     .object({ text: z.string().trim().min(1, "Write an announcement first.").max(280, "Announcements can be up to 280 characters.") })
     .parse(req.body);
   rateLimit(`announce:${a.id}`, 5, 60_000, "You're posting announcements too quickly. Wait a minute.");
-  if (containsContactDetails(text)) throw badRequest(CONTACT_BLOCKED_NOTICE);
   const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
   if (!room) throw notFound("You don't have a live room.");
+  // Public chat: no personal details at all (the FREE policy). The attempt is flagged for Trust & reviews.
+  const contact = findContactDetails(text, "FREE");
+  if (contact.length) {
+    await flagContactAttempt({ userId: (req.auth as AuthContext).user.id, name: a.name, side: "ASTROLOGER", place: "live", ref: room.id, kinds: contact, text });
+    throw badRequest(contactBlockedNotice(contact, "FREE", "live chat"));
+  }
   const created = await db.liveAnnouncement.create({ data: { roomId: room.id, text } });
   res.status(201).json({ announcement: announcementView(created) });
 });
@@ -1288,6 +1306,7 @@ portalRouter.get("/messages/:threadId/customer", async (req, res) => {
 
 portalRouter.post("/messages/:threadId", async (req, res) => {
   const a = await me(req);
+  assertNotBlocked(req.auth as AuthContext);
   const { text } = z.object({ text: messageText }).parse(req.body);
   const thread = await db.messageThread.findUnique({ where: { id: String(req.params.threadId) } });
   if (!thread || thread.astrologerId !== a.id) throw notFound("Conversation not found.");
@@ -1307,6 +1326,7 @@ portalRouter.post(
   "/messages/:threadId/attachment",
   async (req, res, next) => {
     const a = await me(req);
+    assertNotBlocked(req.auth as AuthContext);
     const { caption } = captionQuery.parse(req.query);
     const thread = await db.messageThread.findUnique({ where: { id: String(req.params.threadId) } });
     if (!thread || thread.astrologerId !== a.id) throw notFound("Conversation not found.");

@@ -16,8 +16,10 @@ export interface Astrologer {
   years: number;
   rating: number | null;
   consults: number;
-  /** Standard per-minute rate (chat and voice), ₹ */
+  /** Standard per-minute rate for calls (voice), ₹ */
   price: number;
+  /** Per-minute chat rate, ₹ (your own chat price, or the same as `price`) */
+  chatPrice: number;
   /** Pre-discount rate shown struck through, ₹ */
   was: number | null;
   /** Instant Call / Emergency multiplier of the standard rate */
@@ -46,6 +48,8 @@ export interface AccountStatus {
   suspensionReason?: string | null;
   /** "22 Oct 2026": when the suspension started */
   suspendedOn?: string | null;
+  /** "10 Nov 2026, 17:05 IST": when a temporary suspension (a contact-sharing block) ends by itself, else null */
+  suspendedUntil?: string | null;
   /** "8 Oct 2026": when the application first went to HR (null while it is a draft) */
   submittedOn?: string | null;
   /** HR's latest note: what they need (docs) or why it was not approved (rejected) */
@@ -131,7 +135,7 @@ export interface Dashboard {
   training: TrainingItem[];
   reviews: Review[];
   multiplierOptions: number[];
-  /** Welcome campaign: taking part, capacity per day or week, and how many are left */
+  /** Welcome campaign: taking part, AstroRize's free calls per day and week, and how many are left */
   freeCalls: FreeCalls;
   /** Your own per-minute price and the rules for changing it */
   pricing: Pricing;
@@ -147,34 +151,34 @@ export interface FreeCalls {
   optedIn: boolean;
   /** The campaign is switched on by AstroRize */
   campaignOn: boolean;
-  /** Your own number, or null for the platform default (per day) */
-  ownLimit: number | null;
+  /** Free calls per IST day and per Monday–Sunday week, the same for every astrologer (set by AstroRize) */
+  perDay: number;
+  perWeek: number;
+  /** The period that runs out first; `limit`, `used` and `resetsAt` are for it */
   period: "day" | "week";
   limit: number;
-  isDefault: boolean;
-  defaultLimit: number;
   /** Connected this period (today, or this Monday–Sunday week, IST) */
   used: number;
+  usedToday: number;
+  usedThisWeek: number;
   remaining: number;
   /** ISO time the count starts again */
   resetsAt: string;
-  /** Most you may offer per day / per week */
-  maxPerDay: number;
-  maxPerWeek: number;
   /** Lengths a customer can choose for a free call (minutes) */
   lengths: number[];
-  /** Free minutes each customer gets per Mon–Sun week */
+  /** Free minutes each customer gets per Mon–Sun week, and once when they join */
   weeklyMinutes: number;
+  joiningBonusMinutes: number;
 }
 
 /** Your price (GET /portal/dashboard → pricing, PATCH /portal/price). */
 export interface Pricing {
-  /** Voice, ₹/min (video adds the video premium) */
+  /** Calls (voice), ₹/min — video and Instant Call follow it */
   price: number;
   /** Struck-through original price, or null */
   was: number | null;
   /** What customers pay per minute */
-  rates: { voice: number; video: number; instant: number };
+  rates: { chat: number; voice: number; video: number; instant: number };
   /** You can change it yourself (live profile with a price set) */
   editable: boolean;
   /** Range for your next change */
@@ -189,6 +193,17 @@ export interface Pricing {
   pending: PriceRequest | null;
   /** The team's latest decision on an increase, or null */
   lastDecision: PriceRequest | null;
+  /** The separate chat price: same rules, its own cooldown and requests */
+  chat: {
+    price: number;
+    /** False while chat simply follows the call price */
+    separate: boolean;
+    allowed: { min: number; max: number };
+    changedAt: string | null;
+    nextChangeOn: string | null;
+    pending: PriceRequest | null;
+    lastDecision: PriceRequest | null;
+  };
 }
 
 /** One price change you asked for (PATCH /portal/price). */
@@ -196,6 +211,8 @@ export interface PriceRequest {
   id: string;
   from: number;
   to: number;
+  /** Which price: call (voice) or chat */
+  channel: "call" | "chat";
   kind: "increase" | "decrease";
   status: "PENDING" | "APPROVED" | "REJECTED" | "APPLIED" | "WITHDRAWN";
   requestedOn: string;
@@ -443,8 +460,8 @@ export interface LiveRoom {
   pollOptions: string[];
   /** Consults from the room are charged at the standard rate (₹/min) */
   rate: number;
-  /** A private consultation from the room in each mode (₹/min): video carries the video premium. */
-  rates: { voice: number; video: number };
+  /** A private consultation from the room in each mode (₹/min): chat at the chat price, video with the video premium. */
+  rates: { chat: number; voice: number; video: number };
   /** The private consultation in progress, or null. */
   private: LiveHostPrivate | null;
   /** Newest first. */

@@ -4,16 +4,16 @@ import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { RATE_MAX, RATE_MIN, STAGE_LIFECYCLE, answersFor, draftValues, requestedRate, setNote } from "../../lib/application.ts";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
-import { instantRate, rateFor } from "../../lib/billing.ts";
+import { chatRate, instantRate, rateFor } from "../../lib/billing.ts";
 import { ageLabel, istDate, istDateKey, istStamp, rupee } from "../../lib/format.ts";
-import { AUDIENCES, CAMPAIGN_KINDS, announceCampaign, appliedPct, floorCap, isLegacy, isOpen, offerLimits, offerProblem, offerSummary } from "../../lib/campaigns.ts";
-import { actorName, capabilitiesOf, requireCapability, requirePage } from "../../lib/rbac.ts";
+import { AUDIENCES, CAMPAIGN_KINDS, announceCampaign, appliedPct, campaignSubmitterId, floorCap, isLegacy, isOpen, offerLimits, offerProblem, offerSummary } from "../../lib/campaigns.ts";
+import { actorName, capabilitiesOf, requireCapability, requirePage, secondPerson } from "../../lib/rbac.ts";
 import { lockKey } from "../../lib/consultations.ts";
-import { approvalProblem, priceChangeView, pricingPolicy } from "../../lib/pricing.ts";
+import { approvalProblem, channelName, channelOf, channelPrice, priceChangeView, priceUpdate, pricingPolicy } from "../../lib/pricing.ts";
 import { removeGalleryPhoto } from "../../lib/gallery.ts";
 import { deleteMedia } from "../../lib/media.ts";
 import { configNumber } from "../../lib/settings.ts";
-import { capacityProblem, capacityView, periodName, welcomePolicy } from "../../lib/welcome.ts";
+import { capacityView, welcomePolicy } from "../../lib/welcome.ts";
 import type { Applicant, Campaign, Prisma } from "../../generated/prisma/client.ts";
 
 export const operationsRouter = Router();
@@ -156,7 +156,8 @@ operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
     welcomePolicy().then((policy) => capacityView(a, policy, now)),
     db.priceChange.findMany({ where: { astrologerId: a.id }, orderBy: { requestedAt: "desc" }, take: 8 }),
   ]);
-  const pendingChange = priceChanges.find((c) => c.status === "PENDING");
+  const pendingChange = priceChanges.find((c) => c.status === "PENDING" && channelOf(c.channel) === "CALL");
+  const pendingChatChange = priceChanges.find((c) => c.status === "PENDING" && channelOf(c.channel) === "CHAT");
   res.json({
     astrologer: {
       id: a.id,
@@ -182,6 +183,10 @@ operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
         /** Voice ₹/min as a number (video adds the video premium). */
         value: a.price,
         voice: rupee(a.price),
+        /** Chat ₹/min: their own chat price, or the voice price while chat follows it. */
+        chat: rupee(chatRate(a)),
+        chatValue: chatRate(a),
+        chatSeparate: a.chatPrice !== null,
         video: rupee(rateFor(a.price, "VIDEO")),
         instant: rupee(instantRate(a.price, a.instantMultiplier)),
         multiplier: a.instantMultiplier,
@@ -190,6 +195,8 @@ operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
         changedAt: a.priceChangedAt ? istDate(a.priceChangedAt) : null,
         /** An increase waiting for approval (decided on the Price requests tab), or null. */
         pending: pendingChange ? priceChangeView(pendingChange) : null,
+        /** A chat price increase waiting for approval, or null. */
+        pendingChat: pendingChatChange ? priceChangeView(pendingChatChange) : null,
         /** Recent changes and requests, newest first (none for changes made before approvals existed). */
         history: priceChanges.filter((c) => c.status !== "PENDING").slice(0, 6).map(priceChangeView),
       },
@@ -211,47 +218,21 @@ operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
 });
 
 /**
- * Welcome campaign settings for one astrologer (HR): take part in free calls or not, and their
- * own capacity per day or per week (null = the campaign's daily default) within the admin
- * maximum (Config welcome.astrologer_max_per_day / _per_week) — the same rules as the portal,
- * where the astrologer sets it themselves. Each change is audited.
+ * Welcome campaign for one astrologer (HR): take part in free calls or not, as the astrologer can
+ * in the portal. How many free calls each astrologer takes, and their lengths, are the same for
+ * everyone and set in the Config console (welcome.*). Each change is audited.
  */
 operationsRouter.patch("/lifecycle/astrologers/:id/free-calls", async (req, res) => {
   const admin = requirePage(req, "hr");
-  const input = z
-    .object({
-      enabled: z.boolean().optional(),
-      dailyLimit: z.number("Enter the limit as a whole number.").nullable().optional(),
-      period: z.enum(["DAY", "WEEK"]).optional(),
-    })
-    .parse(req.body);
+  const { enabled } = z.object({ enabled: z.boolean({ error: "Choose on or off." }) }).parse(req.body);
   const a = await db.astrologer.findUnique({ where: { id: String(req.params.id) } });
   if (!a) throw notFound("Astrologer not found.");
-  const policy = await welcomePolicy();
-  const period = input.period ?? (a.freeCallsLimitPeriod === "WEEK" ? "WEEK" : "DAY");
-  const limit = input.dailyLimit === undefined ? a.freeCallsDailyLimit : input.dailyLimit;
-  if (limit !== null && (input.dailyLimit !== undefined || input.period !== undefined)) {
-    const problem = capacityProblem(limit, period, policy);
-    if (problem) throw badRequest(problem);
-  }
-  const data: Prisma.AstrologerUpdateInput = {};
-  if (input.enabled !== undefined && input.enabled !== a.freeCallsEnabled) data.freeCallsEnabled = input.enabled;
-  if (limit !== a.freeCallsDailyLimit) data.freeCallsDailyLimit = limit;
-  // The campaign default is per day.
-  const newPeriod = limit === null ? "DAY" : period;
-  if (newPeriod !== a.freeCallsLimitPeriod) data.freeCallsLimitPeriod = newPeriod;
-  if (Object.keys(data).length) {
-    await db.astrologer.update({ where: { id: a.id }, data });
-    const limitLabel = (n: number | null, p: string) => (n === null ? "campaign default" : `${n} per ${periodName(p === "WEEK" ? "WEEK" : "DAY")}`);
-    if (data.freeCallsEnabled !== undefined) {
-      await audit(admin, "astrologer.free_calls.update", a.id, `${a.freeCallsEnabled ? "on" : "off"} → ${input.enabled ? "on" : "off"}`);
-    }
-    if (data.freeCallsDailyLimit !== undefined || data.freeCallsLimitPeriod !== undefined) {
-      await audit(admin, "astrologer.free_calls.limit", a.id, `${limitLabel(a.freeCallsDailyLimit, a.freeCallsLimitPeriod)} → ${limitLabel(limit, newPeriod)}`);
-    }
+  if (enabled !== a.freeCallsEnabled) {
+    await db.astrologer.update({ where: { id: a.id }, data: { freeCallsEnabled: enabled } });
+    await audit(admin, "astrologer.free_calls.update", a.id, `${a.freeCallsEnabled ? "on" : "off"} → ${enabled ? "on" : "off"}`);
   }
   const fresh = await db.astrologer.findUniqueOrThrow({ where: { id: a.id } });
-  res.json({ freeCalls: { ...(await capacityView(fresh, policy)), dailyLimit: fresh.freeCallsDailyLimit } });
+  res.json({ freeCalls: await capacityView(fresh, await welcomePolicy()) });
 });
 
 /**
@@ -294,7 +275,11 @@ operationsRouter.get("/lifecycle/price-requests", async (req, res) => {
     db.priceChange.findMany({
       where: { status: "PENDING" },
       orderBy: { requestedAt: "asc" },
-      include: { astrologer: { select: { id: true, name: true, photo: true, slug: true, price: true, lifecycle: true, priceChangedAt: true } } },
+      include: {
+        astrologer: {
+          select: { id: true, name: true, photo: true, slug: true, price: true, chatPrice: true, chatPriceChangedAt: true, lifecycle: true, priceChangedAt: true },
+        },
+      },
     }),
     db.priceChange.findMany({
       where: { status: { not: "PENDING" }, OR: [{ decidedAt: { gte: since } }, { requestedAt: { gte: since } }] },
@@ -310,17 +295,24 @@ operationsRouter.get("/lifecycle/price-requests", async (req, res) => {
   res.json({
     canDecide: capabilitiesOf(admin.adminRole).includes("price.approve"),
     maxIncrease: policy.maxIncrease,
-    pending: pending.map((p) => ({
-      ...priceChangeView(p),
-      astrologer: { id: p.astrologer.id, name: p.astrologer.name, photo: p.astrologer.photo, slug: p.astrologer.slug, price: p.astrologer.price },
-      /** How long it has waited: "4 min", "6h", "2d". */
-      waiting: ageLabel(p.requestedAt, now, "long"),
-      /** Last changed (decrease applied or increase approved), or null. */
-      lastChangedOn: p.astrologer.priceChangedAt ? istDate(p.astrologer.priceChangedAt) : null,
-      /** Why it can't be approved as things stand (e.g. the price moved), or null. */
-      problem: approvalProblem(p.astrologer, p.toPrice, policy),
-      history: history.filter((h) => h.astrologerId === p.astrologerId).slice(0, 5).map(priceChangeView),
-    })),
+    pending: pending.map((p) => {
+      // The price this request is for: the call price or the separate chat price.
+      const current = channelPrice(p.astrologer, channelOf(p.channel));
+      return {
+        ...priceChangeView(p),
+        astrologer: { id: p.astrologer.id, name: p.astrologer.name, photo: p.astrologer.photo, slug: p.astrologer.slug, price: current.price },
+        /** How long it has waited: "4 min", "6h", "2d". */
+        waiting: ageLabel(p.requestedAt, now, "long"),
+        /** Last changed (decrease applied or increase approved), or null. */
+        lastChangedOn: current.priceChangedAt ? istDate(current.priceChangedAt) : null,
+        /** Why it can't be approved as things stand (e.g. the price moved), or null. */
+        problem: approvalProblem(current, p.toPrice, policy),
+        history: history
+          .filter((h) => h.astrologerId === p.astrologerId && channelOf(h.channel) === channelOf(p.channel))
+          .slice(0, 5)
+          .map(priceChangeView),
+      };
+    }),
     recent: recent.map((c) => ({ ...priceChangeView(c), astrologer: { id: c.astrologer.id, name: c.astrologer.name, photo: c.astrologer.photo } })),
   });
 });
@@ -352,22 +344,25 @@ operationsRouter.post("/lifecycle/price-requests/:id/:action", async (req, res) 
     }
     const a = await tx.astrologer.findUniqueOrThrow({ where: { id: change.astrologerId } });
     const decided = { decidedAt: now, decidedById: admin.user.id, decidedByName: actorName(admin) };
+    // The price this request is for: the call price or the separate chat price.
+    const channel = channelOf(change.channel);
+    const current = channelPrice(a, channel);
     if (action === "reject") {
       await tx.priceChange.update({ where: { id: change.id }, data: { ...decided, status: "REJECTED", reason } });
-      return { ok: true as const, change, a, current: a.price };
+      return { ok: true as const, change, a, current: current.price };
     }
-    const problem = approvalProblem(a, change.toPrice, policy);
+    const problem = approvalProblem(current, change.toPrice, policy);
     if (problem) return { ok: false as const, message: problem };
-    await tx.astrologer.update({ where: { id: a.id }, data: { price: change.toPrice, priceChangedAt: now } });
+    await tx.astrologer.update({ where: { id: a.id }, data: priceUpdate(channel, change.toPrice, now) });
     await tx.priceChange.update({ where: { id: change.id }, data: { ...decided, status: "APPROVED" } });
-    return { ok: true as const, change, a, current: a.price };
+    return { ok: true as const, change, a, current: current.price };
   });
   if (!result.ok) throw conflict(result.message);
   const { change, a, current } = result;
   if (action === "approve") {
-    await audit(admin, "price.change.approve", a.id, `${rupee(current)} → ${rupee(change.toPrice)}/min (voice) · ${a.name}'s request of ${istDate(change.requestedAt)}`);
+    await audit(admin, "price.change.approve", a.id, `${rupee(current)} → ${rupee(change.toPrice)}/min (${channelName(change.channel) === "chat" ? "chat" : "voice"}) · ${a.name}'s request of ${istDate(change.requestedAt)}`);
   } else {
-    await audit(admin, "price.change.reject", a.id, `${rupee(change.fromPrice)} → ${rupee(change.toPrice)}/min refused · ${a.name} · ${reason}`);
+    await audit(admin, "price.change.reject", a.id, `${rupee(change.fromPrice)} → ${rupee(change.toPrice)}/min (${channelName(change.channel) === "chat" ? "chat" : "voice"}) refused · ${a.name} · ${reason}`);
   }
   res.json({ ok: true, status: action === "approve" ? "APPROVED" : "REJECTED", name: a.name, from: current, to: change.toPrice });
 });
@@ -623,6 +618,9 @@ operationsRouter.get("/marketing", async (req, res) => {
     offerLimits(),
     db.campaignClaim.groupBy({ by: ["campaignId", "status"], _count: { _all: true } }),
   ]);
+  // Who submitted each campaign waiting for approval (they can't approve it themselves, unless a Super Admin).
+  const waiting = campaigns.filter((c) => c.state === "SUBMITTED" || c.state === "UNDER_REVIEW");
+  const submitters = new Map(await Promise.all(waiting.map(async (c) => [c.id, await campaignSubmitterId(c.id)] as const)));
   const claimsOf = (id: string, status?: string) =>
     claimCounts.filter((g) => g.campaignId === id && (!status || g.status === status)).reduce((s, g) => s + g._count._all, 0);
   const active = campaigns.filter((c) => c.state === "ACTIVE");
@@ -660,6 +658,8 @@ operationsRouter.get("/marketing", async (req, res) => {
           open: isOpen(c, now),
           claims: claimsOf(c.id),
           used: claimsOf(c.id, "USED"),
+          /** User id of who submitted it for approval (while it waits), else null. */
+          submittedById: submitters.get(c.id) ?? null,
         };
       }),
       gifts: gifts.map((g) => ({ id: g.id, icon: g.icon, name: g.name, price: rupee(g.price), state: g.price >= cap && g.state === "ACTIVE" ? "AT CAP" : g.state })),
@@ -718,12 +718,14 @@ operationsRouter.post("/campaigns/:id/:action", async (req, res) => {
     await audit(admin, "campaign.submit", c.id, `DRAFT → SUBMITTED · ${campaignDiff(c)}`);
   } else if (action === "approve") {
     if (c.state !== "SUBMITTED" && c.state !== "UNDER_REVIEW") throw conflict(`${c.id} isn't waiting for approval.`);
+    // Two-person rule: whoever submitted it can't approve it — except a Super Admin (audited as self-approved).
+    const self = secondPerson(admin, (await campaignSubmitterId(c.id)) === admin.user.id, `Blocked — you submitted ${c.id}. A different approver is required.`);
     // The limits may have been lowered since it was submitted.
     const problem = offerProblem(c, await offerLimits());
     if (problem) throw badRequest(problem);
     const { count } = await db.campaign.updateMany({ where: { id: c.id, state: c.state }, data: { state: "ACTIVE" } });
     if (!count) throw conflict(`${c.id} was just approved by someone else.`);
-    await audit(admin, "campaign.approve", c.id, `${c.state} → ACTIVE · ${campaignDiff(c)}`);
+    await audit(admin, "campaign.approve", c.id, `${c.state} → ACTIVE · ${campaignDiff(c)}${self}`);
     // Customers it is for are told now (or when its start date comes — the minute sweep).
     const told = await announceCampaign({ ...c, state: "ACTIVE" }).catch((e: unknown) => {
       console.error("Campaign announcement failed (the sweep retries):", e);

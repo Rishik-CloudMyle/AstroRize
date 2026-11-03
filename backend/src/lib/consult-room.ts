@@ -4,7 +4,8 @@ import type { Consultation, ConsultMessage } from "../generated/prisma/client.ts
 import { config } from "../config.ts";
 import { conflict, forbidden, notFound } from "./errors.ts";
 import { messageText } from "./messaging.ts";
-import { CONTACT_BLOCKED_NOTICE, containsContactDetails, rateLimit } from "./safety.ts";
+import { flagContactAttempt } from "./contact-flags.ts";
+import { contactBlockedNotice, findContactDetails, rateLimit } from "./safety.ts";
 import { zegoConfigured, zegoRoom, zegoServerUrl, zegoToken, zegoUserId } from "./zego.ts";
 
 // The inside of a one-to-one consultation: its written chat (every mode has one — the whole
@@ -66,16 +67,22 @@ export async function listMessages(c: Consultation, viewer: Party, after: unknow
 export const consultMessageBody = z.object({ text: messageText });
 
 /**
- * Sends a message while the session is in progress. Contact details are never delivered: the
- * sender gets the notice instead (stored as blocked, without the original text).
+ * Sends a message while the session is in progress. A consultation is paid, so only phone numbers
+ * are kept out (PAID policy, client Nov 2026 — emails, links and the rest may be shared): such a
+ * message is never delivered; the sender gets the notice instead (stored as blocked, without the
+ * original text). The same rule for the chat of a Chat consultation and the side chat of a voice,
+ * video or Instant Call session.
  */
 export async function sendMessage(c: Consultation, sender: Party, userId: string, text: string) {
   if (c.status !== "ACTIVE") throw conflict("This consultation has ended — messages can no longer be sent.");
   rateLimit(`consult-chat:${userId}`, 8, 10_000, "You're sending messages too quickly. Wait a few seconds.");
-  const blocked = containsContactDetails(text);
+  const found = findContactDetails(text, "PAID");
+  const blocked = found.length > 0;
   const message = await db.consultMessage.create({
-    data: blocked ? { consultationId: c.id, sender, text: CONTACT_BLOCKED_NOTICE, blocked: true } : { consultationId: c.id, sender, text },
+    data: blocked ? { consultationId: c.id, sender, text: contactBlockedNotice(found, "PAID"), blocked: true } : { consultationId: c.id, sender, text },
   });
+  // An off-platform contact attempt: flagged for Trust & reviews (masked).
+  if (blocked) await flagContactAttempt({ userId, side: sender, place: "consultation", ref: c.id, kinds: found, text });
   return { blocked, message: lineView(message, sender) };
 }
 

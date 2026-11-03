@@ -1,4 +1,5 @@
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
+import { blockView } from "../lib/account-blocks.ts";
 import { Router } from "express";
 import { z } from "zod";
 import { config } from "../config.ts";
@@ -63,6 +64,8 @@ export function publicUser(user: User & { astrologer?: { id: string; slug: strin
     adminRole: user.adminRole?.toLowerCase() as AdminRoleClaim | undefined,
     astrologerId: user.astrologer?.id,
     astrologerSlug: user.astrologer?.slug,
+    /** A temporary block for repeated contact sharing, while it lasts (the website and portal show a banner). */
+    block: blockView(user),
   };
 }
 
@@ -173,18 +176,20 @@ authRouter.post("/otp/verify", async (req, res) => {
 
   try {
     // First sign-in creates the customer account and an empty wallet. The number has just been
-    // verified, so the account also gets the welcome free call — once per number, ever (lib/welcome.ts).
+    // verified, so the account also gets its free minutes and one-time joining bonus — once per
+    // number, ever (lib/welcome.ts). This is recorded even while free calls are switched off
+    // (welcome.enabled = 0): the minutes can be used once they are switched back on.
     let user = existing;
     const created = !user;
     if (!user) {
       const name = "AstroRize customer";
-      const { enabled, joiningBonusMinutes } = await welcomePolicy();
+      const { joiningBonusMinutes } = await welcomePolicy();
       try {
         user = await db.$transaction(async (tx) => {
           const u = await tx.user.create({
             data: { phone, name, initials: initialsOf(name), role: "CUSTOMER", wallet: { create: {} } },
           });
-          if (enabled) await grantWelcome(u.id, phone, joiningBonusMinutes, tx);
+          await grantWelcome(u.id, phone, joiningBonusMinutes, tx);
           return u;
         });
       } catch (e) {

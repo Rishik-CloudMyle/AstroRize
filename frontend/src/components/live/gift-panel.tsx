@@ -149,7 +149,7 @@ export default function GiftPanel({
       )}
       {load.state === "ready" && gifts.length > 0 && (
         <>
-          <div role="radiogroup" aria-label="Gift" className="grid grid-cols-3 gap-1.5 min-[400px]:grid-cols-4 max-lg:grid-cols-2 max-lg:gap-2.5 max-lg:min-[400px]:grid-cols-2 max-lg:sm:grid-cols-3">
+          <div role="radiogroup" aria-label="Gift" className="grid auto-rows-fr grid-cols-3 gap-1.5 min-[400px]:grid-cols-4 max-lg:grid-cols-2 max-lg:gap-2.5 max-lg:min-[400px]:grid-cols-2 max-lg:sm:grid-cols-3">
             {gifts.map((g) => {
               const on = g.id === selected;
               return (
@@ -166,7 +166,8 @@ export default function GiftPanel({
                   <span aria-hidden="true" className="grid size-9 place-items-center rounded-full bg-amber-500/15 text-[22px] leading-none max-lg:size-11 max-lg:rounded-app-btn max-lg:bg-app-tint-2">
                     {g.icon}
                   </span>
-                  <span className="mt-1 w-full truncate text-[11px] font-semibold max-lg:mt-0 max-lg:text-[14px] max-lg:font-[650] max-lg:text-app-ink">{g.name}</span>
+                  {/* Full names, on two lines when needed (client: no cut-off gift names). */}
+                  <span className="mt-1 flex min-h-[2lh] w-full items-center justify-center text-center text-[11px] leading-tight font-semibold break-words max-lg:mt-0 max-lg:min-h-0 max-lg:justify-start max-lg:text-left max-lg:text-[14px] max-lg:font-[650] max-lg:text-app-ink">{g.name}</span>
                   <span className="text-[11px] font-bold tabular-nums text-amber-200 max-lg:text-[14px] max-lg:font-semibold max-lg:text-app-ink">{rupee(g.price)}</span>
                 </button>
               );

@@ -376,6 +376,10 @@ function LiveConsole({ data }: { data: LiveRoom }) {
             <h2 className="m-0 mb-3 text-base font-bold">Rates for this live</h2>
             <div className="flex flex-wrap items-end gap-6">
               <div>
+                <div className="text-[11.5px] font-semibold text-stone-500">Chat</div>
+                <b className="text-[22px] tabular-nums">{rupee(data.rates?.chat ?? data.rate)}/min</b>
+              </div>
+              <div>
                 <div className="text-[11.5px] font-semibold text-stone-500">Voice</div>
                 <b className="text-[22px] tabular-nums">{rate}</b>
               </div>
@@ -385,7 +389,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
               </div>
             </div>
             <p className="mt-3 text-[11.5px] text-stone-500">
-              Private consults from this room — voice or video, as the customer chooses — are charged at the same rates customers
+              Private consults from this room — chat, voice or video, as the customer chooses — are charged at the same rates customers
               see on your profile.
             </p>
           </Panel>
@@ -417,7 +421,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                     <b className="block truncate text-[13px]">{q.name ?? q.alias}</b>
                     <span className="text-[11.5px] text-stone-500">
                       {q.consultMode && <ModeIcon mode={q.consultMode} size={13} className="mr-1 inline-block align-[-2px] text-amber-700" />}
-                      Private {MODE_LABEL[q.consultMode] ?? "consultation"} · {rupee(q.rate)}/min
+                      Private {MODE_LABEL[q.consultMode] ?? "consultation"} request · {rupee(q.rate)}/min
                     </span>
                   </div>
                   {q.actionable && (
@@ -449,7 +453,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
             <p className="mt-2.5 text-[11.5px] text-stone-500">
               {priv
                 ? "One private consultation at a time — the next person can be accepted when this one ends."
-                : "First come, first served. Accepting starts a private voice or video consultation, as they asked. Once they join, the room keeps your video without sound."}
+                : "First come, first served. Accepting starts a private chat, voice or video consultation, as they asked. Once they join, the room keeps your video without sound."}
             </p>
           </Panel>
           )}

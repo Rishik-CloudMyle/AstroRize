@@ -1,20 +1,13 @@
 import { tooMany } from "./errors.ts";
 
-// Contact details are not allowed in platform messages: both sides stay protected
-// and consultations stay on the platform.
-const PATTERNS = [
-  /(?:\+?91[\s-]?)?[6-9](?:[\s-]?\d){9}/, // Indian mobile numbers, with or without spaces
-  /[\w.+-]+@[\w-]+\.[\w.-]+/, // email addresses
-  /\b(?:whats\s?app|wa\.me|telegram|t\.me|insta(?:gram)?|snap(?:chat)?)\b/i, // off-platform apps
-  /\b\d{2,5}[\s-]?•{3,}/, // partially masked numbers like "98765 •••••"
-];
+// Contact details in platform messages (client, Nov 2026): the free Messages chat and public
+// live-room chat allow none (FREE); the chat inside a paid consultation blocks only phone numbers
+// (PAID). The patterns live in contact-filter.ts, which the website runs too.
+export { type ContactKind, type ContactPolicy, containsContactDetails, contactBlockedNotice, findContactDetails } from "./contact-filter.ts";
 
-export function containsContactDetails(text: string): boolean {
-  return PATTERNS.some((p) => p.test(text));
-}
-
+/** The general notice (FREE policy) where there is no specific finding to name, e.g. a live room's title. */
 export const CONTACT_BLOCKED_NOTICE =
-  "Contact details cannot be shared through AstroRize. Keep the conversation on the platform so both of you stay protected.";
+  "Contact details (phone numbers, email addresses, links, social media handles, UPI IDs, home addresses) can't be shared on AstroRize. Keep the conversation on the platform so both of you stay protected.";
 
 /**
  * Simple in-memory rate limiter (per process). Good enough for one server; move to

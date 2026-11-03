@@ -22,6 +22,6 @@ export const STEPS = [
   {
     n: "3",
     title: "Consult",
-    body: "Voice or video. You see elapsed time and minutes remaining at this rate — never a draining balance.",
+    body: "Chat, voice or video. You see elapsed time and minutes remaining at this rate — never a draining balance.",
   },
 ];

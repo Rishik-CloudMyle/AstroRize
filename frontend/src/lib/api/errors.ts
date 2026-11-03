@@ -16,6 +16,8 @@ export async function readResponse<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => null);
   if (!res.ok) {
     const error = (body as { error?: { code?: string; message?: string } & Record<string, unknown> } | null)?.error;
+    // The account is blocked (repeated contact sharing): the session store re-reads it and the banner shows.
+    if (error?.code === "account_blocked" && typeof window !== "undefined") window.dispatchEvent(new Event("astrorize:account-blocked"));
     throw new ApiError(res.status, error?.code ?? "error", error?.message ?? "Something went wrong. Please try again.", error ?? {});
   }
   return body as T;

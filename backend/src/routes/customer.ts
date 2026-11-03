@@ -1,11 +1,10 @@
 import express, { Router, type NextFunction, type Request, type Response } from "express";
+import { assertNotBlocked } from "../lib/account-blocks.ts";
 import { z } from "zod";
 import { config } from "../config.ts";
 import { db } from "../db.ts";
 import { HttpError, badRequest, conflict, notFound } from "../lib/errors.ts";
 import {
-  CHAT_RETIRED_CODE,
-  CHAT_RETIRED_MESSAGE,
   ELIGIBILITY_MINUTES,
   GST_RATE,
   MAX_SESSION_SECONDS,
@@ -262,8 +261,7 @@ customerRouter.post("/wallet/recharge/:orderId/status", async (req, res) => {
 // time, across all astrologers. The website freezes every other consult button meanwhile,
 // and these routes refuse a second one even if two tabs try at the same moment.
 
-// "CHAT" is still parsed so an old page asking for one gets a clear answer (CHAT_RETIRED_MESSAGE)
-// rather than a validation error; a new consultation is only ever Voice or Video.
+// Chat (paid, per minute — back since Nov 2026), Voice or Video.
 const modeSchema = z.enum(["CHAT", "VOICE", "VIDEO"]);
 
 const newRef = () => uniqueRef("SES", async (r) => !!(await db.consultation.findUnique({ where: { ref: r } })));
@@ -312,9 +310,9 @@ function rateChanged(res: Response, quoted: number, rate: number, message?: stri
   });
 }
 
-/** The free call can only be used for Voice; Video and Instant Call stay paid. */
+/** Free minutes can only be used for Chat or Voice; Video and Instant Call stay paid. */
 const modalityDenied = () =>
-  new HttpError(400, "Free minutes can be used for Voice calls. Video and Instant Call are paid.", "WEL_MODALITY_DENIED");
+  new HttpError(400, "Free minutes can be used for Chat or Voice. Video and Instant Call are paid.", "WEL_MODALITY_DENIED");
 
 async function ownConsultation(userId: string, id: string) {
   const c = await db.consultation.findUnique({ where: { id } });
@@ -400,6 +398,8 @@ const quotedRateSchema = z.number().int().nonnegative().optional();
 
 customerRouter.post("/consultations", async (req, res) => {
   const me = auth(req);
+  // A temporarily blocked account (repeated contact sharing) can't do this until the block ends.
+  assertNotBlocked(me);
   const { astrologerId, mode, quotedRate, welcome, freeMinutes, makeGoodCreditId } = z
     .object({
       astrologerId: z.string(),
@@ -412,8 +412,7 @@ customerRouter.post("/consultations", async (req, res) => {
       makeGoodCreditId: z.string().max(40).optional(),
     })
     .parse(req.body);
-  // Paid chat is no longer offered (customers chat free in Messages): only Voice or Video.
-  if (mode === "CHAT") throw new HttpError(400, CHAT_RETIRED_MESSAGE, CHAT_RETIRED_CODE);
+
   if (welcome && !(WELCOME_MODES as readonly string[]).includes(mode)) throw modalityDenied();
   if (welcome && !freeMinutes) throw new HttpError(400, "Choose how long your free call should be.", "WEL_LENGTH_REQUIRED");
   // A free replacement call stands alone: never together with a welcome free call (or an offer).
@@ -421,7 +420,7 @@ customerRouter.post("/consultations", async (req, res) => {
   const astrologer = await availableAstrologer(astrologerId);
   // The rate is fixed now and the whole session is billed at it. A claimed consultation offer
   // lowers it — never together with a free call or a free replacement call.
-  const listRate = rateFor(astrologer.price, mode as Mode);
+  const listRate = rateFor(astrologer.price, mode as Mode, astrologer.chatPrice);
   const offer = welcome || makeGoodCreditId ? null : await discountQuote(me.user.id);
   const rate = offer ? discountedRate(listRate, offer.pct) : listRate;
   if (quotedRate !== undefined && quotedRate !== rate) {
@@ -603,6 +602,7 @@ customerRouter.get("/consultations/:id/messages", async (req, res) => {
 
 /** Sends a message while the session is in progress. Contact details are never delivered. */
 customerRouter.post("/consultations/:id/messages", async (req, res) => {
+  assertNotBlocked(auth(req));
   const me = auth(req).user;
   const { text } = consultMessageBody.parse(req.body);
   const c = await consultationFor(String(req.params.id), "CUSTOMER", me.id);
@@ -623,6 +623,7 @@ customerRouter.get("/consultations/:id/media", async (req, res) => {
  */
 customerRouter.post("/instant-calls", async (req, res) => {
   const me = auth(req);
+  assertNotBlocked(me);
   const { astrologerId, quotedRate, welcome } = z
     .object({ astrologerId: z.string(), quotedRate: quotedRateSchema, welcome: z.boolean().optional() })
     .parse(req.body);
@@ -985,6 +986,7 @@ customerRouter.get("/messages/:slug", async (req, res) => {
 
 /** Send a message; the first one starts the conversation. Contact details are never delivered. */
 customerRouter.post("/messages/:slug", async (req, res) => {
+  assertNotBlocked(auth(req));
   const me = auth(req).user;
   const { text } = z.object({ text: messageText }).parse(req.body);
   const { astrologer, thread, canMessage } = await conversationWith(me.id, String(req.params.slug));
@@ -1013,6 +1015,7 @@ async function startThread(astrologerId: string, customerId: string): Promise<st
 customerRouter.post(
   "/messages/:slug/attachment",
   async (req, res, next) => {
+    assertNotBlocked(auth(req));
     const me = auth(req).user;
     const { caption } = captionQuery.parse(req.query);
     const { astrologer, thread, canMessage } = await conversationWith(me.id, String(req.params.slug));

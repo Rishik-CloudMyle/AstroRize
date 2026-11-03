@@ -15,6 +15,8 @@ import type {
   ConfigData,
   ConfigDetail,
   ConfigKey,
+  ContactFlagShow,
+  ContactFlagsData,
   FinanceData,
   InboxConversation,
   InboxThread,
@@ -637,6 +639,11 @@ interface RawTrust extends Omit<TrustData, "queue"> {
 export async function getTrust(): Promise<TrustData> {
   const { trust } = await apiGet<{ trust: RawTrust }>("/admin/trust");
   return { ...trust, queue: trust.queue.map((r) => ({ ...r, reason: r.reason ?? null, ...flagColours(r.flag) })) };
+}
+
+export async function getContactFlags(show: ContactFlagShow): Promise<ContactFlagsData> {
+  const data = await apiGet<Omit<ContactFlagsData, "show">>(`/admin/contact-flags?show=${show}`);
+  return { ...data, show };
 }
 
 // ── RBAC, audit, recording ──

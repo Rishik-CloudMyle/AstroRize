@@ -7,12 +7,14 @@ import { istDate, istDateKey, istDayMonth, istTime, makeRef, rupee } from "../..
 import { makeGoodPolicy } from "../../lib/makegood.ts";
 import { notify } from "../../lib/notifications.ts";
 import { displayName } from "../../lib/profile.ts";
-import { actorName, adminOf, pagesOf, requireCapability, requirePage } from "../../lib/rbac.ts";
+import { actorName, adminOf, pagesOf, requireCapability, requirePage, secondPerson } from "../../lib/rbac.ts";
 import { getSetting, putSetting } from "../../lib/settings.ts";
 import type { Consultation, Prisma } from "../../generated/prisma/client.ts";
 
 // Support & disputes: tickets, the metering evidence, and maker-checker remedies. On a complaint
-// Support proposes one remedy and a second person (Finance or a Super Admin) approves it:
+// Support or Finance proposes one remedy and a second person (Finance — someone other than the
+// proposer — or a Super Admin) approves it. A Super Admin may approve their own proposal (client
+// decision, Nov 2026); the audit entry then says "self-approved by Super Admin".
 //  · a REFUND to the customer's wallet (up to what was billed). The astrologer's share of the refunded
 //    amount is taken back with a negative "refund_adjustment" earnings line that nets in their next
 //    payout batch (lib/earnings.ts), or
@@ -144,6 +146,33 @@ async function shareOfSession(c: Pick<Consultation, "ref" | "astrologerId">) {
   return line ? (line.sharePct ?? 100) : null;
 }
 
+/**
+ * How much of the astrologer's earnings a refund takes back (client decision, Nov 2026: "exact money
+ * should be cut" — a small refund must never reverse ₹0): their share of the refund, rounded UP to
+ * whole rupees (₹1 at 50% → ₹1), capped so all reversals on the session never exceed what they
+ * earned on it. Never negative.
+ */
+async function reversalFor(tx: Prisma.TransactionClient, c: Pick<Consultation, "ref" | "astrologerId">, ticketId: string, amount: number) {
+  const lines = await tx.earningsLine.findMany({
+    where: { astrologerId: c.astrologerId, sessionRef: c.ref, fundedBy: "CUSTOMER", kind: { not: "refund_adjustment" } },
+    orderBy: { date: "asc" },
+    select: { sharePct: true, amount: true },
+  });
+  if (!lines.length) return null;
+  const sharePct = lines[0]!.sharePct ?? 100;
+  const earned = lines.reduce((n, l) => n + (l.amount ?? 0), 0);
+  // What refunds approved on this session through other tickets already took back.
+  const others = await tx.supportTicket.findMany({ where: { sessionRef: c.ref, id: { not: ticketId }, resolution: "REFUND" }, select: { id: true } });
+  const earlier = others.length
+    ? await tx.earningsLine.aggregate({
+        where: { astrologerId: c.astrologerId, kind: "refund_adjustment", sessionRef: { in: others.map((t) => t.id) } },
+        _sum: { amount: true },
+      })
+    : null;
+  const stillHeld = Math.max(0, earned - Math.abs(earlier?._sum.amount ?? 0));
+  return { taken: Math.min(stillHeld, Math.max(0, Math.ceil((amount * sharePct) / 100))), sharePct };
+}
+
 /** Reports raised without a session say "—": they share no session with anything. */
 const hasSession = (t: { sessionRef: string }) => t.sessionRef !== "—" && t.sessionRef.trim() !== "";
 
@@ -247,9 +276,9 @@ supportRouter.get("/support/:id", async (req, res) => {
         astrologerSharePct: share,
         /** The negative earnings line written when the refund was approved. */
         adjustment: adjustment
-          ? `${rupee(Math.abs(adjustment.amount ?? 0)).replace("₹", "−₹")} from ${astrologer?.name ?? "the astrologer"}'s earnings (${adjustment.sharePct ?? 100}% share of ${rupee(Math.abs(adjustment.gross ?? 0))}), netted in their next payout`
+          ? `${rupee(Math.abs(adjustment.amount ?? 0)).replace("₹", "−₹")} from ${astrologer?.name ?? "the astrologer"}'s earnings for the ${rupee(Math.abs(adjustment.gross ?? 0))} refund (their ${adjustment.sharePct ?? 100}% share of it, rounded up to whole rupees so even a small refund is taken back), netted in their next payout`
           : t.resolution === "REFUND"
-            ? "No earnings adjustment (the astrologer had no earnings on this session, or their share rounds to ₹0)"
+            ? "No earnings adjustment (the astrologer had no earnings left on this session to take back)"
             : null,
       },
       makeGood: {
@@ -305,11 +334,15 @@ async function decider(req: Request, verb: string) {
   return { admin, t };
 }
 
+/**
+ * The two-person rule: whoever proposed it can't decide it — except a Super Admin, who may. Returns
+ * the note for the audit entry (" · self-approved by Super Admin", or "").
+ */
 async function blockSelf(t: { id: string; proposedBy: string | null }, admin: ReturnType<typeof requireCapability>, verb: string) {
   // Compare people, not names. A proposal with no audit entry (older data) falls back to the name, which can only over-block.
   const proposerId = await refundProposerId(t.id);
   const samePerson = proposerId ? proposerId === admin.user.id : t.proposedBy === actorName(admin);
-  if (samePerson) throw forbidden(`Blocked — you proposed this. A second person ${verb}s it.`);
+  return secondPerson(admin, samePerson, `Blocked — you proposed this. A second person ${verb}s it.`);
 }
 
 /**
@@ -320,10 +353,9 @@ async function blockSelf(t: { id: string; proposedBy: string | null }, admin: Re
 supportRouter.post("/support/:id/refund/approve", async (req, res) => {
   const { admin, t } = await decider(req, "approve");
   if (t.refundState !== "PROPOSED" || t.state === MAKEGOOD_PROPOSED) throw conflict("There is no proposed refund to approve.");
-  await blockSelf(t, admin, "approve");
+  const self = await blockSelf(t, admin, "approve");
 
   const c = await db.consultation.findUnique({ where: { ref: t.sessionRef } });
-  const sharePct = c ? await shareOfSession(c) : null;
   let ref = makeRef("RFD");
   while (await db.transaction.findUnique({ where: { ref } })) ref = makeRef("RFD");
   const now = new Date();
@@ -334,7 +366,7 @@ supportRouter.post("/support/:id/refund/approve", async (req, res) => {
       data: { refundState: "INITIATED", state: "REFUND_INITIATED", approvedBy: actorName(admin), resolution: "REFUND" },
     });
     if (!count) throw conflict(`${t.id} was just updated by someone else. Reload and check it.`);
-    if (!c?.customerId || c.total <= 0) return { refunded: 0, taken: 0 };
+    if (!c?.customerId || c.total <= 0) return { refunded: 0, taken: 0, sharePct: null as number | null };
     const amount = Math.min(t.refundAmount || c.total, c.total);
     // The whole charge goes back in the buckets it came from; part of it, in the same proportion.
     const promo = amount >= c.total ? c.promoUsed : Math.round((amount * c.promoUsed) / c.total);
@@ -342,8 +374,10 @@ supportRouter.post("/support/:id/refund/approve", async (req, res) => {
     await tx.wallet.update({ where: { userId: c.customerId }, data: { service: { increment: service }, promo: { increment: promo } } });
     await tx.transaction.create({ data: { userId: c.customerId, type: "Refund", ref, bucket: `${t.id} · ${istDayMonth(now)}`, amount } });
     // The astrologer's share of what was refunded comes back out of their earnings (customer-funded,
-    // so it nets in their next regular payout batch). Rounded down like the share they were paid.
-    const taken = sharePct === null ? 0 : Math.floor((amount * sharePct) / 100);
+    // so it nets in their next regular payout batch), rounded up so a small refund is never lost (reversalFor).
+    const reversal = await reversalFor(tx, c, t.id, amount);
+    const taken = reversal?.taken ?? 0;
+    const sharePct = reversal?.sharePct ?? null;
     if (taken > 0) {
       await tx.earningsLine.create({
         data: {
@@ -360,13 +394,14 @@ supportRouter.post("/support/:id/refund/approve", async (req, res) => {
         },
       });
     }
-    return { refunded: amount, taken };
+    return { refunded: amount, taken, sharePct };
   });
+  const sharePct = outcome.sharePct;
   await audit(
     admin,
     "dispute.refund.approve",
     t.id,
-    `REFUND_PROPOSED → REFUND_INITIATED (${rupee(outcome.refunded)})${outcome.taken ? ` · astrologer adjustment −${rupee(outcome.taken)} (${sharePct}% share)` : ""}`,
+    `REFUND_PROPOSED → REFUND_INITIATED (${rupee(outcome.refunded)})${outcome.taken ? ` · astrologer adjustment −${rupee(outcome.taken)} (${sharePct}% share)` : ""}${self}`,
   );
   if (c?.customerId && outcome.refunded > 0) {
     await notify(c.customerId, {
@@ -380,7 +415,7 @@ supportRouter.post("/support/:id/refund/approve", async (req, res) => {
       await notify(astro.userId, {
         kind: "earnings.refund_adjustment",
         title: `Refund adjustment −${rupee(outcome.taken)}`,
-        body: `A customer was refunded ${rupee(outcome.refunded)} for session ${c.ref} after a complaint (${t.id}). Your ${sharePct}% share of it, ${rupee(outcome.taken)}, is deducted from your next payout.`,
+        body: `A customer was refunded ${rupee(outcome.refunded)} for session ${c.ref} after a complaint (${t.id}). Your ${sharePct}% share of the refund, ${rupee(outcome.taken)} (rounded up to whole rupees), is deducted from your next payout.`,
         href: "/portal/earnings",
       });
     }
@@ -430,7 +465,7 @@ supportRouter.post("/support/:id/makegood/propose", async (req, res) => {
 supportRouter.post("/support/:id/makegood/approve", async (req, res) => {
   const { admin, t } = await decider(req, "approve");
   if (t.refundState !== "PROPOSED" || t.state !== MAKEGOOD_PROPOSED) throw conflict("There is no proposed free replacement call to approve.");
-  await blockSelf(t, admin, "approve");
+  const self = await blockSelf(t, admin, "approve");
   const [c, minutes, policy] = await Promise.all([db.consultation.findUnique({ where: { ref: t.sessionRef }, include: { astrologer: true, customer: true } }), proposedMinutes(t.id), makeGoodPolicy()]);
   if (!c?.customerId || !c.customer) throw conflict("The customer of this session no longer has an account.");
   if (minutes < 1) throw conflict("The proposed length is missing. Decline it and ask Support to propose it again.");
@@ -446,7 +481,7 @@ supportRouter.post("/support/:id/makegood/approve", async (req, res) => {
       data: { userId: c.customerId!, astrologerId: c.astrologerId, ticketId: t.id, sessionRef: c.ref, minutes, expiresAt },
     });
   });
-  await audit(admin, "dispute.makegood.approve", t.id, `MAKEGOOD_PROPOSED → RESOLVED · ${minutes} min free with ${c.astrologer.name} until ${istDate(expiresAt)} (credit ${credit.id})`);
+  await audit(admin, "dispute.makegood.approve", t.id, `MAKEGOOD_PROPOSED → RESOLVED · ${minutes} min free with ${c.astrologer.name} until ${istDate(expiresAt)} (credit ${credit.id})${self}`);
   const until = istDayMonth(expiresAt);
   await notify(c.customerId, {
     kind: "makegood.offered",
@@ -528,7 +563,7 @@ supportRouter.post("/support/:id/refund/decline", async (req, res) => {
   const { admin, t } = await decider(req, "decline");
   const { reason } = reasonBody.parse(req.body);
   if (t.refundState !== "PROPOSED") throw conflict("There is nothing proposed to decline.");
-  await blockSelf(t, admin, "decide");
+  const self = await blockSelf(t, admin, "decide");
   const makeGood = t.state === MAKEGOOD_PROPOSED;
   const { count } = await db.supportTicket.updateMany({
     where: { id: t.id, refundState: "PROPOSED", state: t.state },
@@ -539,7 +574,7 @@ supportRouter.post("/support/:id/refund/decline", async (req, res) => {
     admin,
     makeGood ? "dispute.makegood.decline" : "dispute.refund.decline",
     t.id,
-    `${t.state} → INVESTIGATING · ${makeGood ? "free replacement call not given" : `${rupee(t.refundAmount)} not refunded`} · ${reason}`,
+    `${t.state} → INVESTIGATING · ${makeGood ? "free replacement call not given" : `${rupee(t.refundAmount)} not refunded`} · ${reason}${self}`,
   );
   res.json({ ok: true });
 });

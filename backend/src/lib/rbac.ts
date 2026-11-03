@@ -57,7 +57,7 @@ export const PAGE_ORDER = Object.keys(PAGE_LABELS) as PageKey[];
 /** The default page access. The Super Admin can override it per department (Setting "rbac.matrix"). */
 export const PAGES: Record<AdminRoleKey, PageKey[]> = {
   super: ["overview", "messages", "config", "hr", "marketing", "finance", "support", "compliance", "trust", "rbac", "audit", "recording", "team"],
-  finance: ["overview", "messages", "config", "finance", "audit"],
+  finance: ["overview", "messages", "config", "finance", "support", "audit"],
   support: ["overview", "messages", "support", "audit"],
   compliance: ["overview", "messages", "compliance", "trust", "audit", "recording"],
   marketing: ["overview", "messages", "marketing", "audit"],
@@ -73,11 +73,12 @@ export const CAPABILITIES: { key: string; label: string; page: PageKey | null; r
   { key: "payout.approve", label: "Approve a payout batch", page: "finance", roles: ["super", "finance"] },
   { key: "payout.release", label: "Release an approved payout batch", page: "finance", roles: ["super"] },
   { key: "wallet.refund.process", label: "Mark a customer wallet refund paid or failed", page: "finance", roles: ["super", "finance"] },
-  { key: "dispute.refund.propose", label: "Propose a refund on a dispute", page: "support", roles: ["super", "support"] },
-  { key: "dispute.refund.approve", label: "Approve a refund Support proposed", page: "finance", roles: ["super", "finance"] },
+  { key: "dispute.refund.propose", label: "Propose a refund or free replacement call on a dispute, or reject it", page: "support", roles: ["super", "support", "finance"] },
+  { key: "dispute.refund.approve", label: "Approve or decline a proposed refund or free replacement call (someone else's)", page: "finance", roles: ["super", "finance"] },
   { key: "price.approve", label: "Approve or reject an astrologer's price increase", page: "hr", roles: ["super"] },
   { key: "astrologer.suspend", label: "Suspend an astrologer, or make a suspension stricter", page: "compliance", roles: ["super", "compliance"] },
   { key: "astrologer.restore", label: "Lift or ease an astrologer's suspension", page: "compliance", roles: ["super"] },
+  { key: "account.contact_block", label: "Block, extend or lift a contact-sharing block on an account", page: "trust", roles: ["super", "compliance"] },
   { key: "live.observer.join", label: "Join a public live as an observer", page: "compliance", roles: ["super", "compliance"] },
   { key: "campaign.submit", label: "Submit a campaign for approval", page: "marketing", roles: ["super", "marketing"] },
   { key: "campaign.approve", label: "Approve and activate a campaign", page: "marketing", roles: ["super"] },
@@ -115,12 +116,32 @@ export const CAPABILITY_LOCKS: Record<string, Lock> = {
 
 export const SUPER_LOCK_REASON = "A Super Admin always has every page and capability.";
 
-/** Checks the matrix can never switch off: they compare people, whatever their department. */
+/**
+ * Checks the matrix can never switch off: they compare people, whatever their department. A Super
+ * Admin has authority over everything (client decision, Nov 2026) and may decide their own proposal;
+ * that decision is audited as "self-approved by Super Admin".
+ */
 export const SEPARATION_OF_DUTIES = [
   "The person who approves a payout batch can't also release it.",
   "The person who drafts a config change can't also approve it.",
-  "The person who proposes a refund can't also approve it.",
+  "The person who proposes a refund or free replacement call can't also approve or decline it.",
+  "The person who submits a campaign can't also approve it.",
+  "A Super Admin is the exception: they may decide their own proposal, and the audit log records it as self-approved.",
 ];
+
+/** Added to the audit entry when a Super Admin decides something they proposed themselves. */
+export const SELF_APPROVED = "self-approved by Super Admin";
+
+/**
+ * The two-person rule for a decision on a proposal. `samePerson` says whether the decider proposed it.
+ * Anyone else is refused with `blocked`; a Super Admin may go ahead, and gets back the note to add to
+ * the audit entry (" · self-approved by Super Admin"), or "" when it isn't their own.
+ */
+export function secondPerson(admin: AuthContext & { adminRole: AdminRoleClaim }, samePerson: boolean, blocked: string): string {
+  if (!samePerson) return "";
+  if (admin.adminRole === "super") return ` · ${SELF_APPROVED}`;
+  throw forbidden(blocked);
+}
 
 // ── The effective matrix: defaults + the Super Admin's overrides ──
 

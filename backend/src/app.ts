@@ -9,6 +9,8 @@ import { adminRouter } from "./routes/admin/index.ts";
 import { astroRouter } from "./routes/astro.ts";
 import { authRouter } from "./routes/auth.ts";
 import { catalogRouter } from "./routes/catalog.ts";
+import { contactAttemptsRouter } from "./routes/contact-attempts.ts";
+import { supportRequestsRouter } from "./routes/support-requests.ts";
 import { customerRouter } from "./routes/customer.ts";
 import { mediaRouter } from "./routes/media.ts";
 import { notificationsRouter } from "./routes/notifications.ts";
@@ -73,6 +75,8 @@ export function createApp() {
   app.use("/api/admin", adminRouter);
   app.use("/api/notifications", notificationsRouter);
   app.use("/api/offers", offersRouter);
+  app.use("/api", contactAttemptsRouter);
+  app.use("/api", supportRequestsRouter);
   app.use("/api", customerRouter);
 
   app.use("/api", (_req, res) => res.status(404).json({ error: { code: "not_found", message: "No such API route." } }));

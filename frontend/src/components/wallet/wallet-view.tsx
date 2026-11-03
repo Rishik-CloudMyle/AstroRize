@@ -17,6 +17,7 @@ import { IconWallet } from "../mobile/icons";
 import { AppTopbar } from "../mobile/page-title";
 import { Skeleton } from "../mobile/skeleton";
 import AccountSection, { ClosedNotice, type Closed } from "./account-section";
+import { BillingIssueAction, BillingIssues, canRaiseIssue } from "./billing-issue";
 import ProfileSection from "./profile-section";
 import { LockIcon, RAZORPAY_TRUST, payLabel, paymentPageHref, rechargeMessage, useRecharge, type Paid } from "./use-recharge";
 import CustomAmountField, { type CustomAmount, isCustomAmount, pickedDenomination } from "./custom-amount";
@@ -317,7 +318,9 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
       ? "Payments aren't connected yet"
       : payState.stage === "paid"
         ? `✓ Paid · ${rupee(payState.paid.order.amount)} credited`
-        : payLabel(payState, denom + gst);
+        : !selected && denominations
+          ? "Choose an amount to add"
+          : payLabel(payState, denom + gst);
 
   return (
     // Phones: balance, Add money, then the rest. Wider: the rest under the balance, Add money alongside.
@@ -390,7 +393,10 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
                 {wallet.transactions.map((t) => (
                   <tr key={t.ref}>
                     <td className="whitespace-nowrap border-b border-line-soft px-2.5 py-[11px] text-stone-600">{t.date}</td>
-                    <td className="border-b border-line-soft px-2.5 py-[11px] font-semibold text-ink">{t.type}</td>
+                    <td className="border-b border-line-soft px-2.5 py-[11px] font-semibold text-ink">
+                      {t.type}
+                      {canRaiseIssue(t) && <BillingIssueAction txRef={t.ref} compact />}
+                    </td>
                     <td className="border-b border-line-soft px-2.5 py-[11px] tabular-nums text-stone-600">
                       {t.payment ? (
                         <Link
@@ -417,6 +423,9 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
             </table>
           </div>
         </div>
+
+        {/* ---------- Billing issues raised from a consultation line (only when there are some) ---------- */}
+        <BillingIssues className="rounded-[22px] border border-line bg-paper p-4 sm:p-[22px]" />
 
         {/* ---------- Profile (shared only with an astrologer whose live queue the customer joins) ---------- */}
         <ProfileSection />
