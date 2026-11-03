@@ -8,11 +8,9 @@ export type PriceChangeStatus = "PENDING" | "APPROVED" | "REJECTED" | "APPLIED" 
 
 export interface PriceChange {
   id: string;
-  /** ₹/min, of the price named by `channel` */
+  /** ₹/min, voice */
   from: number;
   to: number;
-  /** call (voice; video and Instant Call follow it) | chat (the separate chat price) */
-  channel: "call" | "chat";
   kind: "increase" | "decrease";
   status: PriceChangeStatus;
   /** ISO time, and "22 Oct 2026" */

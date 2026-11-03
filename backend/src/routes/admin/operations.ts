@@ -4,12 +4,12 @@ import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { RATE_MAX, RATE_MIN, STAGE_LIFECYCLE, answersFor, draftValues, requestedRate, setNote } from "../../lib/application.ts";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
-import { chatRate, instantRate, rateFor } from "../../lib/billing.ts";
+import { instantRate, rateFor } from "../../lib/billing.ts";
 import { ageLabel, istDate, istDateKey, istStamp, rupee } from "../../lib/format.ts";
 import { AUDIENCES, CAMPAIGN_KINDS, announceCampaign, appliedPct, floorCap, isLegacy, isOpen, offerLimits, offerProblem, offerSummary } from "../../lib/campaigns.ts";
 import { actorName, capabilitiesOf, requireCapability, requirePage } from "../../lib/rbac.ts";
 import { lockKey } from "../../lib/consultations.ts";
-import { type PriceChannel, approvalProblem, channelName, channelPrice, priceChangeView, priceUpdate, pricingPolicy } from "../../lib/pricing.ts";
+import { approvalProblem, priceChangeView, pricingPolicy } from "../../lib/pricing.ts";
 import { removeGalleryPhoto } from "../../lib/gallery.ts";
 import { deleteMedia } from "../../lib/media.ts";
 import { configNumber } from "../../lib/settings.ts";
@@ -179,9 +179,8 @@ operationsRouter.get("/lifecycle/astrologers/:id", async (req, res) => {
       ratings: a.ratingDistribution.reduce((s, n) => s + n, 0),
       reviews,
       price: {
-        /** Chat & voice ₹/min as a number. */
+        /** Voice ₹/min as a number (video adds the video premium). */
         value: a.price,
-        chat: rupee(chatRate(a)),
         voice: rupee(a.price),
         video: rupee(rateFor(a.price, "VIDEO")),
         instant: rupee(instantRate(a.price, a.instantMultiplier)),
@@ -295,11 +294,7 @@ operationsRouter.get("/lifecycle/price-requests", async (req, res) => {
     db.priceChange.findMany({
       where: { status: "PENDING" },
       orderBy: { requestedAt: "asc" },
-      include: {
-        astrologer: {
-          select: { id: true, name: true, photo: true, slug: true, price: true, chatPrice: true, chatPriceChangedAt: true, lifecycle: true, priceChangedAt: true },
-        },
-      },
+      include: { astrologer: { select: { id: true, name: true, photo: true, slug: true, price: true, lifecycle: true, priceChangedAt: true } } },
     }),
     db.priceChange.findMany({
       where: { status: { not: "PENDING" }, OR: [{ decidedAt: { gte: since } }, { requestedAt: { gte: since } }] },
@@ -315,21 +310,17 @@ operationsRouter.get("/lifecycle/price-requests", async (req, res) => {
   res.json({
     canDecide: capabilitiesOf(admin.adminRole).includes("price.approve"),
     maxIncrease: policy.maxIncrease,
-    pending: pending.map((p) => {
-      // The price this request is for: the call price or the separate chat price.
-      const current = channelPrice(p.astrologer, p.channel === "CHAT" ? "CHAT" : "CALL");
-      return {
+    pending: pending.map((p) => ({
       ...priceChangeView(p),
-      astrologer: { id: p.astrologer.id, name: p.astrologer.name, photo: p.astrologer.photo, slug: p.astrologer.slug, price: current.price },
+      astrologer: { id: p.astrologer.id, name: p.astrologer.name, photo: p.astrologer.photo, slug: p.astrologer.slug, price: p.astrologer.price },
       /** How long it has waited: "4 min", "6h", "2d". */
       waiting: ageLabel(p.requestedAt, now, "long"),
       /** Last changed (decrease applied or increase approved), or null. */
-      lastChangedOn: current.priceChangedAt ? istDate(current.priceChangedAt) : null,
+      lastChangedOn: p.astrologer.priceChangedAt ? istDate(p.astrologer.priceChangedAt) : null,
       /** Why it can't be approved as things stand (e.g. the price moved), or null. */
-      problem: approvalProblem(current, p.toPrice, policy),
-      history: history.filter((h) => h.astrologerId === p.astrologerId && h.channel === p.channel).slice(0, 5).map(priceChangeView),
-      };
-    }),
+      problem: approvalProblem(p.astrologer, p.toPrice, policy),
+      history: history.filter((h) => h.astrologerId === p.astrologerId).slice(0, 5).map(priceChangeView),
+    })),
     recent: recent.map((c) => ({ ...priceChangeView(c), astrologer: { id: c.astrologer.id, name: c.astrologer.name, photo: c.astrologer.photo } })),
   });
 });
@@ -361,22 +352,20 @@ operationsRouter.post("/lifecycle/price-requests/:id/:action", async (req, res) 
     }
     const a = await tx.astrologer.findUniqueOrThrow({ where: { id: change.astrologerId } });
     const decided = { decidedAt: now, decidedById: admin.user.id, decidedByName: actorName(admin) };
-    const channel: PriceChannel = change.channel === "CHAT" ? "CHAT" : "CALL";
-    const current = channelPrice(a, channel);
     if (action === "reject") {
       await tx.priceChange.update({ where: { id: change.id }, data: { ...decided, status: "REJECTED", reason } });
-      return { ok: true as const, change, a, current: current.price };
+      return { ok: true as const, change, a, current: a.price };
     }
-    const problem = approvalProblem(current, change.toPrice, policy);
+    const problem = approvalProblem(a, change.toPrice, policy);
     if (problem) return { ok: false as const, message: problem };
-    await tx.astrologer.update({ where: { id: a.id }, data: priceUpdate(channel, change.toPrice, now) });
+    await tx.astrologer.update({ where: { id: a.id }, data: { price: change.toPrice, priceChangedAt: now } });
     await tx.priceChange.update({ where: { id: change.id }, data: { ...decided, status: "APPROVED" } });
-    return { ok: true as const, change, a, current: current.price };
+    return { ok: true as const, change, a, current: a.price };
   });
   if (!result.ok) throw conflict(result.message);
   const { change, a, current } = result;
   if (action === "approve") {
-    await audit(admin, "price.change.approve", a.id, `${rupee(current)} → ${rupee(change.toPrice)}/min (${channelName(change.channel)}) · ${a.name}'s request of ${istDate(change.requestedAt)}`);
+    await audit(admin, "price.change.approve", a.id, `${rupee(current)} → ${rupee(change.toPrice)}/min (voice) · ${a.name}'s request of ${istDate(change.requestedAt)}`);
   } else {
     await audit(admin, "price.change.reject", a.id, `${rupee(change.fromPrice)} → ${rupee(change.toPrice)}/min refused · ${a.name} · ${reason}`);
   }

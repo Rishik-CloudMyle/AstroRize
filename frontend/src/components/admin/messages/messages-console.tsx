@@ -260,7 +260,7 @@ export default function MessagesConsole({
         )}
       </div>
 
-      {composing && <NewMessageDialog onClose={() => setComposing(false)} onStarted={started} />}
+      {composing && <NewMessageDialog onClose={() => setComposing(false)} onStarted={started} onSentMany={() => void loadInbox()} />}
     </>
   );
 }

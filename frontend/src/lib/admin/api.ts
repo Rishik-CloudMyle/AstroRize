@@ -35,6 +35,7 @@ import type {
   SupportCase,
   SupportData,
   SuspensionsData,
+  TicketOutcome,
   TopAstrologer,
   TrendCard,
   TrustData,
@@ -524,6 +525,8 @@ interface RawTicket {
   session: string;
   refundState: "NONE" | "PROPOSED" | "INITIATED";
   resolution: "REFUND" | "MAKE_GOOD" | null;
+  open: boolean;
+  outcome: TicketOutcome | null;
 }
 
 export async function getSupport(): Promise<SupportData> {
@@ -541,6 +544,8 @@ export async function getSupport(): Promise<SupportData> {
       session: t.session,
       refundState: t.refundState,
       resolution: t.resolution ?? null,
+      open: t.open,
+      outcome: t.outcome ?? null,
     })),
   };
 }
@@ -625,12 +630,13 @@ interface RawTrust extends Omit<TrustData, "queue"> {
     text: string;
     status: "FLAGGED" | "SOFT_HIDDEN";
     hiddenUndoLeft?: string;
+    reason?: string | null;
   }[];
 }
 
 export async function getTrust(): Promise<TrustData> {
   const { trust } = await apiGet<{ trust: RawTrust }>("/admin/trust");
-  return { ...trust, queue: trust.queue.map((r) => ({ ...r, ...flagColours(r.flag) })) };
+  return { ...trust, queue: trust.queue.map((r) => ({ ...r, reason: r.reason ?? null, ...flagColours(r.flag) })) };
 }
 
 // ── RBAC, audit, recording ──

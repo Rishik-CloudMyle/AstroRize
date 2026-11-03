@@ -18,8 +18,11 @@ import { configNumber } from "./settings.ts";
 // when it first joins (Config welcome.joining_bonus_minutes, e.g. 5). It is used for free calls like
 // the weekly minutes — after them, so the minutes that expire go first — and never resets.
 
-/** Modes the free call can use (the spec's seed allow-list: Audio + Chat). */
-export const WELCOME_MODES = ["CHAT", "VOICE"] as const;
+/**
+ * Modes the free call can use: Voice (the spec's allow-list was Audio + Chat; paid chat is no
+ * longer offered, and Video and Instant Call stay paid).
+ */
+export const WELCOME_MODES = ["VOICE"] as const;
 
 /** The period an astrologer's free-call capacity counts over (Astrologer.freeCallsLimitPeriod). */
 export type CapacityPeriod = "DAY" | "WEEK";

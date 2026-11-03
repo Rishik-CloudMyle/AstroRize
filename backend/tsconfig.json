@@ -15,5 +15,5 @@
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true
   },
-  "include": ["src", "prisma", "test"]
+  "include": ["src", "prisma", "test", "prisma.config.ts"]
 }

@@ -12,10 +12,9 @@ export default async function SupportPage({ searchParams }: PageProps<"/admin/su
   const [data, sp] = await Promise.all([getSupport(), searchParams]);
   const asked = typeof sp.ticket === "string" ? sp.ticket : undefined;
   const sort = pickSort(TICKET_SORTS, sp.sort);
-  // With no ?ticket=, open the top ticket of the queue in the chosen order.
-  const ticket = data.tickets.some((t) => t.id === asked)
-    ? (asked as string)
-    : sortRows(data.tickets, TICKET_SORTS, sort)[0]?.id;
+  // With no ?ticket=, open the top ticket of the open queue in the chosen order (a resolved one when none is open).
+  const sorted = sortRows(data.tickets, TICKET_SORTS, sort);
+  const ticket = data.tickets.some((t) => t.id === asked) ? (asked as string) : (sorted.find((t) => t.open) ?? sorted[0])?.id;
   const file = ticket ? await getSupportCase(ticket) : null;
 
   return (

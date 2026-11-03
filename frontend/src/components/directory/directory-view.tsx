@@ -228,7 +228,7 @@ export default function DirectoryView({ astrologers: initial }: { astrologers: A
         (freeView ? (
           <p className="mt-3 text-[13px] leading-[1.45] text-app-ink-2">
             <b className="text-app-success">{minutesHeadline(welcome)}.</b> Tap Consult Now, then choose “Use free minutes” and a length (
-            {lengthsLabel(fittingLengths(welcome))}) — the full length is used — or a paid call. Chat or Voice only. A call that doesn&apos;t
+            {lengthsLabel(fittingLengths(welcome))}) — the full length is used — or a paid call. Voice calls only. A call that doesn&apos;t
             start keeps your minutes.
           </p>
         ) : (
@@ -240,7 +240,7 @@ export default function DirectoryView({ astrologers: initial }: { astrologers: A
             <span aria-hidden="true" className="text-[18px]">🎁</span>
             <span className="min-w-0 flex-1">
               <b className="block text-[13px] text-app-success">{minutesHeadline(welcome)}</b>
-              <span className="block text-[12px] text-app-ink-2">Find astrologers taking free calls (Chat or Voice)</span>
+              <span className="block text-[12px] text-app-ink-2">Find astrologers taking free calls (Voice)</span>
             </span>
             <span aria-hidden="true" className="shrink-0 text-[16px] font-bold text-app-success">›</span>
           </button>

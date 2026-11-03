@@ -3,7 +3,7 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { db } from "../db.ts";
 import { HttpError, badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
-import { chatRate, instantRate } from "../lib/billing.ts";
+import { CHAT_RETIRED_CODE, CHAT_RETIRED_MESSAGE, instantRate } from "../lib/billing.ts";
 import { istDate, istTime, percentages, rupee } from "../lib/format.ts";
 import { effectivePresence, hostedLiveRoom, touchViewer, viewerCount } from "../lib/presence.ts";
 import { announceJoin, chatLineView, giftBalance, sendGift, sessionFeed } from "../lib/live.ts";
@@ -36,8 +36,6 @@ export function astrologerView(a: AstrologerWithReviews, freeCall = false) {
     rating: a.rating,
     consults: a.consults,
     price: a.price,
-    /** Chat rate (₹/min): the astrologer's own chat price, or the same as `price`. */
-    chatPrice: chatRate(a),
     was: a.was,
     instant: instantRate(a.price, a.instantMultiplier),
     /** Instant Call rate = price × this. */
@@ -266,11 +264,14 @@ catalogRouter.post("/live-rooms/:id/reactions", async (req, res) => {
 /**
  * Join the room's consult queue. Consultations from a live are always private (the astrologer's
  * video stays on for everyone; the conversation is only with the customer being consulted), by
- * voice or video (`mode`; chat and Instant Call aren't offered from a live — the client's call). The
+ * voice or video (`mode`; Instant Call isn't offered from a live, and paid chat isn't offered at all). The
  * page sends the rate it showed for that mode (`quotedRate`); that rate is locked for this request.
  */
 catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
   const auth = requireRole(req, "customer");
+  // Paid chat is no longer offered anywhere (customers chat free in Messages).
+  const asked = (req.body as { mode?: unknown } | undefined)?.mode;
+  if (typeof asked === "string" && asked.toUpperCase() === "CHAT") throw new HttpError(400, CHAT_RETIRED_MESSAGE, CHAT_RETIRED_CODE);
   // Older pages sent `mode: "PUBLIC" | "PRIVATE"` (and `consent`): there is no public option, and
   // such a request is the voice consultation those pages offered.
   const { quotedRate, mode } = z

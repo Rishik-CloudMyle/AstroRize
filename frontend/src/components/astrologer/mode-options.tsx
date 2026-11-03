@@ -3,20 +3,20 @@
 import type { Astrologer } from "@/lib/types";
 import { useAppUI } from "../app-provider";
 import { blockedHint, useConsultGate } from "../consult/consult-gate";
-import type { ConsultChoice } from "../consult/consult-sheet";
+import type { OfferedChoice } from "../consult/consult-sheet";
 import { useBelowDesktop } from "../directory/use-current-astrologers";
 import { useFreshAstrologer } from "./use-fresh-astrologer";
 import ModeIcon from "@/components/ui/mode-icon";
 
-const MODES: { key: ConsultChoice; label: string }[] = [
-  { key: "chat", label: "Chat" },
+const MODES: { key: OfferedChoice; label: string }[] = [
   { key: "voice", label: "Voice" },
   { key: "video", label: "Video" },
   { key: "instant", label: "Instant" },
 ];
 
 /**
- * Chat / Voice / Video / Instant on an astrologer card. Each one starts that kind of consultation
+ * Voice / Video / Instant on an astrologer card (paid chat isn't offered — customers chat free in
+ * Messages). Each one starts that kind of consultation
  * straight away (sign-in first if needed, then the price and balance check before anything is
  * billed); Instant opens the Instant Call rate confirmation. Disabled, with the reason, when the
  * astrologer can't take it right now.
@@ -38,13 +38,13 @@ export default function ModeOptions({ astrologer: initial }: { astrologer: Astro
           ? ["Live", "#c2410c"]
           : ["Offline", "#9a93a5"];
 
-  function choose(key: ConsultChoice) {
+  function choose(key: OfferedChoice) {
     if (key === "instant") openInstantCall(a);
     else startConsult({ astrologer: a, mode: key });
   }
 
   return (
-    <div className="mt-2.5 grid grid-cols-4 gap-1">
+    <div className="mt-2.5 grid grid-cols-3 gap-1">
       {MODES.map((m) => {
         const instant = m.key === "instant";
         return (

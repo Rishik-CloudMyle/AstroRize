@@ -16,10 +16,8 @@ export interface Astrologer {
   years: number;
   rating: number | null;
   consults: number;
-  /** Standard per-minute rate for calls (voice), ₹ */
+  /** Standard per-minute rate (chat and voice), ₹ */
   price: number;
-  /** Per-minute chat rate, ₹ (your own chat price, or the same as `price`) */
-  chatPrice: number;
   /** Pre-discount rate shown struck through, ₹ */
   was: number | null;
   /** Instant Call / Emergency multiplier of the standard rate */
@@ -171,12 +169,12 @@ export interface FreeCalls {
 
 /** Your price (GET /portal/dashboard → pricing, PATCH /portal/price). */
 export interface Pricing {
-  /** Calls (voice), ₹/min — video and Instant Call follow it */
+  /** Voice, ₹/min (video adds the video premium) */
   price: number;
   /** Struck-through original price, or null */
   was: number | null;
   /** What customers pay per minute */
-  rates: { chat: number; voice: number; video: number; instant: number };
+  rates: { voice: number; video: number; instant: number };
   /** You can change it yourself (live profile with a price set) */
   editable: boolean;
   /** Range for your next change */
@@ -191,17 +189,6 @@ export interface Pricing {
   pending: PriceRequest | null;
   /** The team's latest decision on an increase, or null */
   lastDecision: PriceRequest | null;
-  /** The separate chat price: same rules, its own cooldown and requests */
-  chat: {
-    price: number;
-    /** False while chat simply follows the call price */
-    separate: boolean;
-    allowed: { min: number; max: number };
-    changedAt: string | null;
-    nextChangeOn: string | null;
-    pending: PriceRequest | null;
-    lastDecision: PriceRequest | null;
-  };
 }
 
 /** One price change you asked for (PATCH /portal/price). */
@@ -209,8 +196,6 @@ export interface PriceRequest {
   id: string;
   from: number;
   to: number;
-  /** Which price: call (voice) or chat */
-  channel: "call" | "chat";
   kind: "increase" | "decrease";
   status: "PENDING" | "APPROVED" | "REJECTED" | "APPLIED" | "WITHDRAWN";
   requestedOn: string;
@@ -234,6 +219,8 @@ export interface WizardField {
   placeholder?: string;
   /** A declaration ticked with a checkbox (value "yes" when ticked) instead of typed */
   check?: boolean;
+  /** Not shown (a retired field kept only so the fields after it keep their saved keys) */
+  hidden?: boolean;
 }
 
 export interface WizardStep {
@@ -254,7 +241,6 @@ export interface ApplicationKnown {
   years: number;
   skills: string[];
   price: number;
-  chatPrice: number;
   videoRate: number;
 }
 
@@ -458,7 +444,7 @@ export interface LiveRoom {
   /** Consults from the room are charged at the standard rate (₹/min) */
   rate: number;
   /** A private consultation from the room in each mode (₹/min): video carries the video premium. */
-  rates: { chat: number; voice: number; video: number };
+  rates: { voice: number; video: number };
   /** The private consultation in progress, or null. */
   private: LiveHostPrivate | null;
   /** Newest first. */

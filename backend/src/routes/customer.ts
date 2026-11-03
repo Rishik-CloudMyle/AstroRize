@@ -4,6 +4,8 @@ import { config } from "../config.ts";
 import { db } from "../db.ts";
 import { HttpError, badRequest, conflict, notFound } from "../lib/errors.ts";
 import {
+  CHAT_RETIRED_CODE,
+  CHAT_RETIRED_MESSAGE,
   ELIGIBILITY_MINUTES,
   GST_RATE,
   MAX_SESSION_SECONDS,
@@ -14,7 +16,8 @@ import {
 } from "../lib/billing.ts";
 import { byNameMatch, istDate, istDateKey, makeRef, rupee } from "../lib/format.ts";
 import { IMAGE_TYPES, MAX_PHOTO_BYTES, deleteMedia, saveImage, sniffImage } from "../lib/media.ts";
-import { GENDERS, ageOn, dateKey, initialsOf, ownProfileView } from "../lib/profile.ts";
+import { optionalEmailSchema } from "../lib/contact.ts";
+import { GENDERS, ageOn, dateKey, genderLabel, initialsOf, ownProfileView } from "../lib/profile.ts";
 import { rateLimit } from "../lib/safety.ts";
 import { consultMessageBody, consultationFor, listMessages, mediaFor, sendMessage } from "../lib/consult-room.ts";
 import {
@@ -259,6 +262,8 @@ customerRouter.post("/wallet/recharge/:orderId/status", async (req, res) => {
 // time, across all astrologers. The website freezes every other consult button meanwhile,
 // and these routes refuse a second one even if two tabs try at the same moment.
 
+// "CHAT" is still parsed so an old page asking for one gets a clear answer (CHAT_RETIRED_MESSAGE)
+// rather than a validation error; a new consultation is only ever Voice or Video.
 const modeSchema = z.enum(["CHAT", "VOICE", "VIDEO"]);
 
 const newRef = () => uniqueRef("SES", async (r) => !!(await db.consultation.findUnique({ where: { ref: r } })));
@@ -307,9 +312,9 @@ function rateChanged(res: Response, quoted: number, rate: number, message?: stri
   });
 }
 
-/** The free call can only be used for Chat and Voice; Video and Instant Call stay paid. */
+/** The free call can only be used for Voice; Video and Instant Call stay paid. */
 const modalityDenied = () =>
-  new HttpError(400, "Free minutes can be used for Chat or Voice. Video and Instant Call are paid.", "WEL_MODALITY_DENIED");
+  new HttpError(400, "Free minutes can be used for Voice calls. Video and Instant Call are paid.", "WEL_MODALITY_DENIED");
 
 async function ownConsultation(userId: string, id: string) {
   const c = await db.consultation.findUnique({ where: { id } });
@@ -407,6 +412,8 @@ customerRouter.post("/consultations", async (req, res) => {
       makeGoodCreditId: z.string().max(40).optional(),
     })
     .parse(req.body);
+  // Paid chat is no longer offered (customers chat free in Messages): only Voice or Video.
+  if (mode === "CHAT") throw new HttpError(400, CHAT_RETIRED_MESSAGE, CHAT_RETIRED_CODE);
   if (welcome && !(WELCOME_MODES as readonly string[]).includes(mode)) throw modalityDenied();
   if (welcome && !freeMinutes) throw new HttpError(400, "Choose how long your free call should be.", "WEL_LENGTH_REQUIRED");
   // A free replacement call stands alone: never together with a welcome free call (or an offer).
@@ -414,7 +421,7 @@ customerRouter.post("/consultations", async (req, res) => {
   const astrologer = await availableAstrologer(astrologerId);
   // The rate is fixed now and the whole session is billed at it. A claimed consultation offer
   // lowers it — never together with a free call or a free replacement call.
-  const listRate = rateFor(astrologer.price, mode as Mode, astrologer.chatPrice);
+  const listRate = rateFor(astrologer.price, mode as Mode);
   const offer = welcome || makeGoodCreditId ? null : await discountQuote(me.user.id);
   const rate = offer ? discountedRate(listRate, offer.pct) : listRate;
   if (quotedRate !== undefined && quotedRate !== rate) {
@@ -735,7 +742,16 @@ customerRouter.post("/me/account/delete", async (req, res) => {
   if (blocked) throw conflict(blocked);
   if (input.code !== undefined) {
     if (!user.phone) throw badRequest("There's no mobile number on this account. Confirm with your password instead.");
-    await consumeOtp(user.phone, input.code);
+    const otp = await consumeOtp(user.phone, input.code);
+    try {
+      const result = await deleteAccount(user.id);
+      clearSessionCookie(res);
+      return res.json(result);
+    } catch (e) {
+      // Not deleted (e.g. a consultation started meanwhile): the code still works for another try.
+      await otp.release();
+      throw e;
+    }
   } else if (input.password !== undefined) {
     if (!user.passwordHash || !user.email) throw badRequest("This account has no password. Confirm with the code sent to your mobile.");
     if (!(await verifyPassword(input.password, user.passwordHash))) throw badRequest("That password is not correct.");
@@ -762,14 +778,9 @@ const optionalText = (max: number, label: string) =>
 const profileSchema = z.object({
   firstName: z.string().trim().min(1, "Enter your first name.").max(60, "First name can be up to 60 characters."),
   lastName: optionalText(60, "Last name"),
-  email: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .nullish()
-    .transform((v) => v || null)
-    .pipe(z.email("Enter a valid email or leave it blank.").max(254, "Enter a valid email or leave it blank.").nullable()),
-  gender: z.enum(GENDERS, "Choose one of the options.").nullish().transform((v) => v ?? null),
+  email: optionalEmailSchema,
+  // "Woman" / "Man" from an older version of the website are still accepted (saved as the new words).
+  gender: z.preprocess(genderLabel, z.enum(GENDERS, "Choose one of the options.").nullish().transform((v) => v ?? null)),
   birthDate: z
     .string()
     .nullish()

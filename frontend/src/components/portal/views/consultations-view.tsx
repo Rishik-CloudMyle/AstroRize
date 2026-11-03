@@ -1,5 +1,6 @@
 "use client";
 
+import { genderLabel } from "@/lib/contact";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
@@ -36,10 +37,10 @@ function mmss(secs: number): string {
 /** "Kavya Menon", or the alias when the customer has no profile. */
 const nameOf = (profile: ConsultCustomer | null, alias: string) => profile?.name ?? `Customer ${alias}`;
 
-/** "Age 32 · Woman · Pune", with "not shared" where they left something out. */
+/** "Age 32 · Female · Pune", with "not shared" where they left something out. */
 function factsOf(profile: ConsultCustomer | null): string {
   if (!profile) return "Profile not shared";
-  return [profile.age !== null ? `Age ${profile.age}` : "Age not shared", profile.gender, profile.city].filter(Boolean).join(" · ");
+  return [profile.age !== null ? `Age ${profile.age}` : "Age not shared", genderLabel(profile.gender), profile.city].filter(Boolean).join(" · ");
 }
 
 const noSubscribe = () => () => {};

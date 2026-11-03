@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
+import { formatMobile, genderLabel, time12 } from "@/lib/contact";
 import { sessionActions } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 import {
   PhotoPicker,
   ProfileForm,
+  VerifiedTag,
   ageFrom,
   longDate,
   saveProfile,
@@ -170,6 +172,7 @@ export default function ProfileSection() {
               formError={formError}
               saving={saving}
               emailRequired={profile.emailRequired}
+              phone={profile.phone}
               set={set}
               onSubmit={save}
               onCancel={() => setEditing(false)}
@@ -180,10 +183,11 @@ export default function ProfileSection() {
                 {(
                   [
                     ["Name", fullName || null],
-                    ["Gender", profile.gender],
+                    ["Mobile number", profile.phone ? formatMobile(profile.phone) : null],
                     ["Email", profile.email || null],
+                    ["Gender", genderLabel(profile.gender)],
                     ["Date of birth", profile.birthDate ? `${longDate(profile.birthDate)} · age ${ageFrom(profile.birthDate)}` : null],
-                    ["Time of birth", profile.birthTime],
+                    ["Time of birth", time12(profile.birthTime) || null],
                     ["Place of birth", profile.birthPlace || null],
                     ["City", profile.city || null],
                     ["State", profile.state || null],
@@ -197,6 +201,11 @@ export default function ProfileSection() {
                     <dt className="text-[12.5px] text-stone-500">{label}</dt>
                     <dd className={`m-0 min-w-0 text-[13.5px] [overflow-wrap:anywhere] ${value ? "font-semibold text-ink" : "text-stone-400"}`}>
                       {value ?? "Not added"}
+                      {label === "Mobile number" && value && (
+                        <span className="ml-2 inline-block align-middle">
+                          <VerifiedTag />
+                        </span>
+                      )}
                     </dd>
                   </div>
                 ))}

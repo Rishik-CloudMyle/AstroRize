@@ -17,7 +17,7 @@ const FACET_OPTIONS: Record<FacetKey, readonly string[]> = {
     "English", "Hindi", "Bengali", "Gujarati", "Kannada", "Malayalam",
     "Marathi", "Odia", "Punjabi", "Tamil", "Telugu", "Urdu",
   ],
-  mode: ["Chat", "Voice", "Video", "Instant Call"],
+  mode: ["Voice", "Video", "Instant Call"],
   availability: ["Available", "In consultation", "Live", "Instant Call", "Free call"],
   recognition: ["Premium", "Trusted", "Proven Expert", "Rising", "New"],
   gender: ["Male", "Female"],
@@ -131,7 +131,7 @@ function matches(a: Astrologer, facet: FacetKey, option: string): boolean {
     case "language":
       return a.languages.includes(option);
     case "mode":
-      // Every astrologer offers chat, voice and video; Instant Call needs them available.
+      // Every astrologer offers voice and video; Instant Call needs them available.
       return option === "Instant Call" ? a.availability === "on" : true;
     case "availability":
       // "Free call": taking welcome free calls and available for one right now.

@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Astrologer, ConsultMode, Settlement } from "@/lib/types";
+import type { Astrologer, ConsultMode, OfferedMode, Settlement } from "@/lib/types";
 import { ApiError, api } from "@/lib/api/client";
 import { clock, rupee, skillLine } from "@/lib/format";
 import { consultationActions, rememberMinimised, type ConsultationView } from "@/lib/consultation-store";
@@ -89,7 +89,8 @@ export default function ConsultJourney({
   onClose,
 }: {
   astrologer: Astrologer;
-  initialMode: ConsultMode | null;
+  /** Pre-selected way to talk (never chat: paid chat is no longer offered). */
+  initialMode: OfferedMode | null;
   /** A consultation already under way (Instant Call waiting, or re-opened after a reload). */
   resume: ConsultationView | null;
   onClose: () => void;
@@ -144,7 +145,7 @@ export default function ConsultJourney({
 
   const balance = totalBalance(session);
   const welcome = usableWelcome(session);
-  // A free replacement call with this astrologer (offered on a complaint): Chat, Voice or Video, free
+  // A free replacement call with this astrologer (offered on a complaint): Voice or Video, free
   // for its minutes. It stands alone — never with the welcome free call or an offer's discount.
   const makeGood = useMakeGood(fresh.id);
   const makeGoodHere = !!makeGood && fresh.availability === "on";
@@ -152,14 +153,14 @@ export default function ConsultJourney({
   const freeHere = makeGoodHere || (!!welcome && fresh.freeCall && fresh.availability === "on");
   // Free only when the customer picked it.
   const useMakeGoodCall = makeGoodHere && pay === "free" && !!mode;
-  // This request uses the customer's weekly free minutes (Chat or Voice with a taking-part astrologer).
+  // This request uses the customer's weekly free minutes (Voice with a taking-part astrologer).
   const useFree =
     !makeGoodHere && pay === "free" && !!welcome && fresh.freeCall && fresh.availability === "on" && !!mode && welcome.modes.includes(mode);
   // Where this choice could be free, free or paid hasn't been chosen yet.
   const payMissing = freeHere && pay === null && !!mode && (makeGoodHere || !!welcome?.modes.includes(mode));
   // Only a length that still fits in this week's free minutes counts as chosen.
   const freeLength = useFree && welcome.lengths.some((l) => l.minutes === freeMinutes && l.fits) ? freeMinutes : null;
-  // A claimed consultation offer: percent off paid Chat, Voice and Video (the API applies the same rule).
+  // A claimed consultation offer: percent off paid Voice and Video (the API applies the same rule).
   const discount = useConsultDiscount();
   const discountPct = discount && mode && !useFree && !useMakeGoodCall ? discount.pct : 0;
   // Once placed, always the session's own rate; before that, the rate the sheet shows.
@@ -572,7 +573,7 @@ export default function ConsultJourney({
   const secsToAccept =
     waitView?.secondsToAccept != null && live ? Math.max(0, waitView.secondsToAccept - Math.floor((now - live.at) / 1000)) : null;
 
-  const sessionMode = live?.view.mode ?? resume?.mode ?? mode ?? "chat";
+  const sessionMode = live?.view.mode ?? resume?.mode ?? mode ?? "voice";
   const modeTitle = instant ? CHOICE_TITLE.instant : CHOICE_TITLE[sessionMode];
   const appStep = APP_STEPS.includes(step);
   /** The four steps of connecting (the desktop lists them; the app shows the current one). */
@@ -658,7 +659,7 @@ export default function ConsultJourney({
           setPay(p);
           setError("");
           setRateChange(null);
-          // Free minutes cover Chat and Voice only (a replacement call: Chat, Voice, Video): drop a choice they don't cover.
+          // Free minutes cover Voice only (a replacement call: Voice or Video): drop a choice they don't cover.
           if (p === "free" && (choice === "instant" || (choice === "video" && !makeGoodHere))) setChoice(null);
         }}
         freeMinutes={freeLength}

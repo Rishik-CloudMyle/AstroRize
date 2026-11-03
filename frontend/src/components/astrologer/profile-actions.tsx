@@ -10,15 +10,14 @@ import { useAppUI } from "../app-provider";
 import { ConsultBlockedNote, blockedHint, blockedLabel, useConsultGate, type ConsultGate } from "../consult/consult-gate";
 import { ConsultFrozenNote, FROZEN_HINT } from "../consult/consult-lock";
 import { FreeCallBadge } from "../consult/free-call";
-import { multiplierLabel, type ConsultChoice } from "../consult/consult-sheet";
+import { multiplierLabel, type OfferedChoice } from "../consult/consult-sheet";
 import MessageButton from "../messages/message-button";
 import { DiscountBadge, WasPrice, priceNote } from "./parts";
 import { useBelowDesktop } from "../directory/use-current-astrologers";
 import { useFreshAstrologer } from "./use-fresh-astrologer";
 import ModeIcon from "@/components/ui/mode-icon";
 
-const OPTIONS: { key: ConsultChoice; title: string }[] = [
-  { key: "chat", title: "Chat" },
+const OPTIONS: { key: OfferedChoice; title: string }[] = [
   { key: "voice", title: "Voice Call" },
   { key: "video", title: "Video Call" },
   { key: "instant", title: "Instant Call" },
@@ -52,14 +51,14 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
   const disabledTitle = frozen ? FROZEN_HINT : blockedHint(gate);
   const shareText = `astrorize.com/astrologer/${a.slug}`;
   const welcome = usableWelcome(session);
-  // A free replacement call with this astrologer (offered after a complaint): Chat, Voice or Video,
+  // A free replacement call with this astrologer (offered after a complaint): Voice or Video,
   // free for its minutes. It takes the place of the welcome free call and any offer here.
   const makeGood = useMakeGood(a.id);
-  // A free option with this astrologer: a replacement call, or the weekly free minutes (Chat or Voice).
+  // A free option with this astrologer: a replacement call, or the weekly free minutes (Voice).
   // The customer chooses free or paid (and a length) in the consult sheet — nothing is applied here.
   const freeOption = !!makeGood || (!!welcome && a.freeCall);
   const unavailable = unavailableLine(gate, a);
-  // A claimed consultation offer: percent off paid Chat, Voice and Video.
+  // A claimed consultation offer: percent off paid Voice and Video.
   const offer = useConsultDiscount();
   const discount = makeGood ? null : offer;
 
@@ -72,7 +71,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
     }
   }
 
-  function choose(key: ConsultChoice) {
+  function choose(key: OfferedChoice) {
     if (key === "instant") openInstantCall(a);
     else startConsult({ astrologer: a, mode: key });
   }
@@ -93,13 +92,13 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
         {makeGood && (
           <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-[12.5px] leading-[1.5] text-emerald-900">
             <b className="block text-[13.5px] text-emerald-800">🎁 Free replacement call · {makeGood.minutes} min</b>
-            We&apos;re sorry about session {makeGood.sessionRef}. Talk to {a.name} again free by Chat, Voice or Video — use it by{" "}
+            We&apos;re sorry about session {makeGood.sessionRef}. Talk to {a.name} again free by Voice or Video — use it by{" "}
             {makeGood.validUntil}, when they&apos;re available.
           </div>
         )}
         {!makeGood && welcome && a.freeCall && (
           <p className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-[12.5px] leading-[1.45] text-emerald-900">
-            <b className="text-emerald-800">🎁 {minutesHeadline(welcome)}.</b> Use them here for Chat or Voice, or pay per minute — you choose
+            <b className="text-emerald-800">🎁 {minutesHeadline(welcome)}.</b> Use them here for a Voice call, or pay per minute — you choose
             when you start.
           </p>
         )}
@@ -134,9 +133,9 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
           <ul aria-label="Ways to consult" className="flex flex-col gap-1.5">
             {OPTIONS.map((o) => {
               const instant = o.key === "instant";
-              const rate = o.key === "instant" ? a.instant : rateFor(a.price, o.key, a.chatPrice);
+              const rate = o.key === "instant" ? a.instant : rateFor(a.price, o.key);
               // Could be free (the customer picks free or paid in the sheet); the paid rate is shown either way.
-              const free = freeOption && !blocked && (o.key === "chat" || o.key === "voice" || (!!makeGood && o.key === "video"));
+              const free = freeOption && !blocked && (o.key === "voice" || (!!makeGood && o.key === "video"));
               const pct = discount && !instant ? discount.pct : 0;
               return (
                 <li key={o.key}>

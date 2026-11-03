@@ -19,6 +19,7 @@ import {
 } from "@/lib/astro";
 import type { Tool } from "@/lib/types";
 import { useAppUI } from "../app-provider";
+import { BirthTimeInput } from "../account/time-of-birth";
 import BirthPlaceInput from "./birth-place-input";
 import AshtakavargaView from "./kundli/ashtakvarga-view";
 import BasicView from "./kundli/basic-view";
@@ -31,7 +32,7 @@ import ReadingView from "./kundli/reading-view";
 import ShadbalaView from "./kundli/shadbala-view";
 import KundliLocked, { useKundliAccess } from "./kundli-locked";
 import { RashiGlyph } from "./tool-icons";
-import { EngineLine, ErrorNote, Field, FormCard, LoadingCard, Panel, PillToggle, ResultCard, Stat, inputClass, panelClass, panelPad } from "./tool-ui";
+import { EngineLine, ErrorNote, Field, FormCard, LoadingCard, Panel, PillToggle, ResultCard, Stat, inputBase, inputClass, panelClass, panelPad } from "./tool-ui";
 
 // Kundli: for signed-in customers. The chart is calculated and saved by the API (POST
 // /astro/kundli); saved charts can be reopened or deleted. Everyone else sees empty chart frames
@@ -62,6 +63,8 @@ export default function KundliTool({ tool }: { tool: Tool }) {
 
 function KundliWorkspace({ tool }: { tool: Tool }) {
   const [form, setForm] = useState({ name: "", date: "", time: "" });
+  // Something typed in the time that can't be used yet (e.g. AM/PM not chosen).
+  const [timeProblem, setTimeProblem] = useState<string | null>(null);
   const [node, setNode] = useState<"mean" | "true">("mean");
   const [place, setPlace] = useState<Place | null>(null);
   const [prefillPlace, setPrefillPlace] = useState<string | undefined>(undefined);
@@ -119,6 +122,7 @@ function KundliWorkspace({ tool }: { tool: Tool }) {
     if (!form.name.trim()) return "Enter the name for this Kundli.";
     if (!form.date) return "Enter the date of birth.";
     if (form.date < MIN_DATE || form.date > MAX_DATE) return DATE_LIMIT_MESSAGE;
+    if (timeProblem) return `Time of birth: ${timeProblem}`;
     if (!form.time) return "Enter the time of birth — the Kundli's houses depend on it. A close estimate is better than none.";
     if (!place) return "Choose the place of birth from the list (press Search to find it).";
     return null;
@@ -175,7 +179,16 @@ function KundliWorkspace({ tool }: { tool: Tool }) {
           <input required type="date" min={MIN_DATE} max={MAX_DATE} value={form.date} onChange={set("date")} className={inputClass} />
         </Field>
         <Field label="Time of birth" hint="Local clock time at the birthplace, as on the birth certificate.">
-          <input required type="time" value={form.time} onChange={set("time")} className={inputClass} />
+          <BirthTimeInput
+            id="kundli-time"
+            value={form.time}
+            onChange={(time, problem) => {
+              setForm((f) => ({ ...f, time }));
+              setTimeProblem(problem);
+            }}
+            invalid={attempted}
+            inputClassName={inputBase}
+          />
         </Field>
         <div className="min-w-0">
           <span className="block text-[12.5px] font-semibold text-stone-700">Rahu/Ketu</span>

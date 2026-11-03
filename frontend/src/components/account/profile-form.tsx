@@ -3,12 +3,13 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { readResponse } from "@/lib/api/errors";
+import { EMAIL_MESSAGE, GENDERS, formatMobile, from24h, genderLabel, isValidEmail, time12Problem, to24h, type Period } from "@/lib/contact";
 import { APP_CTA, APP_INPUT, APP_LABEL, APP_SECONDARY } from "./app-look";
+import { TimeOfBirthField } from "./time-of-birth";
 
 // The customer's "A little about you" + "Birth details" form, shared by Wallet & account
 // (edit profile) and sign-up. Same rules as PUT /api/me/profile.
 
-export const GENDERS = ["Woman", "Man", "Other", "Prefer not to say"] as const;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 /** Photos are resized in the browser before upload: small, fast, and free of camera metadata (GPS). */
 const PHOTO_MAX_SIDE = 640;
@@ -18,6 +19,8 @@ export interface Profile {
   firstName: string;
   lastName: string;
   email: string;
+  /** The mobile number the account signs in with (verified by a code); "" when there is none. */
+  phone: string;
   gender: string | null;
   /** YYYY-MM-DD */
   birthDate: string | null;
@@ -38,7 +41,9 @@ export type Form = {
   email: string;
   gender: string | null;
   birthDate: string;
+  /** As typed, 12-hour "hh:mm" (saved as 24-hour "HH:MM" with the period). */
   birthTime: string;
+  birthPeriod: Period | "";
   birthPlace: string;
   city: string;
   state: string;
@@ -51,9 +56,10 @@ export function toForm(p: Profile): Form {
     firstName: p.firstName,
     lastName: p.lastName,
     email: p.email,
-    gender: p.gender,
+    gender: genderLabel(p.gender),
     birthDate: p.birthDate ?? "",
-    birthTime: p.birthTime ?? "",
+    birthTime: from24h(p.birthTime).time,
+    birthPeriod: from24h(p.birthTime).period,
     birthPlace: p.birthPlace,
     city: p.city,
     state: p.state,
@@ -77,8 +83,6 @@ export function longDate(dob: string): string {
   return `${d} ${MONTHS[m - 1]} ${y}`;
 }
 
-export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 /** Same rules as the API, so most mistakes show before saving. */
 export function validate(f: Form, emailRequired: boolean): Errors {
   const e: Errors = {};
@@ -88,7 +92,7 @@ export function validate(f: Form, emailRequired: boolean): Errors {
   if (f.lastName.trim().length > 60) e.lastName = "Last name can be up to 60 characters.";
   const email = f.email.trim();
   if (!email && emailRequired) e.email = "You sign in with this email, so it can't be removed.";
-  else if (email && !EMAIL_PATTERN.test(email)) e.email = "Enter a valid email or leave it blank.";
+  else if (email && !isValidEmail(email)) e.email = emailRequired ? EMAIL_MESSAGE : "Enter a valid email address, like name@example.com, or leave it blank.";
   if (f.birthDate) {
     const d = new Date(f.birthDate + "T00:00:00Z");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(f.birthDate) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== f.birthDate) {
@@ -96,7 +100,8 @@ export function validate(f: Form, emailRequired: boolean): Errors {
     } else if (f.birthDate > todayKey()) e.birthDate = "Date of birth cannot be in the future.";
     else if (ageFrom(f.birthDate) > 120) e.birthDate = "Check the year — that's more than 120 years ago.";
   }
-  if (f.birthTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(f.birthTime)) e.birthTime = "Use HH:MM (24-hour).";
+  const timeProblem = time12Problem(f.birthTime, f.birthPeriod);
+  if (timeProblem) e.birthTime = timeProblem;
   for (const [k, label] of [
     ["birthPlace", "Place of birth"],
     ["city", "City"],
@@ -120,10 +125,10 @@ export async function saveProfile(form: Form): Promise<{ profile: Profile } | { 
       body: JSON.stringify({
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim() || null,
-        email: form.email.trim() || null,
+        email: form.email.trim().toLowerCase() || null,
         gender: form.gender,
         birthDate: form.birthDate || null,
-        birthTime: form.birthTime || null,
+        birthTime: to24h(form.birthTime, form.birthPeriod) || null,
         birthPlace: form.birthPlace.trim() || null,
         city: form.city.trim() || null,
         state: form.state.trim() || null,
@@ -174,12 +179,6 @@ export async function uploadPhoto(blob: Blob): Promise<string> {
   return photoUrl;
 }
 
-/** Keeps the time to digits and puts the colon in for you: "0642" → "06:42". */
-function formatTime(value: string): string {
-  const digits = value.replace(/\D/g, "").slice(0, 4);
-  return digits.length > 2 ? `${digits.slice(0, 2)}:${digits.slice(2)}` : digits;
-}
-
 export const inputClass = (error?: string) =>
   `mt-1.5 h-12 w-full min-w-0 rounded-xl border bg-white px-3.5 text-[15px] text-ink outline-none focus:border-amber-500 ${APP_INPUT} ${
     error ? "border-rose-400" : "border-line max-lg:border-app-line"
@@ -200,6 +199,7 @@ export function ProfileForm({
   formError,
   saving,
   emailRequired,
+  phone = "",
   set,
   onSubmit,
   onCancel,
@@ -213,6 +213,8 @@ export function ProfileForm({
   formError: string;
   saving: boolean;
   emailRequired: boolean;
+  /** The account's verified sign-in mobile number, shown read-only (it can't be changed here). */
+  phone?: string;
   set: <K extends Field>(key: K, value: Form[K]) => void;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
@@ -226,7 +228,7 @@ export function ProfileForm({
   const oldest = `${Number(today.slice(0, 4)) - 120}${today.slice(4)}`;
 
   const text = (
-    key: Exclude<Field, "gender">,
+    key: Exclude<Field, "gender" | "birthTime" | "birthPeriod">,
     label: string,
     { help, format, ...opts }: Partial<React.InputHTMLAttributes<HTMLInputElement>> & { help?: string; format?: (v: string) => string } = {},
   ) => (
@@ -262,6 +264,21 @@ export function ProfileForm({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {text("firstName", "First name", { autoComplete: "given-name", maxLength: 60, required: true })}
         {text("lastName", "Last name (optional)", { autoComplete: "family-name", maxLength: 60 })}
+        {phone && (
+          <div className="sm:col-span-2">
+            <span id="pf-phone-label" className={`text-xs font-semibold text-stone-600 ${APP_LABEL}`}>
+              Mobile number
+            </span>
+            <div
+              aria-labelledby="pf-phone-label"
+              className="mt-1.5 flex min-h-12 items-center justify-between gap-3 rounded-xl border border-line bg-cream px-3.5 text-[15px] text-ink max-lg:min-h-[50px] max-lg:rounded-app-input max-lg:border-app-line max-lg:bg-app-bg max-lg:text-[16px]"
+            >
+              <span className="font-semibold tabular-nums">{formatMobile(phone)}</span>
+              <VerifiedTag />
+            </div>
+            <p className="mt-1 text-[11.5px] leading-[1.45] text-stone-500">You log in with this number. To use a different number, contact support.</p>
+          </div>
+        )}
         <div className="sm:col-span-2">
           {text("email", emailRequired ? "Email" : "Email (optional)", {
             type: "email",
@@ -306,14 +323,31 @@ export function ProfileForm({
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {text("birthDate", "Date of birth", { type: "date", min: oldest, max: today })}
-        {text("birthTime", "Time of birth", {
-          placeholder: "HH:MM",
-          inputMode: "numeric",
-          maxLength: 5,
-          autoComplete: "off",
-          help: "24-hour time. We will not invent a time if you leave this blank.",
-          format: formatTime,
-        })}
+        <div>
+          <label htmlFor="pf-birthTime" className={`text-xs font-semibold text-stone-600 ${APP_LABEL}`}>
+            Time of birth
+          </label>
+          <TimeOfBirthField
+            id="pf-birthTime"
+            time={form.birthTime}
+            period={form.birthPeriod}
+            onTime={(t) => set("birthTime", t)}
+            onPeriod={(p) => set("birthPeriod", p)}
+            invalid={!!errors.birthTime}
+            describedBy={errors.birthTime ? "pf-birthTime-err" : "pf-birthTime-help"}
+            periodLabel="Time of birth: AM or PM"
+            inputClassName={inputClass(errors.birthTime).replace("mt-1.5 ", "")}
+          />
+          {errors.birthTime ? (
+            <FieldError id="pf-birthTime-err" error={errors.birthTime} />
+          ) : (
+            <p id="pf-birthTime-help" className="mt-1 text-[11.5px] leading-[1.45] text-stone-500">
+              {to24h(form.birthTime, form.birthPeriod)
+                ? `Saved as ${form.birthTime.padStart(5, "0")} ${form.birthPeriod}.`
+                : "Type hh:mm and choose AM or PM. We will not invent a time if you leave this blank."}
+            </p>
+          )}
+        </div>
         <div className="sm:col-span-2">{text("birthPlace", "Place of birth", { placeholder: "Locality or town", maxLength: 100 })}</div>
         {text("city", "City", { autoComplete: "address-level2", maxLength: 100 })}
         {text("state", "State", { autoComplete: "address-level1", maxLength: 100 })}
@@ -340,6 +374,18 @@ export function ProfileForm({
         </button>
       </div>
     </form>
+  );
+}
+
+/** The small green "Verified" tag beside a confirmed contact detail. */
+export function VerifiedTag() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11.5px] font-bold text-emerald-800 ring-1 ring-emerald-200">
+      <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3.5 8.5 6.5 11.5 12.5 4.5" />
+      </svg>
+      Verified
+    </span>
   );
 }
 

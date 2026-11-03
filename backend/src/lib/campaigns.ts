@@ -291,21 +291,70 @@ export async function useClaim(tx: Tx, claimId: string, now = new Date()): Promi
 // ── Notifications and the minute sweep ──
 
 const offerHref = (id: string) => `/offers#${id}`;
+/** The astrologer's notice opens their dashboard; the query names the campaign so each is sent once. */
+const portalHref = (id: string) => `/portal?campaign=${encodeURIComponent(id)}`;
 
-/** "New offer: …" to every customer it is for, once per campaign (safe to call again). */
+/** What a live campaign means for an astrologer's consultations and earnings. */
+function astrologerNoticeBody(c: Campaign, l: OfferLimits): string {
+  const summary = offerSummary(c, l);
+  const d = c.description.trim();
+  const about = d ? `${/[.!?]$/.test(d) ? d : `${d}.`} ` : "";
+  if (c.kind === "CONSULT_DISCOUNT") {
+    return `${about}Customers who claim it may see ${summary} with you. You still earn on your full price — AstroRize pays the discount.`;
+  }
+  return `${about}Customers get ${summary}${c.endsAt ? ` until ${istDate(c.endsAt)}` : ""}. Your price and earnings don't change.`;
+}
+
+const hasNotice = (kind: string, href: string, client: Client = db) =>
+  client.notification.findFirst({ where: { kind, href }, select: { id: true } }).then(Boolean);
+
+/**
+ * When a campaign is live (on approval, or when its start date arrives — the minute sweep): "New
+ * offer: …" to every customer it is for, and "New campaign live: …" to every active astrologer,
+ * since customers may pay less for a consultation. Each goes out once per campaign: safe to call
+ * again, and an approval racing the sweep can't send twice (both take the same lock). Returns how
+ * many customers were told now.
+ */
 export async function announceCampaign(c: Campaign, now = new Date()) {
   if (!isOpen(c, now)) return 0;
   const href = offerHref(c.id);
-  if (await db.notification.findFirst({ where: { kind: "campaign.new", href }, select: { id: true } })) return 0;
-  const [limits, users] = await Promise.all([offerLimits(), db.user.findMany({ where: audienceWhere(c.audience), select: { id: true } })]);
-  const ids = users.map((u) => u.id);
-  await notifyMany(ids, {
-    kind: "campaign.new",
-    title: `New offer: ${c.name}`,
-    body: `${offerSummary(c, limits)}. Claim it on the Offers page${c.endsAt ? ` by ${istDate(c.endsAt)}` : ""}.`,
-    href,
-  });
-  return ids.length;
+  const astroHref = portalHref(c.id);
+  // The cheap check first: the sweep calls this every minute for every live campaign.
+  if ((await hasNotice("campaign.new", href)) && (await hasNotice("campaign.live", astroHref))) return 0;
+  const limits = await offerLimits();
+  return db.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`campaign.announce:${c.id}`}))`;
+      let told = 0;
+      if (!(await hasNotice("campaign.new", href, tx))) {
+        const ids = (await tx.user.findMany({ where: audienceWhere(c.audience), select: { id: true } })).map((u) => u.id);
+        await notifyMany(
+          ids,
+          {
+            kind: "campaign.new",
+            title: `New offer: ${c.name}`,
+            body: `${offerSummary(c, limits)}. Claim it on the Offers page${c.endsAt ? ` by ${istDate(c.endsAt)}` : ""}.`,
+            href,
+          },
+          tx,
+        );
+        told = ids.length;
+      }
+      if (!(await hasNotice("campaign.live", astroHref, tx))) {
+        const astrologers = await tx.user.findMany({
+          where: { role: "ASTROLOGER", active: true, astrologer: { is: { lifecycle: "active" } } },
+          select: { id: true },
+        });
+        await notifyMany(
+          astrologers.map((u) => u.id),
+          { kind: "campaign.live", title: `New campaign live: ${c.name}`, body: astrologerNoticeBody(c, limits), href: astroHref },
+          tx,
+        );
+      }
+      return told;
+    },
+    { timeout: 60_000 },
+  );
 }
 
 /** Hour (IST) from which the daily offers notice goes out. */
@@ -348,10 +397,18 @@ export async function sendDailyOfferNotices(now = new Date()) {
   const open = (await db.campaign.findMany({ where: { state: "ACTIVE" } })).filter((c) => isOpen(c, now));
   if (open.length) {
     const limits = await offerLimits();
-    // Customer → the open offers they could still claim.
+    // Customer → the open offers they could still claim, leaving out one they were told about as
+    // "New offer" today already (e.g. approved after 9:00, then the API restarted).
     const waiting = new Map<string, Campaign[]>();
     for (const c of open) {
-      const users = await db.user.findMany({ where: { ...audienceWhere(c.audience), campaignClaims: { none: { campaignId: c.id } } }, select: { id: true } });
+      const users = await db.user.findMany({
+        where: {
+          ...audienceWhere(c.audience),
+          campaignClaims: { none: { campaignId: c.id } },
+          notifications: { none: { kind: "campaign.new", href: offerHref(c.id), createdAt: { gte: dayStart } } },
+        },
+        select: { id: true },
+      });
       for (const u of users) if (!told.has(u.id)) waiting.set(u.id, [...(waiting.get(u.id) ?? []), c]);
     }
     // Same text → one batch insert.

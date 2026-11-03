@@ -5,7 +5,7 @@ import type { Prisma } from "../generated/prisma/client.ts";
 // yet; when they are, they hang off `notify` so every notification can also go out by those.
 
 export interface NotificationInput {
-  /** e.g. campaign.new | campaign.daily | campaign.expiring | makegood.offered | account.suspended */
+  /** e.g. campaign.new | campaign.live (astrologers) | campaign.daily | campaign.expiring | makegood.offered | account.suspended */
   kind: string;
   title: string;
   body: string;

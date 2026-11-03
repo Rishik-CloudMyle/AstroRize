@@ -50,13 +50,11 @@ export async function answerSeconds(): Promise<number> {
   return Math.min(300, Math.max(20, await configNumber("live.private.answer_seconds", 60)));
 }
 
-type LivePriced = { price: number; chatPrice: number | null };
-
 /** The rate of a private consultation from this astrologer's live: the same as a direct one in that mode. */
-export const liveRate = (a: LivePriced, mode: Mode = "VOICE") => rateFor(a.price, mode, a.chatPrice);
+export const liveRate = (price: number, mode: Mode = "VOICE") => rateFor(price, mode);
 
 /** What each mode costs from this astrologer's live (₹/min). Instant Call isn't offered from a live. */
-export const liveRates = (a: LivePriced) => ({ chat: liveRate(a, "CHAT"), voice: liveRate(a, "VOICE"), video: liveRate(a, "VIDEO") });
+export const liveRates = (price: number) => ({ voice: liveRate(price, "VOICE"), video: liveRate(price, "VIDEO") });
 
 /** The private consultation happening in the room right now, if any. */
 export function privateInRoom(roomId: string) {
@@ -86,14 +84,14 @@ export type JoinResult =
   | { kind: "open"; open: Consultation };
 
 /**
- * A customer joins the room's consult queue for a private chat, voice or video consultation. They
+ * A customer joins the room's consult queue for a private voice or video consultation. They
  * must have five minutes' balance at the rate they were shown for that mode (`quotedRate`, checked
  * against the current one); that rate is stored and is what they pay if accepted. Joining twice
  * changes nothing (the first request, and its mode, stand).
  */
 export async function joinQueue(room: LiveRoom, userId: string, mode: Mode, quotedRate: number | undefined): Promise<JoinResult> {
-  const astrologer = await db.astrologer.findUniqueOrThrow({ where: { id: room.astrologerId }, select: { price: true, chatPrice: true } });
-  const rate = liveRate(astrologer, mode);
+  const astrologer = await db.astrologer.findUniqueOrThrow({ where: { id: room.astrologerId }, select: { price: true } });
+  const rate = liveRate(astrologer.price, mode);
   if (quotedRate !== undefined && quotedRate !== rate) return { kind: "rate_changed", rate };
   const needed = rate * ELIGIBILITY_MINUTES;
   await db.wallet.upsert({ where: { userId }, create: { userId }, update: {} });
@@ -121,7 +119,7 @@ export async function joinQueue(room: LiveRoom, userId: string, mode: Mode, quot
         customerId: userId,
         customerAlias: alias,
         astrologerId: room.astrologerId,
-        // Chat, voice or video with the astrologer, in a room of its own (never the live's).
+        // Voice or video with the astrologer, in a room of its own (never the live's).
         mode,
         rate,
         status: QUEUED,
@@ -193,7 +191,7 @@ export async function acceptRequest(entryId: string, astrologerId: string): Prom
     let c = fresh.consultationId ? await tx.consultation.findUnique({ where: { id: fresh.consultationId } }) : null;
     if (!c || c.status !== QUEUED) {
       // A request from before private consultations were billed: priced at today's rate.
-      const a = await tx.astrologer.findUniqueOrThrow({ where: { id: astrologerId }, select: { price: true, chatPrice: true } });
+      const a = await tx.astrologer.findUniqueOrThrow({ where: { id: astrologerId }, select: { price: true } });
       c = await tx.consultation.create({
         data: {
           ref: await newSessionRef(tx),
@@ -204,7 +202,7 @@ export async function acceptRequest(entryId: string, astrologerId: string): Prom
           customerAlias: fresh.alias,
           astrologerId,
           mode: "VOICE",
-          rate: liveRate(a),
+          rate: liveRate(a.price),
           status: QUEUED,
         },
       });

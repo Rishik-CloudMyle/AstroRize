@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { Astrologer, ConsultMode, LiveRoom } from "@/lib/types";
+import type { Astrologer, LiveRoom, OfferedMode } from "@/lib/types";
 import {
   consultationActions,
   lockLabel,
@@ -21,8 +21,8 @@ import CustomerCallWatcher from "./consult/call-watcher";
 
 export interface ConsultRequest {
   astrologer: Astrologer;
-  /** Pre-select chat or voice when the customer clicked that button. */
-  mode?: ConsultMode;
+  /** Pre-select voice or video when the customer clicked that button (paid chat isn't offered). */
+  mode?: OfferedMode;
   /** Re-open a consultation that is already under way (waiting, connecting or in session). */
   resume?: ConsultationView;
 }

@@ -152,17 +152,14 @@ function DecideDialog({
   return (
     <AdminDialog
       title={approve ? `Approve ${rupee(c.to)}/min for ${name}?` : `Reject ${name}'s increase?`}
-      subtitle={`Requested ${c.requestedOn} · ${rupee(current)} → ${rupee(c.to)} per minute (${c.channel === "chat" ? "chat" : "calls"})`}
+      subtitle={`Requested ${c.requestedOn} · ${rupee(current)} → ${rupee(c.to)} per minute (voice)`}
       onClose={onClose}
       width={480}
     >
       <form onSubmit={submit} noValidate>
         {approve ? (
           <p className="mt-0 mb-3 text-[13px] leading-normal text-[#57534e]">
-            {c.channel === "chat"
-              ? `Customers pay ${rupee(c.to)}/min for chat from now on.`
-              : `Customers pay ${rupee(c.to)}/min for voice from now on (video and Instant Call follow, and chat too unless it has its own price).`}{" "}
-            Consultations already running keep their
+            Customers pay {rupee(c.to)}/min for voice from now on (video and Instant Call follow). Consultations already running keep their
             rate. {name} can&apos;t change their price again until the cooldown ends.
           </p>
         ) : (
@@ -218,7 +215,7 @@ export default function PriceRequestsView({ data }: { data: PriceRequests }) {
           <div className="min-w-0">
             <h2 className="m-0 text-[16px] font-bold">Waiting for a decision</h2>
             <span className="mt-1 block text-[12px] text-[#78716c]">
-              Astrologers set their own chat &amp; voice price. Increases (at most {rupee(data.maxIncrease)} at a time) wait here; customers keep
+              Astrologers set their own voice price. Increases (at most {rupee(data.maxIncrease)} at a time) wait here; customers keep
               paying the current price until you approve. Decreases go live at once.
             </span>
           </div>
@@ -243,7 +240,7 @@ export default function PriceRequestsView({ data }: { data: PriceRequests }) {
                     </span>
                   </div>
                   <div className="text-right">
-                    <div className={EYEBROW}>{p.channel === "chat" ? "Chat" : "Calls (voice)"} /min</div>
+                    <div className={EYEBROW}>Voice /min</div>
                     <div className="text-[15px] text-[#57534e]">
                       <Move from={p.astrologer.price} to={p.to} />
                     </div>

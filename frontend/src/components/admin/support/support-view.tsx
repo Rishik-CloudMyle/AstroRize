@@ -11,6 +11,7 @@ import type { SupportCase, SupportData, Ticket } from "@/lib/admin/types";
 import AmountDialog from "./amount-dialog";
 
 type RefundStage = "none" | "proposed" | "initiated" | "rejected";
+type Tab = "open" | "resolved";
 
 /** The remedy on a queue row: "Refund proposed", "Free call given" … */
 function chipOf(t: Ticket): string {
@@ -35,10 +36,15 @@ export default function SupportView({
   initialCase: SupportCase;
 }) {
   const { session, say } = useAdmin();
-  const { run } = useAction();
+  const { run, busy } = useAction();
   const [sort, setSort] = useUrlSort(TICKET_SORTS);
-  const tickets = sortRows(data.tickets, TICKET_SORTS, sort);
+  const sorted = sortRows(data.tickets, TICKET_SORTS, sort);
+  const openTickets = sorted.filter((t) => t.open);
+  const resolvedTickets = sorted.filter((t) => !t.open);
   const [ticketId, setTicketId] = useState(initialTicket);
+  // Open tickets are the queue; resolved ones (refunded, free call given, rejected) move to their own tab.
+  const [tab, setTab] = useState<Tab>(() => (data.tickets.find((t) => t.id === initialTicket)?.open === false ? "resolved" : "open"));
+  const tickets = tab === "open" ? openTickets : resolvedTickets;
   // The selected ticket's case file (GET /admin/support/:id): metering, evidence, refund.
   const [file, setFile] = useState<SupportCase>(initialCase);
   // The reason dialog open for this ticket: rejecting the dispute, or declining its proposed remedy.
@@ -73,6 +79,12 @@ export default function SupportView({
   const pick = (id: string) => {
     setTicketId(id);
     if (file.id !== id) void loadCase(id);
+  };
+  const pickTab = (next: Tab) => {
+    setTab(next);
+    const list = next === "open" ? openTickets : resolvedTickets;
+    // The ticket on screen stays if it belongs to this tab; otherwise the tab's first one opens.
+    if (list.length && !list.some((t) => t.id === ticketId)) pick(list[0]!.id);
   };
 
   // From the prototype's refundPropose / refundApprove / refundReject (maker-checker).
@@ -117,6 +129,15 @@ export default function SupportView({
     if (res) await loadCase(tkt.id);
     return !!res;
   };
+  const closeCovered = async () => {
+    const by = caseFile?.coveredBy;
+    if (!by) return;
+    if (!window.confirm(`Close ${tkt.id}? A ${by.remedy} was already given for session ${tkt.session} on ${by.id}, so nothing more can be given here. The closing is recorded in the audit log.`)) return;
+    await act(
+      () => api.post(`/admin/support/${tkt.id}/close-covered`),
+      `${tkt.id} closed — the ${by.remedy} on ${by.id} covers it. It's listed under Resolved.`,
+    );
+  };
   const decline = async (reason: string) => {
     const res = await run(
       () => api.post(`/admin/support/${tkt.id}/refund/decline`, { reason }),
@@ -130,12 +151,37 @@ export default function SupportView({
 
   const settled = stage === "initiated" || stage === "rejected";
   const ok = stage === "initiated";
+  // Resolved without a remedy here: rejected with a reason, or closed as covered by another ticket's remedy.
+  const rejected = stage === "rejected" && (!caseFile?.outcome || caseFile.outcome.label === "Rejected");
 
   return (
     <div className="mt-5 grid grid-cols-1 items-start gap-[18px] md:grid-cols-[300px_minmax(0,1fr)]">
       <div className={`${PANEL} p-3.5`}>
         <SortSelect options={TICKET_SORTS} value={sort} onChange={setSort} className="mb-3 w-full" />
-        <div className={`${EYEBROW} px-1 pb-2`}>Queue · {tickets.length}</div>
+        <div role="tablist" aria-label="Tickets" className="mb-2.5 grid grid-cols-2 gap-1 rounded-xl bg-cream p-1">
+          {(
+            [
+              ["open", "Open", openTickets.length],
+              ["resolved", "Resolved", resolvedTickets.length],
+            ] as const
+          ).map(([key, label, n]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => pickTab(key)}
+              className={`h-9 rounded-[9px] text-[12.5px] font-bold ${tab === key ? "bg-white text-ink shadow-[0_1px_3px_rgba(28,25,23,.12)]" : "text-[#78716c]"}`}
+            >
+              {label} · {n}
+            </button>
+          ))}
+        </div>
+        {tickets.length === 0 && (
+          <p className="m-0 rounded-xl border border-dashed border-line px-3 py-4 text-center text-[12.5px] text-[#78716c]">
+            {tab === "open" ? "No open tickets — everything has been resolved." : "No resolved tickets yet."}
+          </p>
+        )}
         <div className="flex flex-col gap-[5px]">
           {tickets.map((t) => {
             const on = t.id === tkt.id;
@@ -158,10 +204,15 @@ export default function SupportView({
                   </span>
                 </div>
                 <b className="mt-1 block text-[12.5px] text-ink">{t.subject}</b>
+                {t.outcome && (
+                  <span className="mt-px block text-[11px] text-[#78716c]">
+                    {[t.outcome.on && `Closed ${t.outcome.on}`, t.outcome.by && `by ${t.outcome.by}`].filter(Boolean).join(" ")}
+                  </span>
+                )}
                 <span className="mt-px flex items-center gap-1.5 text-[11px] text-[#78716c]">
                   {t.state}
-                  {/* The remedy, unless the ticket state already says it (REFUND_PROPOSED …). */}
-                  {t.refundState !== "NONE" && !t.state.startsWith("REFUND_") && !t.state.startsWith("MAKEGOOD_") && (
+                  {/* The remedy, unless the ticket state (REFUND_PROPOSED …) or its outcome already says it. */}
+                  {t.open && t.refundState !== "NONE" && !t.state.startsWith("REFUND_") && !t.state.startsWith("MAKEGOOD_") && (
                     <span
                       className="inline-flex h-[17px] items-center rounded-full px-1.5 text-[9.5px] font-extrabold"
                       style={
@@ -314,6 +365,16 @@ export default function SupportView({
                   Offer a free replacement call instead
                 </button>
               )}
+              {stage === "none" && caseFile?.coveredBy && session.capabilities.includes("dispute.refund.propose") && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void closeCovered()}
+                  className="min-h-[42px] rounded-[11px] border-0 bg-ink px-[18px] py-2 text-[13px] leading-tight font-bold text-amber-300 disabled:opacity-60"
+                >
+                  Close — {caseFile.coveredBy.remedy} already given on {caseFile.coveredBy.id}
+                </button>
+              )}
               {stage === "proposed" && (
                 <button
                   type="button"
@@ -347,14 +408,16 @@ export default function SupportView({
                 <span
                   className="inline-flex min-h-[42px] items-center rounded-[11px] border px-4 py-2 text-[13px] font-bold"
                   style={{
-                    background: ok ? "#ecfdf5" : "#fff1f2",
-                    borderColor: ok ? "#a7f3d0" : "#fecdd3",
-                    color: ok ? "#047857" : "#be123c",
+                    background: rejected ? "#fff1f2" : "#ecfdf5",
+                    borderColor: rejected ? "#fecdd3" : "#a7f3d0",
+                    color: rejected ? "#be123c" : "#047857",
                   }}
                 >
-                  {!ok
+                  {rejected
                     ? "✕ Rejected with reason"
-                    : makeGood
+                    : !ok
+                      ? `✓ ${caseFile?.outcome?.label ?? "Resolved"}`
+                      : makeGood
                       ? `✓ MAKE_GOOD · ${mg?.credit?.minutes ?? mg?.minutes ?? "—"} min free · ${
                           mg?.credit?.used ? "used" : mg?.credit?.status === "EXPIRED" ? "expired unused" : `book by ${mg?.credit?.validUntil ?? "—"}`
                         }`
@@ -362,6 +425,15 @@ export default function SupportView({
                 </span>
               )}
             </div>
+            {settled && caseFile?.outcome && (caseFile.outcome.on || caseFile.outcome.note) && (
+              <p className="mt-3 mb-0 text-[12.5px] text-[#57534e]">
+                <b className="text-ink">
+                  Closed{caseFile.outcome.on ? ` ${caseFile.outcome.on}` : ""}
+                  {caseFile.outcome.by ? ` by ${caseFile.outcome.by}` : ""}
+                </b>
+                {caseFile.outcome.note ? ` · ${caseFile.outcome.note}` : ""}
+              </p>
+            )}
             {ok && !makeGood && caseFile?.refund.adjustment && (
               <p className="mt-3 mb-0 text-[12.5px] text-[#57534e]">
                 <b className="text-rose-700">Refund adjustment:</b> {caseFile.refund.adjustment}.

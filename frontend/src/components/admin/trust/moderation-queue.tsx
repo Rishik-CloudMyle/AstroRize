@@ -9,6 +9,10 @@ export default function ModerationQueue({ data }: { data: TrustData }) {
   const { say } = useAdmin();
   const { run, busy } = useAction();
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  // The moderator's own words, per review, when "Other (write your own)" is chosen.
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [noteErrors, setNoteErrors] = useState<Record<string, string>>({});
+  const other = data.otherReason;
   // Kept reviews leave the API's queue; the card stays on screen with its "KEPT" chip until reload.
   const [kept, setKept] = useState<Record<string, boolean>>({});
   const [shown] = useState(() => data.queue);
@@ -24,9 +28,18 @@ export default function ModerationQueue({ data }: { data: TrustData }) {
       say("Choose a reason code first — every removal needs one.");
       return;
     }
+    const own = reason === other.code;
+    const note = (notes[id] ?? "").trim();
+    if (own && note.length < other.min) {
+      setNoteErrors((e) => ({ ...e, [id]: `Write your reason in at least ${other.min} characters.` }));
+      document.getElementById(`note-${id}`)?.focus();
+      return;
+    }
     void run(
-      () => api.post(`/admin/reviews/${id}/remove`, { reason }),
-      `Soft-hidden with reason ${reason.split(" ")[0]}. Undo available for ${data.undoWindow}.`,
+      () => api.post(`/admin/reviews/${id}/remove`, own ? { reason, note } : { reason }),
+      own
+        ? `Soft-hidden with your reason. Undo available for ${data.undoWindow}.`
+        : `Soft-hidden with reason ${reason.split(" ")[0]}. Undo available for ${data.undoWindow}.`,
     );
   };
   const undo = (id: string) => {
@@ -85,6 +98,11 @@ export default function ModerationQueue({ data }: { data: TrustData }) {
                     <span className="inline-flex h-[34px] items-center rounded-[10px] bg-stone-100 px-[13px] text-[12.5px] font-bold text-[#78716c]">
                       Soft-hidden · undo available for {undoLeft}
                     </span>
+                    {m.reason && (
+                      <span className="order-last basis-full text-[12px] break-words text-[#57534e]">
+                        <b>Reason:</b> {m.reason}
+                      </span>
+                    )}
                     <button
                       type="button"
                       disabled={busy}
@@ -108,6 +126,7 @@ export default function ModerationQueue({ data }: { data: TrustData }) {
                           {c}
                         </option>
                       ))}
+                      <option value={other.code}>Other (write your own)</option>
                     </select>
                     <button
                       type="button"
@@ -125,6 +144,36 @@ export default function ModerationQueue({ data }: { data: TrustData }) {
                     >
                       Keep
                     </button>
+                    {reasons[m.id] === other.code && (
+                      <div className="basis-full">
+                        <label htmlFor={`note-${m.id}`} className="mb-1 block text-[12px] font-bold text-[#57534e]">
+                          Your reason for removing it
+                        </label>
+                        <textarea
+                          id={`note-${m.id}`}
+                          value={notes[m.id] ?? ""}
+                          maxLength={other.max}
+                          rows={2}
+                          placeholder="e.g. Shares the astrologer's personal phone number"
+                          aria-invalid={noteErrors[m.id] ? true : undefined}
+                          aria-describedby={noteErrors[m.id] ? `note-err-${m.id}` : undefined}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setNotes((n) => ({ ...n, [m.id]: value }));
+                            setNoteErrors((er) => ({ ...er, [m.id]: "" }));
+                          }}
+                          className="w-full rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] text-ink outline-none focus:border-amber-500"
+                        />
+                        <div className="flex items-start justify-between gap-3">
+                          <p id={`note-err-${m.id}`} role={noteErrors[m.id] ? "alert" : undefined} className="m-0 text-[12px] font-semibold text-rose-700">
+                            {noteErrors[m.id]}
+                          </p>
+                          <span className="shrink-0 text-[11px] text-[#a8a29e] tabular-nums">
+                            {(notes[m.id] ?? "").length}/{other.max}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
               </div>

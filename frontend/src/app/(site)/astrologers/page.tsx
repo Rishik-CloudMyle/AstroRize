@@ -6,7 +6,7 @@ import { getAstrologers } from "../data";
 
 export const metadata: Metadata = {
   title: "Astrologers",
-  description: "Browse verified astrologers by skill, language, availability and price. Chat, voice or video.",
+  description: "Browse verified astrologers by skill, language, availability and price. Voice or video.",
 };
 
 export default async function AstrologersPage() {

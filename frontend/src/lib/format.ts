@@ -43,12 +43,8 @@ export function ratingLabel(a: Astrologer): string {
   return a.rating === null ? "—" : a.rating.toFixed(1);
 }
 
-/**
- * Per-minute rate by mode: chat at the chat price (when given), voice at the base rate, video at
- * the base rate + the ₹12/min video premium.
- */
-export function rateFor(baseRate: number, mode: ConsultMode | null, chatPrice?: number | null): number {
-  if (mode === "chat" && chatPrice) return chatPrice;
+/** Video calls carry a ₹12/min premium over the base rate. */
+export function rateFor(baseRate: number, mode: ConsultMode | null): number {
   return baseRate + (mode === "video" ? 12 : 0);
 }
 

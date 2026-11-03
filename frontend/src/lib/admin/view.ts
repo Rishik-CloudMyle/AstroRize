@@ -20,6 +20,8 @@ export function slaColours(tone: string): Pick<Ticket, "slaBg" | "slaFg"> {
       return { slaBg: "#fff1f2", slaFg: "#be123c" };
     case "soon":
       return { slaBg: "#fffbeb", slaFg: "#92400e" };
+    case "closed":
+      return { slaBg: "#f5f5f4", slaFg: "#57534e" };
     default:
       return { slaBg: "#ecfdf5", slaFg: "#047857" };
   }
