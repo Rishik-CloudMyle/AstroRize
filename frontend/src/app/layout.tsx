@@ -60,7 +60,9 @@ export const metadata: Metadata = {
   },
   description:
     "Consult verified astrologers by chat, voice or video. Pay by the minute, first 60 seconds free, masked calls and one charge after the session ends.",
-  icons: { icon: "/assets/brand/logo-mark.png" },
+  icons: { icon: "/assets/brand/logo-mark.png", apple: "/icons/apple-touch-icon.png" },
+  // Installed on a phone's home screen: opens full screen with this name (iPhone reads these).
+  appleWebApp: { capable: true, title: "AstroRize", statusBarStyle: "default" },
 };
 
 // "cover" lets the phone/tablet app look (< 1024px) reach under the iPhone home indicator; the app
@@ -69,6 +71,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  themeColor: "#f7f4ee",
 };
 
 // The root layout wraps every page: the public website (app/(site)), the astrologer
