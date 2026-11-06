@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.vercel.astro_rize.twa",
+      "sha256_cert_fingerprints": ["C0:CB:0B:35:FC:E5:BB:E3:35:D7:B8:05:9D:8D:C4:B5:14:7F:A8:E2:B8:C1:5A:5D:5F:9D:81:9D:CE:5F:6C:CE"]
+    }
+  }
+]
