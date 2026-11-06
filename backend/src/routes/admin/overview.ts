@@ -8,6 +8,7 @@ import { openFlagCount } from "../../lib/contact-flags.ts";
 import { campaignSubmitterId, offerSummary } from "../../lib/campaigns.ts";
 import { adminOf, capabilitiesOf, pagesOf, requirePage, type PageKey } from "../../lib/rbac.ts";
 import { OPEN_TICKET, refundProposerId } from "./support.ts";
+import { CREDIT_PROPOSED, ticketScope } from "../../lib/tickets.ts";
 import { hostedLiveRoom } from "../../lib/presence.ts";
 import { configNumber, getSetting } from "../../lib/settings.ts";
 import { monitoringCounts } from "./monitoring.ts";
@@ -49,6 +50,14 @@ overviewRouter.get("/nav-counts", async (req, res) => {
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
+ * Open tickets waiting on this person's team: the ones with their team (a Super Admin: every one),
+ * not waiting on the customer's answer.
+ */
+function ticketsToWork(admin: Admin) {
+  return { ...OPEN_TICKET, awaitingCustomer: false, ...(admin.adminRole === "super" ? {} : { assignedTeam: admin.adminRole }) };
+}
+
+/**
  * Open-work counts for the nav badges, only for pages this role can open, and what each one counts
  * (the badge's tooltip). Only work waiting on this person: nothing waiting on someone else.
  */
@@ -63,8 +72,8 @@ async function navCounts(admin: Admin) {
     pages.includes("hr") && caps.includes("price.approve") ? db.priceChange.count({ where: { status: "PENDING" } }) : 0,
     // The same rows as "Work waiting on you", so badge and list agree.
     pages.includes("finance") || pages.includes("support") ? workFor(admin, now) : [],
-    // Open tickets in Support's hands (a proposed remedy waits on its second approver).
-    pages.includes("support") ? db.supportTicket.count({ where: { ...OPEN_TICKET, refundState: "NONE" } }) : 0,
+    // Open tickets with this team (a proposed remedy waits on its second approver; "Waiting for you" on the customer).
+    pages.includes("support") ? db.supportTicket.count({ where: { ...ticketsToWork(admin), refundState: "NONE" } }) : 0,
     pages.includes("compliance") ? db.liveRoom.count({ where: hostedLiveRoom() }) : 0,
     pages.includes("trust") ? db.review.count({ where: { status: "FLAGGED" } }) : 0,
     // Off-platform contact attempts nobody has marked reviewed yet.
@@ -252,7 +261,7 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
       : [],
     can("finance", "wallet.refund.process") ? db.walletRefund.findMany({ where: { status: "PENDING" }, orderBy: { createdAt: "asc" } }) : [],
     can("support")
-      ? db.supportTicket.findMany({ where: { ...OPEN_TICKET, slaDueAt: { lt: now } }, orderBy: { slaDueAt: "asc" } })
+      ? db.supportTicket.findMany({ where: { ...ticketsToWork(admin), slaDueAt: { lt: now } }, orderBy: { slaDueAt: "asc" } })
       : [],
     can("hr") ? db.applicant.findMany({ where: { submittedAt: { lt: slaCutoff } }, orderBy: { submittedAt: "asc" } }) : [],
     can("trust") ? db.review.findMany({ where: { status: "FLAGGED" }, orderBy: { createdAt: "asc" }, select: { createdAt: true } }) : [],
@@ -292,7 +301,12 @@ async function workFor(admin: Admin, now: Date): Promise<WorkItem[]> {
     })),
     ...toApprove.map((t) => ({
       ico: "↺",
-      title: t.state === "MAKEGOOD_PROPOSED" ? `Free replacement call on ${t.id} awaiting your approval` : `Refund on ${t.id} awaiting your approval`,
+      title:
+        t.state === "MAKEGOOD_PROPOSED"
+          ? `Free replacement call on ${t.id} awaiting your approval`
+          : t.state === CREDIT_PROPOSED
+            ? `Wallet credit on ${t.id} awaiting your approval`
+            : `Refund on ${t.id} awaiting your approval`,
       sub: `${t.state === "MAKEGOOD_PROPOSED" ? "Instead of a refund" : rupee(t.refundAmount)} · proposed by ${t.proposedBy ?? "Support"} · ${t.subject}`,
       age: ageLabel(t.createdAt, now),
       tone: "amber",
@@ -380,8 +394,8 @@ overviewRouter.get("/overview", async (req, res) => {
       db.consultation.count({ where: { status: "ACTIVE" } }),
       db.consultation.count({ where: { status: "ACTIVE", kind: "INSTANT" } }),
       monitoringCounts(),
-      has("support") ? db.supportTicket.count({ where: OPEN_TICKET }) : 0,
-      has("support") ? db.supportTicket.count({ where: { ...OPEN_TICKET, slaDueAt: { lt: now } } }) : 0,
+      has("support") ? db.supportTicket.count({ where: { AND: [OPEN_TICKET, ticketScope(admin)] } }) : 0,
+      has("support") ? db.supportTicket.count({ where: { AND: [OPEN_TICKET, ticketScope(admin), { slaDueAt: { lt: now } }] } }) : 0,
       has("hr") ? db.applicant.count() : 0,
       has("hr") ? db.applicant.count({ where: { submittedAt: { lt: slaCutoff } } }) : 0,
       has("finance") ? db.payoutBatch.findMany({ where: { state: "APPROVED" } }) : [],
@@ -435,7 +449,9 @@ overviewRouter.get("/search", async (req, res) => {
     pages.includes("hr")
       ? db.astrologer.findMany({ where: { OR: [{ name: contains }, { slug: contains }] }, orderBy: { name: "asc" }, take: 100 })
       : [],
-    pages.includes("support") ? db.supportTicket.findMany({ where: { OR: [{ id: contains }, { subject: contains }, { sessionRef: contains }] }, take: 5 }) : [],
+    pages.includes("support")
+      ? db.supportTicket.findMany({ where: { AND: [ticketScope(admin), { OR: [{ id: contains }, { subject: contains }, { sessionRef: contains }] }] }, take: 5 })
+      : [],
     pages.includes("hr") ? db.applicant.findMany({ where: { OR: [{ id: contains }, { name: contains }] }, take: 5 }) : [],
     pages.includes("config") ? db.configKey.findMany({ where: { OR: [{ key: contains }, { description: contains }] }, take: 5 }) : [],
     pages.includes("finance") ? db.payoutBatch.findMany({ where: { id: contains }, take: 5 }) : [],

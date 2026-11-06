@@ -12,7 +12,8 @@ import { configNumber, getSetting, putSetting } from "../../lib/settings.ts";
 import { customAmountPolicy } from "../../lib/payments.ts";
 import { priceChangeView } from "../../lib/pricing.ts";
 import { lakh } from "./overview.ts";
-import { proposedMinutes, refundProposerId } from "./support.ts";
+import { creditProposal, proposedMinutes, refundProposerId } from "./support.ts";
+import { CREDIT_PROPOSED } from "../../lib/tickets.ts";
 
 export const financeRouter = Router();
 
@@ -98,9 +99,14 @@ financeRouter.get("/finance", async (req, res) => {
           subject: t.subject,
           customer: t.customerAlias,
           session: t.sessionRef,
-          /** REFUND | MAKE_GOOD (a free replacement call instead of money back) */
-          kind: t.state === "MAKEGOOD_PROPOSED" ? "MAKE_GOOD" : "REFUND",
+          /** REFUND | MAKE_GOOD (a free replacement call instead of money back) | WALLET_CREDIT (a credit from support, any ticket) */
+          kind: t.state === "MAKEGOOD_PROPOSED" ? "MAKE_GOOD" : t.state === CREDIT_PROPOSED ? "WALLET_CREDIT" : "REFUND",
           amount: t.state === "MAKEGOOD_PROPOSED" ? `${await proposedMinutes(t.id)} min free call` : rupee(t.refundAmount),
+          /** For a wallet credit: the balance it goes to and the reason the customer will see. */
+          credit:
+            t.state === CREDIT_PROPOSED
+              ? await creditProposal(t.id).then((p) => (p ? { bucket: p.bucket === "SERVICE" ? "Service balance" : "Promotional balance", reason: p.reason } : null))
+              : null,
           proposedBy: t.proposedBy,
           proposedById: await refundProposerId(t.id),
         })),

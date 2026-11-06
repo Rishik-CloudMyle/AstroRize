@@ -5,9 +5,8 @@ import { getSetting, putSetting } from "./settings.ts";
 
 // How long written conversations are kept: live-room chat (ChatMessage), astrologer–customer
 // messages (Message) and the chat inside consultations (ConsultMessage). The Super Admin sets the
-// period on the Recording page; once a day the server sweep deletes anything older. Voice and
-// video are never recorded (they go peer to peer through the media provider), so there is
-// nothing else to purge.
+// period on the Recording page; once a day the server sweep deletes anything older. Call audio
+// recordings have their own period (Config recording.retention_days, lib/recordings.ts).
 
 export const RETENTION_SETTING = "retention.conversations";
 export const LAST_PURGE_SETTING = "retention.lastPurge";
@@ -58,14 +57,14 @@ export async function purgeExpiredConversations(now = new Date()): Promise<Purge
   const cutoff = new Date(now.getTime() - days * DAY_MS);
   // Photos and videos sent in the messages being removed go with them (after the delete, so a
   // file is never missing for a message that is still there).
-  const files = await db.message.findMany({ where: { createdAt: { lt: cutoff }, attachment: { not: null } }, select: { attachment: true } });
+  const files = await db.message.findMany({ where: { createdAt: { lt: cutoff }, attachment: { not: null } }, select: { attachment: true, attachmentPoster: true } });
   const [chat, direct, consult, threads] = await db.$transaction([
     db.chatMessage.deleteMany({ where: { createdAt: { lt: cutoff } } }),
     db.message.deleteMany({ where: { createdAt: { lt: cutoff } } }),
     db.consultMessage.deleteMany({ where: { createdAt: { lt: cutoff } } }),
     db.messageThread.deleteMany({ where: { updatedAt: { lt: cutoff }, messages: { none: {} } } }),
   ]);
-  await deletePrivateFiles(files.map((f) => f.attachment));
+  await deletePrivateFiles(files.flatMap((f) => [f.attachment, f.attachmentPoster]));
   const messages = direct.count + consult.count;
   const result: PurgeResult = {
     at: now.toISOString(),

@@ -194,10 +194,10 @@ export async function deleteAccount(userId: string) {
     // Photos and videos the customer sent in messages are personal data too. The messages stay
     // for the astrologer (as for text); a file-only one says what happened.
     const sentFiles = { thread: { customerId: userId }, sender: "CUSTOMER", attachment: { not: null } };
-    const files = (await tx.message.findMany({ where: sentFiles, select: { attachment: true } })).map((m) => m.attachment);
+    const files = (await tx.message.findMany({ where: sentFiles, select: { attachment: true, attachmentPoster: true } })).flatMap((m) => [m.attachment, m.attachmentPoster]);
     if (files.length) {
       await tx.message.updateMany({ where: { ...sentFiles, text: "" }, data: { text: FILE_REMOVED } });
-      await tx.message.updateMany({ where: sentFiles, data: { attachment: null, attachmentKind: null } });
+      await tx.message.updateMany({ where: sentFiles, data: { attachment: null, attachmentKind: null, attachmentState: null, attachmentPoster: null } });
     }
     await leaveQueues(tx, userId);
     await revokeSessions(tx, userId);

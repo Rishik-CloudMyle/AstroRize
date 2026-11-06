@@ -13,10 +13,17 @@ export interface MessengerAstrologer {
   photo: string;
 }
 
-/** A photo or video sent in a customer–astrologer conversation. `url` works only for the two of them. */
+/**
+ * A photo or video sent in a customer–astrologer conversation. `url` works only for the two of them.
+ * Videos are compressed on the server after upload: `state` is "processing" until then (no `url`
+ * yet), and "failed" when the video couldn't be processed (no `url`).
+ */
 export interface MessageAttachment {
   kind: "image" | "video";
-  url: string;
+  url: string | null;
+  state?: "ready" | "processing" | "failed";
+  /** A video's poster frame, once compressed. */
+  poster?: string | null;
 }
 
 export interface MessengerMessage {

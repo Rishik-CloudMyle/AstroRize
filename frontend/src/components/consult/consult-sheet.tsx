@@ -9,6 +9,7 @@ import { discountedRate, type ConsultDiscount } from "@/lib/offers";
 import type { MakeGoodCredit } from "@/lib/makegood";
 import { Portrait } from "../astrologer/parts";
 import ModeIcon from "@/components/ui/mode-icon";
+import { RecordingConsent, isRecordedChoice } from "./recording-notice";
 
 // "Consult now" opens this sheet (the app's consult sheet, laid out for the web): Chat at the
 // astrologer's chat price, Voice Call and Video Call at their rate, and Instant Call at its own rate. It follows the
@@ -74,6 +75,8 @@ export default function ConsultSheet({
   onAcceptRate,
   onStart,
   onClose,
+  recordingConsent = false,
+  onRecordingConsent,
 }: {
   astrologer: Astrologer;
   choice: ConsultChoice | null;
@@ -100,6 +103,9 @@ export default function ConsultSheet({
   onAcceptRate: () => void;
   onStart: () => void;
   onClose: () => void;
+  /** The customer ticked the recording notice (voice, video and Instant Call are recorded, audio only). */
+  recordingConsent?: boolean;
+  onRecordingConsent?: (accepted: boolean) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const state = a.availability;
@@ -132,6 +138,8 @@ export default function ConsultSheet({
   const payMissing = canBeFree(selected) && pay === null;
   // A welcome free call needs its length chosen before it can start.
   const lengthMissing = free && !replacement && !freeMinutes;
+  // Voice, video and Instant Call are recorded (audio only): the customer accepts the notice first.
+  const consentMissing = isRecordedChoice(selected) && !recordingConsent;
   const eligible = payMissing ? false : free ? !lengthMissing : balance >= needed;
   // The rate the "Paid call" option shows: the chosen way to talk's, else Voice's (with an offer's discount).
   const paidRate = quotedRateFor(a, selected && selected !== "instant" ? selected : "voice", discount ? discount.pct : 0);
@@ -354,12 +362,15 @@ export default function ConsultSheet({
                     {error}
                   </p>
                 )}
+                {isRecordedChoice(selected) && !payMissing && (
+                  <RecordingConsent checked={recordingConsent} onChange={(v) => onRecordingConsent?.(v)} className="mt-4" />
+                )}
                 <button
                   type="button"
                   onClick={onStart}
-                  disabled={!selected || !eligible || busy}
+                  disabled={!selected || !eligible || busy || consentMissing}
                   className={`mt-4 min-h-[54px] w-full rounded-[14px] text-[15.5px] font-bold transition-colors max-lg:min-h-12 max-lg:rounded-app-btn max-lg:text-[15px] ${
-                    !selected || !eligible || busy
+                    !selected || !eligible || busy || consentMissing
                       ? "cursor-not-allowed bg-stone-200 text-stone-500"
                       : selected === "instant"
                         ? "bg-blue-700 text-white hover:bg-blue-800"

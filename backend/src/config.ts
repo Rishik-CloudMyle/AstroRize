@@ -47,4 +47,17 @@ export const config = {
    */
   geocoderContact: process.env.GEOCODER_CONTACT ?? "",
   nominatimUrl: (process.env.NOMINATIM_URL ?? "https://nominatim.openstreetmap.org").replace(/\/+$/, ""),
+  /**
+   * Who compresses videos sent in messages (lib/media-jobs.ts): "external" = the separate media
+   * worker (`npm run worker`; production default), "inline" = the API itself (FFmpeg still runs as
+   * its own process; the local default, because the local database takes only one connection),
+   * "off" = no compression (videos are delivered as they were sent).
+   */
+  mediaWorker: (process.env.MEDIA_WORKER ?? (process.env.NODE_ENV === "production" ? "external" : "inline")).trim().toLowerCase(),
+  /** Videos one worker compresses at the same time (each FFmpeg uses several CPU cores). */
+  mediaConcurrency: Math.min(4, Math.max(1, Number(process.env.MEDIA_WORKER_CONCURRENCY ?? 1) || 1)),
+  /** How often a worker looks for new jobs, in ms (the inline one also starts at once on upload). */
+  mediaPollMs: Math.max(500, Number(process.env.MEDIA_WORKER_POLL_MS ?? 3000) || 3000),
+  /** FFmpeg is stopped after this long per video. */
+  mediaTranscodeTimeoutMs: Math.max(30, Number(process.env.MEDIA_TRANSCODE_TIMEOUT_SECONDS ?? 300) || 300) * 1000,
 };

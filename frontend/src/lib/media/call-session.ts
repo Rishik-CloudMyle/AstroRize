@@ -13,6 +13,7 @@ import {
   type MediaAnswer,
   type MediaWants,
 } from "./zego-call";
+import { CallRecorder, type RecorderState } from "./call-recorder";
 
 // One consultation's call, kept OUTSIDE the React tree: the room credentials, the captured
 // microphone/camera, the ZEGO room (joined once), the other side's stream and the sound playing it.
@@ -58,6 +59,8 @@ export interface CallSnapshot {
   speaker: Speaker;
   /** The browser blocked the other side's sound until the person taps (autoplay rules). */
   audioBlocked: boolean;
+  /** This side's audio recorder (voice and video calls are recorded, audio only: call-recorder.ts). */
+  recording: RecorderState;
 }
 
 export const EMPTY_CALL: CallSnapshot = {
@@ -78,6 +81,7 @@ export const EMPTY_CALL: CallSnapshot = {
   mediaUp: false,
   speaker: { off: false, volume: 1 },
   audioBlocked: false,
+  recording: "off",
 };
 
 /** True when the browser already allows these devices for this site (no prompt would appear). */
@@ -109,6 +113,7 @@ export class CallSession {
   private call: ZegoCall | null = null;
   private cameraId: string | undefined;
   private audio: HTMLAudioElement | null = null;
+  private recorder: CallRecorder | null = null;
   private released = false;
   private started = false;
   /** The window was shown at least once (a chat counts as joined from then on). */
@@ -140,6 +145,20 @@ export class CallSession {
     this.snap = { ...this.snap, ...patch };
     emit();
     this.updateJoined();
+    this.updateRecorder();
+  }
+
+  /**
+   * A recorded call (audio only) starts this side's recorder once the media is up both ways; the
+   * recorder itself waits until billing has started. One per call session: it keeps going while the
+   * window is minimised or the person moves between pages, and stops when the call is released.
+   */
+  private updateRecorder() {
+    const a = this.snap.answer;
+    if (this.recorder || this.released || !this.snap.mediaUp || !this.local || !this.wants.audio || !a?.available || !a.recorded) return;
+    const recorder = new CallRecorder(this.base, this.local, (recording) => this.snap.recording !== recording && this.set({ recording }));
+    this.recorder = recorder;
+    void recorder.start(this.snap.remote);
   }
 
   /** Starts what can start by itself: the credentials, and the devices if the site may already use them. */
@@ -196,6 +215,7 @@ export class CallSession {
         if (gone) return;
         this.set(stream ? { remote: stream } : { remote: null, remoteCameraOff: false });
         this.playRemote(stream);
+        this.recorder?.setRemote(stream);
       },
       onRemoteCamera: (off) => !gone && this.set({ remoteCameraOff: off }),
       onLevels: (levels) => {
@@ -384,6 +404,9 @@ export class CallSession {
   /** Leaves the room, turns the devices off and stops the sound. Safe to call twice. */
   release() {
     if (this.released) return;
+    // The recorder first: it sends its last chunk (it records a mix, not the devices themselves).
+    this.recorder?.stop();
+    this.recorder = null;
     this.released = true;
     clearTimeout(this.joinTimer);
     this.leaveCall();

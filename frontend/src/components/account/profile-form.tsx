@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { readResponse } from "@/lib/api/errors";
+import { compressImage } from "@/lib/image-compress";
 import { EMAIL_MESSAGE, GENDERS, formatMobile, from24h, genderLabel, isValidEmail, time12Problem, to24h, type Period } from "@/lib/contact";
 import { APP_CTA, APP_INPUT, APP_LABEL, APP_SECONDARY } from "./app-look";
 import { TimeOfBirthField } from "./time-of-birth";
@@ -12,7 +13,7 @@ import { TimeOfBirthField } from "./time-of-birth";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 /** Photos are resized in the browser before upload: small, fast, and free of camera metadata (GPS). */
-const PHOTO_MAX_SIDE = 640;
+const PHOTO_MAX_SIDE = 512;
 export const PHOTO_ACCEPT = "image/jpeg,image/png,image/webp";
 
 export interface Profile {
@@ -144,27 +145,12 @@ export async function saveProfile(form: Form): Promise<{ profile: Profile } | { 
   }
 }
 
-/** Decodes the chosen file and re-encodes it as a JPEG of at most `maxSide` px (PHOTO_MAX_SIDE by default). */
+/**
+ * Shrinks the chosen photo to at most `maxSide` px (PHOTO_MAX_SIDE by default) and re-encodes it
+ * (WebP, or JPEG where the browser can't write WebP) without camera metadata. lib/image-compress.ts.
+ */
 export async function preparePhoto(file: File, maxSide = PHOTO_MAX_SIDE): Promise<Blob> {
-  let bitmap: ImageBitmap;
-  try {
-    bitmap = await createImageBitmap(file);
-  } catch {
-    throw new Error("That file isn't a photo we can use. Choose a JPEG, PNG or WebP image.");
-  }
-  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Your browser couldn't prepare this photo. Try another one.");
-  ctx.fillStyle = "#ffffff"; // transparent PNGs get a white background, not black
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.86));
-  if (!blob) throw new Error("Your browser couldn't prepare this photo. Try another one.");
-  return blob;
+  return compressImage(file, { maxSide });
 }
 
 /** Uploads a prepared photo (POST /api/me/photo) and returns its new URL. */
@@ -172,7 +158,7 @@ export async function uploadPhoto(blob: Blob): Promise<string> {
   const res = await fetch("/api/me/photo", {
     method: "POST",
     credentials: "same-origin",
-    headers: { "content-type": "image/jpeg", accept: "application/json" },
+    headers: { "content-type": blob.type || "image/jpeg", accept: "application/json" },
     body: blob,
   });
   const { photoUrl } = await readResponse<{ photoUrl: string }>(res);

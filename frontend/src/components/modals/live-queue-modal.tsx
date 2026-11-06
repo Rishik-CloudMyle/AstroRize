@@ -7,6 +7,7 @@ import { rateFor, rupee } from "@/lib/format";
 import type { LiveRoom, LiveMode } from "@/lib/types";
 import { useAppUI, type QueueRequest } from "../app-provider";
 import { recheckAvailability } from "../astrologer/use-fresh-astrologer";
+import { RecordingConsent } from "../consult/recording-notice";
 import Modal from "../ui/modal";
 import ModeIcon from "@/components/ui/mode-icon";
 
@@ -44,6 +45,10 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [short, setShort] = useState(false);
+  // A private voice or video call is recorded (audio only): the customer accepts the notice first.
+  const [consent, setConsent] = useState(false);
+  const needsConsent = mode === "voice" || mode === "video";
+  const blocked = !mode || (needsConsent && !consent);
 
   function choose(m: LiveMode) {
     setMode(m);
@@ -52,7 +57,7 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
   }
 
   async function join() {
-    if (busy || !mode) return;
+    if (busy || !mode || (needsConsent && !consent)) return;
     setBusy(true);
     setError("");
     setShort(false);
@@ -60,6 +65,7 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
       const { room } = await api.post<{ room: LiveRoom }>(`/live-rooms/${encodeURIComponent(request.roomId)}/queue`, {
         mode: mode.toUpperCase(),
         quotedRate: quoted,
+        ...(needsConsent ? { recordingConsent: consent } : {}),
       });
       request.onJoined?.(room);
       onClose();
@@ -137,6 +143,8 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
         </Link>
       </p>
 
+      {needsConsent && <RecordingConsent checked={consent} onChange={setConsent} className="mt-3" />}
+
       {error && (
         <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">
           {error}{" "}
@@ -154,9 +162,9 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
         </button>
         <button
           type="button"
-          disabled={busy || !mode}
+          disabled={busy || blocked}
           onClick={() => void join()}
-          className={`h-12 rounded-xl text-[14.5px] font-bold ${busy ? "bg-amber-200 text-amber-900" : !mode ? "bg-stone-200 text-stone-500" : "bg-amber-500 text-ink"}`}
+          className={`h-12 rounded-xl text-[14.5px] font-bold ${busy ? "bg-amber-200 text-amber-900" : blocked ? "cursor-not-allowed bg-stone-200 text-stone-500" : "bg-amber-500 text-ink"}`}
         >
           {busy ? "Joining…" : !mode ? "Choose how to talk" : changedFrom?.mode === mode ? `Join at ${rupee(quoted)}/min` : "Join the queue"}
         </button>

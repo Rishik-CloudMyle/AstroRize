@@ -186,6 +186,7 @@ export default function ProfileHub() {
         <NotificationBell variant="row" />
         <ListRow href="/offers" title="Offers" />
         <ListRow href="/free-tools" title="Kundli & free tools" />
+        <ListRow href="/support" title="Help & support" subtitle="Raise an issue or follow one you raised" />
         <ListRow href="/wallet?view=settings" title="Settings & data rights" />
       </ListRows>
 

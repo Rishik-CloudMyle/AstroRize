@@ -8,6 +8,7 @@ import type { AdminSession, Environment, NavGroup } from "@/lib/admin/types";
 import LogoutButton from "../logout-button";
 import { useNavCounts } from "./admin-provider";
 import MessagesUnreadBadge from "./messages/unread-badge";
+import StaffNotificationBell from "./notification-bell";
 
 // [label, background, border, dot, text] — from the prototype's envMap.
 const ENV_STYLES: Record<Environment, [string, string, string, string, string]> = {
@@ -133,8 +134,9 @@ export default function Sidebar(props: RailProps) {
     // Pinned to the screen: only the page on the right scrolls. Log out stays at the bottom, and
     // the rail scrolls on its own if the menu is ever taller than the screen.
     <aside className="az-rail sticky top-0 hidden h-screen flex-col gap-0.5 self-start overflow-y-auto px-3 py-[18px] text-[#d6cbb8] lg:flex">
-      <div className="pb-3.5">
+      <div className="flex items-center justify-between gap-2 pb-3.5">
         <Brand />
+        <StaffNotificationBell />
       </div>
       <RailBody {...props} />
     </aside>
@@ -160,16 +162,19 @@ export function AdminTopBar(props: RailProps) {
     <div className="sticky top-0 z-50 lg:hidden">
       <header className="az-rail flex h-[58px] items-center justify-between gap-3 px-3 text-[#d6cbb8]">
         <Brand onNavigate={close} />
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          aria-controls="admin-menu"
-          aria-label={open ? "Close menu" : "Open menu"}
-          className="grid size-10 place-items-center rounded-xl border border-[#44403c] text-lg text-[#f8f4ec]"
-        >
-          {open ? "✕" : "☰"}
-        </button>
+        <div className="flex items-center gap-2">
+          <StaffNotificationBell />
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            aria-controls="admin-menu"
+            aria-label={open ? "Close menu" : "Open menu"}
+            className="grid size-10 place-items-center rounded-xl border border-[#44403c] text-lg text-[#f8f4ec]"
+          >
+            {open ? "✕" : "☰"}
+          </button>
+        </div>
       </header>
       {open && (
         <>

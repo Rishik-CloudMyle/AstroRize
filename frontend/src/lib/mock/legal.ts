@@ -25,6 +25,13 @@ export const LEGAL_SECTIONS = [
     body: "Consultations are metered by a server clock in UTC and displayed in IST. The first 60 seconds are free. After that, partial minutes round up. Your available balance is held when the session connects and debited once, after it ends — your balance never decreases minute by minute during a session.",
   },
   {
+    // ⚠ PLACEHOLDER (Nov 2026): call recording began; the client's legal team must supply the real clause.
+    id: "recording",
+    title: "Call recording",
+    highlight: false,
+    body: "[Placeholder — wording pending AstroRize's approval] Voice and video consultations are recorded as audio only, after you accept the notice shown before the call; only AstroRize can access the recordings.",
+  },
+  {
     id: "discount",
     title: "3 · Discounts",
     highlight: false,

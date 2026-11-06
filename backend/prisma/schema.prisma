@@ -89,6 +89,7 @@ model User {
   directMessages DirectMessage[]
   welcomeBenefit WelcomeBenefit?
   giftsSent      GiftSend[]
+  supportTickets SupportTicket[]
 }
 
 /// The one-time welcome benefit (spec AR-WEL): one complimentary consultation per person,
@@ -592,6 +593,11 @@ model Consultation {
   serviceUsed          Int              @default(0)
   stars                Int?
   reviewText           String?
+  /// When each side accepted the recording notice (voice/video: audio only, client Nov 2026).
+  /// A call is recorded only when both are set; null = not asked (chat, or requested before recording began).
+  customerRecordingConsentAt   DateTime?
+  astrologerRecordingConsentAt DateTime?
+  recordings           CallRecording[]
 
   @@index([astrologerId, status])
   @@index([customerId, requestedAt])
@@ -662,11 +668,51 @@ model Message {
   attachment     String?
   /// IMAGE | VIDEO (set with `attachment`).
   attachmentKind String?
+  /// A video being compressed (lib/media-jobs.ts): PROCESSING until the media worker is done,
+  /// FAILED when it couldn't be (the file is gone or unusable). Null = ready (photos, older videos).
+  attachmentState  String?
+  /// The poster frame of a compressed video: a stored private file name, or null.
+  attachmentPoster String?
   /// True when the message was stopped because it contained contact details.
   blocked   Boolean       @default(false)
   createdAt DateTime      @default(now())
 
   @@index([threadId, createdAt])
+}
+
+/// Background media work (compressing message videos), done by the media worker (src/worker.ts),
+/// or inside the API when MEDIA_WORKER=inline. Workers claim a QUEUED job with one atomic UPDATE,
+/// so several can run side by side.
+model MediaJob {
+  id          String    @id @default(cuid())
+  /// VIDEO_TRANSCODE
+  kind        String
+  /// QUEUED | RUNNING | DONE | FAILED
+  status      String    @default("QUEUED")
+  /// The message the file belongs to (no relation: the job outlives a deleted message and then
+  /// just cleans up after itself).
+  messageId   String?
+  /// Storage key of the uploaded original, and its size in bytes.
+  input       String
+  inputBytes  Int
+  /// Storage keys of the results (set when DONE), and the compressed size.
+  output      String?
+  poster      String?
+  outputBytes Int?
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  /// Not claimed before this time (retry back-off).
+  runAfter    DateTime  @default(now())
+  /// When a worker claimed it, and which one ("<host>:<pid>"). A RUNNING job locked too long ago
+  /// is handed out again (its worker died).
+  lockedAt    DateTime?
+  lockedBy    String?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  @@index([status, runAfter])
+  @@index([messageId])
 }
 
 /// Bio / skills changes waiting for moderation. The public profile only changes once approved.
@@ -832,6 +878,57 @@ model SupportTicket {
   /// REFUND (customer refunded; astrologer's share reversed) | MAKE_GOOD (free replacement call) | null
   resolution    String?
   createdAt     DateTime @default(now())
+  /// The customer who raised it from their account (Help & support, or a wallet billing issue).
+  /// Null for reports raised by astrologers or staff, and for issues raised before Nov 2026 (those
+  /// are found through their "support.ticket.raise" audit entry).
+  customerId       String?
+  customer         User?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  /// What the customer said it is about: PAYMENT_REFUND | WALLET | CONSULTATION | ASTROLOGER |
+  /// ACCOUNT | TECHNICAL | OTHER (null for older tickets and reports).
+  category         String?
+  /// The customer's own words (subject stays the one-line summary).
+  description      String?
+  /// The recharge (Payment.id) the issue is about, when the customer picked one.
+  paymentId        String?
+  /// The team working it now: support | finance | compliance | marketing | super. Every new
+  /// issue starts with Support, who may forward it.
+  assignedTeam     String   @default("support")
+  /// Staff asked the customer something and are waiting for their answer ("Waiting for you").
+  awaitingCustomer Boolean  @default(false)
+  /// How a ticket closed without a refund or free call: RESOLVED (sorted out) | CLOSED (no action).
+  closedAs         String?
+  /// Last reply, forward or status change (for sorting and "new reply" marks).
+  lastActivityAt   DateTime @default(now())
+  /// When the customer last opened the issue (staff replies after it count as unread).
+  customerReadAt   DateTime?
+  messages         SupportTicketMessage[]
+
+  @@index([customerId])
+  @@index([assignedTeam])
+}
+
+/// The conversation on a support ticket: customer messages, staff replies (the customer sees them)
+/// and internal notes (staff only — never sent to the customer's API).
+model SupportTicketMessage {
+  id         String        @id @default(cuid())
+  ticketId   String
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  /// CUSTOMER | STAFF
+  author     String
+  /// The user who wrote it (no relation: the record outlives staff accounts).
+  authorId   String?
+  /// Staff short name (internal; customers see the team, never the person).
+  authorName String
+  /// The staff member's team when they wrote it: support | finance | compliance | marketing | super.
+  team       String?
+  /// Staff-only note.
+  internal   Boolean       @default(false)
+  text       String
+  /// A screenshot the customer attached: the stored private file name, or null.
+  attachment String?
+  createdAt  DateTime      @default(now())
+
+  @@index([ticketId, createdAt])
 }
 
 /// Astrologer applications being worked by HR.
@@ -1077,4 +1174,41 @@ model Chart {
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+/// The audio recording of a voice or video consultation (audio only, client Nov 2026). Recorded in
+/// the browsers of the call (both sides, each a "take"; a page reload mid-call starts a new take),
+/// uploaded in numbered chunks, assembled into one file when the take ends. Only a Super Admin can
+/// listen (capability recording.listen). Later a provider-side recorder (ZEGO Cloud Recording to S3)
+/// can write rows here too, with side "SERVER".
+model CallRecording {
+  id             String       @id @default(cuid())
+  consultationId String
+  consultation   Consultation @relation(fields: [consultationId], references: [id])
+  /// ASTROLOGER | CUSTOMER (whose browser recorded it) | SERVER (a provider recording, later)
+  side           String
+  /// 1, 2, … per side.
+  take           Int
+  /// RECORDING | READY | PARTIAL (ended without a clean finish) | FAILED (nothing usable) |
+  /// DISCARDED (a duplicate take the kept take fully covers; its file is deleted) | DELETED (retention)
+  status         String       @default("RECORDING")
+  /// e.g. "audio/webm;codecs=opus" or "audio/mp4"
+  mimeType       String
+  /// Where the assembled file is (a private storage key, never a public URL); null until assembled.
+  storageKey     String?
+  /// Chunks received in order (sequence numbers 0 … chunks-1) and their total size in bytes.
+  chunks         Int          @default(0)
+  bytes          Int          @default(0)
+  /// Length as reported by the recording browser.
+  durationMs     Int          @default(0)
+  startedAt      DateTime     @default(now())
+  lastChunkAt    DateTime?
+  endedAt        DateTime?
+  /// Why it is PARTIAL / FAILED / DISCARDED.
+  note           String?
+  /// Set when a media worker has post-processed (e.g. remuxed) the file. Hook; unused for now.
+  processedAt    DateTime?
+
+  @@unique([consultationId, side, take])
+  @@index([status, startedAt])
 }

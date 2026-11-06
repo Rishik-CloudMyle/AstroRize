@@ -134,6 +134,8 @@ const ticketState = rank([
   "EVIDENCE_REQUESTED",
   "INVESTIGATING",
   "REFUND_PROPOSED",
+  "MAKEGOOD_PROPOSED",
+  "CREDIT_PROPOSED",
   "REFUND_INITIATED",
   "RESOLVED",
 ]);
@@ -145,6 +147,7 @@ export const TICKET_SORTS: SortOption<Ticket>[] = [
   { key: "sla", label: "SLA due soonest", compare: slaDue },
   { key: "newest", label: "Newest", compare: (a, b) => newest(a.createdAt, b.createdAt) },
   { key: "oldest", label: "Oldest", compare: (a, b) => oldest(a.createdAt, b.createdAt) },
+  { key: "activity", label: "Latest activity", compare: (a, b) => newest(a.lastActivityAt, b.lastActivityAt) },
   { key: "status", label: "Status", compare: (a, b) => ticketState(a.state) - ticketState(b.state) || slaDue(a, b) },
   {
     key: "refund",

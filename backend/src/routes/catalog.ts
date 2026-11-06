@@ -11,6 +11,7 @@ import { announceJoin, chatLineView, giftBalance, sendGift, sendProfileGift, ses
 import { connectPrivate, customerPrivateView, expireUnanswered, joinQueue, leaveQueue, liveMedia, myRequest, privateInRoom } from "../lib/live-consult.ts";
 import { flagContactAttempt } from "../lib/contact-flags.ts";
 import { contactBlockedNotice, findContactDetails, rateLimit } from "../lib/safety.ts";
+import { customerConsent } from "../lib/recordings.ts";
 import { freeCallOpen, welcomePolicy } from "../lib/welcome.ts";
 import { requireRole, requireUser } from "../middleware/auth.ts";
 import type { Astrologer, LiveRoom, Review } from "../generated/prisma/client.ts";
@@ -326,9 +327,11 @@ catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
   assertNotBlocked(auth);
   // Older pages sent `mode: "PUBLIC" | "PRIVATE"` (and `consent`): there is no public option, and
   // such a request is the voice consultation those pages offered.
-  const { quotedRate, mode } = z
+  const { quotedRate, mode, recordingConsent } = z
     .object({
       quotedRate: z.number().int().nonnegative().optional(),
+      /** The customer accepted the recording notice (required for voice and video). */
+      recordingConsent: z.boolean().optional(),
       mode: z.preprocess(
         (m) => (typeof m !== "string" ? m : ["PUBLIC", "PRIVATE"].includes(m.toUpperCase()) ? undefined : m.toUpperCase()),
         z.enum(["CHAT", "VOICE", "VIDEO"], { message: "A private consultation from a live is by chat, voice or video." }).optional(),
@@ -336,7 +339,9 @@ catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
     })
     .parse(req.body ?? {});
   const room = await liveRoomOr404(String(req.params.id));
-  const result = await joinQueue(room, auth.user.id, mode ?? "VOICE", quotedRate);
+  const chosen = mode ?? "VOICE";
+  const consentAt = customerConsent({ mode: chosen, kind: "STANDARD" }, recordingConsent);
+  const result = await joinQueue(room, auth.user.id, chosen, quotedRate, consentAt);
   if (result.kind === "rate_changed") {
     return res.status(409).json({
       error: {

@@ -14,11 +14,13 @@ import {
   type Mode,
 } from "../lib/billing.ts";
 import { byNameMatch, istDate, istDateKey, makeRef, rupee } from "../lib/format.ts";
-import { IMAGE_TYPES, MAX_PHOTO_BYTES, deleteMedia, saveImage, sniffImage } from "../lib/media.ts";
+import { AVATAR_LIMITS, IMAGE_TYPES, MAX_PHOTO_BYTES, deleteMedia, saveImage, sniffImage } from "../lib/media.ts";
 import { optionalEmailSchema } from "../lib/contact.ts";
 import { GENDERS, ageOn, dateKey, genderLabel, initialsOf, ownProfileView } from "../lib/profile.ts";
 import { rateLimit } from "../lib/safety.ts";
 import { consultMessageBody, consultationFor, listMessages, mediaFor, sendMessage } from "../lib/consult-room.ts";
+import { customerConsent } from "../lib/recordings.ts";
+import { mountRecordingRoutes } from "./call-recording.ts";
 import {
   captionQuery,
   chatFileBody,
@@ -400,9 +402,11 @@ customerRouter.post("/consultations", async (req, res) => {
   const me = auth(req);
   // A temporarily blocked account (repeated contact sharing) can't do this until the block ends.
   assertNotBlocked(me);
-  const { astrologerId, mode, quotedRate, welcome, freeMinutes, makeGoodCreditId } = z
+  const { astrologerId, mode, quotedRate, welcome, freeMinutes, makeGoodCreditId, recordingConsent } = z
     .object({
       astrologerId: z.string(),
+      /** The customer accepted the recording notice (required for voice and video: audio is recorded). */
+      recordingConsent: z.boolean().optional(),
       mode: modeSchema,
       quotedRate: quotedRateSchema,
       welcome: z.boolean().optional(),
@@ -414,6 +418,7 @@ customerRouter.post("/consultations", async (req, res) => {
     .parse(req.body);
 
   if (welcome && !(WELCOME_MODES as readonly string[]).includes(mode)) throw modalityDenied();
+  const customerRecordingConsentAt = customerConsent({ mode, kind: "STANDARD" }, recordingConsent);
   if (welcome && !freeMinutes) throw new HttpError(400, "Choose how long your free call should be.", "WEL_LENGTH_REQUIRED");
   // A free replacement call stands alone: never together with a welcome free call (or an offer).
   if (welcome && makeGoodCreditId) throw badRequest("Use either your free minutes or your free replacement call — not both at once.");
@@ -473,6 +478,7 @@ customerRouter.post("/consultations", async (req, res) => {
         rate,
         status: "CONNECTING",
         heldAmount: spendable,
+        customerRecordingConsentAt,
         // The chosen length, snapshotted: all of it is taken from the weekly minutes once the call starts.
         ...(policy ? { billingMode: COMPLIMENTARY, complimentarySeconds: (freeMinutes ?? 0) * 60 } : {}),
         ...(makeGood ? { billingMode: MAKE_GOOD, complimentarySeconds: makeGood.credit.minutes * 60, makeGoodCreditId: makeGood.credit.id } : {}),
@@ -617,6 +623,12 @@ customerRouter.get("/consultations/:id/media", async (req, res) => {
   res.json({ media: mediaFor(c, "CUSTOMER", me, c.customerAlias) });
 });
 
+// The call's audio recording, uploaded from the customer's browser (both sides record; lib/recordings.ts).
+mountRecordingRoutes(customerRouter, "CUSTOMER", async (req) => {
+  const userId = auth(req).user.id;
+  return { c: await consultationFor(String(req.params.id), "CUSTOMER", userId), userId };
+});
+
 /**
  * Instant Call: a first-come request at the instant rate. It waits for the astrologer to
  * accept (3 minutes once it reaches the front); the balance is held only when it connects.
@@ -624,10 +636,12 @@ customerRouter.get("/consultations/:id/media", async (req, res) => {
 customerRouter.post("/instant-calls", async (req, res) => {
   const me = auth(req);
   assertNotBlocked(me);
-  const { astrologerId, quotedRate, welcome } = z
-    .object({ astrologerId: z.string(), quotedRate: quotedRateSchema, welcome: z.boolean().optional() })
+  const { astrologerId, quotedRate, welcome, recordingConsent } = z
+    .object({ astrologerId: z.string(), quotedRate: quotedRateSchema, welcome: z.boolean().optional(), recordingConsent: z.boolean().optional() })
     .parse(req.body);
   if (welcome) throw modalityDenied();
+  // An Instant Call is a video call: its audio is recorded once the customer accepts the notice.
+  const customerRecordingConsentAt = customerConsent({ mode: "VOICE", kind: "INSTANT" }, recordingConsent);
   const astrologer = await availableAstrologer(astrologerId);
   const rate = instantRate(astrologer.price, astrologer.instantMultiplier);
   if (quotedRate !== undefined && quotedRate !== rate) return rateChanged(res, quotedRate, rate);
@@ -643,7 +657,7 @@ customerRouter.post("/instant-calls", async (req, res) => {
     const spendable = wallet.service + wallet.promo - wallet.held;
     if (spendable < needed) return { kind: "short" as const, spendable };
     const consultation = await tx.consultation.create({
-      data: { ref, customerId: me.user.id, customerAlias: newAlias(), astrologerId, mode: "VOICE", kind: "INSTANT", rate, status: "REQUESTED" },
+      data: { ref, customerId: me.user.id, customerAlias: newAlias(), astrologerId, mode: "VOICE", kind: "INSTANT", rate, status: "REQUESTED", customerRecordingConsentAt },
     });
     return { kind: "ok" as const, consultation };
   });
@@ -863,7 +877,7 @@ customerRouter.post("/me/photo", photoBody, async (req, res) => {
   const type = sniffImage(body);
   if (!type) throw badRequest("That file isn't a JPEG, PNG or WebP photo.");
   const previous = (await db.user.findUniqueOrThrow({ where: { id: me.id }, select: { photoUrl: true } })).photoUrl;
-  const photoUrl = await saveImage(body, type);
+  const photoUrl = await saveImage(body, type, AVATAR_LIMITS);
   try {
     await db.user.update({ where: { id: me.id }, data: { photoUrl } });
   } catch (e) {

@@ -221,6 +221,7 @@ function WalletHome() {
         <ListRows>
           <ListRow onClick={() => go("profile")} title="Profile" subtitle="Name, photo and birth details" />
           <ListRow onClick={() => go("settings")} title="Settings & data rights" subtitle="Your data, deactivate or delete" />
+          <ListRow href="/support" title="Help & support" subtitle="Raise an issue or follow one you raised" />
           <ListRow href="/offers" title="Offers" subtitle="Cashback and discounts to claim" />
         </ListRows>
       </div>
@@ -269,7 +270,8 @@ function TxRow({ t }: { t: Transaction }) {
       <TxIcon credit={credit} />
       <span className="min-w-0 flex-1">
         <b className="block text-[13.333px] leading-[1.35] break-words text-app-ink">
-          {credit ? "Credit" : "Debit"} · {t.type}
+          {/* Not "Credit · Credit from support …" when the line already says it. */}
+          {/^credit\b/i.test(t.type) ? t.type : `${credit ? "Credit" : "Debit"} · ${t.type}`}
         </b>
         <span className="block text-[12px] leading-[1.35] break-words text-app-ink-2">{bucketText(t.bucket)}</span>
         <span className="block text-[12px] leading-[1.35] text-app-ink-3">{t.date}</span>

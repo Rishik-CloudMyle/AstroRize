@@ -33,6 +33,7 @@ export const FOOTER_COLUMNS = [
       { label: "Live now", href: "/live" },
       { label: "Free tools", href: "/free-tools" },
       { label: "Wallet", href: "/wallet" },
+      { label: "Help & support", href: "/support" },
     ],
   },
   {

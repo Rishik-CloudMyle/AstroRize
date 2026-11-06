@@ -59,6 +59,8 @@ import {
 import { flagContactAttempt } from "../lib/contact-flags.ts";
 import { contactBlockedNotice, findContactDetails, rateLimit } from "../lib/safety.ts";
 import { consultMessageBody, consultationFor, listMessages, mediaFor, sendMessage, windowOf } from "../lib/consult-room.ts";
+import { isRecorded, recordAstrologerConsent } from "../lib/recordings.ts";
+import { mountRecordingRoutes } from "./call-recording.ts";
 import { canWork, effectivePresence, endLiveRoom, goOffline, goOnline, markSeen, syncPresence, viewerCount } from "../lib/presence.ts";
 import {
   IMAGE_TYPES,
@@ -768,6 +770,8 @@ portalRouter.get("/incoming", async (req, res) => {
         mode: modeLabel(open),
         window: windowOf(open),
         instant: open.kind === "INSTANT",
+        /** Audio is recorded (the incoming dialog shows the notice; answering is the astrologer's acceptance). */
+        recorded: isRecorded(open),
         ...freeOf(open),
         rate: open.rate,
         secondsLeft: left,
@@ -783,6 +787,7 @@ portalRouter.get("/incoming", async (req, res) => {
       mode: modeLabel(head),
       window: windowOf(head),
       instant: head.kind === "INSTANT",
+      recorded: isRecorded(head),
       ...freeOf(head),
       rate: head.rate,
       secondsLeft: Math.max(0, INCOMING_WINDOW_SECS - Math.floor((now - head.offeredAt.getTime()) / 1000)),
@@ -790,7 +795,7 @@ portalRouter.get("/incoming", async (req, res) => {
     };
   } else if (liveHead && !open) {
     const queued = liveHead.consultationId
-      ? await db.consultation.findUnique({ where: { id: liveHead.consultationId }, select: { mode: true, kind: true, rate: true } })
+      ? await db.consultation.findUnique({ where: { id: liveHead.consultationId }, select: { mode: true, kind: true, rate: true, customerRecordingConsentAt: true } })
       : null;
     incoming = {
       key: `live:${liveHead.id}`,
@@ -802,6 +807,7 @@ portalRouter.get("/incoming", async (req, res) => {
       mode: queued ? modeLabel(queued) : "Voice",
       window: queued ? windowOf(queued) : ("voice" as const),
       instant: false,
+      recorded: queued ? isRecorded(queued) : false,
       free: false,
       makeGood: false,
       freeMinutes: null,
@@ -888,6 +894,8 @@ portalRouter.post("/consultations/:id/joined", async (req, res) => {
   const c = await db.consultation.findUnique({ where: { id: String(req.params.id) } });
   if (!c || c.astrologerId !== a.id) throw notFound("Session not found.");
   if (c.status !== "ACTIVE") throw conflict("This session isn't in progress.");
+  // They saw the recording notice on the incoming call and the call screen: joining is their acceptance.
+  await recordAstrologerConsent(c);
   const updated = await markJoined(c, "ASTROLOGER");
   res.json({ status: updated.status.toLowerCase(), ...joinView(updated, await joinTimeoutSeconds()) });
 });
@@ -915,6 +923,12 @@ portalRouter.post("/consultations/:id/messages", async (req, res) => {
   const { text } = consultMessageBody.parse(req.body);
   const c = await consultationFor(String(req.params.id), "ASTROLOGER", a.id);
   res.status(201).json(await sendMessage(c, "ASTROLOGER", (req.auth as AuthContext).user.id, text));
+});
+
+// The call's audio recording, uploaded from the astrologer's browser (both sides record; lib/recordings.ts).
+mountRecordingRoutes(portalRouter, "ASTROLOGER", async (req) => {
+  const a = await me(req);
+  return { c: await consultationFor(String(req.params.id), "ASTROLOGER", a.id), userId: (req.auth as AuthContext).user.id };
 });
 
 portalRouter.get("/consultations/:id/media", async (req, res) => {

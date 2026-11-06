@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAction, useAdmin } from "@/components/admin/admin-provider";
 import ReasonDialog from "@/components/admin/reason-dialog";
 import SortSelect, { useUrlSort } from "@/components/admin/sort-select";
@@ -9,6 +9,8 @@ import { api } from "@/lib/api/client";
 import { sortRows, TICKET_SORTS } from "@/lib/admin/sort";
 import type { SupportCase, SupportData, Ticket } from "@/lib/admin/types";
 import AmountDialog from "./amount-dialog";
+import { IssueSummary, TicketComposer, TicketTimeline } from "./ticket-work";
+import { CreditDialog, WalletCreditCard } from "./wallet-credit";
 
 type RefundStage = "none" | "proposed" | "initiated" | "rejected";
 type Tab = "open" | "resolved";
@@ -16,6 +18,7 @@ type Tab = "open" | "resolved";
 /** The remedy on a queue row: "Refund proposed", "Free call given" … */
 function chipOf(t: Ticket): string {
   if (t.resolution === "MAKE_GOOD") return "Free call given";
+  if (t.resolution === "WALLET_CREDIT") return "Wallet credited";
   if (t.resolution === "REFUND") return "Refunded";
   return t.refundState === "PROPOSED" ? "Proposed" : `Refund ${t.refundState.toLowerCase()}`;
 }
@@ -30,15 +33,21 @@ export default function SupportView({
   data,
   initialTicket,
   initialCase,
+  focus = false,
 }: {
   data: SupportData;
   initialTicket: string;
   initialCase: SupportCase;
+  /** Opened from a link to this ticket (e.g. a notification): on phones, scroll past the list to it. */
+  focus?: boolean;
 }) {
   const { session, say } = useAdmin();
   const { run, busy } = useAction();
   const [sort, setSort] = useUrlSort(TICKET_SORTS);
-  const sorted = sortRows(data.tickets, TICKET_SORTS, sort);
+  // Support and the Super Admin see every team's tickets: they can narrow the list to one team.
+  const teams = [...new Map(data.tickets.map((t) => [t.team, t.teamLabel])).entries()];
+  const [teamFilter, setTeamFilter] = useState("all");
+  const sorted = sortRows(data.tickets, TICKET_SORTS, sort).filter((t) => teamFilter === "all" || t.team === teamFilter);
   const openTickets = sorted.filter((t) => t.open);
   const resolvedTickets = sorted.filter((t) => !t.open);
   const [ticketId, setTicketId] = useState(initialTicket);
@@ -51,14 +60,23 @@ export default function SupportView({
   const [asking, setAsking] = useState<"reject" | "decline" | null>(null);
   // The amount dialog open for this ticket: a refund amount, or the minutes of a free replacement call.
   const [proposing, setProposing] = useState<"refund" | "makegood" | null>(null);
+  // The wallet credit dialog (any ticket).
+  const [crediting, setCrediting] = useState(false);
+  const detail = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // One column below 768px: the ticket asked for sits under the whole list.
+    if (focus && window.matchMedia("(max-width: 767px)").matches) detail.current?.scrollIntoView({ block: "start" });
+  }, [focus]);
 
   const tkt = data.tickets.find((t) => t.id === ticketId) ?? data.tickets[0];
   const caseFile = file.id === tkt.id ? file : null;
   const stage = caseFile ? stageOf(caseFile) : "none";
   // Without dispute.refund.approve (e.g. Support by default) the department may propose but not approve.
   const isSupport = !session.capabilities.includes("dispute.refund.approve");
-  // Proposing, rejecting and closing as covered (Support, Finance and the Super Admin by default).
-  const canPropose = session.capabilities.includes("dispute.refund.propose");
+  // Proposing, rejecting and closing as covered (Support, Finance and the Super Admin by default) —
+  // by the team the ticket is with (or a Super Admin), as the API checks.
+  const canPropose = session.capabilities.includes("dispute.refund.propose") && !!caseFile?.can.act;
+  const hasSession = tkt.session !== "—";
   // Same person, not same short name; older proposals without a recorded id fall back to the name.
   const isProposer = caseFile?.proposedById
     ? caseFile.proposedById === session.id
@@ -71,13 +89,16 @@ export default function SupportView({
   const makeGood = caseFile?.remedy === "MAKE_GOOD";
   const remedyName = makeGood ? "free replacement call" : "refund";
   const mg = caseFile?.makeGood;
+  // A wallet credit is shown on its own card (WalletCreditCard), not in the session refund panel.
+  const credit = caseFile?.remedy === "WALLET_CREDIT";
 
-  const loadCase = async (id: string) => {
+  // `quiet`: after forwarding a ticket away, this person may no longer see it — that's not an error.
+  const loadCase = async (id: string, quiet = false) => {
     try {
       const res = await api.get<{ case: SupportCase }>(`/admin/support/${encodeURIComponent(id)}`);
       setFile(res.case);
     } catch {
-      say("Couldn't load this ticket's case file. Please try again.");
+      if (!quiet) say("Couldn't load this ticket's case file. Please try again.");
     }
   };
   const pick = (id: string) => {
@@ -162,6 +183,23 @@ export default function SupportView({
     <div className="mt-5 grid grid-cols-1 items-start gap-[18px] md:grid-cols-[300px_minmax(0,1fr)]">
       <div className={`${PANEL} p-3.5`}>
         <SortSelect options={TICKET_SORTS} value={sort} onChange={setSort} className="mb-3 w-full" />
+        {teams.length > 1 && (
+          <label className="mb-3 flex items-center gap-2 text-[12px] font-bold text-[#57534e]">
+            Team
+            <select
+              value={teamFilter}
+              onChange={(e) => setTeamFilter(e.target.value)}
+              className="h-9 min-w-0 flex-1 rounded-[10px] border border-line bg-white px-2 text-[12.5px] font-semibold text-ink"
+            >
+              <option value="all">All teams</option>
+              {teams.map(([key, label]) => (
+                <option key={key} value={key}>
+                  With {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <div role="tablist" aria-label="Tickets" className="mb-2.5 grid grid-cols-2 gap-1 rounded-xl bg-cream p-1">
           {(
             [
@@ -207,7 +245,16 @@ export default function SupportView({
                     {t.sla}
                   </span>
                 </div>
-                <b className="mt-1 block text-[12.5px] text-ink">{t.subject}</b>
+                <b className="mt-1 block text-[12.5px] break-words text-ink">{t.subject}</b>
+                <span className="mt-1 flex flex-wrap items-center gap-1">
+                  <span className="inline-flex h-[18px] items-center rounded-full bg-cream px-1.5 text-[9.5px] font-extrabold text-[#57534e]">With {t.teamLabel}</span>
+                  {t.customerReplied && (
+                    <span className="inline-flex h-[18px] items-center rounded-full bg-[#fff7ed] px-1.5 text-[9.5px] font-extrabold text-[#c2410c]">New from customer</span>
+                  )}
+                  {t.awaitingCustomer && (
+                    <span className="inline-flex h-[18px] items-center rounded-full bg-[#eff6ff] px-1.5 text-[9.5px] font-extrabold text-[#1e40af]">Waiting on customer</span>
+                  )}
+                </span>
                 {t.outcome && (
                   <span className="mt-px block text-[11px] text-[#78716c]">
                     {[t.outcome.on && `Closed ${t.outcome.on}`, t.outcome.by && `by ${t.outcome.by}`].filter(Boolean).join(" ")}
@@ -216,7 +263,7 @@ export default function SupportView({
                 <span className="mt-px flex items-center gap-1.5 text-[11px] text-[#78716c]">
                   {t.state}
                   {/* The remedy, unless the ticket state (REFUND_PROPOSED …) or its outcome already says it. */}
-                  {t.open && t.refundState !== "NONE" && !t.state.startsWith("REFUND_") && !t.state.startsWith("MAKEGOOD_") && (
+                  {t.open && t.refundState !== "NONE" && !t.state.startsWith("REFUND_") && !t.state.startsWith("MAKEGOOD_") && !t.state.startsWith("CREDIT_") && (
                     <span
                       className="inline-flex h-[17px] items-center rounded-full px-1.5 text-[9.5px] font-extrabold"
                       style={
@@ -235,20 +282,36 @@ export default function SupportView({
         </div>
       </div>
 
-      <div className="min-w-0">
+      <div ref={detail} className="min-w-0 scroll-mt-[70px]">
         <div className={`${PANEL} relative p-[22px]`}>
           <div className="flex flex-wrap items-start justify-between gap-3.5">
             <div>
-              <h2 className="m-0 text-[19px] font-bold">{tkt.subject}</h2>
+              <h2 className="m-0 text-[19px] font-bold break-words">{tkt.subject}</h2>
               <p className="mt-1 mb-0 text-[12.5px] text-[#78716c]">
-                {tkt.id} · customer {tkt.alias} · session {tkt.session}
+                {tkt.id} · customer {tkt.alias}
+                {hasSession ? ` · session ${tkt.session}` : ""}
               </p>
             </div>
-            <span className="inline-flex h-7 items-center rounded-full bg-amber-50 px-3 text-[12px] font-bold text-amber-800">
-              {tkt.state}
-            </span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex h-7 items-center rounded-full bg-cream px-3 text-[12px] font-bold text-[#57534e]">With {tkt.teamLabel}</span>
+              <span className="inline-flex h-7 items-center rounded-full bg-amber-50 px-3 text-[12px] font-bold text-amber-800">
+                {tkt.awaitingCustomer ? "WAITING ON CUSTOMER" : tkt.state}
+              </span>
+            </div>
           </div>
+          {caseFile && tkt.open && !caseFile.can.act && (
+            <p className="mt-3 mb-0 rounded-xl border border-line bg-cream px-3.5 py-2.5 text-[12.5px] text-[#57534e]">
+              This ticket is with <b>{caseFile.teamLabel}</b>. Only {caseFile.teamLabel} or a Super Admin can reply, forward or resolve it
+              {caseFile.can.note ? " — you can still add an internal note." : "."}
+            </p>
+          )}
+          {caseFile?.description && (
+            <p className="mt-3 mb-0 text-[13.5px] leading-normal break-words whitespace-pre-wrap text-ink">{caseFile.description}</p>
+          )}
+          {caseFile && <IssueSummary file={caseFile} />}
 
+          {hasSession && (
+          <>
           <div className="mt-[18px] grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
             {(caseFile?.metering ?? []).map((m) => (
               <div key={m.label} className="rounded-[14px] bg-cream p-[13px]">
@@ -288,6 +351,7 @@ export default function SupportView({
             </div>
           </div>
 
+          {!credit && (
           <div className="relative mt-[18px] rounded-2xl border border-amber-200 bg-amber-50 p-[18px]">
             <h3 className="mt-0 mb-1 text-[15px] font-bold">
               {stage === "proposed" || stage === "initiated" ? (makeGood ? "Free replacement call" : "Refund") : "Refund or free replacement call"}
@@ -451,6 +515,32 @@ export default function SupportView({
               </p>
             )}
           </div>
+          )}
+          </>
+          )}
+          {caseFile && <WalletCreditCard file={caseFile} onDone={() => loadCase(tkt.id)} />}
+          {!hasSession && !credit && settled && caseFile?.outcome && (
+            <p className="mt-[18px] mb-0 rounded-xl border border-line bg-cream px-3.5 py-2.5 text-[12.5px] text-[#57534e]">
+              <b className="text-ink">
+                {caseFile.outcome.label}
+                {caseFile.outcome.on ? ` ${caseFile.outcome.on}` : ""}
+                {caseFile.outcome.by ? ` by ${caseFile.outcome.by}` : ""}
+              </b>
+            </p>
+          )}
+          {caseFile && (
+            <>
+              <TicketTimeline items={caseFile.timeline} />
+              <TicketComposer
+                key={`${caseFile.id}-${caseFile.team}-${caseFile.state}`}
+                file={caseFile}
+                session={tkt.session}
+                onDone={() => loadCase(tkt.id, true)}
+                onCredit={caseFile.can.credit ? () => setCrediting(true) : undefined}
+                onRefund={hasSession && stage === "none" && canPropose && !caseFile.refundBlocked ? () => setProposing("refund") : undefined}
+              />
+            </>
+          )}
         </div>
       </div>
       {asking && (
@@ -489,6 +579,7 @@ export default function SupportView({
           onSubmit={propose}
         />
       )}
+      {crediting && caseFile && <CreditDialog file={caseFile} onClose={() => setCrediting(false)} onDone={() => loadCase(tkt.id)} />}
       {proposing === "makegood" && mg && (
         <AmountDialog
           title={`Offer a free replacement call on ${tkt.id}`}

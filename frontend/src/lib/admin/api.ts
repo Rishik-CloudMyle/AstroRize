@@ -526,9 +526,16 @@ interface RawTicket {
   alias: string;
   session: string;
   refundState: "NONE" | "PROPOSED" | "INITIATED";
-  resolution: "REFUND" | "MAKE_GOOD" | null;
+  resolution: "REFUND" | "MAKE_GOOD" | "WALLET_CREDIT" | null;
   open: boolean;
   outcome: TicketOutcome | null;
+  team: string;
+  teamLabel: string;
+  category: string | null;
+  awaitingCustomer: boolean;
+  customerReplied: boolean;
+  lastActivityAt: string;
+  mine: boolean;
 }
 
 export async function getSupport(): Promise<SupportData> {
@@ -548,6 +555,13 @@ export async function getSupport(): Promise<SupportData> {
       resolution: t.resolution ?? null,
       open: t.open,
       outcome: t.outcome ?? null,
+      team: t.team,
+      teamLabel: t.teamLabel,
+      category: t.category ?? null,
+      awaitingCustomer: t.awaitingCustomer,
+      customerReplied: t.customerReplied,
+      lastActivityAt: t.lastActivityAt,
+      mine: t.mine,
     })),
   };
 }

@@ -30,8 +30,13 @@ npm run db:seed                        # loads the demo data
 
 ```bash
 npm run db     # if the local database isn't already running
-npm run dev    # starts the API and the website together
+npm run dev    # starts the API, the website and the media worker together
 ```
+
+Locally, message videos are compressed **inside the API** (`MEDIA_WORKER=inline`, the default when
+`NODE_ENV` isn't production), because the local `prisma dev` database accepts only one connection
+and the API already holds it. FFmpeg still runs as its own process, so the API stays responsive.
+The `media` process that `npm run dev` starts just says it is idle.
 
 `npm run db:reset` wipes the local database and reloads the demo data.
 
@@ -103,6 +108,19 @@ Mobile sign-in codes, when testing:
   Set `NODE_ENV=production`, `SESSION_SECRET` and `FRONTEND_ORIGIN`.
 - **Website:** `npm run build --prefix frontend` then `npm start --prefix frontend`.
   Set `BACKEND_URL` to the API's address and the same `SESSION_SECRET`.
+- **Media worker** (compresses videos sent in messages): `npm run worker --prefix backend`, as its
+  own process next to the API (several can run, on one or more machines). Set `MEDIA_WORKER=external`
+  on the API and the worker (the production default), the same `DATABASE_URL` (+ `DATABASE_POOL_MAX`,
+  e.g. 2) and `SESSION_SECRET`. Optional: `MEDIA_WORKER_CONCURRENCY` (videos at a time per worker,
+  default 1), `MEDIA_TRANSCODE_TIMEOUT_SECONDS` (default 300), `FFMPEG_PATH` (default: the bundled
+  ffmpeg-static binary). Without a running worker, videos stay "Processing video…".
+  How it works: the API stores the upload and queues a `MediaJob`; a worker claims it, runs FFmpeg
+  (H.264 CRF 28, max 720p / 30 fps, AAC 96 kbps, faststart, plus a poster frame), swaps the message
+  to the compressed file and deletes the original. Up to 3 tries with back-off; a job whose worker
+  died is picked up again after 10 minutes. The queue (`MediaQueue`, lib/media-jobs.ts) and file
+  storage (`Storage`, lib/storage.ts) are interfaces so they can move to BullMQ/Redis and S3.
+  Photos are compressed in the browser before upload (WebP, ≤1600 px) and checked again on the
+  server with sharp.
 
 Not connected yet: SMS provider for one-time codes, Razorpay checkout for recharges, RazorpayX
 for payouts, and live audio/video. Until they are, a production API (`NODE_ENV=production`)

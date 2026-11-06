@@ -59,8 +59,10 @@ export const PAGES: Record<AdminRoleKey, PageKey[]> = {
   super: ["overview", "messages", "config", "hr", "marketing", "finance", "support", "compliance", "trust", "rbac", "audit", "recording", "team"],
   finance: ["overview", "messages", "config", "finance", "support", "audit"],
   support: ["overview", "messages", "support", "audit"],
-  compliance: ["overview", "messages", "compliance", "trust", "audit", "recording"],
-  marketing: ["overview", "messages", "marketing", "audit"],
+  // Compliance and Marketing open "Support & disputes" for the customer issues forwarded to them
+  // (they see only those: lib/tickets.ts ticketScope).
+  compliance: ["overview", "messages", "compliance", "support", "trust", "audit", "recording"],
+  marketing: ["overview", "messages", "marketing", "support", "audit"],
 };
 
 /**
@@ -73,8 +75,8 @@ export const CAPABILITIES: { key: string; label: string; page: PageKey | null; r
   { key: "payout.approve", label: "Approve a payout batch", page: "finance", roles: ["super", "finance"] },
   { key: "payout.release", label: "Release an approved payout batch", page: "finance", roles: ["super"] },
   { key: "wallet.refund.process", label: "Mark a customer wallet refund paid or failed", page: "finance", roles: ["super", "finance"] },
-  { key: "dispute.refund.propose", label: "Propose a refund or free replacement call on a dispute, or reject it", page: "support", roles: ["super", "support", "finance"] },
-  { key: "dispute.refund.approve", label: "Approve or decline a proposed refund or free replacement call (someone else's)", page: "finance", roles: ["super", "finance"] },
+  { key: "dispute.refund.propose", label: "Propose a refund, wallet credit or free replacement call on a ticket, or reject a dispute", page: "support", roles: ["super", "support", "finance"] },
+  { key: "dispute.refund.approve", label: "Approve or decline a proposed refund, wallet credit or free replacement call (someone else's)", page: "finance", roles: ["super", "finance"] },
   { key: "price.approve", label: "Approve or reject an astrologer's price increase", page: "hr", roles: ["super"] },
   { key: "astrologer.suspend", label: "Suspend an astrologer, or make a suspension stricter", page: "compliance", roles: ["super", "compliance"] },
   { key: "astrologer.restore", label: "Lift or ease an astrologer's suspension", page: "compliance", roles: ["super"] },
@@ -85,6 +87,7 @@ export const CAPABILITIES: { key: string; label: string; page: PageKey | null; r
   { key: "audit.read", label: "Read and export the audit log", page: "audit", roles: ["super", "finance", "support", "compliance", "marketing"] },
   { key: "staff.manage", label: "Add, deactivate and reset staff accounts", page: "team", roles: ["super"] },
   { key: "retention.edit", label: "Change how long chat and messages are kept", page: "recording", roles: ["super"] },
+  { key: "recording.listen", label: "Listen to consultation call recordings (audio)", page: "recording", roles: ["super"] },
   { key: "rbac.edit", label: "Change this access matrix", page: "rbac", roles: ["super"] },
 ];
 const CAP_KEYS = CAPABILITIES.map((c) => c.key);
@@ -112,6 +115,7 @@ export const CAPABILITY_LOCKS: Record<string, Lock> = {
   "staff.manage": { roles: SUPER_ONLY, reason: "Only a Super Admin can manage the team." },
   "rbac.edit": { roles: SUPER_ONLY, reason: "Only a Super Admin can change access." },
   "retention.edit": { roles: SUPER_ONLY, reason: "Only a Super Admin can change how long conversations are kept." },
+  "recording.listen": { roles: SUPER_ONLY, reason: "Only a Super Admin can listen to call recordings (client decision)." },
 };
 
 export const SUPER_LOCK_REASON = "A Super Admin always has every page and capability.";

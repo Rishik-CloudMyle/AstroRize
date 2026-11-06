@@ -321,10 +321,11 @@ governanceRouter.get("/audit/export", async (req, res) => {
 });
 
 // ── Recording & retention ──
-// Nothing is recorded from calls or video: voice and video go through the media provider (ZEGO)
-// and are never saved. What is stored is written conversation — live-room chat, astrologer–customer
-// messages and the chat inside consultations — kept for the retention period below and purged
-// daily (lib/retention.ts).
+// Written conversation — live-room chat, astrologer–customer messages and the chat inside
+// consultations — is kept for the retention period below and purged daily (lib/retention.ts).
+// Voice and video consultations are recorded as audio only (lib/recordings.ts); the recordings
+// themselves are listed only to a Super Admin (routes/admin/recordings.ts). Public live video is
+// not recorded.
 
 governanceRouter.get("/recording", async (req, res) => {
   const admin = requirePage(req, "recording");
@@ -344,8 +345,10 @@ governanceRouter.get("/recording", async (req, res) => {
     .sort((x, y) => x.getTime() - y.getTime())[0];
   res.json({
     recording: {
-      // Whether voice and video run at all (ZEGO keys set). Either way nothing is recorded.
+      // Whether voice and video run at all (ZEGO keys set).
       media: { connected: zegoConfigured() },
+      // Call audio recordings: only a Super Admin sees the list and can listen.
+      calls: { canListen: capabilitiesOf(admin.adminRole).includes("recording.listen"), retentionDays: await configNumber("recording.retention_days", 0) },
       stored: { liveChat, messages, conversations, consultChat, oldest: oldest ? istStamp(oldest) : null },
       retention: {
         days: policy.days,

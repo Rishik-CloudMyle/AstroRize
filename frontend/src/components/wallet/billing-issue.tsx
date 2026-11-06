@@ -8,6 +8,7 @@
 // An issue can be raised only within the window after the session ended (the API says how many
 // days and until when, per session), and never again once one was reviewed and rejected.
 
+import Link from "next/link";
 import { useEffect, useId, useReducer, useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
 import { rupee } from "@/lib/format";
@@ -103,7 +104,9 @@ export function BillingIssueAction({ txRef, compact = false }: { txRef: string; 
     ) : (
       <div className="mt-3 rounded-[14px] border border-line bg-cream px-3.5 py-3 text-[13px] max-lg:rounded-app-card max-lg:border-app-line max-lg:bg-app-surface">
         <div className="flex items-center justify-between gap-2">
-          <b className="text-ink max-lg:text-app-ink">Issue {mine.id}</b>
+          <Link href={`/support/${mine.id}`} className="font-bold text-ink underline decoration-amber-300 underline-offset-2 max-lg:text-app-ink">
+            Issue {mine.id}
+          </Link>
           <StatusChip status={mine.status} />
         </div>
         <p className="mt-1 mb-0 text-[12.5px] text-stone-500 max-lg:text-app-ink-2">{mine.status.body}</p>
@@ -203,7 +206,7 @@ function RaiseIssueDialog({ txRef, until, onClose }: { txRef: string; until: str
           </h2>
           <p className="mt-2 mb-0 text-[13.5px] leading-[1.5] text-stone-600 max-lg:text-app-ink-2">
             We&rsquo;ve received it as <b>{done}</b>. Our support team will review session {txRef}. A refund is reviewed — it is not
-            automatic. You&rsquo;ll see the outcome here and in your notifications.
+            automatic. You&rsquo;ll see the outcome here, in Help &amp; support and in your notifications.
           </p>
           <button
             type="button"
@@ -318,6 +321,12 @@ export function BillingIssues({ className = "" }: { className?: string }) {
               {r.mode} with {r.astrologer} · billed {rupee(r.billed)} · raised {r.raisedOn}
             </p>
             <p className="mt-1 mb-0 text-[12.5px] break-words text-stone-600 max-lg:text-app-ink-2">{r.status.body}</p>
+            <Link
+              href={`/support/${r.id}`}
+              className="mt-1.5 inline-block text-[12.5px] font-bold text-amber-700 underline decoration-amber-300 underline-offset-2 hover:text-amber-800 max-lg:text-app-accent"
+            >
+              Open the conversation
+            </Link>
           </li>
         ))}
       </ul>

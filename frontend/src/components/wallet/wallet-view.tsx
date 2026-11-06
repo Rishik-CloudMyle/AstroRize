@@ -427,6 +427,22 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
         {/* ---------- Billing issues raised from a consultation line (only when there are some) ---------- */}
         <BillingIssues className="rounded-[22px] border border-line bg-paper p-4 sm:p-[22px]" />
 
+        {/* ---------- Help & support ---------- */}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-line bg-paper p-4 sm:p-[22px]">
+          <div className="min-w-0 flex-1 basis-[240px]">
+            <h2 className="mb-1 text-[17px] font-bold">Help &amp; support</h2>
+            <p className="m-0 text-[13px] text-stone-500">
+              A payment, refund, consultation or account problem? Raise an issue and follow our team&rsquo;s replies.
+            </p>
+          </div>
+          <Link
+            href="/support"
+            className="inline-flex h-10 items-center rounded-xl border border-line bg-white px-4 text-[13.5px] font-bold text-ink hover:border-amber-300 hover:text-ink hover:no-underline"
+          >
+            Help &amp; support
+          </Link>
+        </div>
+
         {/* ---------- Profile (shared only with an astrologer whose live queue the customer joins) ---------- */}
         <ProfileSection />
 

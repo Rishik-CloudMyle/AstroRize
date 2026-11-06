@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import sharp, { type Metadata } from "sharp";
+import { badRequest } from "./errors.ts";
 
 // Uploaded media: customer profile photos and astrologers' intro videos (public), and photos
 // and videos sent in customer–astrologer messages (private: see PRIVATE_DIR).
@@ -94,9 +96,69 @@ export function stripJpegMetadata(buf: Buffer): Buffer {
   return Buffer.concat(parts);
 }
 
-/** Saves an image under a random name and returns its public URL (/api/media/<file>). */
-export async function saveImage(buf: Buffer, type: ImageType): Promise<string> {
-  return saveFile(type === "image/jpeg" ? stripJpegMetadata(buf) : buf, IMAGE_TYPES[type]);
+// ── Image compression (storage cost) ──
+// The website already resizes and re-encodes photos (WebP) before upload. The server checks again:
+// a photo that is still too big or too large in pixels, needs turning upright, or carries camera
+// metadata the simple JPEG cleaner can't remove (WebP/PNG EXIF) is re-encoded here with sharp
+// (it runs on libuv's thread pool, so the API stays responsive).
+
+/** Largest stored photo: longest side in pixels and file size; anything bigger is re-encoded. */
+export interface ImageLimits {
+  maxSide: number;
+  maxBytes: number;
+}
+/** Photos in messages, Help & support screenshots and gallery photos. */
+export const PHOTO_LIMITS: ImageLimits = { maxSide: 2000, maxBytes: 600 * 1024 };
+/** Profile photos (shown small). */
+export const AVATAR_LIMITS: ImageLimits = { maxSide: 1024, maxBytes: 300 * 1024 };
+/** Decoding a bigger image than this (pixels) is refused: guards against "decompression bombs". */
+const MAX_INPUT_PIXELS = 100_000_000;
+const WEBP_QUALITY = 80;
+
+sharp.cache(false);
+
+/**
+ * Returns the image ready to store: unchanged (JPEG camera metadata removed) when it is already
+ * within `limits`, otherwise resized to fit, turned upright and re-encoded as WebP without metadata.
+ * An image sharp can't decode is refused with a clear message.
+ */
+export async function optimiseImage(buf: Buffer, type: ImageType, limits: ImageLimits = PHOTO_LIMITS): Promise<{ buf: Buffer; type: ImageType }> {
+  const input = { limitInputPixels: MAX_INPUT_PIXELS, animated: type === "image/webp" };
+  let meta: Metadata;
+  try {
+    meta = await sharp(buf, input).metadata();
+  } catch {
+    throw badRequest("That photo couldn't be read. Try another one.");
+  }
+  const side = Math.max(meta.width ?? 0, meta.pageHeight ?? meta.height ?? 0);
+  const turned = (meta.orientation ?? 1) !== 1;
+  const otherMetadata = type !== "image/jpeg" && !!(meta.exif || meta.xmp || meta.iptc);
+  if (buf.length <= limits.maxBytes && side <= limits.maxSide && !turned && !otherMetadata) {
+    return { buf: type === "image/jpeg" ? stripJpegMetadata(buf) : buf, type };
+  }
+  const encode = (quality: number) =>
+    sharp(buf, input)
+      .rotate()
+      .resize({ width: limits.maxSide, height: limits.maxSide, fit: "inside", withoutEnlargement: true })
+      .webp({ quality, effort: 4 })
+      .toBuffer();
+  try {
+    let out = await encode(WEBP_QUALITY);
+    // Very detailed photos: one more, lighter pass.
+    if (out.length > limits.maxBytes) out = await encode(WEBP_QUALITY - 15);
+    return { buf: out, type: "image/webp" };
+  } catch {
+    throw badRequest("That photo couldn't be read. Try another one.");
+  }
+}
+
+/**
+ * Saves an image under a random name and returns its public URL (/api/media/<file>). It is
+ * compressed first when needed (optimiseImage).
+ */
+export async function saveImage(buf: Buffer, type: ImageType, limits: ImageLimits = PHOTO_LIMITS): Promise<string> {
+  const ready = await optimiseImage(buf, type, limits);
+  return saveFile(ready.buf, IMAGE_TYPES[ready.type]);
 }
 
 /** Saves a video under a random name and returns its public URL (/api/media/<file>). */
@@ -116,12 +178,17 @@ async function writeNew(dir: string, buf: Buffer, ext: string): Promise<string> 
 }
 
 /**
- * Saves a photo or video sent in a message into the private folder and returns the stored file
- * name (not a URL). JPEG camera metadata (GPS) is removed first.
+ * Saves a photo or video sent in a message (or a support screenshot) into the private folder and
+ * returns the stored file name (not a URL). Photos are compressed first when needed (optimiseImage),
+ * which also removes camera metadata (GPS). Videos are stored as they came (lib/media-jobs.ts
+ * compresses message videos afterwards).
  */
 export async function savePrivateFile(buf: Buffer, type: MediaType): Promise<string> {
-  const ext = CONTENT_TYPE_EXT[type];
-  return writeNew(PRIVATE_DIR, type === "image/jpeg" ? stripJpegMetadata(buf) : buf, ext);
+  if (type in IMAGE_TYPES) {
+    const ready = await optimiseImage(buf, type as ImageType);
+    return writeNew(PRIVATE_DIR, ready.buf, IMAGE_TYPES[ready.type]);
+  }
+  return writeNew(PRIVATE_DIR, buf, CONTENT_TYPE_EXT[type]);
 }
 
 /** Deletes message files by stored name. Missing files and names we couldn't have issued are ignored. */

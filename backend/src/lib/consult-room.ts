@@ -6,6 +6,7 @@ import { conflict, forbidden, notFound } from "./errors.ts";
 import { messageText } from "./messaging.ts";
 import { flagContactAttempt } from "./contact-flags.ts";
 import { contactBlockedNotice, findContactDetails, rateLimit } from "./safety.ts";
+import { isRecorded } from "./recordings.ts";
 import { zegoConfigured, zegoRoom, zegoServerUrl, zegoToken, zegoUserId } from "./zego.ts";
 
 // The inside of a one-to-one consultation: its written chat (every mode has one — the whole
@@ -129,5 +130,7 @@ export function mediaFor(c: Consultation, party: Party, user: { id: string }, us
     myStreamId,
     peerStreamId,
     wants,
+    /** The call's audio is recorded (both sides accepted the notice): the "● Recording" indicator shows. */
+    recorded: isRecorded(c),
   };
 }

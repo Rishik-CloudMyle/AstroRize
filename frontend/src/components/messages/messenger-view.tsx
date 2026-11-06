@@ -617,7 +617,7 @@ function Conversation({
                   : `self-start rounded-[16px_16px_16px_4px] border-line bg-white ${BUBBLE_THEM}`
               } ${BUBBLE}`}
             >
-              {m.attachment && <MessageMedia attachment={m.attachment} onLoad={keepAtBottom} />}
+              {m.attachment && <MessageMedia attachment={m.attachment} onLoad={keepAtBottom} mine={m.from === "me"} />}
               {m.text}
               <span className="mt-0.5 block text-right text-[10.5px] text-stone-500 max-lg:text-left max-lg:text-[12px] max-lg:text-app-ink-3">{messageTime(m.at, true)}</span>
             </div>

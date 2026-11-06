@@ -433,7 +433,7 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
                           : `self-start rounded-[14px_14px_14px_4px] border-line bg-white ${BUBBLE_THEM}`
                       }`}
                     >
-                      {m.attachment && <MessageMedia attachment={m.attachment} onLoad={keepAtBottom} />}
+                      {m.attachment && <MessageMedia attachment={m.attachment} onLoad={keepAtBottom} mine={m.from === "me"} />}
                       {m.text}
                       <span className="mt-0.5 block text-right text-[10.5px] text-stone-500">{messageTime(m.at, true)}</span>
                     </div>

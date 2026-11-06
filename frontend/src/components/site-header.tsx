@@ -10,6 +10,7 @@ import { totalBalance, useSession } from "@/lib/session-store";
 import { useAppUI } from "./app-provider";
 import { useLiveNow } from "./live-notifier";
 import { ConsultInProgressBar } from "./consult/consult-lock";
+import AccountMenu from "./account-menu";
 import NotificationBell from "./notification-bell";
 
 export default function SiteHeader() {
@@ -90,14 +91,8 @@ export default function SiteHeader() {
                   +
                 </span>
               </Link>
-              {/* Hidden on the narrowest phones to make room for the bell; Wallet is in the menu there. */}
-              <Link
-                href="/wallet"
-                aria-label="Your account"
-                className="hidden size-[38px] place-items-center min-[400px]:grid rounded-full border-2 border-gold bg-linear-160 from-amber-100 to-amber-300 text-[13px] font-extrabold text-amber-900 hover:no-underline"
-              >
-                {session.user.initials}
-              </Link>
+              {/* The account menu: Wallet & account, Help & support, Messages, Profile, Log out. */}
+              <AccountMenu initials={session.user.initials} name={session.user.name} />
             </>
           ) : (
             <>

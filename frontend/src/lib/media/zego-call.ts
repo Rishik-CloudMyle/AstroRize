@@ -27,6 +27,8 @@ export type MediaAnswer =
       myStreamId: string;
       peerStreamId: string;
       wants: MediaWants;
+      /** The call's audio is recorded (the customer accepted the notice): the "● Recording (audio)" indicator shows. */
+      recorded?: boolean;
     }
   | { available: false; reason: "chat" | "ended" | "not_configured" | string; wants: MediaWants };
 

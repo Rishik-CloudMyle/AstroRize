@@ -9,6 +9,7 @@ import { useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 import { recheckAvailability } from "../astrologer/use-fresh-astrologer";
 import { multiplierLabel } from "../consult/consult-sheet";
+import { RecordingConsent } from "../consult/recording-notice";
 import Modal from "../ui/modal";
 
 /**
@@ -33,10 +34,12 @@ export default function InstantCallModal({
   // The rate the customer agreed to: the one shown, or the new one after a price change.
   const [quoted, setQuoted] = useState(astrologer.instant);
   const [changedFrom, setChangedFrom] = useState<number | null>(null);
+  // An Instant Call is recorded (audio only): the customer accepts the notice before it is placed.
+  const [consent, setConsent] = useState(false);
   const rate = `${rupee(quoted)}/min`;
 
   async function confirm() {
-    if (busy) return;
+    if (busy || !consent) return;
     if (!session.loggedIn) {
       openLogin({ notice: `Log in to place an Instant Call to ${astrologer.name}.` });
       return;
@@ -44,7 +47,7 @@ export default function InstantCallModal({
     setBusy(true);
     setError("");
     try {
-      const res = await api.post<{ consultation: ConsultationView }>("/instant-calls", { astrologerId: astrologer.id, quotedRate: quoted });
+      const res = await api.post<{ consultation: ConsultationView }>("/instant-calls", { astrologerId: astrologer.id, quotedRate: quoted, recordingConsent: true });
       onPlaced(res.consultation);
     } catch (e) {
       if (e instanceof ApiError && e.code === "consultation_in_progress") {
@@ -100,6 +103,7 @@ export default function InstantCallModal({
           The rate changed from {rupee(changedFrom)} to {rupee(quoted)}/min — continue at {rupee(quoted)}? Nothing has been placed yet.
         </p>
       )}
+      <RecordingConsent checked={consent} onChange={setConsent} className="mt-3.5" />
       {error && (
         <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">
           {error}
@@ -116,8 +120,8 @@ export default function InstantCallModal({
         <button
           type="button"
           onClick={() => void confirm()}
-          disabled={busy}
-          className="h-12 rounded-xl bg-urgent px-2 text-[14.5px] font-bold text-white disabled:opacity-70"
+          disabled={busy || !consent}
+          className="h-12 rounded-xl bg-urgent px-2 text-[14.5px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-70"
         >
           {busy ? "Placing the call…" : `Confirm ${rate}`}
         </button>

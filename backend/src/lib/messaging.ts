@@ -17,6 +17,7 @@ import {
   videoDurationSeconds,
   type MediaType,
 } from "./media.ts";
+import { mediaQueue, mediaWorkerMode } from "./media-jobs.ts";
 import { ROLE_LABELS, type AdminRoleKey } from "./rbac.ts";
 import { flagThreadAttempt } from "./contact-flags.ts";
 import { contactBlockedNotice, findContactDetails, rateLimit } from "./safety.ts";
@@ -39,9 +40,16 @@ export const messageText = z
  */
 export function messageView(m: Message, viewer: Side) {
   const from = m.blocked ? "blocked" : m.sender === viewer ? "me" : viewer === "ASTROLOGER" ? "customer" : "astrologer";
+  // A video still being compressed (or that couldn't be) has no file to show yet.
+  const state = m.attachmentState === "PROCESSING" ? ("processing" as const) : m.attachmentState === "FAILED" ? ("failed" as const) : ("ready" as const);
   const attachment =
     m.attachment && !m.blocked
-      ? { kind: m.attachmentKind === "VIDEO" ? ("video" as const) : ("image" as const), url: attachmentUrl(m.id, m.attachment) }
+      ? {
+          kind: m.attachmentKind === "VIDEO" ? ("video" as const) : ("image" as const),
+          url: state === "ready" ? attachmentUrl(m.id, m.attachment) : null,
+          state,
+          poster: state === "ready" && m.attachmentPoster ? attachmentUrl(m.id, m.attachmentPoster) : null,
+        }
       : null;
   return { id: m.id, from, text: m.text, attachment, at: m.createdAt.toISOString() };
 }
@@ -146,12 +154,18 @@ export function checkChatFile(body: unknown): ChatFile {
 export async function postAttachment(threadId: string, sender: Side, caption: string, file: ChatFile) {
   if (caption && findContactDetails(caption, "FREE").length) return postMessage(threadId, sender, caption);
   const name = await savePrivateFile(file.buf, file.type);
+  // Videos are compressed in the background (lib/media-jobs.ts): "processing" until the worker is done.
+  const compress = file.kind === "VIDEO" && mediaWorkerMode() !== "off";
   try {
     const message = await db.$transaction(async (tx) => {
-      const m = await tx.message.create({ data: { threadId, sender, text: caption, attachment: name, attachmentKind: file.kind } });
+      const m = await tx.message.create({
+        data: { threadId, sender, text: caption, attachment: name, attachmentKind: file.kind, attachmentState: compress ? "PROCESSING" : null },
+      });
+      if (compress) await mediaQueue.enqueue({ kind: "VIDEO_TRANSCODE", messageId: m.id, input: name, inputBytes: file.buf.length }, tx);
       await tx.messageThread.update({ where: { id: threadId }, data: { updatedAt: m.createdAt } });
       return m;
     });
+    if (compress) mediaQueue.notify();
     return { blocked: false, message: messageView(message, sender) };
   } catch (e) {
     await deletePrivateFiles([name]);

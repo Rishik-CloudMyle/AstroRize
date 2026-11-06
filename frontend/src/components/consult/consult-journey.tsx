@@ -16,6 +16,7 @@ import { SessionWindow, windowKindOf } from "./session/session-window";
 import { releaseCallSession } from "@/lib/media/call-session";
 import { unlockSound } from "@/lib/media/ring";
 import { staffConsultNote } from "./consult-gate";
+import { isRecordedChoice } from "./recording-notice";
 import ConsultSheet, { CHOICE_TITLE, quotedRateFor, type ConsultChoice, type PayChoice, type RateChange } from "./consult-sheet";
 import InCallRecharge from "./in-call-recharge";
 import { offersChanged, useConsultDiscount } from "@/lib/offers";
@@ -118,6 +119,8 @@ export default function ConsultJourney({
   );
   // The API refused because the price changed since the sheet showed it; the customer confirms the new one.
   const [rateChange, setRateChange] = useState<RateChange | null>(null);
+  // The recording notice (voice, video and Instant Call are recorded, audio only), ticked on the sheet.
+  const [recordingConsent, setRecordingConsent] = useState(false);
   // Free minutes or a paid call, where a free option exists: the customer's own choice (never assumed).
   const [pay, setPay] = useState<PayChoice | null>(null);
   // The free-call length the customer chose in the sheet (minutes); the whole of it is used.
@@ -318,13 +321,18 @@ export default function ConsultJourney({
     if (pay === "free" && freeHere && choice !== "instant" && !useFree && !useMakeGoodCall) return;
     if (!useFree && !useMakeGoodCall && balance < quoted * 5) return;
     if (useFree && !freeLength) return;
+    if (isRecordedChoice(choice) && !recordingConsent) return;
     setBusy(true);
     setError("");
     setRateChange(null);
     if (choice === "instant") {
       // Instant Call: placed now, then the astrologer is asked; the hold is taken only when they accept.
       try {
-        const res = await api.post<{ consultation: ConsultationView }>("/instant-calls", { astrologerId: fresh.id, quotedRate: quoted });
+        const res = await api.post<{ consultation: ConsultationView }>("/instant-calls", {
+          astrologerId: fresh.id,
+          quotedRate: quoted,
+          recordingConsent: recordingConsent || undefined,
+        });
         consultationActions.apply(res.consultation);
         setPlaced({ id: res.consultation.id, rate: res.consultation.rate, held: 0 });
         setLive({ view: res.consultation, at: Date.now() });
@@ -348,6 +356,8 @@ export default function ConsultJourney({
         quotedRate: quoted,
         ...(useFree ? { welcome: true, freeMinutes: freeLength } : {}),
         ...(useMakeGoodCall ? { makeGoodCreditId: makeGood.id } : {}),
+        // Voice and video are recorded (audio only): the customer ticked the notice on the sheet.
+        ...(isRecordedChoice(choice) ? { recordingConsent } : {}),
       });
       if (useMakeGoodCall) makeGoodChanged();
       setPlaced(consultation);
@@ -679,6 +689,8 @@ export default function ConsultJourney({
         onAcceptRate={() => rateChange && void beginConnect(rateChange.to)}
         onStart={() => void beginConnect()}
         onClose={onClose}
+        recordingConsent={recordingConsent}
+        onRecordingConsent={setRecordingConsent}
       />
     );
   }

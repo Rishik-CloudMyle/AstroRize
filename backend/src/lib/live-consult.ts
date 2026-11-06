@@ -91,7 +91,7 @@ export type JoinResult =
  * against the current one); that rate is stored and is what they pay if accepted. Joining twice
  * changes nothing (the first request, and its mode, stand).
  */
-export async function joinQueue(room: LiveRoom, userId: string, mode: Mode, quotedRate: number | undefined): Promise<JoinResult> {
+export async function joinQueue(room: LiveRoom, userId: string, mode: Mode, quotedRate: number | undefined, recordingConsentAt: Date | null = null): Promise<JoinResult> {
   const astrologer = await db.astrologer.findUniqueOrThrow({ where: { id: room.astrologerId }, select: { price: true, chatPrice: true } });
   const rate = liveRate(astrologer, mode);
   if (quotedRate !== undefined && quotedRate !== rate) return { kind: "rate_changed", rate };
@@ -126,6 +126,8 @@ export async function joinQueue(room: LiveRoom, userId: string, mode: Mode, quot
         mode,
         rate,
         status: QUEUED,
+        // Voice and video: the customer accepted the recording notice (audio only).
+        customerRecordingConsentAt: recordingConsentAt,
       },
     });
     await tx.liveQueueEntry.create({ data: { roomId: room.id, userId, alias, mode: "PRIVATE", consent: false, consultationId: consultation.id } });

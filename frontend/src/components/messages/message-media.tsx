@@ -15,8 +15,8 @@ import type { MessageAttachment } from "@/lib/messages";
 export const CHAT_MAX_PHOTO_MB = 5;
 export const CHAT_MAX_VIDEO_MB = 25;
 export const CHAT_MAX_VIDEO_SECONDS = 60;
-/** Photos are re-encoded in the browser to at most this many pixels on the long side (and lose camera metadata). */
-const CHAT_PHOTO_MAX_SIDE = 2048;
+/** Photos are re-encoded in the browser (WebP) to at most this many pixels on the long side, and lose camera metadata. */
+const CHAT_PHOTO_MAX_SIDE = 1600;
 const MB = 1024 * 1024;
 
 const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -71,7 +71,8 @@ function readDuration(file: Blob): Promise<number | null> {
 
 /**
  * Checks a chosen file (type, size, video length) and prepares it: photos are resized and
- * re-encoded as JPEG (smaller, and free of GPS and other camera metadata). Throws an Error with a
+ * re-encoded as WebP (smaller, and free of GPS and other camera metadata). Videos go up as they
+ * are; the server compresses them after upload. Throws an Error with a
  * message to show the person.
  */
 export async function prepareFile(file: File): Promise<PreparedFile> {
@@ -80,7 +81,7 @@ export async function prepareFile(file: File): Promise<PreparedFile> {
   if (kind === "image") {
     const blob = await preparePhoto(file, CHAT_PHOTO_MAX_SIDE);
     if (blob.size > CHAT_MAX_PHOTO_MB * MB) throw new Error(`That photo is too large to send. Photos can be up to ${CHAT_MAX_PHOTO_MB} MB.`);
-    return { kind, blob, type: "image/jpeg", previewUrl: URL.createObjectURL(blob), name: file.name };
+    return { kind, blob, type: blob.type || "image/jpeg", previewUrl: URL.createObjectURL(blob), name: file.name };
   }
   if (file.size > CHAT_MAX_VIDEO_MB * MB) {
     throw new Error(`That video is ${Math.ceil(file.size / MB)} MB. Videos can be up to ${CHAT_MAX_VIDEO_MB} MB.`);
@@ -240,12 +241,41 @@ export function useAttachment() {
 
 /**
  * A photo or video inside a message bubble. Photos are thumbnails that open full screen; videos
- * play inline. `onLoad` lets the conversation keep its newest message in view once a photo has its size.
+ * play inline (after the server has compressed them: until then a "Processing video…" box). `onLoad`
+ * lets the conversation keep its newest message in view once a photo has its size. `mine` = the
+ * viewer sent it (changes the wording when a video couldn't be processed).
  */
-export function MessageMedia({ attachment, onLoad }: { attachment: MessageAttachment; onLoad?: () => void }) {
+export function MessageMedia({ attachment, onLoad, mine = false }: { attachment: MessageAttachment; onLoad?: () => void; mine?: boolean }) {
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
+  const { url } = attachment;
 
+  if (attachment.kind === "video" && attachment.state === "processing") {
+    return (
+      <span
+        role="status"
+        className="mb-1 flex h-[146px] w-[260px] max-w-full flex-col items-center justify-center gap-2 rounded-xl bg-stone-800 px-3 text-center text-white"
+      >
+        <span className="size-6 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden="true" />
+        <b className="text-[13px]">Processing video…</b>
+        <span className="text-[11.5px] text-white/70">{mine ? "It'll be ready to play in a moment." : "It'll play here in a moment."}</span>
+      </span>
+    );
+  }
+  if (attachment.state === "failed" || !url) {
+    return (
+      <span role="note" className="mb-1 flex min-h-20 w-[220px] max-w-full flex-col items-center justify-center rounded-xl bg-cream px-3 py-2 text-center text-[12px] text-stone-600">
+        {attachment.kind === "image" ? (
+          "This photo isn't available."
+        ) : (
+          <>
+            <b className="text-ink">This video couldn&apos;t be processed.</b>
+            {mine ? "The file may be damaged. Try sending it again." : "The file may be damaged."}
+          </>
+        )}
+      </span>
+    );
+  }
   if (failed) {
     return (
       <span className="mb-1 flex h-20 w-[220px] max-w-full items-center justify-center rounded-xl bg-cream px-3 text-center text-[12px] text-stone-500">
@@ -256,7 +286,8 @@ export function MessageMedia({ attachment, onLoad }: { attachment: MessageAttach
   if (attachment.kind === "video") {
     return (
       <video
-        src={attachment.url}
+        src={url}
+        poster={attachment.poster ?? undefined}
         controls
         playsInline
         preload="metadata"
@@ -277,7 +308,7 @@ export function MessageMedia({ attachment, onLoad }: { attachment: MessageAttach
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- a private file for this conversation only; the image optimiser can't fetch it */}
         <img
-          src={attachment.url}
+          src={url}
           alt="Photo"
           loading="lazy"
           onLoad={onLoad}
@@ -285,7 +316,7 @@ export function MessageMedia({ attachment, onLoad }: { attachment: MessageAttach
           className="block max-h-[320px] min-h-16 w-auto max-w-full min-w-16 object-contain"
         />
       </button>
-      {open && <Lightbox src={attachment.url} onClose={() => setOpen(false)} />}
+      {open && <Lightbox src={url} onClose={() => setOpen(false)} />}
     </>
   );
 }

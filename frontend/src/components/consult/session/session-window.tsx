@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { MediaWants } from "@/lib/media/zego-call";
 import { ConsultChat, useConsultChat } from "./consult-chat";
 import { useCallMedia, type CallMedia, type Speaker } from "./use-call-media";
+import { RECORDING_NOTICE, RecordingBadge } from "../recording-notice";
 
 // The consultation's own window, the same for the customer and the astrologer, one per mode:
 //   chat  → a messaging window
@@ -109,6 +110,15 @@ export function SessionWindow({
     }
   }, [kind, media.notConfigured]);
   const chatVisible = kind === "chat" || drawer;
+  // Voice and video calls are recorded, audio only (both sides accepted the notice): the indicator
+  // shows while the call is up, the notice itself until then.
+  const recorded = kind !== "chat" && media.answer?.available === true && !!media.answer.recorded;
+  const allBadges = (
+    <>
+      {recorded && media.mediaUp && <RecordingBadge />}
+      {badges}
+    </>
+  );
   const { speaker, setSpeaker } = media;
   const chat = useConsultChat(base, true, chatVisible);
   const look: Look = !appLook ? "stage" : kind === "video" ? "dark" : "light";
@@ -174,6 +184,11 @@ export function SessionWindow({
         Try again
       </button>
     </div>
+  ) : recorded && !media.mediaUp ? (
+    <div role="note" className={`${box} border-white/15 bg-white/5 leading-normal text-stone-200 ${LL("max-lg:border-app-line max-lg:bg-app-surface max-lg:text-app-ink-2")}`}>
+      <span aria-hidden="true" className="mr-1.5 inline-block size-2 rounded-full bg-rose-500 align-middle" />
+      {RECORDING_NOTICE}
+    </div>
   ) : null;
   };
 
@@ -186,7 +201,7 @@ export function SessionWindow({
         clock={clock}
         meter={
           <>
-            {badges}
+            {allBadges}
             {chips}
           </>
         }
@@ -277,7 +292,7 @@ export function SessionWindow({
             <div className="min-w-0">
               <b className="block truncate text-[16px] font-bold text-app-ink">{peer.name}</b>
               <div className="mt-1 flex flex-wrap gap-1">
-                {badges}
+                {allBadges}
                 {chips}
               </div>
             </div>
@@ -295,7 +310,7 @@ export function SessionWindow({
       )}
 
       <div className={`flex flex-wrap items-center justify-center gap-1.5 px-3 pt-2 sm:gap-2 ${L("max-lg:hidden")}`}>
-        {badges}
+        {allBadges}
         {chips}
       </div>
       {renderWaiting(callScreen ? "max-lg:hidden" : "")}

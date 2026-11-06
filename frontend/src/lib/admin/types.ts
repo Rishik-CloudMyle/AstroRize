@@ -502,8 +502,10 @@ export interface DisputeRefund {
   subject: string;
   customer: string;
   session: string;
-  /** REFUND, or MAKE_GOOD: a free replacement call with the same astrologer instead of money back. */
-  kind: "REFUND" | "MAKE_GOOD";
+  /** REFUND, MAKE_GOOD (a free replacement call with the same astrologer instead of money back), or WALLET_CREDIT (a credit from support on any ticket). */
+  kind: "REFUND" | "MAKE_GOOD" | "WALLET_CREDIT";
+  /** For a wallet credit: the balance it goes to and the reason the customer will see. */
+  credit?: { bucket: string; reason: string } | null;
   /** "₹120", or "10 min free call" for a make-good. */
   amount: string;
   proposedBy: string | null;
@@ -567,11 +569,34 @@ export interface Ticket {
   alias: string;
   session: string;
   refundState: "NONE" | "PROPOSED" | "INITIATED";
-  /** What was granted: REFUND | MAKE_GOOD, else null. */
-  resolution: "REFUND" | "MAKE_GOOD" | null;
+  /** What was granted: REFUND | MAKE_GOOD | WALLET_CREDIT, else null. */
+  resolution: "REFUND" | "MAKE_GOOD" | "WALLET_CREDIT" | null;
   /** False once resolved or a remedy was approved: it's listed under Resolved, not in the open queue. */
   open: boolean;
   outcome: TicketOutcome | null;
+  /** The team working it now (support | finance | compliance | marketing | super) and its name. */
+  team: string;
+  teamLabel: string;
+  /** What the customer said it is about (null for older tickets and reports). */
+  category: string | null;
+  /** Staff asked the customer something and are waiting for the answer. */
+  awaitingCustomer: boolean;
+  /** The customer wrote after the team last replied. */
+  customerReplied: boolean;
+  lastActivityAt: string;
+  /** This person can work it (the team it is with, or a Super Admin). */
+  mine: boolean;
+}
+
+/** One entry of a ticket's timeline: a customer message, a reply, an internal note or an audited step. */
+export interface TicketTimelineItem {
+  id: string;
+  kind: "customer" | "reply" | "note" | "event";
+  who: string;
+  text: string;
+  attachmentUrl: string | null;
+  at: string;
+  when: string;
 }
 
 export interface Evidence {
@@ -583,6 +608,9 @@ export interface Evidence {
 export interface SupportData {
   tickets: Ticket[];
 }
+
+/** Where a support credit goes: SERVICE (real money, refundable) or PROMO (promotional / goodwill). */
+export type CreditBucket = "SERVICE" | "PROMO";
 
 /** A ticket's case file, from GET /admin/support/:id. */
 export interface SupportCase {
@@ -598,13 +626,59 @@ export interface SupportCase {
   /** Why a free replacement call can't be proposed (no real connected session, a remedy elsewhere), else null. */
   makeGoodBlocked: string | null;
   /** What was granted once approved. */
-  resolution: "REFUND" | "MAKE_GOOD" | null;
+  resolution: "REFUND" | "MAKE_GOOD" | "WALLET_CREDIT" | null;
   /** What is proposed or granted on this ticket (null when nothing is). */
-  remedy: "REFUND" | "MAKE_GOOD" | null;
+  remedy: "REFUND" | "MAKE_GOOD" | "WALLET_CREDIT" | null;
   /** How it ended, once closed. */
   outcome: TicketOutcome | null;
   /** Open, nothing proposed, and the session already had a remedy approved on another ticket: it can be closed as covered. */
   coveredBy: { id: string; remedy: string } | null;
+  team: string;
+  teamLabel: string;
+  category: string | null;
+  /** The team this kind of issue usually belongs with (one-click forward), when it isn't there and this person can forward. */
+  suggestedTeam: { key: string; label: string } | null;
+  subject: string;
+  /** The customer's own words (null for older tickets). */
+  description: string | null;
+  customer: { name: string; alias: string } | null;
+  payment: { label: string; detail: string } | null;
+  awaitingCustomer: boolean;
+  closedAs: "RESOLVED" | "CLOSED" | null;
+  /** What this person may do on it; the API enforces the same. */
+  can: {
+    act: boolean;
+    note: boolean;
+    forwardTo: { key: string; label: string }[];
+    resolve: boolean;
+    reply: boolean;
+    /** This department proposes money (refunds, free calls, wallet credits); without it, it forwards to Finance. */
+    money: boolean;
+    /** Propose a wallet credit on this ticket now. */
+    credit: boolean;
+    /** Approve or decline someone else's proposal (their own only as a Super Admin). */
+    approve: boolean;
+  };
+  /** Why a wallet credit can't be proposed on this open ticket, else null. */
+  creditBlocked: string | null;
+  /** Wallet credit: the limits for a new one, and the one proposed or given on this ticket. */
+  walletCredit: {
+    max: number;
+    defaultBucket: CreditBucket;
+    /** The recharge on this ticket a credit can be linked to ("₹500 recharge · 3 Nov 2026 · PAID"). */
+    payment: string | null;
+    proposed: {
+      amount: string;
+      bucket: CreditBucket;
+      bucketLabel: string;
+      reason: string;
+      linkedPayment: boolean;
+      /** The wallet ledger line, once given. */
+      txnRef: string | null;
+      given: boolean;
+    } | null;
+  };
+  timeline: TicketTimelineItem[];
   metering: { label: string; value: string }[];
   evidence: Evidence[];
   refund: {
@@ -825,8 +899,10 @@ export interface AuditEntry {
 
 // ── Recording & retention ──
 export interface RecordingData {
-  /** Whether voice and video are connected (ZEGO). Nothing from them is ever recorded. */
+  /** Whether voice and video are connected (ZEGO). */
   media: { connected: boolean };
+  /** Call audio recordings: only a Super Admin can list and listen (absent on an older API). */
+  calls?: { canListen: boolean; retentionDays: number };
   stored: { liveChat: number; messages: number; conversations: number; consultChat: number; oldest: string | null };
   retention: {
     days: number;

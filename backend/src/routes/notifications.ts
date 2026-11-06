@@ -3,8 +3,9 @@ import { db } from "../db.ts";
 import { forbidden, notFound } from "../lib/errors.ts";
 import { requireUser } from "../middleware/auth.ts";
 
-// The bell: a signed-in customer's or astrologer's own in-app notifications (written by
-// lib/notifications.ts `notify`). Nobody can read or mark anyone else's.
+// The bell: a signed-in customer's, astrologer's or staff member's own in-app notifications (written
+// by lib/notifications.ts `notify`; staff ones by lib/staff-notifications.ts). Nobody can read or
+// mark anyone else's.
 export const notificationsRouter = Router();
 
 /** How many of the latest notifications the bell lists. */
@@ -12,7 +13,7 @@ const LIST_LIMIT = 30;
 
 function owner(req: Request) {
   const auth = requireUser(req);
-  if (auth.role !== "customer" && auth.role !== "astrologer") throw forbidden("Notifications are for customers and astrologers.");
+  if (auth.role !== "customer" && auth.role !== "astrologer" && auth.role !== "admin") throw forbidden("Notifications are for signed-in accounts.");
   return auth.user.id;
 }
 

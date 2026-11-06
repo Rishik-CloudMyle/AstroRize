@@ -31,7 +31,12 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
   const [declining, setDeclining] = useState<DisputeRefund | null>(null);
 
   const approve = (r: DisputeRefund) =>
-    void (r.kind === "MAKE_GOOD"
+    void (r.kind === "WALLET_CREDIT"
+      ? run(
+          () => api.post(`/admin/support/${encodeURIComponent(r.id)}/credit/approve`),
+          `${r.amount} wallet credit on ${r.id} approved by ${session.actor}. It's in the customer's wallet and the ticket is resolved.`,
+        )
+      : r.kind === "MAKE_GOOD"
       ? run(
           () => api.post(`/admin/support/${encodeURIComponent(r.id)}/makegood/approve`),
           `Free replacement call on ${r.id} approved by ${session.actor}. The customer has been told.`,
@@ -47,7 +52,7 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
         <div className="min-w-0">
           <h2 className="m-0 text-[16px] font-bold">Dispute refunds to approve</h2>
           <span className="mt-1 block text-[12px] text-[#78716c]">
-            Refunds Support or Finance proposed on a ticket (Support &amp; disputes page). Someone other than the proposer approves —
+            Refunds and wallet credits Support or Finance proposed on a ticket (Support &amp; disputes page). Someone other than the proposer approves —
             or a Super Admin; the money returns to the customer&rsquo;s wallet, never more than was billed, and the astrologer&rsquo;s
             share of it comes off their next payout. A free replacement call with the same astrologer can be offered instead. Audited.
           </span>
@@ -88,6 +93,9 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
                     <td className={`${TD} px-2.5 py-[11px] text-right font-bold whitespace-nowrap text-ink tabular-nums`}>
                       {r.amount}
                       {r.kind === "MAKE_GOOD" && <span className="block text-[11px] font-semibold text-[#78716c]">instead of a refund</span>}
+                      {r.kind === "WALLET_CREDIT" && (
+                        <span className="block text-[11px] font-semibold text-[#78716c]">wallet credit · {r.credit?.bucket ?? "—"}</span>
+                      )}
                     </td>
                     <td className={`${TD} px-2.5 py-[11px] text-[#57534e]`}>{r.proposedBy ?? "—"}</td>
                     <td className={`${TD} px-2.5 py-[11px] text-right whitespace-nowrap`}>
@@ -102,7 +110,7 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
                             onClick={() => approve(r)}
                             className="h-[30px] rounded-[9px] border-0 bg-emerald-700 px-3 text-[12px] font-bold text-white"
                           >
-                            {r.kind === "MAKE_GOOD" ? "Approve free call" : "Approve refund"}
+                            {r.kind === "MAKE_GOOD" ? "Approve free call" : r.kind === "WALLET_CREDIT" ? "Approve credit" : "Approve refund"}
                             {mine ? " (your own)" : ""}
                           </button>
                           <button
@@ -124,17 +132,17 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
       )}
       {declining && (
         <ReasonDialog
-          title={`Decline the ${declining.kind === "MAKE_GOOD" ? "free replacement call" : "refund"} on ${declining.id}`}
+          title={`Decline the ${declining.kind === "MAKE_GOOD" ? "free replacement call" : declining.kind === "WALLET_CREDIT" ? "wallet credit" : "refund"} on ${declining.id}`}
           subtitle={`${declining.amount} · proposed by ${declining.proposedBy ?? "Support"}`}
-          intro="Nothing is given and no money moves. The ticket goes back to Support to investigate, with your reason in the audit log."
+          intro="Nothing is given and no money moves. The ticket goes back to the team it is with, with your reason in the audit log."
           placeholder="e.g. The metering log shows the session ran its full length."
-          confirm={declining.kind === "MAKE_GOOD" ? "Decline free call" : "Decline refund"}
+          confirm={declining.kind === "MAKE_GOOD" ? "Decline free call" : declining.kind === "WALLET_CREDIT" ? "Decline credit" : "Decline refund"}
           danger
           onClose={() => setDeclining(null)}
           onSubmit={async (reason) =>
             !!(await run(
               () => api.post(`/admin/support/${encodeURIComponent(declining.id)}/refund/decline`, { reason }),
-              `${declining.kind === "MAKE_GOOD" ? "Free replacement call" : "Refund"} on ${declining.id} declined. The ticket is back with Support. Audited.`,
+              `${declining.kind === "MAKE_GOOD" ? "Free replacement call" : declining.kind === "WALLET_CREDIT" ? "Wallet credit" : "Refund"} on ${declining.id} declined. The ticket is back with its team. Audited.`,
             ))
           }
         />

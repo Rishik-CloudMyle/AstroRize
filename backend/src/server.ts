@@ -5,11 +5,13 @@ import { sweepExpiredBlocks } from "./lib/account-blocks.ts";
 import { sweepCampaigns } from "./lib/campaigns.ts";
 import { sweepAbandonedConsultations } from "./lib/consultations.ts";
 import { isDatabaseDown } from "./lib/errors.ts";
+import { mediaWorkerMode, startMediaConsumer, workerHost, type Consumer } from "./lib/media-jobs.ts";
 import { sweepPendingPayments } from "./lib/payments.ts";
 import { sweepStalePresence } from "./lib/presence.ts";
 import { razorpayConfigured, razorpayMode } from "./lib/razorpay.ts";
 import { sweepProcessingRefunds } from "./lib/wallet-refunds.ts";
 import { purgeDaily } from "./lib/retention.ts";
+import { sweepRecordings } from "./lib/recordings.ts";
 
 const app = createApp();
 const server = app.listen(config.port, () => {
@@ -63,13 +65,29 @@ const sweeper = setInterval(() => {
     .then(() => sweepProcessingRefunds())
     .catch((e: unknown) => {
       if (!isDatabaseDown(e)) console.error("Refund sweep failed:", e);
+    })
+    // Call recordings: close takes whose browser went away; apply the retention period (if one is set).
+    .then(() => sweepRecordings())
+    .catch((e: unknown) => {
+      if (!isDatabaseDown(e)) console.error("Recording sweep failed:", e);
     });
 }, 60_000);
+
+// Message videos: compressed here when MEDIA_WORKER=inline (the local default: the local database
+// takes one connection only). FFmpeg runs as a child process, so requests aren't held up. In
+// production MEDIA_WORKER=external and `npm run worker` does it (src/worker.ts).
+let media: Consumer | null = null;
+if (mediaWorkerMode() === "inline") {
+  media = startMediaConsumer({ workerId: `${workerHost()}:api`, concurrency: 1, pollMs: config.mediaPollMs });
+  console.log("Media: videos are compressed inside the API (MEDIA_WORKER=inline).");
+}
 
 // Finish in-flight requests and close the database cleanly on shutdown.
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     clearInterval(sweeper);
+    // An interrupted video is queued again when the API starts next.
+    void media?.stop();
     server.close(() => {
       void db.$disconnect().then(() => process.exit(0));
     });

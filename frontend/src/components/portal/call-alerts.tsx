@@ -20,6 +20,7 @@ import { countdown, rupee } from "@/lib/portal/format";
 import { usePresence, useToast } from "./portal-provider";
 import { Avatar } from "./views/live-queue-people";
 import LiveReturnBar from "./live-return-bar";
+import { RECORDING_NOTICE } from "../consult/recording-notice";
 
 // Incoming consultations for the astrologer, on EVERY portal page: while they are online the portal
 // asks GET /portal/incoming every few seconds and, when someone is calling, rings — a dialog (a
@@ -45,6 +46,8 @@ export interface Incoming {
   mode: string;
   window: "chat" | "voice" | "video";
   instant: boolean;
+  /** The call's audio is recorded: the notice is shown here (answering is the astrologer's acceptance). */
+  recorded?: boolean;
   free: boolean;
   makeGood: boolean;
   freeMinutes: number | null;
@@ -447,6 +450,12 @@ function IncomingDialog({
             {busy ? "One moment…" : i.window === "chat" ? "Accept chat" : "Accept call"}
           </button>
         </div>
+        {i.recorded && (
+          <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-left text-[12px] leading-normal text-rose-900 max-lg:rounded-app-btn max-lg:bg-app-error-bg">
+            <span aria-hidden="true" className="mr-1.5 inline-block size-2 rounded-full bg-rose-500 align-middle" />
+            {RECORDING_NOTICE} By answering you agree.
+          </p>
+        )}
         <p className="mt-3 text-[11.5px] leading-normal text-stone-500">
           {i.kind === "live"
             ? "Accepting asks them to join a private consultation; billing starts once you're both in."
