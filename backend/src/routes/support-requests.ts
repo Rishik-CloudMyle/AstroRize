@@ -238,6 +238,7 @@ const paymentLabel = (p: { amount: number; status: string; createdAt: Date }) =>
 
 const issueBody = z.object({
   category: z.enum(CATEGORY_KEYS, { error: "Choose what the issue is about." }),
+  customCategory: z.string().trim().max(100).optional(),
   subject: z
     .string({ error: "Give your issue a short title." })
     .trim()
@@ -318,6 +319,9 @@ supportRequestsRouter.post("/support/issues", async (req, res) => {
     const open = await db.supportTicket.findFirst({ where: { paymentId: payment.id, ...OPEN_WHERE } });
     if (open) throw conflict(`You already have an issue open about this recharge (${open.id}). We'll update you there.`);
   }
+  const custom = body.category === "OTHER" && body.customCategory ? body.customCategory.trim() : null;
+  const storedCategory = custom ? `OTHER: ${custom}` : body.category;
+  const catLabel = custom ? `Other: ${custom}` : CATEGORIES[body.category].label;
   const user = await db.user.findUniqueOrThrow({ where: { id: auth.user.id } });
   const id = await newTicketId();
   await db.supportTicket.create({
@@ -325,7 +329,7 @@ supportRequestsRouter.post("/support/issues", async (req, res) => {
       id,
       subject: body.subject,
       description: body.description,
-      category: body.category,
+      category: storedCategory,
       state: "INVESTIGATING",
       slaDueAt: await firstResponseDue(),
       // Staff see who it is from; a session's alias when it is about one.
@@ -340,9 +344,9 @@ supportRequestsRouter.post("/support/issues", async (req, res) => {
     auth,
     RAISE_ACTION,
     id,
-    `customer raised · ${CATEGORIES[body.category].label}${session ? ` · ${session.ref}` : ""}${payment ? ` · ${paymentLabel(payment)}` : ""}`,
+    `customer raised · ${catLabel}${session ? ` · ${session.ref}` : ""}${payment ? ` · ${paymentLabel(payment)}` : ""}`,
   );
-  await staffNewIssue({ id, subject: body.subject, customerAlias: session?.customerAlias ?? displayName(user) }, CATEGORIES[body.category].label);
+  await staffNewIssue({ id, subject: body.subject, customerAlias: session?.customerAlias ?? displayName(user) }, catLabel);
   res.status(201).json({ issue: { id } });
 });
 

@@ -258,6 +258,7 @@ export function RaiseIssueForm() {
   const [options, setOptions] = useState<Options | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [category, setCategory] = useState<string | null>(null);
+  const [customCategory, setCustomCategory] = useState("");
   // "" = nothing; "s:SES-…" a session; "p:<id>" a recharge.
   const [related, setRelated] = useState("");
   const [subject, setSubject] = useState("");
@@ -322,6 +323,9 @@ export function RaiseIssueForm() {
   async function submit() {
     if (busy) return;
     if (!category) return setError("Choose what the issue is about.");
+    if (category === "OTHER" && !customCategory.trim()) {
+      return setError("Please specify your issue in the box below.");
+    }
     if (subject.trim().length < 5) return setError("Give your issue a short title (at least 5 characters).");
     if (description.trim().length < 10) return setError("Tell us what happened in a few words (at least 10 characters).");
     if (category === "PAYMENT_REFUND" && session && !session.charged) return setError("Nothing was charged for that session, so there is nothing to refund. Choose another, or another category.");
@@ -330,6 +334,7 @@ export function RaiseIssueForm() {
     try {
       const res = await api.post<{ issue: { id: string } }>("/support/issues", {
         category,
+        customCategory: category === "OTHER" ? customCategory.trim() : undefined,
         subject: subject.trim(),
         description: description.trim(),
         sessionRef: related.startsWith("s:") ? related.slice(2) : null,
@@ -384,6 +389,25 @@ export function RaiseIssueForm() {
             </button>
           ))}
         </div>
+        {category === "OTHER" && (
+          <div className="mt-3.5">
+            <label htmlFor={`${formId}-custom`} className={LABEL}>
+              Please specify your issue <span className="font-normal text-stone-500 max-lg:text-app-ink-3">(what is it regarding?)</span>
+            </label>
+            <input
+              id={`${formId}-custom`}
+              value={customCategory}
+              maxLength={100}
+              onChange={(e) => {
+                setCustomCategory(e.target.value);
+                setError("");
+              }}
+              placeholder="e.g. Partnership inquiry, Astrologer onboarding, Feature suggestion"
+              className={`${INPUT} h-11 py-0`}
+              autoFocus
+            />
+          </div>
+        )}
       </fieldset>
 
       <label htmlFor={`${formId}-related`} className={`${LABEL} mt-5`}>

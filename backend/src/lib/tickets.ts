@@ -37,16 +37,33 @@ export const CATEGORIES = {
   PAYMENT_REFUND: { label: "Payment / refund", team: "finance" },
   WALLET: { label: "Wallet / recharge", team: "finance" },
   CONSULTATION: { label: "Consultation problem", team: "support" },
+  CALL_QUALITY: { label: "Audio / video call issue", team: "support" },
   ASTROLOGER: { label: "Astrologer behaviour", team: "compliance" },
+  LIVE_STREAM: { label: "Live stream / waitlist", team: "support" },
+  OFFERS: { label: "Offers & promotions", team: "marketing" },
+  REMEDY_REPORT: { label: "Remedies & astrology tools", team: "support" },
   ACCOUNT: { label: "Account / login", team: "support" },
+  PRIVACY: { label: "Privacy & data rights", team: "compliance" },
   TECHNICAL: { label: "Technical problem", team: "support" },
+  FEEDBACK: { label: "Feedback & suggestions", team: "support" },
   OTHER: { label: "Other", team: "support" },
 } as const satisfies Record<string, { label: string; team: Team }>;
 export type Category = keyof typeof CATEGORIES;
 export const CATEGORY_KEYS = Object.keys(CATEGORIES) as [Category, ...Category[]];
-export const categoryLabel = (c: string | null) => (c && c in CATEGORIES ? CATEGORIES[c as Category].label : null);
+export const categoryLabel = (c: string | null) => {
+  if (!c) return null;
+  if (c.startsWith("OTHER:")) return `Other: ${c.slice(6).trim()}`;
+  if (c in CATEGORIES) return CATEGORIES[c as Category].label;
+  return c;
+};
 /** The team a category usually belongs with (Support suggests forwarding there). */
-export const suggestedTeam = (c: string | null): Team => (c && c in CATEGORIES ? CATEGORIES[c as Category].team : "support");
+export const suggestedTeam = (c: string | null): Team => {
+  if (!c) return "support";
+  if (c in CATEGORIES) return CATEGORIES[c as Category].team;
+  const base = c.split(":")[0]?.trim();
+  if (base && base in CATEGORIES) return CATEGORIES[base as Category].team;
+  return "support";
+};
 
 // ── Open / closed ──
 
