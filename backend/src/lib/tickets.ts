@@ -30,7 +30,7 @@ export const CUSTOMER_TEAM: Record<Team, string> = {
   marketing: "Marketing team",
   super: "Admin team",
 };
-const customerTeam = (t: string) => (isTeam(t) ? CUSTOMER_TEAM[t] : CUSTOMER_TEAM.support);
+export const customerTeam = (t: string) => (isTeam(t) ? CUSTOMER_TEAM[t] : CUSTOMER_TEAM.support);
 
 /** What a customer can say an issue is about, and the team it usually ends up with. */
 export const CATEGORIES = {

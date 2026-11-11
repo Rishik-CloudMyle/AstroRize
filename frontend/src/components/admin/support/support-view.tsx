@@ -9,6 +9,7 @@ import { api } from "@/lib/api/client";
 import { sortRows, TICKET_SORTS } from "@/lib/admin/sort";
 import type { SupportCase, SupportData, Ticket } from "@/lib/admin/types";
 import AmountDialog from "./amount-dialog";
+import { TicketApprovalFlow } from "@/components/support/ticket-flow";
 import { IssueSummary, TicketComposer, TicketTimeline } from "./ticket-work";
 import { CreditDialog, WalletCreditCard } from "./wallet-credit";
 
@@ -309,6 +310,7 @@ export default function SupportView({
             <p className="mt-3 mb-0 text-[13.5px] leading-normal break-words whitespace-pre-wrap text-ink">{caseFile.description}</p>
           )}
           {caseFile && <IssueSummary file={caseFile} />}
+          {caseFile && <TicketApprovalFlow data={caseFile} isAdmin className="mt-[18px]" />}
 
           {hasSession && (
           <>

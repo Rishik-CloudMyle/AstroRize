@@ -60,8 +60,10 @@ export function TicketTimeline({ items }: { items: TicketTimelineItem[] }) {
       <ol className="m-0 flex list-none flex-col gap-2 p-0">
         {items.map((m) =>
           m.kind === "event" ? (
-            <li key={m.id} className="flex gap-2 px-1 text-[12px] text-[#78716c]">
-              <span aria-hidden="true">•</span>
+            <li key={m.id} className="flex items-center gap-2 rounded-xl border border-line-warm/70 bg-cream/70 px-3 py-1.5 text-[12px] text-[#78716c]">
+              <span aria-hidden="true" className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-amber-100 text-[10px] font-black text-amber-800">
+                ↓
+              </span>
               <span className="min-w-0 break-words">
                 <b className="text-[#57534e]">{m.who}</b> · {m.text} · {m.when}
               </span>

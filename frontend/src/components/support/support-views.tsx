@@ -16,6 +16,7 @@ import { useAppUI } from "../app-provider";
 import AppButton from "../mobile/button";
 import EmptyState from "../mobile/empty-state";
 import { SkeletonRows } from "../mobile/skeleton";
+import { TicketApprovalFlow } from "@/components/support/ticket-flow";
 
 type Tone = "now" | "wait" | "done" | "fail";
 interface Status {
@@ -55,6 +56,14 @@ interface Issue {
   status: Status;
   timeline: TimelineItem[];
   maxMessage: number;
+  // Approval-flow fields (returned by GET /support/issues/:id)
+  assignedTeam?: string;
+  teamLabel?: string;
+  proposedBy?: string | null;
+  approvedBy?: string | null;
+  state?: string;
+  refundState?: string;
+  resolution?: string | null;
 }
 
 interface Options {
@@ -647,6 +656,19 @@ export function IssueThread({ id }: { id: string }) {
         <p className="mt-2.5 mb-0 rounded-xl bg-cream px-3 py-2 text-[13px] text-stone-600 max-lg:rounded-app-btn max-lg:bg-app-bg max-lg:text-[12.5px] max-lg:text-app-ink-2">
           {issue.status.body}
         </p>
+        <TicketApprovalFlow
+          data={{
+            assignedTeam: issue.assignedTeam,
+            teamLabel: issue.teamLabel,
+            state: issue.state,
+            refundState: issue.refundState,
+            proposedBy: issue.proposedBy,
+            approvedBy: issue.approvedBy,
+            resolution: issue.resolution,
+            open: issue.open,
+          }}
+          className="mt-3"
+        />
       </div>
 
       <ol aria-label="Conversation" className="m-0 flex list-none flex-col gap-2.5 p-0">
