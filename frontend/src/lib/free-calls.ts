@@ -28,17 +28,18 @@ export function resetWeekday(iso: string): string {
   return new Date(iso).toLocaleDateString("en-GB", { weekday: "short", timeZone: "Asia/Kolkata" });
 }
 
-/** " + 5 min joining bonus" while some of the one-time joining bonus is left, else "". */
+/** " · 5 min welcome call available" while unredeemed, else "". */
 export function bonusNote(w: WelcomeBenefit): string {
-  return w.joining?.remaining > 0 ? ` + ${w.joining.remaining} min joining bonus` : "";
+  const hasOneTime = w.oneTime ? w.oneTime.available : (w.joining?.remaining > 0);
+  return hasOneTime ? " · 5 min welcome call available" : "";
 }
 
-/** "25 of 30 left this week + 5 min joining bonus · resets Mon". */
+/** "20 of 30 left this week · 5 min welcome call available · resets Mon". */
 export function minutesLeft(w: WelcomeBenefit): string {
-  return `${w.weekly.remaining} of ${w.weekly.total} left this week${bonusNote(w)} · resets ${resetWeekday(w.weekly.resetsAt)}`;
+  return `${w.weekly.remaining} of ${w.weekly.total} free min left this week${bonusNote(w)} · resets ${resetWeekday(w.weekly.resetsAt)}`;
 }
 
-/** "Free minutes: 25 of 30 left this week · resets Mon". */
+/** "Free minutes: 20 of 30 left this week · resets Mon". */
 export function minutesHeadline(w: WelcomeBenefit): string {
   return `Free minutes: ${minutesLeft(w)}`;
 }
@@ -56,7 +57,7 @@ export function longestFit(w: WelcomeBenefit): number {
   return Math.max(0, ...fittingLengths(w));
 }
 
-/** "5, 10 or 30 min" — the lengths that fit (or all lengths). */
+/** "10 or 30 min" — the lengths that fit (or all lengths). */
 export function lengthsLabel(minutes: number[]): string {
   if (!minutes.length) return "";
   if (minutes.length === 1) return `${minutes[0]} min`;

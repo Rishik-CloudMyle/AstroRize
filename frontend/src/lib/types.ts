@@ -194,10 +194,18 @@ export interface Transaction {
   payment?: string | null;
 }
 
-/** The customer's weekly free minutes (GET /wallet → welcome). */
+/** The customer's weekly free minutes and 1-time 5 min call (GET /wallet → welcome). */
 export interface WelcomeBenefit {
-  /** granted (a free call fits in this week's minutes) | reserved (one is being requested) | consumed (none left this week) | revoked */
+  /** granted (a free call can be taken) | reserved (one is being requested) | consumed (none left) | revoked */
   status: "granted" | "reserved" | "consumed" | "revoked";
+  /** The separate 1-time 5 min call per phone number (once redeemed cannot be used again) */
+  oneTime?: {
+    total: number;
+    used: number;
+    remaining: number;
+    available: boolean;
+    redeemed: boolean;
+  };
   /** This Mon–Sun week's (IST) free minutes (set by AstroRize) */
   weekly: {
     total: number;
@@ -208,11 +216,11 @@ export interface WelcomeBenefit {
   };
   /** The one-time joining bonus a new mobile number gets (used after the week's minutes; never resets) */
   joining: { total: number; used: number; remaining: number };
-  /** Free minutes the customer can use now: this week's plus the joining bonus */
+  /** Free minutes the customer can use from weekly allowance */
   remaining: number;
-  /** The lengths a free call can be (minutes, smallest first); `fits` = fits in the free minutes left. The whole length is used. */
+  /** The lengths a weekly free call can be (only 10 and 30 min; 5 min removed); `fits` = fits in the free minutes left. */
   lengths: { minutes: number; fits: boolean }[];
-  /** True while a free call can be started (at least one length fits). */
+  /** True while a free call can be started (1-time 5 min call or weekly call). */
   available: boolean;
   /** How long before the free time ends the customer is reminded to add money */
   reminderSeconds: number;

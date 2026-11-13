@@ -161,11 +161,17 @@ export default function ConsultJourney({
     !makeGoodHere && pay === "free" && !!welcome && fresh.freeCall && fresh.availability === "on" && !!mode && welcome.modes.includes(mode);
   // Where this choice could be free, free or paid hasn't been chosen yet.
   const payMissing = freeHere && pay === null && !!mode && (makeGoodHere || !!welcome?.modes.includes(mode));
-  // Only a length that still fits in this week's free minutes counts as chosen.
-  // Until the customer picks one, the shortest length that fits is chosen (the admin's first length, 5 min by default).
-  const pickedFree = freeMinutes ?? welcome?.lengths.find((l) => l.fits)?.minutes ?? null;
-  // Shown as chosen in the sheet as soon as "Use free minutes" is picked, before the mode is.
-  const shownFreeLength = pay === "free" && welcome?.lengths.some((l) => l.minutes === pickedFree && l.fits) ? pickedFree : null;
+  // Only a length that is valid counts as chosen.
+  // If the 1-time 5 min call is available, default to 5, else shortest fitting weekly length (10 or 30 min).
+  const defaultFree = welcome?.oneTime?.available
+    ? 5
+    : (welcome?.lengths.find((l) => l.fits)?.minutes ?? null);
+  const pickedFree = freeMinutes ?? defaultFree;
+  const isLengthValid =
+    pickedFree === 5
+      ? !!welcome?.oneTime?.available
+      : !!welcome?.lengths.some((l) => l.minutes === pickedFree && l.fits);
+  const shownFreeLength = pay === "free" && isLengthValid ? pickedFree : null;
   const freeLength = useFree ? shownFreeLength : null;
   // A claimed consultation offer: percent off paid Chat, Voice and Video (the API applies the same rule).
   const discount = useConsultDiscount();

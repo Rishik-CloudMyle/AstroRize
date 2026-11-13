@@ -408,7 +408,8 @@ function startLabel(
   if (!choice) return "Choose how to talk";
   if (payMissing) return "Choose free minutes or a paid call";
   if (choice === "instant") return `Confirm ${rupee(rate)}/min`;
-  if (free && freeMinutes === null) return "Choose how long your free call is";
+  if (free && freeMinutes === null) return "Choose your free consultation";
+  if (free && freeMinutes === 5) return `Start 1-time free ${CHOICE_TITLE[choice].toLowerCase()} · 5 min`;
   if (free && freeMinutes) return `Start free ${CHOICE_TITLE[choice].toLowerCase()} · ${freeMinutes} min`;
   if (free) return `Start free ${CHOICE_TITLE[choice].toLowerCase()}`;
   return `Start ${CHOICE_TITLE[choice].toLowerCase()} · ${rupee(rate)}/min`;
@@ -481,10 +482,11 @@ function ChoiceDetail({
   const needed = rate * 5;
   if (free && welcome) {
     if (!freeMinutes) return null;
+    const isOneTime = freeMinutes === 5;
     return (
       <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-[13px] leading-[1.55] text-emerald-900">
         <b className="block text-[14px] text-emerald-800">
-          🎁 Free {CHOICE_TITLE[choice].toLowerCase()} · {freeMinutes} min
+          🎁 {isOneTime ? `1-Time Free ${CHOICE_TITLE[choice]} · 5 min (Once redeemed, cannot be used again)` : `Free ${CHOICE_TITLE[choice].toLowerCase()} · ${freeMinutes} min (from weekly minutes)`}
         </b>
         {balance >= rate
           ? `When the free time ends, the call carries on at ${rupee(rate)}/min from your balance (${rupee(balance)}) — end it any time.`
@@ -601,14 +603,16 @@ function PayChooser({
         <button type="button" role="radio" aria-checked={pay === "free"} onClick={() => onPay?.("free")} className={card(pay === "free", "free")}>
           <span className="flex items-center gap-1.5">
             {dot(pay === "free", "free")}
-            <b className="text-[14px] font-bold text-emerald-800">{replacement ? "Free replacement call" : "Use free minutes"}</b>
+            <b className="text-[14px] font-bold text-emerald-800">{replacement ? "Free replacement call" : "Free call / minutes"}</b>
           </span>
           <span className="mt-0.5 block text-[12px] leading-snug text-stone-600">
             {replacement
               ? `${replacement.minutes} min · Chat, Voice or Video`
-              : welcome
-                ? `${welcome.remaining} free min left · Chat or Voice`
-                : ""}
+              : welcome?.oneTime?.available
+                ? "1-time 5 min call available"
+                : welcome
+                  ? `${welcome.weekly.remaining} free min left · Chat or Voice`
+                  : ""}
           </span>
         </button>
         <button type="button" role="radio" aria-checked={pay === "paid"} onClick={() => onPay?.("paid")} className={card(pay === "paid", "paid")}>
@@ -623,31 +627,79 @@ function PayChooser({
       </div>
       {pay === "free" && welcome && (
         <div className="mt-2.5 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-[12.5px] leading-[1.5] text-emerald-900">
-          <b className="block text-[13.5px] text-emerald-800">How long should your free call be?</b>
-          <div role="radiogroup" aria-label="Free call length" className="mt-2 flex flex-wrap gap-2">
-            {welcome.lengths.map((l) => {
-              const on = freeMinutes === l.minutes;
-              return (
-                <button
-                  key={l.minutes}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  disabled={!l.fits}
-                  title={l.fits ? undefined : `Only ${welcome.remaining} free minutes left`}
-                  onClick={() => onFreeMinutes?.(l.minutes)}
-                  className={`min-h-11 min-w-[72px] rounded-full border-2 px-4 text-[14px] font-bold tabular-nums transition-colors disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400 disabled:line-through ${
-                    on ? "border-emerald-700 bg-emerald-700 text-white" : "border-emerald-300 bg-white text-emerald-800 hover:border-emerald-600"
-                  }`}
-                >
-                  {l.minutes} min
-                </button>
-              );
-            })}
+          <b className="block text-[13.5px] text-emerald-800">Choose your free consultation:</b>
+
+          {/* Section 1: 1-Time 5 Min Call (Per phone number) */}
+          <div className="mt-2.5 rounded-xl border border-emerald-300/80 bg-white p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10.5px] font-extrabold text-amber-800 uppercase">
+                  1-Time Welcome Offer
+                </span>
+                <b className="mt-1 block text-[13.5px] text-ink">5 Min Free Call</b>
+                <span className="text-[11.5px] text-stone-500">
+                  {welcome.oneTime?.redeemed
+                    ? "Already redeemed for this phone number (1-time use only)"
+                    : "Per phone number · 1-time usage only, once redeemed cannot be used again"}
+                </span>
+              </div>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={freeMinutes === 5}
+                disabled={welcome.oneTime?.redeemed || !welcome.oneTime?.available}
+                onClick={() => onFreeMinutes?.(5)}
+                className={`min-h-10 min-w-[84px] rounded-full border-2 px-3.5 text-[13px] font-bold tabular-nums transition-colors disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400 ${
+                  freeMinutes === 5
+                    ? "border-emerald-700 bg-emerald-700 text-white shadow-xs"
+                    : "border-emerald-300 bg-white text-emerald-800 hover:border-emerald-600"
+                }`}
+              >
+                {welcome.oneTime?.redeemed ? "Redeemed" : "5 min free"}
+              </button>
+            </div>
           </div>
-          <span className="mt-2 block">
-            {welcome.weekly.remaining} of {welcome.weekly.total} free minutes left this week{bonusNote(welcome)} · resets {resetWeekday(welcome.weekly.resetsAt)}. The full
-            length you choose is used once the call starts, even if you end it sooner (a call that never starts uses nothing).
+
+          {/* Section 2: Weekly Free Minutes (10 or 30 min) */}
+          <div className="mt-2.5 rounded-xl border border-emerald-300/80 bg-white p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10.5px] font-extrabold text-emerald-800 uppercase">
+                  Weekly Free Minutes
+                </span>
+                <b className="mt-1 block text-[13.5px] text-ink">10 or 30 Min Free Call</b>
+                <span className="text-[11.5px] text-stone-500">
+                  {welcome.weekly.remaining} of {welcome.weekly.total} min left this week · resets {resetWeekday(welcome.weekly.resetsAt)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {welcome.lengths.map((l) => {
+                  const on = freeMinutes === l.minutes;
+                  return (
+                    <button
+                      key={l.minutes}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      disabled={!l.fits}
+                      title={l.fits ? undefined : `Only ${welcome.weekly.remaining} free minutes left this week`}
+                      onClick={() => onFreeMinutes?.(l.minutes)}
+                      className={`min-h-10 min-w-[70px] rounded-full border-2 px-3 text-[13px] font-bold tabular-nums transition-colors disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400 disabled:line-through ${
+                        on
+                          ? "border-emerald-700 bg-emerald-700 text-white shadow-xs"
+                          : "border-emerald-300 bg-white text-emerald-800 hover:border-emerald-600"
+                      }`}
+                    >
+                      {l.minutes} min
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <span className="mt-2.5 block text-[11.5px] text-stone-500">
+            The full length you choose is used once the call connects, even if you end it sooner. A call that never connects uses nothing.
           </span>
         </div>
       )}
