@@ -325,7 +325,7 @@ async function ownConsultation(userId: string, id: string) {
 /** What the website needs to show (or resume) a consultation: waiting, connecting, in session or finished. */
 async function consultationView(c: Consultation & { astrologer: Astrologer }) {
   const now = new Date();
-  const [standardFree, policy, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 60), welcomePolicy(), joinTimeoutSeconds()]);
+  const [standardFree, policy, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 0), welcomePolicy(), joinTimeoutSeconds()]);
   const ahead =
     c.status === "REQUESTED"
       ? await db.consultation.count({ where: { astrologerId: c.astrologerId, status: "REQUESTED", requestedAt: { lt: c.requestedAt } } })
@@ -501,7 +501,7 @@ customerRouter.post("/consultations", async (req, res) => {
   if (result.kind === "busy") throw conflict(`${astrologer.name} is in another consultation right now. Try again in a few minutes — you have not been charged.`);
   if (result.kind === "refused") throw new HttpError(409, result.message, result.code);
   if (result.kind === "short") {
-    throw badRequest(`Your balance is ${rupee(result.spendable)}. You need ${rupee(needed)} for five minutes at ${rupee(rate)}/min.`);
+    throw badRequest(`Your balance is ${rupee(result.spendable)}. You need ${rupee(needed)} for one minute at ${rupee(rate)}/min.`);
   }
   const c = result.consultation;
   res.status(201).json({
@@ -530,7 +530,7 @@ customerRouter.post("/consultations/:id/connect", async (req, res) => {
   if (result === "gone") throw conflict("This consultation can no longer connect.");
   await syncPresence(c.astrologerId); // the astrologer is now in a session → BUSY
   const updated = await db.consultation.findUniqueOrThrow({ where: { id: c.id } });
-  const [standardFree, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 60), joinTimeoutSeconds()]);
+  const [standardFree, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 0), joinTimeoutSeconds()]);
   res.json({
     consultation: { id: updated.id, status: updated.status, connectedAt: updated.connectedAt, ...joinView(updated, joinTimeout) },
     freeSeconds: freeWindow(updated, standardFree),
@@ -664,7 +664,7 @@ customerRouter.post("/instant-calls", async (req, res) => {
 
   if (result.kind === "open") return inProgress(res, result.open);
   if (result.kind === "short") {
-    throw badRequest(`Instant Call needs ${rupee(needed)} for five minutes at ${rupee(rate)}/min. Your balance is ${rupee(result.spendable)}.`);
+    throw badRequest(`Instant Call needs ${rupee(needed)} for one minute at ${rupee(rate)}/min. Your balance is ${rupee(result.spendable)}.`);
   }
   // Starts the 3-minute window straight away when nobody else is waiting.
   await expireStaleRequests(astrologerId);

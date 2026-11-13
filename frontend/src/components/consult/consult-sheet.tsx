@@ -132,7 +132,7 @@ export default function ConsultSheet({
   const pctFor = (c: ConsultChoice | null) => (discount && c && c !== "instant" && !isFree(c) ? discount.pct : 0);
   const selected = state === "on" ? choice : null;
   const rate = selected ? quotedRateFor(a, selected, pctFor(selected)) : 0;
-  const needed = rate * 5;
+  const needed = rate * 1;
   const free = isFree(selected);
   // Where it could be free, the customer must choose free or paid first — nothing is assumed.
   const payMissing = canBeFree(selected) && pay === null;
@@ -446,7 +446,7 @@ function SheetLead({
       </p>
     );
   }
-  return <p className="mt-0.5 text-[12.5px] text-stone-500">Billed per minute once you connect. The first minute is free.</p>;
+  return <p className="mt-0.5 text-[12.5px] text-stone-500">Billed per minute once you connect.</p>;
 }
 
 /** What happens with the chosen option, and whether the balance covers it. */
@@ -479,7 +479,7 @@ function ChoiceDetail({
   onClose: () => void;
 }) {
   const rate = quotedRateFor(a, choice, discount?.pct ?? 0);
-  const needed = rate * 5;
+  const needed = rate * 1;
   if (free && welcome) {
     if (!freeMinutes) return null;
     const isOneTime = freeMinutes === 5;
@@ -537,11 +537,11 @@ function ChoiceDetail({
       )}
       {eligible ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] leading-[1.55] text-emerald-800">
-          ✓ Your balance is {rupee(balance)}. You need {rupee(needed)} for five minutes at {rupee(rate)}/min — you are eligible.
+          ✓ Your balance is {rupee(balance)}. You need {rupee(needed)} for one minute at {rupee(rate)}/min — you are eligible.
         </div>
       ) : (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] leading-[1.55] text-rose-900">
-          Your balance is {rupee(balance)}. You need {rupee(needed)} for five minutes at {rupee(rate)}/min.{" "}
+          Your balance is {rupee(balance)}. You need {rupee(needed)} for one minute at {rupee(rate)}/min.{" "}
           <Link href="/wallet#add-money" onClick={onClose} className="font-bold underline">
             Add money
           </Link>{" "}

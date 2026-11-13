@@ -11,8 +11,8 @@ import { RecordingConsent } from "../consult/recording-notice";
 import Modal from "../ui/modal";
 import ModeIcon from "@/components/ui/mode-icon";
 
-/** Minutes of balance a consultation needs before it can start (same rule as every consultation). */
-const ELIGIBILITY_MINUTES = 5;
+/** Minutes of balance a consultation needs before it can start (same rule as every consultation: 1 min). */
+const ELIGIBILITY_MINUTES = 1;
 
 /** A private consultation from a live is by chat, voice or video. */
 const MODES: { key: LiveMode; title: string; body: string }[] = [
@@ -130,7 +130,7 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
             </p>
           )}
           <p className="text-[12px] leading-[1.45] text-stone-600">
-            You need {rupee(quoted * ELIGIBILITY_MINUTES)} (five minutes at {rupee(quoted)}/min) in your wallet. Billing starts only
+            You need {rupee(quoted * ELIGIBILITY_MINUTES)} (one minute at {rupee(quoted)}/min) in your wallet. Billing starts only
             when you both join{mode === "chat" ? " the chat" : " the call"}, and you pay for the minutes you&apos;re connected.
           </p>
         </div>

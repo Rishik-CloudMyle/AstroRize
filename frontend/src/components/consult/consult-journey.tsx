@@ -115,7 +115,7 @@ export default function ConsultJourney({
   const [meter, setMeter] = useState<Meter>(
     resume
       ? { freeSeconds: resume.freeSeconds, maxSeconds: resume.maxSeconds, complimentary: resume.complimentary, reminderSeconds: resume.reminderSeconds }
-      : { freeSeconds: 60, maxSeconds: 900, complimentary: false, reminderSeconds: 0 },
+      : { freeSeconds: 0, maxSeconds: 900, complimentary: false, reminderSeconds: 0 },
   );
   // The API refused because the price changed since the sheet showed it; the customer confirms the new one.
   const [rateChange, setRateChange] = useState<RateChange | null>(null);
@@ -969,7 +969,7 @@ export default function ConsultJourney({
             </div>
 
             <div className="mt-3.5 rounded-[14px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-[13px] leading-[1.55] text-emerald-800 max-lg:rounded-app-btn max-lg:bg-app-success-bg max-lg:text-[12.5px] max-lg:text-app-success">
-              Nothing is charged while you wait. Billing starts only once the call connects, and the first minute is free.
+              Nothing is charged while you wait. Billing starts only once the call connects.
             </div>
 
             <button

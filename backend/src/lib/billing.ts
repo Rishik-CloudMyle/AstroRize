@@ -4,7 +4,8 @@
 /** Video costs this much more per minute than chat or voice (₹). */
 export const VIDEO_PREMIUM = 12;
 /** A customer needs this many minutes of balance before a consultation can start. */
-export const ELIGIBILITY_MINUTES = 5;
+/** Minimum minutes of balance required to start a paid consultation (client decision: 1 min). */
+export const ELIGIBILITY_MINUTES = 1;
 /** Longest single consultation, in seconds. */
 export const MAX_SESSION_SECONDS = 15 * 60;
 /** GST charged on top of a recharge. */

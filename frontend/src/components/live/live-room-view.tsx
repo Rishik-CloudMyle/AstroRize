@@ -274,7 +274,7 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
     if (req.consultation === "connecting" || req.consultation === "active") void consultationActions.refresh();
     if (req.status === "declined") toast(`${host.name} couldn't take your request this time. You haven't been charged.`);
     else if (req.consultation === "cancelled" && req.reason === "balance")
-      toast("Your balance no longer covers five minutes, so you were taken out of the queue. You haven't been charged.");
+      toast("Your balance no longer covers one minute, so you were taken out of the queue. You haven't been charged.");
     else if (req.consultation === "cancelled" && req.reason === "unanswered")
       toast("You didn't join in time, so the astrologer moved on. You haven't been charged.");
     else if (req.consultation === "cancelled" && before.consultation === "active") {

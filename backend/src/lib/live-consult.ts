@@ -294,7 +294,7 @@ export async function closeRoomConsultations(roomId: string) {
 
 /** Time and money of a private consultation as it runs (server clock). */
 async function meter(c: Consultation) {
-  const [standardFree, secs, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 60), answerSeconds(), joinTimeoutSeconds()]);
+  const [standardFree, secs, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 0), answerSeconds(), joinTimeoutSeconds()]);
   const now = Date.now();
   const by = answerBy(c, secs);
   return {

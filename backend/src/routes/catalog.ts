@@ -366,7 +366,7 @@ catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
   if (result.kind === "short") {
     throw new HttpError(
       400,
-      `Your balance is ${rupee(result.spendable)}. You need ${rupee(result.needed)} for five minutes at ${rupee(result.rate)}/min.`,
+      `Your balance is ${rupee(result.spendable)}. You need ${rupee(result.needed)} for one minute at ${rupee(result.rate)}/min.`,
       "insufficient_balance",
     );
   }

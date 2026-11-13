@@ -75,11 +75,10 @@ export const startsFree = (c: Pick<Consultation, "billingMode">) => c.billingMod
 
 /**
  * Seconds at the start of a session that are never billed: a welcome call's (or a free replacement
- * call's) complimentary time, snapshotted when it was requested — instead of, not on top of, the
- * standard free window.
+ * call's) complimentary time. Paid calls have 0 free seconds (billed per minute from the start).
  */
-export function freeWindow(c: Pick<Consultation, "billingMode" | "complimentarySeconds">, standardFree: number) {
-  return startsFree(c) ? c.complimentarySeconds : standardFree;
+export function freeWindow(c: Pick<Consultation, "billingMode" | "complimentarySeconds">, _standardFree: number = 0) {
+  return startsFree(c) ? c.complimentarySeconds : 0;
 }
 
 /**
@@ -162,7 +161,7 @@ export async function acceptConsultation(id: string, astrologerId: string) {
  * disconnecting. A session that has already reached its end isn't revived.
  */
 export async function extendHold(customerId: string) {
-  const standardFree = await configNumber("consult.free_seconds", 60);
+  const standardFree = await configNumber("consult.free_seconds", 0);
   return db.$transaction(async (tx) => {
     await lockKey(tx, `consult:${customerId}`);
     const c = await tx.consultation.findFirst({ where: { customerId, status: { in: ["CONNECTING", "ACTIVE"] } } });
@@ -262,7 +261,7 @@ export async function endIfNeverJoined(c: Consultation, timeout?: number): Promi
  * sides end it at the same moment: only one of them settles.
  */
 export async function endConsultation(c: Consultation, endedBy: "user" | "astrologer" | "no_media") {
-  const [standardFree, policy, shares] = await Promise.all([configNumber("consult.free_seconds", 60), welcomePolicy(), sharePolicy()]);
+  const [standardFree, policy, shares] = await Promise.all([configNumber("consult.free_seconds", 0), welcomePolicy(), sharePolicy()]);
   const outcome = await db.$transaction(async (tx) => {
     if (c.customerId) await lockKey(tx, `consult:${c.customerId}`);
     const fresh = await tx.consultation.findUnique({ where: { id: c.id } });
@@ -437,7 +436,7 @@ async function notifyMissed(c: Pick<Consultation, "astrologerId" | "customerId" 
 export async function sweepAbandonedConsultations() {
   const now = Date.now();
   const GRACE_MS = 60_000;
-  const freeSeconds = await configNumber("consult.free_seconds", 60);
+  const freeSeconds = await configNumber("consult.free_seconds", 0);
   // Free calls held for requests that have since closed (e.g. the astrologer went offline).
   await reconcileWelcome();
   // Free replacement calls: give back ones whose request closed, expire unused ones.

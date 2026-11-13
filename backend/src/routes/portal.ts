@@ -653,7 +653,7 @@ portalRouter.get("/consultations", async (req, res) => {
     db.consultation.findMany({ where: { astrologerId: a.id, status: "REQUESTED" }, orderBy: { requestedAt: "asc" }, include: { customer: true } }),
     db.consultation.findFirst({ where: { astrologerId: a.id, status: "ACTIVE" }, orderBy: { connectedAt: "desc" }, include: { customer: true } }),
     configNumber("live.queue.max_depth", 20),
-    configNumber("consult.free_seconds", 60),
+    configNumber("consult.free_seconds", 0),
     freeCallsView(a),
     joinTimeoutSeconds(),
   ]);
@@ -1200,7 +1200,7 @@ portalRouter.post("/live/requests/:id/:decision", async (req, res) => {
   if (result.kind === "not_first") throw conflict("Requests are taken in order — accept the person at the front of the queue first.");
   if (result.kind === "busy") throw conflict("Only one private consultation at a time. End the current one first.");
   if (result.kind === "customer_busy") throw conflict("This customer is in another consultation right now. They stay in the queue — try again shortly.");
-  if (result.kind !== "ok") throw conflict("This customer's balance no longer covers five minutes, so they were taken out of the queue. They haven't been charged.");
+  if (result.kind !== "ok") throw conflict("This customer's balance no longer covers one minute, so they were taken out of the queue. They haven't been charged.");
   res.json({ ok: true, rate: result.consultation.rate, consultationId: result.consultation.id });
 });
 

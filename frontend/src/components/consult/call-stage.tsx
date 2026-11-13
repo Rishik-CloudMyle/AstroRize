@@ -65,12 +65,12 @@ export function MeterChips({ m, instant }: { m: MeterInput; instant: boolean }) 
     <>
       <span className={`${chip} bg-white/10 text-amber-200 ${appChip} max-lg:bg-app-tint-2 max-lg:text-app-active`}>{rupee(m.rate)}/min</span>
       {instant && <span className={`${chip} bg-blue-500/20 text-blue-200 ${appChip} max-lg:bg-app-info-bg max-lg:text-app-info`}>⚡ Instant Call</span>}
-      {s.inFree ? (
+      {s.inFree && m.complimentary ? (
         <span
-          className={`${chip} ${m.complimentary ? "bg-emerald-400/15 text-emerald-200" : "bg-green-400/15 text-green-300"} ${appChip} max-lg:bg-app-success-bg max-lg:text-app-success`}
+          className={`${chip} bg-emerald-400/15 text-emerald-200 ${appChip} max-lg:bg-app-success-bg max-lg:text-app-success`}
           aria-live="off"
         >
-          {m.complimentary ? <>🎁 {clock(s.freeLeft)} free</> : <>First minute free · {s.freeLeft}s</>}
+          🎁 {clock(s.freeLeft)} free
         </span>
       ) : (
         <span className={`${chip} bg-white/10 text-paper ${appChip} ${appPlain} max-lg:text-app-ink`}>
@@ -141,7 +141,7 @@ export function MeterAlerts({ m, onAddMoney }: { m: MeterInput; onAddMoney: () =
 /** What ending right now costs, in one line (shown where the devices couldn't be used). */
 export function endNoteOf(m: MeterInput): string {
   const s = meterOf(m);
-  if (s.inFree) return "You can end now without being charged — you're still in the free time.";
+  if (s.inFree && m.complimentary) return "You can end now without being charged — you're still in the free time.";
   return `Ending now charges only the ${s.billed} min already used (${rupee(s.cost)}).`;
 }
 
@@ -181,7 +181,7 @@ export function SettlementView({
     : s.complimentary
       ? `Your free time (${freeLabel}) cost nothing. Only the minutes after it are charged, in one debit now.`
       : zero
-        ? "You ended within the free first minute, so there is nothing to bill. The hold on your balance has been released in full."
+        ? "Nothing was charged. The hold on your balance has been released in full."
         : s.reason === "exhausted"
           ? "The session ended on its own when your balance was used up. You have been billed only for the time you were connected — never more than was held."
           : "One debit, taken now that the session has ended. Your hold has been released.";
@@ -193,7 +193,6 @@ export function SettlementView({
       value: "₹0",
       green: true,
     });
-  else lines.push({ label: "Free first minute", value: "not billed", green: true });
   if (!freeOnly) lines.push({ label: s.complimentary ? "Paid after the free time, rounded up" : "Billed, rounded up", value: `${s.billedMins} min` });
   if (!zero) {
     if (s.listRate && s.discountPct) {
@@ -300,8 +299,8 @@ export function SettlementSummary({
     : s.complimentary
       ? `The first ${freeLength(s.complimentarySeconds)} were free. Only the minutes after them are billed, rounded up.`
       : zero
-        ? "₹0 — ended within the first minute."
-        : "Partial minutes round up after the first 60 seconds.";
+        ? "₹0 — ended before any billed time."
+        : "Partial minutes round up.";
   const lines: { label: string; value: string; strong?: boolean; green?: boolean }[] = [
     { label: "Duration", value: clock(s.elapsed), strong: true },
     { label: s.complimentary ? "Billed after the free time" : "Billed", value: `${s.billedMins} min`, strong: true },
