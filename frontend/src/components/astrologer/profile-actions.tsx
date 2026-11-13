@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { Astrologer } from "@/lib/types";
 import { rateFor, rupee } from "@/lib/format";
 import { minutesHeadline } from "@/lib/free-calls";
@@ -11,6 +12,7 @@ import { ConsultBlockedNote, blockedHint, blockedLabel, useConsultGate, type Con
 import { ConsultFrozenNote, FROZEN_HINT } from "../consult/consult-lock";
 import { FreeCallBadge } from "../consult/free-call";
 import { multiplierLabel, type OfferedChoice } from "../consult/consult-sheet";
+import FixedSessionSheet from "../consult/fixed-session-sheet";
 import MessageButton from "../messages/message-button";
 import SendGiftButton from "./send-gift";
 import { DiscountBadge, WasPrice, priceNote } from "./parts";
@@ -39,6 +41,7 @@ function unavailableLine(gate: ConsultGate, a: Astrologer): string | null {
 
 /** Sticky price card with the consult options, and the share box, on the profile page. */
 export default function ProfileActions({ astrologer: initial }: { astrologer: Astrologer }) {
+  const [fixedOpen, setFixedOpen] = useState(false);
   const { startConsult, openInstantCall, toast } = useAppUI();
   const session = useSession();
   // Kept current while the page is open, so the buttons follow the astrologer's availability.
@@ -181,6 +184,28 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
               );
             })}
           </ul>
+
+          {/* Fixed Session option */}
+          <button
+            type="button"
+            onClick={() => setFixedOpen(true)}
+            className="flex min-h-[48px] w-full items-center gap-2.5 rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50/90 to-orange-50/60 px-3 py-2 text-left hover:border-amber-400 hover:shadow-xs transition"
+          >
+            <span className="grid size-6 place-items-center rounded-full bg-amber-500 text-ink shrink-0">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-3.5">
+                <circle cx="12" cy="12" r="10" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
+              </svg>
+            </span>
+            <span className="min-w-0 flex-1">
+              <b className="block text-[13px] font-bold text-ink">Fixed Session</b>
+              <span className="block text-[11px] text-amber-900">Prepaid 15–60 min · 5%–20% discount</span>
+            </span>
+            <span className="shrink-0 rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-bold text-ink">
+              Choose
+            </span>
+          </button>
+
           <MessageButton slug={a.slug} name={a.name} />
           <SendGiftButton astrologer={a} variant="desktop" />
         </div>
@@ -205,6 +230,13 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
           </button>
         </div>
       </div>
+
+      {fixedOpen && (
+        <FixedSessionSheet
+          astrologer={a}
+          onClose={() => setFixedOpen(false)}
+        />
+      )}
     </aside>
   );
 }

@@ -23,6 +23,7 @@ import { AppAvailabilityBadge, AppPortrait, AppRecognition, AppVerifiedTick } fr
 import IntroVideo, { IntroVideoPlaceholder } from "./intro-video";
 import ProfileGallery from "./profile-gallery";
 import { useFreshAstrologer } from "./use-fresh-astrologer";
+import FixedSessionSheet from "../consult/fixed-session-sheet";
 
 // An astrologer's profile on phones and tablets (< 1024px), laid out like the client's app
 // "Astrologer profile" and "Reviews" screens: identity, price and the ways to consult, Share and
@@ -44,6 +45,7 @@ export default function AppProfile({ astrologer: initial, showReviews }: { astro
 }
 
 function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
+  const [fixedOpen, setFixedOpen] = useState(false);
   const { toast } = useAppUI();
   const session = useSession();
   const gate = useConsultGate(a);
@@ -154,6 +156,29 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
         )}
 
         <div className="mt-3 flex flex-col gap-2">
+          {/* Fixed Session option */}
+          <button
+            type="button"
+            onClick={() => setFixedOpen(true)}
+            className="flex min-h-app-hit w-full items-center justify-between rounded-app-btn border border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 px-3.5 py-2.5 text-left shadow-xs transition"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="grid size-7 shrink-0 place-items-center rounded-full bg-amber-500 text-ink">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-4">
+                  <circle cx="12" cy="12" r="10" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
+                </svg>
+              </span>
+              <div>
+                <b className="block text-[13.5px] leading-tight text-ink">Fixed Session</b>
+                <span className="block text-[11px] text-amber-900">Prepaid 15–60 min · 5%–20% off</span>
+              </div>
+            </div>
+            <span className="rounded-full bg-amber-500 px-3 py-1 text-[11px] font-bold text-ink">
+              Choose
+            </span>
+          </button>
+
           <button
             type="button"
             onClick={share}
@@ -248,6 +273,13 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
       </div>
 
       <ConsultBar astrologer={a} freeNote={makeGood ? `Free replacement call · ${makeGood.minutes} min, or paid` : freeMinutesHere ? "Free minutes or paid — you choose" : ""} discountPct={discount?.pct ?? 0} />
+
+      {fixedOpen && (
+        <FixedSessionSheet
+          astrologer={a}
+          onClose={() => setFixedOpen(false)}
+        />
+      )}
     </>
   );
 }

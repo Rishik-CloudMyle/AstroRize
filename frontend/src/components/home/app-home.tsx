@@ -45,6 +45,30 @@ export default function AppHome({
     <div className="bg-app-bg px-4 pt-3.5 pb-6">
       <SearchPill href="/astrologers?focus=search" placeholder="Search astrologers" />
 
+      {/* ---------- Fixed Sessions Banner (Quick Access) ---------- */}
+      <div className="mt-3">
+        <Link
+          href="/fixed-sessions"
+          className="flex items-center justify-between gap-3 rounded-app-card border border-amber-300 bg-linear-to-r from-amber-50 via-orange-50 to-amber-100/60 p-3 shadow-xs hover:no-underline transition"
+        >
+          <div className="flex items-center gap-2.5">
+            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-amber-500 text-ink shadow-2xs">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-5">
+                <circle cx="12" cy="12" r="10" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
+              </svg>
+            </span>
+            <div>
+              <b className="block text-[13.5px] leading-tight text-ink">Fixed Sessions</b>
+              <span className="block text-[11px] text-amber-900">Prepaid 15–60 min packages · 5%–20% off</span>
+            </div>
+          </div>
+          <span className="rounded-full bg-amber-500 px-3 py-1 text-[11px] font-bold text-ink shadow-2xs">
+            Explore ›
+          </span>
+        </Link>
+      </div>
+
       {/* ---------- Live Now ---------- */}
       <section aria-labelledby="app-live-title" className="mt-[22px]">
         <SectionHeader

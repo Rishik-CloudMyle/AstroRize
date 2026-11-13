@@ -18,6 +18,7 @@ export const GRIEVANCE_OFFICER = {
 
 export const NAV_LINKS = [
   { href: "/astrologers", label: "Astrologers" },
+  { href: "/fixed-sessions", label: "Fixed Sessions" },
   { href: "/live", label: "Live", live: true },
   { href: "/free-tools", label: "Free tools" },
   { href: "/offers", label: "Offers" },
@@ -30,6 +31,7 @@ export const FOOTER_COLUMNS = [
     title: "Explore",
     links: [
       { label: "Astrologers", href: "/astrologers" },
+      { label: "Fixed Sessions", href: "/fixed-sessions" },
       { label: "Live now", href: "/live" },
       { label: "Free tools", href: "/free-tools" },
       { label: "Wallet", href: "/wallet" },
