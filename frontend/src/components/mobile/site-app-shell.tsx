@@ -15,7 +15,7 @@ import { useAppUI } from "../app-provider";
 import { ConsultInProgressBar } from "../consult/consult-lock";
 import NotificationBell from "../notification-bell";
 import { AppHeader, HeaderPill, WalletChip } from "./app-header";
-import { IconHome, IconLive, IconMessage, IconPeople, IconUser } from "./icons";
+import { IconClock, IconHome, IconLive, IconMessage, IconPeople, IconUser } from "./icons";
 import TabBar from "./tab-bar";
 
 const UNREAD_POLL_MS = 60_000;
@@ -117,6 +117,7 @@ export function SiteTabBar({ search }: { search: URLSearchParams | null }) {
       hidden={isImmersive(pathname, search)}
       items={[
         { href: "/", label: "Home", icon: <IconHome />, active: pathname === "/" },
+        { href: "/fixed-sessions", label: "Fixed", icon: <IconClock />, active: at("/fixed-sessions") },
         { href: "/live", label: "Live", icon: <IconLive />, active: at("/live") },
         { href: "/astrologers", label: "Consult", icon: <IconPeople />, active: at("/astrologers") || at("/astrologer") },
         {

@@ -4,6 +4,7 @@ import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { istDate } from "../../lib/format.ts";
+import { configNumber } from "../../lib/settings.ts";
 import { actorName, requireCapability, requirePage, secondPerson } from "../../lib/rbac.ts";
 
 // Config console: every operational setting, changed by draft → second approver → new version.
@@ -219,3 +220,62 @@ configRouter.post("/config/:key/rollback", async (req, res) => {
   await audit(admin, "config.rollback", k.key, `${k.value} → ${last.fromValue} (v${version})`);
   res.json({ restoredFrom: last.version ? last.version - 1 : null, detail: await keyView(k.key) });
 });
+
+/** Admin: read fixed session pricing and discount savings configuration. */
+configRouter.get("/config/fixed-sessions", async (req, res) => {
+  requirePage(req, "config");
+  const [d5, d10, d15, d30, d45, d60] = await Promise.all([
+    configNumber("fixed_session.discount_5m", 5),
+    configNumber("fixed_session.discount_10m", 10),
+    configNumber("fixed_session.discount_15m", 15),
+    configNumber("fixed_session.discount_30m", 20),
+    configNumber("fixed_session.discount_45m", 25),
+    configNumber("fixed_session.discount_60m", 30),
+  ]);
+  res.json({
+    durations: [5, 10, 15, 30, 45, 60],
+    discounts: { 5: d5, 10: d10, 15: d15, 30: d30, 45: d45, 60: d60 },
+  });
+});
+
+/** Admin: customize prices and discount savings for Fixed Sessions. */
+configRouter.put("/config/fixed-sessions", async (req, res) => {
+  requirePage(req, "config");
+  const admin = requireCapability(req, "config.write");
+  const schema = z.object({
+    discounts: z.record(z.string(), z.number().int().min(0).max(50)),
+  });
+  const { discounts } = schema.parse(req.body);
+
+  const updates: Record<number, number> = {};
+  for (const [durStr, disc] of Object.entries(discounts)) {
+    const dur = Number(durStr);
+    if ([5, 10, 15, 30, 45, 60].includes(dur)) {
+      updates[dur] = disc;
+      const key = `fixed_session.discount_${dur}m`;
+      await db.configKey.upsert({
+        where: { key },
+        create: {
+          key,
+          flagged: false,
+          description: `Discount percentage applied on a ${dur}-minute Fixed Session package.`,
+          value: String(disc),
+          scope: "global",
+          bounds: "0–50",
+          dryRun: `Changes the discount percentage and price savings for ${dur}-minute Fixed Sessions across the platform.`,
+          domain: "consult",
+          rank: 15 + dur,
+          version: 1,
+        },
+        update: {
+          value: String(disc),
+          updatedAt: new Date(),
+        },
+      });
+    }
+  }
+
+  await audit(admin, "config.fixed_sessions.update", "fixed_sessions", JSON.stringify(updates));
+  res.json({ ok: true, discounts: updates });
+});
+

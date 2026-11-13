@@ -1,5 +1,6 @@
 import AccessDenied from "@/components/admin/access-denied";
 import ConfigView from "@/components/admin/config/config-view";
+import FixedSessionsConfigCard from "@/components/admin/config/fixed-sessions-config-card";
 import { PageTitle } from "@/components/admin/ui";
 import { getConfig, getConfigDetail } from "@/lib/admin/api";
 import { allowed } from "@/lib/admin/guard";
@@ -27,6 +28,7 @@ export default async function ConfigPage({ searchParams }: PageProps<"/admin/con
         title="Config console"
         sub="Every operational setting lives here. Changes are drafted, approved by a second person and versioned. Each setting has one platform-wide value."
       />
+      <FixedSessionsConfigCard />
       {/* Remount when the drill-down key changes so the selection follows the link. */}
       {key && <ConfigView key={asked ?? "all"} data={data} initialKey={key} initialDetail={detail} />}
     </div>

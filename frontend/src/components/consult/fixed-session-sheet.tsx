@@ -21,6 +21,7 @@ export type FixedSessionMode = "Chat" | "Voice";
 
 export interface FixedSessionSheetProps {
   astrologer: Astrologer;
+  customDiscounts?: Record<number, number>;
   onClose: () => void;
   onReserved?: (details: {
     astrologer: Astrologer;
@@ -36,6 +37,7 @@ const QUOTE_TTL_SECONDS = 120; // 2 minutes quote expiry
 
 export default function FixedSessionSheet({
   astrologer: a,
+  customDiscounts: initialDiscounts,
   onClose,
   onReserved,
 }: FixedSessionSheetProps) {
@@ -45,17 +47,28 @@ export default function FixedSessionSheet({
 
   const [step, setStep] = useState<Step>("select");
   const [mode, setMode] = useState<FixedSessionMode>("Voice");
-  const [duration, setDuration] = useState<PkgDuration>(30);
+  const [duration, setDuration] = useState<PkgDuration>(10);
+  const [discounts, setDiscounts] = useState<Record<number, number> | undefined>(initialDiscounts);
   const [consentChecked, setConsentChecked] = useState(false);
   const [previousStep, setPreviousStep] = useState<Step>("select");
+
+  useEffect(() => {
+    if (initialDiscounts) return;
+    fetch("/api/fixed-session-config")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.discounts) setDiscounts(data.discounts);
+      })
+      .catch(() => {});
+  }, [initialDiscounts]);
 
   // TTL Countdown for review screen
   const [ttlSeconds, setTtlSeconds] = useState(QUOTE_TTL_SECONDS);
   const [isExpired, setIsExpired] = useState(false);
 
-  // Price quote calculation based on effective mode rate
+  // Price quote calculation based on effective mode rate and admin-configured discounts
   const ratePerMin = mode === "Chat" ? a.chatPrice : a.price;
-  const quote = pkgQuote(ratePerMin, duration);
+  const quote = pkgQuote(ratePerMin, duration, discounts);
 
   const walletHave = totalBalance(session);
   const shortfall = Math.max(0, quote.final - walletHave);
@@ -183,7 +196,7 @@ export default function FixedSessionSheet({
                 <b className="block text-sm font-bold text-amber-900 mb-1">
                   Fixed Session, not pay per minute
                 </b>
-                Pay per minute is ₹{a.price}/min and can end when your wallet runs low. A Fixed Session is prepaid time — 15 to 60 min for a discounted package price. Other offers do not stack.
+                Pay per minute is ₹{a.price}/min and can end when your wallet runs low. A Fixed Session is prepaid time — 5, 10, 15, 30, 45 or 60 min for a discounted package price. Other offers do not stack.
               </div>
 
               {/* Astrologer info row */}
@@ -242,7 +255,7 @@ export default function FixedSessionSheet({
                   Select Duration
                 </label>
                 {PKG_DURATIONS.map((mins) => {
-                  const q = pkgQuote(ratePerMin, mins);
+                  const q = pkgQuote(ratePerMin, mins, discounts);
                   const isSelected = duration === mins;
                   return (
                     <button

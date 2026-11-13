@@ -18,6 +18,7 @@ import { AppVerifiedTick } from "@/components/astrologer/app-astro-card";
 
 export interface FixedSessionsViewProps {
   initialAstrologers: Astrologer[];
+  initialDiscounts?: Record<number, number>;
 }
 
 const EXPERTISE_OPTIONS = [
@@ -62,15 +63,17 @@ const SORT_OPTIONS: { key: FixSortKey; label: string }[] = [
 
 export default function FixedSessionsView({
   initialAstrologers,
+  initialDiscounts,
 }: FixedSessionsViewProps) {
   const [filters, setFilters] = useState<FixFiltersState>(DEFAULT_FIX_FILTERS);
   const [activeSheetAstrologer, setActiveSheetAstrologer] = useState<Astrologer | null>(null);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [discounts, setDiscounts] = useState<Record<number, number> | undefined>(initialDiscounts);
 
   // Filtered astrologers list
   const astrologers = useMemo(() => {
-    return filterAndSortFixedAstrologers(initialAstrologers, filters);
-  }, [initialAstrologers, filters]);
+    return filterAndSortFixedAstrologers(initialAstrologers, filters, discounts);
+  }, [initialAstrologers, filters, discounts]);
 
   const activeFilterCount =
     (filters.expertise.length > 0 ? 1 : 0) +
@@ -132,15 +135,15 @@ export default function FixedSessionsView({
               Fixed Session, not pay per minute
             </div>
             <h2 className="text-base sm:text-lg font-bold text-ink">
-              Prepaid packages with 5% to 20% savings
+              Prepaid packages with customizable savings
             </h2>
             <p className="mt-1 text-xs sm:text-sm leading-relaxed text-stone-600 max-w-3xl">
-              Pay per minute can end when your wallet runs low. A Fixed Session gives you dedicated 15, 30, 45, or 60 minutes for a single package price. The session automatically ends when your purchased time is complete.
+              Pay per minute can end when your wallet runs low. A Fixed Session gives you dedicated 5, 10, 15, 30, 45, or 60 minutes for a single package price. The session automatically ends when your purchased time is complete.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <span className="hidden sm:inline-flex rounded-xl bg-white/80 border border-amber-200 px-3 py-1.5 text-xs font-bold text-amber-900 shadow-2xs">
-              15 min (5% off) · 30 min (10% off) · 45 min (15% off) · 60 min (20% off)
+              5m · 10m · 15m · 30m · 45m · 60m
             </span>
           </div>
         </div>
@@ -386,18 +389,18 @@ export default function FixedSessionsView({
                     </span>
                   </div>
 
-                  {/* Fixed Session Pricing Pills (15, 30, 45, 60 min) */}
-                  <div className="mt-3.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  {/* Fixed Session Pricing Pills (5, 10, 15, 30, 45, 60 min) */}
+                  <div className="mt-3.5 grid grid-cols-3 sm:grid-cols-6 gap-1">
                     {PKG_DURATIONS.map((mins) => {
-                      const q = pkgQuote(a.price, mins);
+                      const q = pkgQuote(a.price, mins, discounts);
                       return (
                         <div
                           key={mins}
-                          className="flex flex-col rounded-xl border border-line bg-stone-50/70 px-2.5 py-1.5 text-center text-xs"
+                          className="flex flex-col rounded-lg border border-line bg-stone-50/70 px-1.5 py-1 text-center text-xs"
                         >
-                          <span className="font-bold text-stone-500">{mins}m</span>
-                          <span className="text-[13px] font-extrabold text-ink">{rupee(q.final)}</span>
-                          <s className="text-[10px] text-stone-400">{rupee(q.original)}</s>
+                          <span className="font-bold text-[11px] text-stone-500">{mins}m</span>
+                          <span className="text-[12px] font-extrabold text-ink">{rupee(q.final)}</span>
+                          <s className="text-[9px] text-stone-400">{rupee(q.original)}</s>
                         </div>
                       );
                     })}
@@ -561,6 +564,7 @@ export default function FixedSessionsView({
       {activeSheetAstrologer && (
         <FixedSessionSheet
           astrologer={activeSheetAstrologer}
+          customDiscounts={discounts}
           onClose={() => setActiveSheetAstrologer(null)}
         />
       )}

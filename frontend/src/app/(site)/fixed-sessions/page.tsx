@@ -2,16 +2,19 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import Breadcrumbs from "@/components/breadcrumbs";
 import FixedSessionsView from "@/components/fixed-sessions/fixed-sessions-view";
-import { getAstrologers } from "../data";
+import { getAstrologers, getFixedSessionConfig } from "../data";
 
 export const metadata: Metadata = {
   title: "Fixed Sessions",
   description:
-    "Prepaid astrology sessions at package discounts. Choose 15, 30, 45, or 60 minutes with verified astrologers.",
+    "Prepaid astrology sessions at package discounts. Choose 5, 10, 15, 30, 45, or 60 minutes with verified astrologers.",
 };
 
 export default async function FixedSessionsPage() {
-  const { astrologers } = await getAstrologers();
+  const [{ astrologers }, config] = await Promise.all([
+    getAstrologers(),
+    getFixedSessionConfig(),
+  ]);
 
   return (
     <div className="mx-auto max-w-[1240px] px-4 pb-16 pt-8 lg:px-6 max-lg:px-0 max-lg:pt-0 max-lg:pb-12">
@@ -41,7 +44,10 @@ export default async function FixedSessionsPage() {
           <div className="mt-6 h-96 rounded-[20px] border border-line bg-paper max-lg:mx-4" />
         }
       >
-        <FixedSessionsView initialAstrologers={astrologers} />
+        <FixedSessionsView
+          initialAstrologers={astrologers}
+          initialDiscounts={config.discounts}
+        />
       </Suspense>
     </div>
   );

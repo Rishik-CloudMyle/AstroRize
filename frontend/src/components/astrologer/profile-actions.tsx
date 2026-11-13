@@ -199,7 +199,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
             </span>
             <span className="min-w-0 flex-1">
               <b className="block text-[13px] font-bold text-ink">Fixed Session</b>
-              <span className="block text-[11px] text-amber-900">Prepaid 15–60 min · 5%–20% discount</span>
+              <span className="block text-[11px] text-amber-900">Prepaid 5–60 min · 5%–30% discount</span>
             </span>
             <span className="shrink-0 rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-bold text-ink">
               Choose

@@ -13,6 +13,7 @@ import { flagContactAttempt } from "../lib/contact-flags.ts";
 import { contactBlockedNotice, findContactDetails, rateLimit } from "../lib/safety.ts";
 import { customerConsent } from "../lib/recordings.ts";
 import { freeCallOpen, welcomePolicy } from "../lib/welcome.ts";
+import { configNumber } from "../lib/settings.ts";
 import { requireRole, requireUser } from "../middleware/auth.ts";
 import type { Astrologer, LiveRoom, Review } from "../generated/prisma/client.ts";
 
@@ -462,3 +463,28 @@ catalogRouter.get("/reviews/featured", async (_req, res) => {
   }
   res.json({ reviews });
 });
+
+/** Public configuration for Fixed Sessions (durations and discounts customizable by admin). */
+catalogRouter.get("/fixed-session-config", async (_req, res) => {
+  const [d5, d10, d15, d30, d45, d60] = await Promise.all([
+    configNumber("fixed_session.discount_5m", 5),
+    configNumber("fixed_session.discount_10m", 10),
+    configNumber("fixed_session.discount_15m", 15),
+    configNumber("fixed_session.discount_30m", 20),
+    configNumber("fixed_session.discount_45m", 25),
+    configNumber("fixed_session.discount_60m", 30),
+  ]);
+
+  res.json({
+    durations: [5, 10, 15, 30, 45, 60],
+    discounts: {
+      5: d5,
+      10: d10,
+      15: d15,
+      30: d30,
+      45: d45,
+      60: d60,
+    },
+  });
+});
+

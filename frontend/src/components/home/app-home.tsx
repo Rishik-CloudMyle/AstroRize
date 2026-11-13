@@ -60,7 +60,7 @@ export default function AppHome({
             </span>
             <div>
               <b className="block text-[13.5px] leading-tight text-ink">Fixed Sessions</b>
-              <span className="block text-[11px] text-amber-900">Prepaid 15–60 min packages · 5%–20% off</span>
+              <span className="block text-[11px] text-amber-900">Prepaid 5–60 min packages · 5%–30% off</span>
             </div>
           </div>
           <span className="rounded-full bg-amber-500 px-3 py-1 text-[11px] font-bold text-ink shadow-2xs">

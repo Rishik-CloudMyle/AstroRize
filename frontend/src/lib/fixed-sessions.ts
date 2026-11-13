@@ -1,17 +1,21 @@
 import type { Astrologer } from "./types";
 
-export const PKG_DURATIONS = [15, 30, 45, 60] as const;
+export const PKG_DURATIONS = [5, 10, 15, 30, 45, 60] as const;
 export type PkgDuration = (typeof PKG_DURATIONS)[number];
 
 export const PKG_DISC: Record<PkgDuration, number> = {
-  15: 5,
-  30: 10,
-  45: 15,
-  60: 20,
+  5: 5,
+  10: 10,
+  15: 15,
+  30: 20,
+  45: 25,
+  60: 30,
 };
 
 export const PKG_TIP: Record<PkgDuration, string> = {
-  15: "One focused question.",
+  5: "A quick question or immediate clarity.",
+  10: "One focused topic with direct answers.",
+  15: "One focused question and remedies.",
   30: "One decision, with a short follow-up.",
   45: "Two related questions in one sitting.",
   60: "A full sitting for a wider chart.",
@@ -28,11 +32,19 @@ export interface PkgQuote {
   savings: number;
 }
 
-export function pkgQuote(pricePerMin: number, mins: number): PkgQuote {
-  const disc = PKG_DISC[mins as PkgDuration] ?? 0;
+export function pkgQuote(
+  pricePerMin: number,
+  mins: number,
+  customDiscounts?: Record<number, number>,
+): PkgQuote {
+  const disc =
+    customDiscounts && customDiscounts[mins] !== undefined
+      ? customDiscounts[mins]!
+      : PKG_DISC[mins as PkgDuration] ?? 0;
+
   const original = pricePerMin * mins;
   const after = Math.trunc((original * (100 - disc)) / 100);
-  const floor = Math.trunc((original * 80) / 100);
+  const floor = Math.trunc((original * 50) / 100); // 50% max discount floor
   const final = Math.max(after, floor);
   return {
     mins,
@@ -46,8 +58,11 @@ export function pkgQuote(pricePerMin: number, mins: number): PkgQuote {
   };
 }
 
-export function pkgMinPrice(pricePerMin: number): number {
-  return pkgQuote(pricePerMin, 15).final;
+export function pkgMinPrice(
+  pricePerMin: number,
+  customDiscounts?: Record<number, number>,
+): number {
+  return pkgQuote(pricePerMin, 5, customDiscounts).final;
 }
 
 export function isPkgEnabled(a: Astrologer): boolean {
@@ -108,6 +123,7 @@ export const DEFAULT_FIX_FILTERS: FixFiltersState = {
 export function filterAndSortFixedAstrologers(
   list: Astrologer[],
   filters: FixFiltersState,
+  customDiscounts?: Record<number, number>,
 ): Astrologer[] {
   const q = filters.searchQuery.trim().toLowerCase();
 
@@ -159,9 +175,9 @@ export function filterAndSortFixedAstrologers(
       case "orders_asc":
         return a.consults - b.consults;
       case "price_asc":
-        return pkgMinPrice(a.price) - pkgMinPrice(b.price);
+        return pkgMinPrice(a.price, customDiscounts) - pkgMinPrice(b.price, customDiscounts);
       case "price_desc":
-        return pkgMinPrice(b.price) - pkgMinPrice(a.price);
+        return pkgMinPrice(b.price, customDiscounts) - pkgMinPrice(a.price, customDiscounts);
       case "rating_desc":
         return (b.rating ?? 0) - (a.rating ?? 0);
       case "rating_asc":

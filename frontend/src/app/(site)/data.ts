@@ -43,3 +43,20 @@ export const getWelcomeOffer = cache(async (): Promise<WelcomeOffer | null> => {
     return null;
   }
 });
+
+export interface FixedSessionConfig {
+  durations: number[];
+  discounts: Record<number, number>;
+}
+
+/** Admin-configured durations and savings for Fixed Sessions. */
+export const getFixedSessionConfig = cache(async (): Promise<FixedSessionConfig> => {
+  try {
+    return await apiGet<FixedSessionConfig>("/fixed-session-config");
+  } catch {
+    return {
+      durations: [5, 10, 15, 30, 45, 60],
+      discounts: { 5: 5, 10: 10, 15: 15, 30: 20, 45: 25, 60: 30 },
+    };
+  }
+});
