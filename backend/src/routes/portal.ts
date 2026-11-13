@@ -80,7 +80,7 @@ import {
 import { addGalleryPhoto, galleryMax, removeGalleryPhoto, reorderGallery } from "../lib/gallery.ts";
 import { checkDetailsText, detailsDiff, detailsSchema, liveCategories, sessionFeed } from "../lib/live.ts";
 import { acceptRequest, closeRoomConsultations, declineRequest, expireUnanswered, hostPrivateView, liveMedia, liveRate, liveRates } from "../lib/live-consult.ts";
-import { configNumber, getSetting } from "../lib/settings.ts";
+import { configNumber, getSetting, putSetting } from "../lib/settings.ts";
 import { closedCycles, closesOn, cycleOf, freeCallsCycleDays, sharePolicy, shareStatus, tdsOn, tdsPct } from "../lib/earnings.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
 import type { Astrologer, EarningsLine } from "../generated/prisma/client.ts";
@@ -213,13 +213,14 @@ portalRouter.get("/dashboard", async (req, res) => {
   const now = new Date();
   const todayKey = istDateKey(now);
   const since = new Date(now.getTime() - 10 * 86400000);
-  const [lines, slots, room, training, reviews, maxMultiplier] = await Promise.all([
+  const [lines, slots, room, training, reviews, maxMultiplier, disabledAstros] = await Promise.all([
     db.earningsLine.findMany({ where: { astrologerId: a.id, date: { gte: since } } }),
     db.availabilitySlot.findMany({ where: { astrologerId: a.id, date: new Date(todayKey + "T00:00:00Z"), state: { not: "CANCELLED" } }, orderBy: { start: "asc" }, include: { customer: true } }),
     db.liveRoom.findUnique({ where: { astrologerId: a.id } }),
     db.trainingModule.findMany({ where: { astrologerId: a.id }, orderBy: { rank: "asc" } }),
     db.review.findMany({ where: { astrologerId: a.id, status: "VISIBLE" }, orderBy: { createdAt: "desc" }, take: 2 }),
     configNumber("consult.emergency.max_multiplier", 4),
+    getSetting<string[]>("fixed_sessions.disabled_astros", []),
   ]);
 
   // Earnings per day for the last 10 days (bar heights are a % of the best day).
@@ -273,12 +274,33 @@ portalRouter.get("/dashboard", async (req, res) => {
       multiplierOptions: MULTIPLIER_OPTIONS.filter((m) => m <= maxMultiplier),
       /** Welcome campaign: taking part, capacity per day or week, and how many are left. */
       freeCalls: await freeCallsView(a),
+      /** Whether Fixed Sessions are offered on this astrologer's profile. */
+      fixedSessionsEnabled: !new Set(disabledAstros).has(a.id),
       /** The astrologer's own per-minute price and the rules for changing it. */
       pricing: priceView(a, await pricingPolicy(), now, await priceRequestState(a.id)),
       /** The intro video on the public profile (managed on the Profile page), or null. */
       introVideoUrl: a.introVideoUrl,
     },
   });
+});
+
+/**
+ * Fixed Sessions toggle: the astrologer can enable or disable offering Fixed Sessions on their profile.
+ */
+portalRouter.patch("/fixed-sessions", async (req, res) => {
+  const a = await me(req);
+  const { enabled } = z.object({ enabled: z.boolean({ error: "Choose on or off." }) }).parse(req.body);
+  const disabled = await getSetting<string[]>("fixed_sessions.disabled_astros", []);
+  const set = new Set(disabled);
+  if (enabled) {
+    set.delete(a.id);
+  } else {
+    set.add(a.id);
+  }
+  const next = [...set];
+  await putSetting("fixed_sessions.disabled_astros", next);
+  await audit(req.auth ?? null, "astrologer.fixed_sessions.update", a.id, `Fixed Sessions ${enabled ? "enabled" : "disabled"} · by the astrologer`);
+  res.json({ fixedSessionsEnabled: enabled });
 });
 
 /**

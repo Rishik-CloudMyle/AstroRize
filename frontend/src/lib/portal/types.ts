@@ -137,6 +137,8 @@ export interface Dashboard {
   multiplierOptions: number[];
   /** Welcome campaign: taking part, AstroRize's free calls per day and week, and how many are left */
   freeCalls: FreeCalls;
+  /** Whether Fixed Sessions are offered on your profile (opt-in / opt-out) */
+  fixedSessionsEnabled?: boolean;
   /** Your own per-minute price and the rules for changing it */
   pricing: Pricing;
   /** Intro video on your public profile, or null */

@@ -87,6 +87,7 @@ export default function ConsultJourney({
   astrologer,
   initialMode,
   resume,
+  fixedSession,
   onClose,
 }: {
   astrologer: Astrologer;
@@ -94,20 +95,35 @@ export default function ConsultJourney({
   initialMode: OfferedMode | null;
   /** A consultation already under way (Instant Call waiting, or re-opened after a reload). */
   resume: ConsultationView | null;
+  /** Fixed Session duration, discount, and rate. */
+  fixedSession?: {
+    minutes: number;
+    discountPct: number;
+    rate: number;
+    price: number;
+  } | null;
   onClose: () => void;
 }) {
   const session = useSession();
   const router = useRouter();
   const { toast, resumeConsult } = useAppUI();
 
-  const [step, setStep] = useState<Step>(() => (resume ? resumeStep(resume) : session.loggedIn ? "mode" : "phone"));
+  const [step, setStep] = useState<Step>(() =>
+    resume ? resumeStep(resume) : !session.loggedIn ? "phone" : fixedSession ? "connecting" : "mode"
+  );
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [resendIn, setResendIn] = useState(RESEND_SECS);
   const [devCode, setDevCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [choice, setChoice] = useState<ConsultChoice | null>(resume ? (resume.kind === "instant" ? "instant" : resume.mode) : initialMode);
+  const [choice, setChoice] = useState<ConsultChoice | null>(() =>
+    resume
+      ? resume.kind === "instant"
+        ? "instant"
+        : resume.mode
+      : initialMode ?? (fixedSession ? "voice" : null)
+  );
   const [connectStep, setConnectStep] = useState(resume?.status === "connecting" ? 2 : 0);
   const [placed, setPlaced] = useState<Placed | null>(
     resume ? { id: resume.id, rate: resume.rate, held: resume.held, complimentary: resume.complimentary, makeGood: resume.makeGood } : null,
@@ -201,7 +217,7 @@ export default function ConsultJourney({
       onClose();
     }
   }, [staffRole, resume, toast, onClose]);
-  if (!staffRole && session.loggedIn && (step === "phone" || step === "otp") && !busy) setStep("mode");
+  if (!staffRole && session.loggedIn && (step === "phone" || step === "otp") && !busy) setStep(fixedSession ? "connecting" : "mode");
 
   // ---- Sign in (mobile number + six-digit code) ----
   async function verify(code: string) {
@@ -209,7 +225,7 @@ export default function ConsultJourney({
     setError("");
     try {
       await sessionActions.verifyOtp(phone, code);
-      setStep("mode");
+      setStep(fixedSession ? "connecting" : "mode");
     } catch (e) {
       setError(errorText(e));
       setOtp("");
@@ -321,13 +337,15 @@ export default function ConsultJourney({
     if (!choice || busy) return;
     // A click: let the call sounds play (the "picked up" chime) later on.
     void unlockSound();
-    const quoted = quotedOverride ?? quotedRateFor(fresh, choice, discountPct);
+    const quoted = fixedSession ? fixedSession.rate : (quotedOverride ?? quotedRateFor(fresh, choice, discountPct));
     // Free or paid must be the customer's own choice; a free call needs its length chosen too.
-    if (payMissing) return;
-    if (pay === "free" && freeHere && choice !== "instant" && !useFree && !useMakeGoodCall) return;
-    if (!useFree && !useMakeGoodCall && balance < quoted * 5) return;
-    if (useFree && !freeLength) return;
-    if (isRecordedChoice(choice) && !recordingConsent) return;
+    if (!fixedSession) {
+      if (payMissing) return;
+      if (pay === "free" && freeHere && choice !== "instant" && !useFree && !useMakeGoodCall) return;
+      if (!useFree && !useMakeGoodCall && balance < quoted * 5) return;
+      if (useFree && !freeLength) return;
+      if (isRecordedChoice(choice) && !recordingConsent) return;
+    }
     setBusy(true);
     setError("");
     setRateChange(null);
@@ -360,10 +378,11 @@ export default function ConsultJourney({
         astrologerId: fresh.id,
         mode: choice.toUpperCase(),
         quotedRate: quoted,
-        ...(useFree ? { welcome: true, freeMinutes: freeLength } : {}),
-        ...(useMakeGoodCall ? { makeGoodCreditId: makeGood.id } : {}),
+        ...(fixedSession ? { fixedMinutes: fixedSession.minutes } : {}),
+        ...(useFree && !fixedSession ? { welcome: true, freeMinutes: freeLength } : {}),
+        ...(useMakeGoodCall && !fixedSession ? { makeGoodCreditId: makeGood.id } : {}),
         // Voice and video are recorded (audio only): the customer ticked the notice on the sheet.
-        ...(isRecordedChoice(choice) ? { recordingConsent } : {}),
+        ...(isRecordedChoice(choice) || fixedSession ? { recordingConsent: true } : {}),
       });
       if (useMakeGoodCall) makeGoodChanged();
       setPlaced(consultation);
@@ -375,6 +394,14 @@ export default function ConsultJourney({
       setBusy(false);
     }
   }
+
+  const fixedTriggered = useRef(false);
+  useEffect(() => {
+    if (fixedSession && session.loggedIn && !resume && !placed && !busy && !fixedTriggered.current) {
+      fixedTriggered.current = true;
+      void beginConnect();
+    }
+  }, [fixedSession, session.loggedIn, resume, placed, busy]);
 
   /** The astrologer picked up: the meter starts from the server's numbers. */
   async function connect(c: Placed) {
@@ -723,7 +750,11 @@ export default function ConsultJourney({
           title={modeTitle}
           appLook
           badges={
-            meter.complimentary ? (
+            fixedSession ? (
+              <span className="inline-flex h-7 items-center rounded-full bg-amber-400/20 px-3 text-[12px] font-bold text-amber-300 max-lg:h-6 max-lg:bg-amber-100 max-lg:px-2.5 max-lg:text-[11px] max-lg:text-amber-900">
+                ⏱️ Fixed Session · {fixedSession.minutes} min ({fixedSession.discountPct}% off)
+              </span>
+            ) : meter.complimentary ? (
               <span className="inline-flex h-7 items-center rounded-full bg-emerald-400/15 px-3 text-[12px] font-bold text-emerald-300 max-lg:h-6 max-lg:bg-app-success-bg max-lg:px-2.5 max-lg:text-[11px] max-lg:text-app-success">
                 🎁 {placed?.makeGood ? "Free replacement call" : "Free call"}
               </span>

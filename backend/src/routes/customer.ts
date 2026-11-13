@@ -402,7 +402,7 @@ customerRouter.post("/consultations", async (req, res) => {
   const me = auth(req);
   // A temporarily blocked account (repeated contact sharing) can't do this until the block ends.
   assertNotBlocked(me);
-  const { astrologerId, mode, quotedRate, welcome, freeMinutes, makeGoodCreditId, recordingConsent } = z
+  const { astrologerId, mode, quotedRate, welcome, freeMinutes, fixedMinutes, makeGoodCreditId, recordingConsent } = z
     .object({
       astrologerId: z.string(),
       /** The customer accepted the recording notice (required for voice and video: audio is recorded). */
@@ -412,13 +412,18 @@ customerRouter.post("/consultations", async (req, res) => {
       welcome: z.boolean().optional(),
       /** A free call's length, chosen by the customer (minutes; one of the Config lengths that fits this week). */
       freeMinutes: z.number().int().positive().max(600).optional(),
+      /** Fixed Session duration (minutes: 5, 10, 15, 30, 45, 60). */
+      fixedMinutes: z.number().int().positive().max(600).optional(),
       /** Use a free replacement call (make-good) with this astrologer. */
       makeGoodCreditId: z.string().max(40).optional(),
     })
     .parse(req.body);
 
+  if (fixedMinutes && (welcome || makeGoodCreditId)) {
+    throw badRequest("Fixed Session cannot be combined with free minutes or replacement calls.");
+  }
   if (welcome && !(WELCOME_MODES as readonly string[]).includes(mode)) throw modalityDenied();
-  const customerRecordingConsentAt = customerConsent({ mode, kind: "STANDARD" }, recordingConsent);
+  const customerRecordingConsentAt = customerConsent({ mode, kind: fixedMinutes ? "FIXED" : "STANDARD" }, recordingConsent);
   if (welcome && !freeMinutes) throw new HttpError(400, "Choose how long your free call should be.", "WEL_LENGTH_REQUIRED");
   // A free replacement call stands alone: never together with a welcome free call (or an offer).
   if (welcome && makeGoodCreditId) throw badRequest("Use either your free minutes or your free replacement call — not both at once.");
@@ -426,16 +431,30 @@ customerRouter.post("/consultations", async (req, res) => {
   // The rate is fixed now and the whole session is billed at it. A claimed consultation offer
   // lowers it — never together with a free call or a free replacement call.
   const listRate = rateFor(astrologer.price, mode as Mode, astrologer.chatPrice);
-  const offer = welcome || makeGoodCreditId ? null : await discountQuote(me.user.id);
-  const rate = offer ? discountedRate(listRate, offer.pct) : listRate;
-  if (quotedRate !== undefined && quotedRate !== rate) {
+  let rate = listRate;
+  let fixedDisc = 0;
+  let packagePrice = 0;
+  const offer = !fixedMinutes && !welcome && !makeGoodCreditId ? await discountQuote(me.user.id) : null;
+
+  if (fixedMinutes) {
+    fixedDisc = await configNumber(`fixed_session.discount_${fixedMinutes}m`, 10);
+    const original = listRate * fixedMinutes;
+    const after = Math.trunc((original * (100 - fixedDisc)) / 100);
+    const floor = Math.trunc((original * 50) / 100);
+    packagePrice = Math.max(1, Math.max(after, floor));
+    rate = Math.max(1, Math.round(packagePrice / fixedMinutes));
+  } else {
+    rate = offer ? discountedRate(listRate, offer.pct) : listRate;
+  }
+
+  if (!fixedMinutes && quotedRate !== undefined && quotedRate !== rate) {
     return rateChanged(res, quotedRate, rate, offer && quotedRate === listRate
       ? `Your ${offer.pct}% offer (${offer.name}) applies: ${rupee(rate)}/min instead of ${rupee(listRate)}. Continue at ${rupee(rate)}/min?`
       : !offer && quotedRate < listRate
         ? `Your offer no longer applies (used or expired). The rate is ${rupee(rate)}/min. Continue at ${rupee(rate)}/min?`
         : undefined);
   }
-  const needed = rate * ELIGIBILITY_MINUTES;
+  const needed = fixedMinutes ? packagePrice : rate * ELIGIBILITY_MINUTES;
   const policy = welcome ? await welcomePolicy() : null;
   await walletOf(me.user.id);
   const ref = await newRef();
@@ -462,12 +481,15 @@ customerRouter.post("/consultations", async (req, res) => {
       if (!mine.ok) return { kind: "refused" as const, code: mine.code, message: mine.message };
       const refusal = await freeCallRefusal(astrologer, policy, tx);
       if (refusal) return { kind: "refused" as const, ...refusal };
+    } else if (fixedMinutes) {
+      if (spendable < packagePrice) return { kind: "short" as const, spendable, needed: packagePrice };
     } else if (!makeGood && spendable < needed) {
       // (A free replacement call is free for its first minutes, so it needs no minimum balance.)
-      return { kind: "short" as const, spendable };
+      return { kind: "short" as const, spendable, needed };
     }
     // Hold the available balance for the length of the session; one debit is taken at the end.
     // A free call needs no balance: what is held only lets it continue once the free time is over.
+    const heldToLock = fixedMinutes ? Math.min(spendable, packagePrice) : spendable;
     const consultation = await tx.consultation.create({
       data: {
         ref,
@@ -477,13 +499,15 @@ customerRouter.post("/consultations", async (req, res) => {
         mode,
         rate,
         status: "CONNECTING",
-        heldAmount: spendable,
+        heldAmount: heldToLock,
         customerRecordingConsentAt,
+        kind: fixedMinutes ? "FIXED" : "STANDARD",
         // The chosen length, snapshotted: all of it is taken from the weekly minutes once the call starts.
         ...(policy ? { billingMode: COMPLIMENTARY, complimentarySeconds: (freeMinutes ?? 0) * 60 } : {}),
+        ...(fixedMinutes ? { complimentarySeconds: fixedMinutes * 60, listRate, discountPct: fixedDisc } : {}),
         ...(makeGood ? { billingMode: MAKE_GOOD, complimentarySeconds: makeGood.credit.minutes * 60, makeGoodCreditId: makeGood.credit.id } : {}),
         // The offer is only used up once the conversation starts (both sides joined).
-        ...(offer ? { listRate, discountPct: offer.pct, campaignClaimId: offer.claimId } : {}),
+        ...(offer && !fixedMinutes ? { listRate, discountPct: offer.pct, campaignClaimId: offer.claimId } : {}),
       },
     });
     if (makeGood && !(await reserveMakeGood(tx, makeGood.credit.id, makeGood.credit.consultationId, consultation.id))) {
@@ -493,7 +517,7 @@ customerRouter.post("/consultations", async (req, res) => {
       // Undo everything above: the free call isn't there to use.
       throw new HttpError(409, "You don't have free minutes to use right now. You can still consult at the normal rate.", "WEL_NOT_AVAILABLE");
     }
-    if (spendable > 0) await tx.wallet.update({ where: { userId: me.user.id }, data: { held: { increment: spendable } } });
+    if (heldToLock > 0) await tx.wallet.update({ where: { userId: me.user.id }, data: { held: { increment: heldToLock } } });
     return { kind: "ok" as const, consultation };
   });
 
@@ -501,11 +525,15 @@ customerRouter.post("/consultations", async (req, res) => {
   if (result.kind === "busy") throw conflict(`${astrologer.name} is in another consultation right now. Try again in a few minutes — you have not been charged.`);
   if (result.kind === "refused") throw new HttpError(409, result.message, result.code);
   if (result.kind === "short") {
-    throw badRequest(`Your balance is ${rupee(result.spendable)}. You need ${rupee(needed)} for one minute at ${rupee(rate)}/min.`);
+    throw badRequest(
+      fixedMinutes
+        ? `Your balance is ${rupee(result.spendable)}. You need ${rupee(packagePrice)} for this ${fixedMinutes}-minute Fixed Session.`
+        : `Your balance is ${rupee(result.spendable)}. You need ${rupee(needed)} for one minute at ${rupee(rate)}/min.`
+    );
   }
   const c = result.consultation;
   res.status(201).json({
-    consultation: { id: c.id, ref, rate, held: c.heldAmount, status: c.status, complimentary: startsFree(c), makeGood: c.billingMode === MAKE_GOOD, listRate: c.listRate, discountPct: c.discountPct },
+    consultation: { id: c.id, ref, rate, held: c.heldAmount, status: c.status, kind: c.kind.toLowerCase(), complimentary: startsFree(c), makeGood: c.billingMode === MAKE_GOOD, listRate: c.listRate, discountPct: c.discountPct },
   });
 });
 

@@ -68,7 +68,7 @@ export function acceptBy(c: Pick<Consultation, "status" | "offeredAt">): Date | 
   return c.status === "REQUESTED" && c.offeredAt ? new Date(c.offeredAt.getTime() + INCOMING_WINDOW_SECS * 1000) : null;
 }
 
-type Metered = Pick<Consultation, "heldAmount" | "rate" | "billingMode" | "complimentarySeconds">;
+type Metered = Pick<Consultation, "heldAmount" | "rate" | "billingMode" | "complimentarySeconds"> & { kind?: string };
 
 /** A session that starts with free time and then continues paid: a welcome free call or a free replacement call. */
 export const startsFree = (c: Pick<Consultation, "billingMode">) => c.billingMode === COMPLIMENTARY || c.billingMode === MAKE_GOOD;
@@ -87,8 +87,12 @@ export function freeWindow(c: Pick<Consultation, "billingMode" | "complimentaryS
  * window, so the session ends there (a free call with an empty wallet ends with its free time).
  * A welcome free call (Config: up to an hour) runs its whole complimentary time, and then a paid
  * part held to the same rules as any session: at most 15 minutes and what the balance pays for.
+ * A Fixed Session runs for its exact prepaid duration (complimentarySeconds).
  */
 export function sessionCapSeconds(c: Metered, standardFree: number) {
+  if (c.kind === "FIXED") {
+    return c.complimentarySeconds > 0 ? c.complimentarySeconds : MAX_SESSION_SECONDS;
+  }
   if (startsFree(c)) {
     const paid = c.rate > 0 ? Math.min(MAX_SESSION_SECONDS, affordableSeconds(c.heldAmount, c.rate, 0)) : 0;
     return c.complimentarySeconds + paid;
@@ -101,7 +105,7 @@ export function settlementView(
   c: Pick<
     Consultation,
     "billedSeconds" | "billedMinutes" | "rate" | "total" | "promoUsed" | "serviceUsed" | "endReason" | "billingMode" | "complimentarySeconds" | "listRate" | "discountPct"
-  >,
+  > & { kind?: string },
 ) {
   const discounted = c.listRate != null && c.listRate > c.rate;
   return {
@@ -121,6 +125,7 @@ export function settlementView(
     listRate: discounted ? c.listRate : null,
     discountPct: discounted ? c.discountPct : 0,
     saved: discounted ? c.billedMinutes * (c.listRate! - c.rate) : 0,
+    kind: c.kind?.toLowerCase(),
   };
 }
 

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { Astrologer } from "@/lib/types";
+import type { Astrologer, OfferedMode } from "@/lib/types";
 import { rupee } from "@/lib/format";
 import { totalBalance, useSession } from "@/lib/session-store";
 import { useAppUI } from "@/components/app-provider";
@@ -43,7 +43,7 @@ export default function FixedSessionSheet({
 }: FixedSessionSheetProps) {
   const router = useRouter();
   const session = useSession();
-  const { openLogin, toast } = useAppUI();
+  const { openLogin, toast, startConsult } = useAppUI();
 
   const [step, setStep] = useState<Step>("select");
   const [mode, setMode] = useState<FixedSessionMode>("Voice");
@@ -123,12 +123,25 @@ export default function FixedSessionSheet({
       return;
     }
 
-    toast(`Fixed Session reserved: ${duration} min ${mode === "Voice" ? "Audio Call" : "Chat"} with ${a.name}`);
+    const consultMode: OfferedMode = mode === "Voice" ? "voice" : "chat";
+    const discountedRate = Math.max(1, Math.round(quote.final / duration));
+
+    toast(`Connecting Fixed Session: ${duration} min ${modeLabel} with ${a.name}`);
     onReserved?.({
       astrologer: a,
       mode,
       duration,
       price: quote.final,
+    });
+    startConsult({
+      astrologer: a,
+      mode: consultMode,
+      fixedSession: {
+        minutes: duration,
+        discountPct: quote.disc,
+        rate: discountedRate,
+        price: quote.final,
+      },
     });
     onClose();
   };

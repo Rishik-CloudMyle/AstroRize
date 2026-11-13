@@ -16,7 +16,7 @@ export interface ConsultationView extends JoinState {
   id: string;
   ref: string;
   status: ConsultationStatus;
-  kind: "instant" | "standard";
+  kind: "instant" | "standard" | "fixed";
   /** "live": a private consultation taken from a live room (it runs on that room's page). */
   origin?: "direct" | "live";
   liveRoomId?: string | null;

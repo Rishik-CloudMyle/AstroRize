@@ -42,6 +42,8 @@ export interface Astrologer {
   instantMultiplier: number;
   /** A welcome free call can be taken with them right now (taking part, available, today's quota not used up) */
   freeCall: boolean;
+  /** Whether the astrologer offers Fixed Sessions (defaults to true unless switched off) */
+  fixedEnabled?: boolean;
   /** Wait estimate as a range, e.g. "~6–12 min" */
   eta: string | null;
   about: string;
@@ -256,6 +258,7 @@ export interface Settlement {
   listRate?: number | null;
   discountPct?: number;
   saved?: number;
+  kind?: string;
 }
 
 /** A published customer review shown on the home page (GET /reviews/featured). */

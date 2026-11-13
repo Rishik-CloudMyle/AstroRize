@@ -328,7 +328,7 @@ export default function FixedSessionsView({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <Link
-                          href={`/astrologers/${a.slug}`}
+                          href={`/astrologer/${a.slug}`}
                           className="truncate text-base font-bold text-ink hover:text-amber-800 hover:underline"
                         >
                           {a.name}
@@ -427,7 +427,7 @@ export default function FixedSessionsView({
                 {/* Card Action Buttons */}
                 <div className="mt-4 flex items-center gap-2 border-t border-line/60 pt-3">
                   <Link
-                    href={`/astrologers/${a.slug}`}
+                    href={`/astrologer/${a.slug}`}
                     className="flex h-10 flex-1 items-center justify-center rounded-full border border-line bg-white text-xs font-bold text-stone-700 hover:bg-stone-50 transition"
                   >
                     View Profile

@@ -25,6 +25,13 @@ export interface ConsultRequest {
   mode?: OfferedMode;
   /** Re-open a consultation that is already under way (waiting, connecting or in session). */
   resume?: ConsultationView;
+  /** Fixed Session duration, discount, and capped package rate */
+  fixedSession?: {
+    minutes: number;
+    discountPct: number;
+    rate: number;
+    price: number;
+  };
 }
 
 interface AppUI {
@@ -167,10 +174,11 @@ export default function AppProvider({ children }: { children: React.ReactNode })
       {overlay?.kind === "queue" && <LiveQueueModal request={overlay.request} onClose={closeOverlay} />}
       {consult && (
         <ConsultJourney
-          key={consult.resume?.id ?? `${consult.astrologer.id}-${consult.mode ?? ""}`}
+          key={consult.resume?.id ?? `${consult.astrologer.id}-${consult.mode ?? ""}${consult.fixedSession ? `-${consult.fixedSession.minutes}m` : ""}`}
           astrologer={consult.astrologer}
           initialMode={consult.mode ?? null}
           resume={consult.resume ?? null}
+          fixedSession={consult.fixedSession ?? null}
           onClose={closeConsult}
         />
       )}

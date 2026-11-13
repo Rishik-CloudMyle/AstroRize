@@ -9,6 +9,7 @@ import { blockedReason, isActive } from "@/lib/portal/status";
 import type { Dashboard, Presence, ScheduleItem } from "@/lib/portal/types";
 import Modal from "../modal";
 import BookingDialog from "./booking-dialog";
+import FixedSessionsCard from "./fixed-sessions-card";
 import FreeCallsCard from "./free-calls-card";
 import IntroVideoCard from "./intro-video-card";
 import PriceCard from "./price-card";
@@ -253,6 +254,7 @@ export default function DashboardView({ data }: { data: Dashboard }) {
       <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(300px,100%),1fr))] items-start gap-4 max-lg:mt-3 max-lg:gap-3">
         <PriceCard pricing={data.pricing} />
         <FreeCallsCard freeCalls={data.freeCalls} />
+        <FixedSessionsCard enabled={data.fixedSessionsEnabled !== false} />
         <IntroVideoCard url={data.introVideoUrl} />
       </div>
 

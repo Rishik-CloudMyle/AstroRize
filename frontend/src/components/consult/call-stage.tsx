@@ -263,7 +263,7 @@ function endedLine(s: Settlement, astrologerName: string, endedByAstrologer: boo
   const freeOnly = s.complimentary && s.billedMins === 0;
   if (endedByAstrologer || s.reason === "astrologer") return `${astrologerName} ended this consultation.`;
   if (s.reason === "exhausted") return freeOnly ? "Your free time is up." : "Your usable balance ran out.";
-  if (s.reason === "cap") return freeOnly ? "Your free time is up." : "The session reached its time limit.";
+  if (s.reason === "cap") return s.kind === "fixed" ? "Your Fixed Session duration has completed." : freeOnly ? "Your free time is up." : "The session reached its time limit.";
   return "You ended this consultation.";
 }
 

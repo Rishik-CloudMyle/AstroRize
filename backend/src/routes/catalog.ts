@@ -13,7 +13,7 @@ import { flagContactAttempt } from "../lib/contact-flags.ts";
 import { contactBlockedNotice, findContactDetails, rateLimit } from "../lib/safety.ts";
 import { customerConsent } from "../lib/recordings.ts";
 import { freeCallOpen, welcomePolicy } from "../lib/welcome.ts";
-import { configNumber } from "../lib/settings.ts";
+import { configNumber, getSetting } from "../lib/settings.ts";
 import { requireRole, requireUser } from "../middleware/auth.ts";
 import type { Astrologer, LiveRoom, Review } from "../generated/prisma/client.ts";
 
@@ -24,7 +24,7 @@ export const catalogRouter = Router();
 type AstrologerWithReviews = Astrologer & { reviews?: Review[] };
 
 /** The shape the website uses for an astrologer (same as frontend/src/lib/types.ts). */
-export function astrologerView(a: AstrologerWithReviews, freeCall = false) {
+export function astrologerView(a: AstrologerWithReviews, freeCall = false, fixedEnabled = true) {
   return {
     id: a.id,
     slug: a.slug,
@@ -48,6 +48,8 @@ export function astrologerView(a: AstrologerWithReviews, freeCall = false) {
     instantMultiplier: a.instantMultiplier,
     /** A welcome free call can be taken with them right now (taking part, available, quota left). */
     freeCall,
+    /** Whether this astrologer offers Fixed Sessions. */
+    fixedEnabled,
     eta: a.eta,
     about: a.about,
     photo: a.photo,
@@ -68,8 +70,15 @@ catalogRouter.get("/astrologers", async (_req, res) => {
     orderBy: { rank: "asc" },
     include: { reviews: visibleReviews },
   });
-  const free = await freeCallOpen(list);
-  res.json({ astrologers: list.map((a) => astrologerView(a, free.has(a.id))), total: list.length });
+  const [free, disabledAstros] = await Promise.all([
+    freeCallOpen(list),
+    getSetting<string[]>("fixed_sessions.disabled_astros", []),
+  ]);
+  const disabledSet = new Set(disabledAstros);
+  res.json({
+    astrologers: list.map((a) => astrologerView(a, free.has(a.id), !disabledSet.has(a.id))),
+    total: list.length,
+  });
 });
 
 /**
@@ -84,8 +93,12 @@ catalogRouter.get("/welcome-offer", async (_req, res) => {
 catalogRouter.get("/astrologers/:slug", async (req, res) => {
   const a = await db.astrologer.findUnique({ where: { slug: req.params.slug }, include: { reviews: visibleReviews } });
   if (!a || a.lifecycle !== "active") throw notFound("No astrologer at this address.");
-  const free = await freeCallOpen([a]);
-  res.json({ astrologer: astrologerView(a, free.has(a.id)) });
+  const [free, disabledAstros] = await Promise.all([
+    freeCallOpen([a]),
+    getSetting<string[]>("fixed_sessions.disabled_astros", []),
+  ]);
+  const disabledSet = new Set(disabledAstros);
+  res.json({ astrologer: astrologerView(a, free.has(a.id), !disabledSet.has(a.id)) });
 });
 
 /** The gift catalogue for an astrologer's profile (live or not), and what the signed-in customer can spend on gifts. */
