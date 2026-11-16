@@ -21,7 +21,13 @@ import { configNumber } from "./settings.ts";
 export type RecordingSide = "CUSTOMER" | "ASTROLOGER";
 
 /** The notice both sides see (and the customer accepts) before a voice or video consultation. */
-export const RECORDING_NOTICE = "This consultation is recorded (audio only) for quality and safety. Only AstroRize can access it.";
+export const RECORDING_NOTICE = "This consultation is recorded (audio only) for quality and safety. AstroRize staff and the customer can access it; the customer can play it back inside the app only — it can't be downloaded or shared.";
+
+/**
+ * The notice for a chat consultation (paid or on free minutes; not the free Messages messenger). A chat is
+ * never audio-recorded — its text is kept and staff can read it. ⚠ Wording drafted for the client's approval.
+ */
+export const CHAT_NOTICE = "This chat is saved as text for quality and safety. AstroRize staff and the customer can read it; the customer can read it later in the app only — it can't be downloaded or shared.";
 
 /** Largest chunk accepted (~10 s at 32 kbps is about 40 KB; generous for slower timers and headers). */
 export const CHUNK_MAX_BYTES = 512 * 1024;
@@ -48,8 +54,9 @@ export function recordable(c: Pick<Consultation, "mode" | "kind">): boolean {
  * (or a voice/video request from a live) is placed. Returns the consent time to store.
  */
 export function customerConsent(c: Pick<Consultation, "mode" | "kind">, accepted: boolean | undefined): Date | null {
-  if (!recordable(c)) return null;
-  if (!accepted) throw new HttpError(400, "Please accept the recording notice to continue.", "RECORDING_CONSENT_REQUIRED");
+  // A chat carries the chat notice (same error code); it is NOT audio-recorded (see recordable()).
+  if (!recordable(c) && c.mode !== "CHAT") return null;
+  if (!accepted) throw new HttpError(400, c.mode === "CHAT" && !recordable(c) ? "Please accept the chat notice to continue." : "Please accept the recording notice to continue.", "RECORDING_CONSENT_REQUIRED");
   return new Date();
 }
 
@@ -58,8 +65,14 @@ export function customerConsent(c: Pick<Consultation, "mode" | "kind">, accepted
  * on the call screen, and joining is their acceptance (stored once).
  */
 export async function recordAstrologerConsent(c: Consultation) {
-  if (!recordable(c) || c.astrologerRecordingConsentAt || !c.customerRecordingConsentAt) return;
+  // (A chat's window opening is her acceptance of the chat notice; still no audio is recorded for it.)
+  if ((!recordable(c) && c.mode !== "CHAT") || c.astrologerRecordingConsentAt || !c.customerRecordingConsentAt) return;
   await db.consultation.updateMany({ where: { id: c.id, astrologerRecordingConsentAt: null }, data: { astrologerRecordingConsentAt: new Date() } });
+}
+
+/** A chat that carries the chat notice (older chats, and calls, don't). Drives the notice on the astrologer's incoming alert. */
+export function hasChatNotice(c: Pick<Consultation, "mode" | "kind" | "customerRecordingConsentAt">): boolean {
+  return c.mode === "CHAT" && !recordable(c) && !!c.customerRecordingConsentAt;
 }
 
 /** Whether this call is recorded (both sides accepted the notice). The media answer carries it for the "● Recording" indicator. */

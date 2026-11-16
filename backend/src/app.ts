@@ -18,6 +18,7 @@ import { offersRouter } from "./routes/offers.ts";
 import { portalRouter } from "./routes/portal.ts";
 import { razorpayWebhookRouter } from "./routes/razorpay-webhook.ts";
 import { statsRouter } from "./routes/stats.ts";
+import { mySessionsRouter } from "./routes/my-sessions.ts";
 
 export function createApp() {
   const app = express();
@@ -77,6 +78,7 @@ export function createApp() {
   app.use("/api/offers", offersRouter);
   app.use("/api", contactAttemptsRouter);
   app.use("/api", supportRequestsRouter);
+  app.use("/api/my-sessions", mySessionsRouter);
   app.use("/api", customerRouter);
 
   app.use("/api", (_req, res) => res.status(404).json({ error: { code: "not_found", message: "No such API route." } }));

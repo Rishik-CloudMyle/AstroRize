@@ -59,7 +59,7 @@ import {
 import { flagContactAttempt } from "../lib/contact-flags.ts";
 import { contactBlockedNotice, findContactDetails, rateLimit } from "../lib/safety.ts";
 import { consultMessageBody, consultationFor, listMessages, mediaFor, sendMessage, windowOf } from "../lib/consult-room.ts";
-import { isRecorded, recordAstrologerConsent } from "../lib/recordings.ts";
+import { hasChatNotice, isRecorded, recordAstrologerConsent } from "../lib/recordings.ts";
 import { mountRecordingRoutes } from "./call-recording.ts";
 import { canWork, effectivePresence, endLiveRoom, goOffline, goOnline, markSeen, syncPresence, viewerCount } from "../lib/presence.ts";
 import {
@@ -794,6 +794,7 @@ portalRouter.get("/incoming", async (req, res) => {
         instant: open.kind === "INSTANT",
         /** Audio is recorded (the incoming dialog shows the notice; answering is the astrologer's acceptance). */
         recorded: isRecorded(open),
+        chatNotice: hasChatNotice(open),
         ...freeOf(open),
         rate: open.rate,
         secondsLeft: left,
@@ -810,6 +811,7 @@ portalRouter.get("/incoming", async (req, res) => {
       window: windowOf(head),
       instant: head.kind === "INSTANT",
       recorded: isRecorded(head),
+      chatNotice: hasChatNotice(head),
       ...freeOf(head),
       rate: head.rate,
       secondsLeft: Math.max(0, INCOMING_WINDOW_SECS - Math.floor((now - head.offeredAt.getTime()) / 1000)),
@@ -830,6 +832,7 @@ portalRouter.get("/incoming", async (req, res) => {
       window: queued ? windowOf(queued) : ("voice" as const),
       instant: false,
       recorded: queued ? isRecorded(queued) : false,
+      chatNotice: queued ? hasChatNotice(queued) : false,
       free: false,
       makeGood: false,
       freeMinutes: null,

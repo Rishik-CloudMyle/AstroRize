@@ -9,7 +9,7 @@ import { discountedRate, type ConsultDiscount } from "@/lib/offers";
 import type { MakeGoodCredit } from "@/lib/makegood";
 import { Portrait } from "../astrologer/parts";
 import ModeIcon from "@/components/ui/mode-icon";
-import { RecordingConsent, isRecordedChoice } from "./recording-notice";
+import { RecordingConsent, needsConsentChoice } from "./recording-notice";
 
 // "Consult now" opens this sheet (the app's consult sheet, laid out for the web): Chat at the
 // astrologer's chat price, Voice Call and Video Call at their rate, and Instant Call at its own rate. It follows the
@@ -139,7 +139,8 @@ export default function ConsultSheet({
   // A welcome free call needs its length chosen before it can start.
   const lengthMissing = free && !replacement && !freeMinutes;
   // Voice, video and Instant Call are recorded (audio only): the customer accepts the notice first.
-  const consentMissing = isRecordedChoice(selected) && !recordingConsent;
+  // Chat carries its own notice (the text is saved); no audio is recorded for it.
+  const consentMissing = needsConsentChoice(selected) && !recordingConsent;
   const eligible = payMissing ? false : free ? !lengthMissing : balance >= needed;
   // The rate the "Paid call" option shows: the chosen way to talk's, else Voice's (with an offer's discount).
   const paidRate = quotedRateFor(a, selected && selected !== "instant" ? selected : "voice", discount ? discount.pct : 0);
@@ -362,8 +363,11 @@ export default function ConsultSheet({
                     {error}
                   </p>
                 )}
-                {isRecordedChoice(selected) && !payMissing && (
-                  <RecordingConsent checked={recordingConsent} onChange={(v) => onRecordingConsent?.(v)} className="mt-4" />
+                {needsConsentChoice(selected) && !payMissing && (
+                  <RecordingConsent chat={selected === "chat"} checked={recordingConsent} onChange={(v) => onRecordingConsent?.(v)} className="mt-4" />
+                )}
+                {consentMissing && !payMissing && (
+                  <p className="mt-2 text-center text-[12px] text-stone-500">Tick the box above to start.</p>
                 )}
                 <button
                   type="button"
@@ -502,7 +506,7 @@ function ChoiceDetail({
         </b>
         {replacement && (
           <span className="block">
-            We&apos;re sorry about session {replacement.sessionRef}. Use it by {replacement.validUntil}.{" "}
+            We&apos;re sorry about {replacement.session}. Use it by {replacement.validUntil}.{" "}
           </span>
         )}
         Complimentary {freeLengthLong(freeSecs)}, then {rupee(rate)}/min if you continue.{" "}

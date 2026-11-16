@@ -15,8 +15,8 @@ export interface MakeGoodCredit {
   astrologerName: string;
   /** Free minutes */
   minutes: number;
-  /** The session the complaint was about, e.g. "SES-88214" */
-  sessionRef: string;
+  /** The session the complaint was about, in words: "your voice call with Pt. Raghav Joshi on 6 Nov, 3:42 PM" */
+  session: string;
   /** "5 Nov 2026": the last day it can be booked */
   validUntil: string;
   /** A consultation using it is open right now */

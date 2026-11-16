@@ -391,14 +391,17 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
                   </tr>
                 )}
                 {wallet.transactions.map((t) => (
-                  <tr key={t.ref}>
+                  <tr key={t.id}>
                     <td className="whitespace-nowrap border-b border-line-soft px-2.5 py-[11px] text-stone-600">{t.date}</td>
                     <td className="border-b border-line-soft px-2.5 py-[11px] font-semibold text-ink">
                       {t.type}
-                      {canRaiseIssue(t) && <BillingIssueAction txRef={t.ref} compact />}
+                      {canRaiseIssue(t) && t.consultationId && <BillingIssueAction consultationId={t.consultationId} label={t.label ?? "this consultation"} compact />}
                     </td>
                     <td className="border-b border-line-soft px-2.5 py-[11px] tabular-nums text-stone-600">
-                      {t.payment ? (
+                      {t.ref === null ? (
+                        // A consultation line: described in words (astrologer, date and time, length, amount), never by a reference.
+                        t.label
+                      ) : t.payment ? (
                         <Link
                           href={paymentPageHref(t.payment)}
                           className="font-semibold text-amber-700 underline decoration-amber-300 underline-offset-2 hover:text-amber-800"

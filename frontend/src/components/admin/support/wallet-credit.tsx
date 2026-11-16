@@ -13,6 +13,7 @@ import ReasonDialog from "@/components/admin/reason-dialog";
 import { BlockedAction } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
 import type { CreditBucket, SupportCase } from "@/lib/admin/types";
+import { RefundSplitView } from "./refund-split";
 
 const BUCKETS: { key: CreditBucket; label: string; hint: string }[] = [
   { key: "SERVICE", label: "Service balance", hint: "Real money — e.g. a recharge that didn't arrive or a wrong charge. Refundable like a recharge." },
@@ -144,7 +145,8 @@ export function CreditDialog({ file, onClose, onDone }: { file: SupportCase; onC
 }
 
 /** The credit proposed or given on this ticket, with Approve / Decline for whoever may decide it. */
-export function WalletCreditCard({ file, onDone }: { file: SupportCase; onDone: () => Promise<void> }) {
+/** `onDone(true)`: the ticket went back to Support, so a non-Support/Admin person can no longer open it. */
+export function WalletCreditCard({ file, onDone }: { file: SupportCase; onDone: (leftQueue?: boolean) => Promise<void> }) {
   const { session } = useAdmin();
   const { run, busy } = useAction();
   const [declining, setDeclining] = useState(false);
@@ -160,14 +162,14 @@ export function WalletCreditCard({ file, onDone }: { file: SupportCase; onDone: 
     if (await run(() => api.post(`${base}/credit/approve`), `${p.amount} credited to the customer's ${p.bucketLabel}. The ticket is resolved and the customer has been told.`)) await onDone();
   };
   const decline = async (reason: string) => {
-    const res = await run(() => api.post(`${base}/refund/decline`, { reason }), "Wallet credit declined. No money moved; the ticket is back with its team.");
-    if (res) await onDone();
+    const res = await run(() => api.post(`${base}/refund/decline`, { reason }), "Wallet credit declined. No money moved; the ticket is back with Support.");
+    if (res) await onDone(true);
     return !!res;
   };
 
   return (
     <div className="mt-[18px] rounded-2xl border border-amber-200 bg-amber-50 p-[18px]">
-      <h3 className="mt-0 mb-1 text-[15px] font-bold">{given ? "Wallet credit given" : "Wallet credit — waiting for a second approver"}</h3>
+      <h3 className="mt-0 mb-1 text-[15px] font-bold">{given ? "Wallet credit given" : `Wallet credit — waiting for ${file.team === "super" ? "Admin" : file.teamLabel} to approve`}</h3>
       <div className="mt-2 flex flex-col gap-[7px] text-[13.5px] text-[#57534e]">
         <div className="flex items-center justify-between gap-3 border-b border-[#f3e9d8] py-[5px]">
           <span>Amount</span>
@@ -188,6 +190,7 @@ export function WalletCreditCard({ file, onDone }: { file: SupportCase; onDone: 
           <span className="mt-0.5 block break-words whitespace-pre-wrap text-ink">{p.reason}</span>
         </div>
       </div>
+      {file.split && <RefundSplitView split={file.split} className="mt-3" />}
       <div className="mt-3 flex flex-wrap items-center gap-2.5">
         {given ? (
           <span className="inline-flex min-h-[42px] items-center rounded-[11px] border border-[#a7f3d0] bg-[#ecfdf5] px-4 py-2 text-[13px] font-bold text-[#047857]">
@@ -197,6 +200,8 @@ export function WalletCreditCard({ file, onDone }: { file: SupportCase; onDone: 
           <BlockedAction className="min-h-[42px] px-4 py-2 text-[12.5px]">Finance or a Super Admin approves it</BlockedAction>
         ) : selfBlocked ? (
           <BlockedAction className="min-h-[42px] px-4 py-2 text-[12.5px]">You proposed this — another person approves</BlockedAction>
+        ) : !file.can.decide ? (
+          <BlockedAction className="min-h-[42px] px-4 py-2 text-[12.5px]">Escalated to Admin — only Admin decides</BlockedAction>
         ) : (
           <>
             <button
@@ -230,7 +235,7 @@ export function WalletCreditCard({ file, onDone }: { file: SupportCase; onDone: 
         <ReasonDialog
           title={`Decline the wallet credit on ${file.id}`}
           subtitle={file.subject}
-          intro="Nothing is credited. The ticket goes back to the team it is with, with your reason in the audit log."
+          intro="Nothing is credited. The ticket goes back to Support, with your reason in the audit log."
           confirm="Decline credit"
           danger
           onClose={() => setDeclining(false)}

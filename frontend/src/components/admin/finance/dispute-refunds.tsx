@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useAction, useAdmin } from "@/components/admin/admin-provider";
 import ReasonDialog from "@/components/admin/reason-dialog";
 import { BlockedAction, PANEL, TD, TH } from "@/components/admin/ui";
+import { RefundSplitView } from "@/components/admin/support/refund-split";
 import { api } from "@/lib/api/client";
 import type { DisputeRefund } from "@/lib/admin/types";
 
@@ -19,7 +20,7 @@ const HEADS: [string, "left" | "right"][] = [
   ["Customer", "left"],
   ["Session", "left"],
   ["Refund / remedy", "right"],
-  ["Proposed by", "left"],
+  ["Proposed by · with", "left"],
   ["", "right"],
 ];
 
@@ -82,8 +83,11 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
                 const mine = r.proposedById ? r.proposedById === session.id : r.proposedBy === session.actor;
                 // A Super Admin may decide their own proposal; anyone else needs a second person.
                 const blockedMine = mine && !isSuper;
+                // Escalated to Admin: only a Super Admin decides it now.
+                const withAdmin = r.team === "super" && !isSuper;
                 return (
-                  <tr key={r.id}>
+                  <Fragment key={r.id}>
+                  <tr>
                     <td className={`${TD} px-2.5 py-[11px]`}>
                       <span className="block font-mono text-[11.5px] whitespace-nowrap text-[#57534e]">{r.id}</span>
                       <span className="block text-[12px] text-ink">{r.subject}</span>
@@ -97,10 +101,15 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
                         <span className="block text-[11px] font-semibold text-[#78716c]">wallet credit · {r.credit?.bucket ?? "—"}</span>
                       )}
                     </td>
-                    <td className={`${TD} px-2.5 py-[11px] text-[#57534e]`}>{r.proposedBy ?? "—"}</td>
+                    <td className={`${TD} px-2.5 py-[11px] text-[#57534e]`}>
+                      {r.proposedBy ?? "—"}
+                      <span className="block text-[11px] text-[#78716c]">With {r.team === "super" ? "Admin" : r.team === "finance" ? "Finance" : r.team === "support" ? "Support" : r.team}</span>
+                    </td>
                     <td className={`${TD} px-2.5 py-[11px] text-right whitespace-nowrap`}>
                       {!canApprove ? (
                         <BlockedAction className="h-[30px] px-3 text-[11.5px]">Finance approves refunds</BlockedAction>
+                      ) : withAdmin ? (
+                        <BlockedAction className="h-[30px] px-3 text-[11.5px]">Escalated to Admin — only Admin decides</BlockedAction>
                       ) : blockedMine ? (
                         <BlockedAction className="h-[30px] px-3 text-[11.5px]">You proposed this — another person approves</BlockedAction>
                       ) : (
@@ -124,6 +133,17 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
                       )}
                     </td>
                   </tr>
+                  {r.split && (
+                    <tr>
+                      <td colSpan={6} className="border-b border-line-warm/70 px-2.5 pt-0 pb-3">
+                        {/* The table scrolls sideways below 1024px: keep this card in view instead of 720px wide. */}
+                        <div className="max-lg:sticky max-lg:left-0 max-lg:w-[calc(100vw-6rem)] max-lg:max-w-full">
+                          <RefundSplitView split={r.split} />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -134,7 +154,7 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
         <ReasonDialog
           title={`Decline the ${declining.kind === "MAKE_GOOD" ? "free replacement call" : declining.kind === "WALLET_CREDIT" ? "wallet credit" : "refund"} on ${declining.id}`}
           subtitle={`${declining.amount} · proposed by ${declining.proposedBy ?? "Support"}`}
-          intro="Nothing is given and no money moves. The ticket goes back to the team it is with, with your reason in the audit log."
+          intro="Nothing is given and no money moves. The ticket goes back to Support, with your reason in the audit log."
           placeholder="e.g. The metering log shows the session ran its full length."
           confirm={declining.kind === "MAKE_GOOD" ? "Decline free call" : declining.kind === "WALLET_CREDIT" ? "Decline credit" : "Decline refund"}
           danger
@@ -142,7 +162,7 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
           onSubmit={async (reason) =>
             !!(await run(
               () => api.post(`/admin/support/${encodeURIComponent(declining.id)}/refund/decline`, { reason }),
-              `${declining.kind === "MAKE_GOOD" ? "Free replacement call" : declining.kind === "WALLET_CREDIT" ? "Wallet credit" : "Refund"} on ${declining.id} declined. The ticket is back with its team. Audited.`,
+              `${declining.kind === "MAKE_GOOD" ? "Free replacement call" : declining.kind === "WALLET_CREDIT" ? "Wallet credit" : "Refund"} on ${declining.id} declined. The ticket is back with Support. Audited.`,
             ))
           }
         />

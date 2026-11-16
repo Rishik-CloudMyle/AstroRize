@@ -11,7 +11,7 @@ import { EYEBROW } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
 import type { SupportCase, TicketTimelineItem } from "@/lib/admin/types";
 
-type Mode = "reply" | "note" | "forward" | "resolve";
+type Mode = "reply" | "note" | "forward" | "approver" | "escalate" | "resolve";
 
 const KIND_STYLE: Record<TicketTimelineItem["kind"], { box: string; tag: string | null }> = {
   customer: { box: "border-[#e7e0d6] bg-white", tag: "Customer" },
@@ -120,6 +120,8 @@ export function TicketComposer({
   const modes: { key: Mode; label: string }[] = [
     ...(can.reply ? [{ key: "reply" as const, label: "Reply to customer" }] : []),
     ...(can.note ? [{ key: "note" as const, label: "Internal note" }] : []),
+    ...(can.sendToApprover ? [{ key: "approver" as const, label: `Send to ${can.sendToApprover.label}` }] : []),
+    ...(can.escalate ? [{ key: "escalate" as const, label: "Escalate to Admin" }] : []),
     ...(can.forwardTo.length ? [{ key: "forward" as const, label: "Forward" }] : []),
     ...(can.resolve ? [{ key: "resolve" as const, label: "Resolve / close" }] : []),
   ];
@@ -147,7 +149,15 @@ export function TicketComposer({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const body = text.trim();
-    if (body.length < 2) return setError(current === "forward" ? "Write a note for the team saying why." : "Write the message first.");
+    if (body.length < 2) {
+      return setError(
+        current === "forward" || current === "approver"
+          ? "Write a note for the team saying why."
+          : current === "escalate"
+            ? "Write the reason for escalating to Admin."
+            : "Write the message first.",
+      );
+    }
     if (current === "forward" && !team) return setError("Choose a team.");
     setError("");
     const base = `/admin/support/${encodeURIComponent(file.id)}`;
@@ -156,7 +166,11 @@ export function TicketComposer({
         ? await run(() => api.post(`${base}/reply`, { text: body, waitForCustomer: wait }), wait ? "Reply sent. The issue now shows “Waiting for you” to the customer." : "Reply sent to the customer.")
         : current === "note"
           ? await run(() => api.post(`${base}/note`, { text: body }), "Internal note added (staff only).")
-          : current === "forward"
+          : current === "approver"
+            ? await run(() => api.post(`${base}/send-to-approver`, { note: body }), `${file.id} sent to ${can.sendToApprover?.label}. It's waiting for their decision.`)
+            : current === "escalate"
+              ? await run(() => api.post(`${base}/escalate`, { reason: body }), `${file.id} escalated to Admin. Only a Super Admin decides it now.`)
+              : current === "forward"
             ? await run(() => api.post(`${base}/forward`, { team, note: body }), `${file.id} forwarded to ${teamName}. It's in their queue now.`)
             : await run(
                 () => api.post(`${base}/resolve`, { outcome, message: body }),
@@ -173,13 +187,15 @@ export function TicketComposer({
     reply: "Write to the customer. They see it from the team, never your name.",
     note: "Only staff see this note.",
     forward: `Why it goes to ${teamName || "this team"} — what they need to do (staff only).`,
+    approver: `What the ${can.sendToApprover?.label ?? "approver"} should check or decide — e.g. what you verified (staff only).`,
+    escalate: "Why Admin needs to decide this — what you checked and why it can't be settled in Finance (staff only).",
     resolve: "Tell the customer how it was sorted out (they see this).",
   }[current];
 
   return (
     <form onSubmit={submit} noValidate className="mt-[18px] rounded-2xl border border-line bg-white p-4">
       <h3 className="mt-0 mb-2.5 text-[13px] font-bold tracking-[.06em] text-[#57534e] uppercase">Actions</h3>
-      {can.act && (onCredit || onRefund || !can.money || pending) && (
+      {can.act && (onCredit || onRefund || !can.money || pending || can.sendToApprover || can.escalate) && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-cream px-3.5 py-2.5">
           <span className="text-[12px] font-bold text-[#57534e]">Money</span>
           {onCredit && (
@@ -192,10 +208,36 @@ export function TicketComposer({
               Refund session {session}
             </button>
           )}
-          {(onCredit || onRefund) && <span className="text-[11.5px] text-[#78716c]">A second person approves before any money moves.</span>}
+          {can.sendToApprover && (
+            <button
+              type="button"
+              onClick={() => {
+                setMode("approver");
+                setError("");
+                textRef.current?.focus();
+              }}
+              className="h-9 rounded-[10px] bg-ink px-3.5 text-[12.5px] font-bold text-amber-300"
+            >
+              Send to {can.sendToApprover.label} to approve
+            </button>
+          )}
+          {can.escalate && (
+            <button
+              type="button"
+              onClick={() => {
+                setMode("escalate");
+                setError("");
+                textRef.current?.focus();
+              }}
+              className="h-9 rounded-[10px] border border-line bg-white px-3.5 text-[12.5px] font-bold text-ink"
+            >
+              Escalate to Admin
+            </button>
+          )}
+          {(onCredit || onRefund) && <span className="text-[11.5px] text-[#78716c]">{file.approver.label} approves before any money moves.</span>}
           {pending && (
             <span className="min-w-0 flex-1 text-[12.5px] text-[#57534e]">
-              A {pendingWhat} is waiting for its second approver. Resolve / close comes back once it&rsquo;s approved or declined.
+              A {pendingWhat} is waiting for {file.team === "super" ? "Admin" : file.teamLabel} to approve or decline it. Resolve / close comes back once it&rsquo;s decided.
             </span>
           )}
           {!can.money && !pending && (
@@ -216,7 +258,7 @@ export function TicketComposer({
           )}
         </div>
       )}
-      {file.suggestedTeam && !(current === "forward" && team === file.suggestedTeam.key) && (
+      {file.suggestedTeam && !file.moneyTicket && !(current === "forward" && team === file.suggestedTeam.key) && (
         <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5">
           <span className="min-w-0 flex-1 text-[12.5px] text-amber-900">
             {file.category} issues usually go to <b>{file.suggestedTeam.label}</b>.
@@ -267,6 +309,11 @@ export function TicketComposer({
           </select>
         </div>
       )}
+      {current === "forward" && file.moneyTicket && (
+        <p className="mt-0 mb-3 text-[12px] text-[#78716c]">
+          Payment and refund tickets stay on one line — Support, Finance and Admin. They can&rsquo;t be sent to other departments.
+        </p>
+      )}
       {current === "resolve" && (
         <fieldset className="m-0 mb-3 flex flex-wrap gap-4 border-0 p-0 text-[13px] text-ink">
           <legend className="sr-only">Outcome</legend>
@@ -287,7 +334,7 @@ export function TicketComposer({
         ref={textRef}
         id={`${id}-text`}
         value={text}
-        maxLength={current === "forward" ? 1000 : 2000}
+        maxLength={current === "forward" || current === "approver" || current === "escalate" ? 1000 : 2000}
         rows={3}
         placeholder={placeholder}
         onChange={(e) => {
@@ -318,7 +365,7 @@ export function TicketComposer({
           disabled={busy}
           className={`h-[42px] rounded-[11px] border-0 px-[18px] text-[13px] font-bold disabled:opacity-60 ${current === "note" ? "bg-ink text-amber-300" : "bg-amber-500 text-ink"}`}
         >
-          {current === "reply" ? "Send reply" : current === "note" ? "Add note" : current === "forward" ? `Forward to ${teamName}` : outcome === "RESOLVED" ? "Resolve issue" : "Close issue"}
+          {current === "reply" ? "Send reply" : current === "note" ? "Add note" : current === "forward" ? `Forward to ${teamName}` : current === "approver" ? `Send to ${can.sendToApprover?.label}` : current === "escalate" ? "Escalate to Admin" : outcome === "RESOLVED" ? "Resolve issue" : "Close issue"}
         </button>
       </div>
     </form>

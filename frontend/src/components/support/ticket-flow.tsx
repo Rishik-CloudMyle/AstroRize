@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import ApprovalTrail from "@/components/admin/support/approval-trail";
+import type { TicketFlow } from "@/lib/admin/types";
 
 export interface TicketFlowData {
   assignedTeam?: string; // "support" | "finance" | "compliance" | "marketing" | "super"
@@ -18,11 +20,15 @@ export function TicketApprovalFlow({
   data,
   isAdmin = false,
   className = "",
+  flow,
 }: {
   data: TicketFlowData;
   isAdmin?: boolean;
   className?: string;
+  /** Staff: the audited flow (who, when, what per step) from the API. Customers get the state-based view below. */
+  flow?: TicketFlow;
 }) {
+  if (flow) return <ApprovalTrail flow={flow} className={className} />;
   const team = data.assignedTeam?.toLowerCase() ?? "support";
   const isSuper = team === "super";
   const isFinanceOrDept = team === "finance" || team === "compliance" || team === "marketing";
@@ -95,7 +101,7 @@ export function TicketApprovalFlow({
       status: step2Status,
       detail:
         data.proposedBy
-          ? `Remedy proposed by ${data.proposedBy}`
+          ? isAdmin ? `Remedy proposed by ${data.proposedBy}` : "Remedy proposed by our team"
           : step2Status === "done"
             ? `Reviewed by ${deptLabel} team`
             : step2Status === "active"
@@ -117,9 +123,9 @@ export function TicketApprovalFlow({
       status: step3Status,
       detail:
         data.approvedBy
-          ? `Approved by ${data.approvedBy}`
+          ? isAdmin ? `Approved by ${data.approvedBy}` : "Approved by our team"
           : data.outcome
-            ? `${data.outcome.label ?? "Resolved"}${data.outcome.by ? ` by ${data.outcome.by}` : ""}`
+            ? `${data.outcome.label ?? "Resolved"}${isAdmin && data.outcome.by ? ` by ${data.outcome.by}` : ""}`
             : step3Status === "done"
               ? "Final resolution approved and closed"
               : step3Status === "active"

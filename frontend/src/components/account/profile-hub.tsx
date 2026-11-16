@@ -181,6 +181,7 @@ export default function ProfileHub() {
       <ListRows>
         <ListRow href="/wallet?view=profile#profile" title="Profile" subtitle="Name, photo and birth details" />
         <ListRow href="/wallet" title="Wallet & transactions" />
+        <ListRow href="/me/consultations" title="My consultations" subtitle="Paid sessions, recordings and chat transcripts" />
         {welcome && <ListRow href={FREE_CALL_DIRECTORY} title="Free minutes" subtitle={minutesLeft(welcome)} />}
         <ListRow href="/messages" title="Messages" />
         <NotificationBell variant="row" />

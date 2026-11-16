@@ -99,13 +99,13 @@ export function staffCustomerReplied(t: { id: string; assignedTeam: string; cust
  * Forwarded to another team: everyone in that team (and the Super Admins), never the forwarder.
  * Sent back to Support: the Support team.
  */
-export function staffForwarded(t: { id: string }, to: string, note: string, actor: { id: string; name: string }) {
+export function staffForwarded(t: { id: string }, to: string, note: string, actor: { id: string; name: string }, escalated = false) {
   return safely("forward", async () => {
     const back = to === "support";
     const people = await staffOf(back ? ["support"] : [to as AdminRoleKey, "super"], [actor.id]);
     await send(people, t.id, {
-      kind: back ? "staff.ticket.returned" : "staff.ticket.forwarded",
-      title: back ? `${t.id} sent back to Support by ${actor.name}` : `${t.id} forwarded to ${teamName(to)} by ${actor.name}`,
+      kind: back ? "staff.ticket.returned" : escalated ? "staff.ticket.escalated" : "staff.ticket.forwarded",
+      title: back ? `${t.id} sent back to Support by ${actor.name}` : `${t.id} ${escalated ? "escalated" : "forwarded"} to ${teamName(to)} by ${actor.name}`,
       body: snippet(note),
     });
   });
@@ -116,6 +116,8 @@ export function staffRemedyProposed(
   t: { id: string },
   what: { refund: number } | { minutes: number } | { credit: number; bucket: string },
   actor: { id: string; name: string },
+  /** The team the ticket moved to for the decision. */
+  holder = "finance",
 ) {
   return safely("remedy proposed", async () => {
     const approvers = ROLE_ORDER.filter((r) => r === "super" || capabilitiesOf(r).includes("dispute.refund.approve"));
@@ -129,7 +131,7 @@ export function staffRemedyProposed(
     await send(
       people,
       t.id,
-      { kind: "staff.remedy.proposed", title: `${label} proposed on ${t.id}`, body: `Proposed by ${actor.name}. It needs a second person to approve or decline it.` },
+      { kind: "staff.remedy.proposed", title: `${label} proposed on ${t.id}`, body: `Proposed by ${actor.name}. The ticket is now with ${teamName(holder)}: a second person approves or declines it.` },
       "/admin/finance",
     );
   });

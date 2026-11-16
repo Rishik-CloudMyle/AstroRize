@@ -102,9 +102,41 @@ export function ticketScope(admin: Admin): Prisma.SupportTicketWhereInput {
   return { OR: or };
 }
 
-/** The teams a ticket can be forwarded to: every team that can open the Support page, except the one it is with. */
-export function forwardTargets(current: string): Team[] {
-  return TEAMS.filter((t) => t !== current && (t === "super" || pagesOf(t).includes("support")));
+// ── Money tickets: Support → Finance (approver) → Admin ──
+//
+// Payment / refund and Wallet / recharge issues, and any ticket that carries a refund, free replacement
+// call or wallet-credit proposal, are MONEY tickets. They follow one line: Support triages, verifies and
+// proposes; the approver team (Finance) approves or declines (a decline goes back to Support); Admin (the
+// Super Admin) is the last stop, for what Finance escalates. They are never forwarded to Compliance or
+// Marketing (client feedback, Nov 2026: tickets "going out of track to other domains").
+
+export const MONEY_CATEGORY_KEYS = ["PAYMENT_REFUND", "WALLET"];
+/** The only teams a money ticket can be forwarded between. */
+export const MONEY_TEAMS: Team[] = ["support", "finance", "super"];
+
+export const isMoneyTicket = (t: Pick<SupportTicket, "category" | "refundState" | "sessionRef">): boolean =>
+  (!!t.category && MONEY_CATEGORY_KEYS.includes(t.category)) || t.refundState !== "NONE" || (!t.category && hasSession(t));
+
+/** The team that approves proposed money: Finance, or the Super Admins when Finance can't approve. */
+export function approverTeam(): Team {
+  return capabilitiesOf("finance").includes("dispute.refund.approve") ? "finance" : "super";
+}
+
+/**
+ * The teams a ticket can be forwarded to: every team that can open the Support page, except the one it
+ * is with. A money ticket can only go to Support, Finance or Admin.
+ */
+export function forwardTargets(current: string, t?: Pick<SupportTicket, "category" | "refundState" | "sessionRef">): Team[] {
+  const money = !!t && isMoneyTicket(t);
+  // While a proposal waits for its decision, the ticket can only go to who decides it.
+  const waiting = t?.refundState === "PROPOSED";
+  return TEAMS.filter(
+    (x) =>
+      x !== current &&
+      (x === "super" || pagesOf(x).includes("support")) &&
+      (!money || MONEY_TEAMS.includes(x)) &&
+      (!waiting || x === approverTeam() || x === "super"),
+  );
 }
 
 /**
@@ -185,6 +217,8 @@ const STAFF_ACTION: Record<string, string> = {
   "support.ticket.raise": "Raised by the customer",
   "support.ticket.reply": "Replied to the customer",
   "support.ticket.forward": "Forwarded",
+  "support.ticket.route": "Sent to the approver",
+  "support.ticket.escalate": "Escalated",
   "support.ticket.resolve": "Resolved",
   "support.ticket.close": "Closed",
   "dispute.refund.propose": "Refund proposed",
@@ -202,13 +236,18 @@ const STAFF_ACTION: Record<string, string> = {
 
 /** "support → finance · note" (the forward audit entry). */
 const FORWARD = /^(\w+) → (\w+)/;
+/** The audit actions that move a ticket to another team (forward, auto-route to the approver, escalate). */
+export const MOVES = ["support.ticket.forward", "support.ticket.route", "support.ticket.escalate"];
 
 /** Audit actions the customer sees as a status line (no names, no internal reasons). */
 function customerEvent(action: string, diff: string, t: Pick<SupportTicket, "refundAmount">): string | null {
   switch (action) {
-    case "support.ticket.forward": {
+    case "support.ticket.forward":
+    case "support.ticket.route":
+    case "support.ticket.escalate": {
       const to = FORWARD.exec(diff)?.[2];
-      return to ? `Passed to our ${customerTeam(to)}` : null;
+      // Back to Support after a decline is the team's own business; the customer sees the other moves.
+      return to && !(to === "support" && action === "support.ticket.route") ? `Passed to our ${customerTeam(to)}` : null;
     }
     case "dispute.refund.approve":
       return t.refundAmount > 0 ? `${rupee(t.refundAmount)} refunded to your wallet` : "Refunded to your wallet";
@@ -303,7 +342,7 @@ export async function staffTimeline(t: SupportTicket): Promise<TimelineItem[]> {
     // Replies and notes already show as messages; the raise shows as the customer's first message.
     if (e.action === "support.ticket.reply" || e.action === "support.ticket.note" || (e.action === RAISE_ACTION && t.description)) continue;
     const label = STAFF_ACTION[e.action] ?? e.action;
-    const fwd = e.action === "support.ticket.forward" ? FORWARD.exec(e.diff) : null;
+    const fwd = MOVES.includes(e.action) ? FORWARD.exec(e.diff) : null;
     const text = fwd ? `${label} ${teamLabel(fwd[1]!)} → ${teamLabel(fwd[2]!)}${e.diff.includes(" · ") ? ` · ${e.diff.split(" · ").slice(1).join(" · ")}` : ""}` : `${label} · ${e.diff}`;
     items.push({ id: e.id, kind: "event", who: e.actorName, text, attachmentUrl: null, at: e.at.toISOString(), when: when(e.at) });
   }

@@ -165,7 +165,6 @@ export interface JoinState {
 /** A private consultation taken from a live room, by the server clock. */
 export interface LivePrivateConsult extends JoinState {
   id: string;
-  ref: string;
   status: "connecting" | "active";
   /** Chosen when joining the queue */
   mode: ConsultMode;
@@ -186,9 +185,16 @@ export interface LivePrivateConsult extends JoinState {
 }
 
 export interface Transaction {
+  /** Opaque and unique per line. */
+  id: string;
   date: string;
   type: string;
-  ref: string;
+  /** The ledger reference; null on a consultation line (described by `label`: customers never see session references). */
+  ref: string | null;
+  /** A consultation line in words: "Voice call with Pt. Raghav Joshi · 6 Nov, 3:42 PM · 12 min · ₹360". */
+  label: string | null;
+  /** The consultation's internal id (to raise a billing issue), else null. */
+  consultationId: string | null;
   bucket: string;
   /** Positive = credit, negative = debit, in rupees */
   amount: number;

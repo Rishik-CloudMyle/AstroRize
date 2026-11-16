@@ -1,7 +1,10 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import AdminDialog from "@/components/admin/dialog";
+import { api } from "@/lib/api/client";
+import type { RefundSplit } from "@/lib/admin/types";
+import { RefundSplitView } from "./refund-split";
 
 /**
  * Asks for one whole number before an action (a refund amount, the minutes of a free replacement
@@ -19,6 +22,7 @@ export default function AmountDialog({
   confirm,
   onSubmit,
   onClose,
+  previewPath,
 }: {
   title: string;
   subtitle?: string;
@@ -32,11 +36,32 @@ export default function AmountDialog({
   confirm: string;
   onSubmit: (value: number) => Promise<boolean>;
   onClose: () => void;
+  /** A refund: where to ask who would bear the amount typed (staff-only split preview). */
+  previewPath?: string;
 }) {
   const id = useId();
   const [value, setValue] = useState(String(initial));
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<{ n: number; split: RefundSplit | null } | null>(null);
+  const typed = Number(value);
+  const typedOk = /^\d+$/.test(value.trim()) && typed >= min && typed <= max;
+  // Who bears the amount typed: the API uses the function that books the astrologer's reversal.
+  useEffect(() => {
+    if (!previewPath || !typedOk) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      api
+        .get<{ split: RefundSplit | null }>(`${previewPath}?amount=${typed}`)
+        .then((r) => live && setPreview({ n: typed, split: r.split }))
+        .catch(() => live && setPreview(null));
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [previewPath, typedOk, typed]);
+  const split = typedOk && preview?.n === typed ? preview.split : null;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -77,6 +102,7 @@ export default function AmountDialog({
             {unit === "₹" ? `₹${min}–₹${max}` : `${min}–${max} min`}
           </span>
         </div>
+        {split && <RefundSplitView split={split} className="mt-3" />}
         {error && (
           <p role="alert" className="mt-2 mb-0 text-[12.5px] font-semibold text-rose-700">
             {error}

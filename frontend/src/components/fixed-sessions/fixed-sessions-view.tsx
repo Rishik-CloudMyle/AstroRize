@@ -203,11 +203,11 @@ export default function FixedSessionsView({
             </button>
 
             {/* Sort Selector */}
-            <div className="relative">
+            <div className="relative max-sm:min-w-0 max-sm:flex-1">
               <select
                 value={filters.sort}
                 onChange={(e) => setFilters((prev) => ({ ...prev, sort: e.target.value as FixSortKey }))}
-                className="h-11 appearance-none rounded-full border border-line bg-paper pl-4 pr-9 text-xs sm:text-sm font-semibold text-stone-700 focus:border-amber-500 focus:outline-hidden"
+                className="h-11 appearance-none rounded-full border border-line bg-paper pl-4 pr-9 max-sm:w-full max-sm:min-w-0 text-xs sm:text-sm font-semibold text-stone-700 focus:border-amber-500 focus:outline-hidden"
               >
                 {SORT_OPTIONS.map((s) => (
                   <option key={s.key} value={s.key}>

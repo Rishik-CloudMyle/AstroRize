@@ -43,8 +43,8 @@ export default async function RecordingPage() {
           <b className="block text-[14px] text-ink">Voice and video consultations are recorded — audio only</b>
           <span className="mt-0.5 block text-[13px] leading-[1.5] text-[#57534e]">
             {data.media.connected
-              ? "Both sides see the notice before the call (the customer ticks it) and a “Recording (audio)” sign during it. Video pictures and public lives are never saved. Only a Super Admin can listen."
-              : "Voice and video aren't connected yet (the call provider isn't set up). Once they are, consultations are recorded as audio only, after both sides accept the notice. Only a Super Admin can listen."}
+              ? "Both sides see the notice before the call (the customer ticks it) and a “Recording (audio)” sign during it. Video pictures and public lives are never saved. Only a Super Admin can listen here; the customer can play their own paid-session recording inside the app (playback only, no download)."
+              : "Voice and video aren't connected yet (the call provider isn't set up). Once they are, consultations are recorded as audio only, after both sides accept the notice. Only a Super Admin can listen here; the customer can play their own recording inside the app."}
           </span>
         </div>
       </div>
@@ -93,8 +93,7 @@ export default async function RecordingPage() {
           ))}
         </div>
         <p className="mt-3.5 mb-0 text-[12px] leading-[1.55] text-[#78716c]">
-          The notice both sides see: “This consultation is recorded (audio only) for quality and safety. Only AstroRize can
-          access it.” Chat consultations aren&apos;t recorded as audio — their text is kept like any chat.
+          The notice both sides see: “This consultation is recorded (audio only) for quality and safety. AstroRize staff and the customer can access it; the customer can play it back inside the app only — it can&apos;t be downloaded or shared.” Chat consultations aren&apos;t recorded as audio. The customer ticks (and the astrologer sees) a chat notice before the chat starts: “This chat is saved as text for quality and safety. AstroRize staff and the customer can read it; the customer can read it later in the app only — it can&apos;t be downloaded or shared.” Chats started before this notice have none. The free Messages messenger isn&apos;t covered by it.
           {data.calls ? (
             <>
               {" "}

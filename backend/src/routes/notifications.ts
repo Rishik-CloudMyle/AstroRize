@@ -1,6 +1,7 @@
 import { Router, type Request } from "express";
 import { db } from "../db.ts";
 import { forbidden, notFound } from "../lib/errors.ts";
+import { scrubSessionRefs } from "../lib/session-label.ts";
 import { requireUser } from "../middleware/auth.ts";
 
 // The bell: a signed-in customer's, astrologer's or staff member's own in-app notifications (written
@@ -19,17 +20,20 @@ function owner(req: Request) {
 
 notificationsRouter.get("/", async (req, res) => {
   const userId = owner(req);
+  const customer = req.auth?.role === "customer";
   const [rows, unread] = await Promise.all([
     db.notification.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: LIST_LIMIT }),
     db.notification.count({ where: { userId, readAt: null } }),
   ]);
+  // A customer never sees a session reference: older notifications that carry one are described on the way out.
+  const texts = customer ? await scrubSessionRefs(userId, rows.flatMap((n) => [n.title, n.body])) : rows.flatMap((n) => [n.title, n.body]);
   res.json({
     unread,
-    notifications: rows.map((n) => ({
+    notifications: rows.map((n, i) => ({
       id: n.id,
       kind: n.kind,
-      title: n.title,
-      body: n.body,
+      title: texts[i * 2]!,
+      body: texts[i * 2 + 1]!,
       href: n.href,
       createdAt: n.createdAt.toISOString(),
       read: n.readAt !== null,

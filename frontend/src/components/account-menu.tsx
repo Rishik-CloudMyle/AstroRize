@@ -10,6 +10,7 @@ import { sessionActions } from "@/lib/session-store";
 const ITEMS = [
   { href: "/wallet", label: "Wallet & account" },
   { href: "/support", label: "Help & support" },
+  { href: "/me/consultations", label: "My consultations" },
   { href: "/messages", label: "Messages" },
   { href: "/me", label: "Profile" },
 ];

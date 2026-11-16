@@ -20,7 +20,7 @@ import { countdown, rupee } from "@/lib/portal/format";
 import { usePresence, useToast } from "./portal-provider";
 import { Avatar } from "./views/live-queue-people";
 import LiveReturnBar from "./live-return-bar";
-import { RECORDING_NOTICE } from "../consult/recording-notice";
+import { CHAT_NOTICE, RECORDING_NOTICE } from "../consult/recording-notice";
 
 // Incoming consultations for the astrologer, on EVERY portal page: while they are online the portal
 // asks GET /portal/incoming every few seconds and, when someone is calling, rings — a dialog (a
@@ -48,6 +48,8 @@ export interface Incoming {
   instant: boolean;
   /** The call's audio is recorded: the notice is shown here (answering is the astrologer's acceptance). */
   recorded?: boolean;
+  /** A chat that carries the chat notice (saved as text; opening the chat is the astrologer's acceptance). */
+  chatNotice?: boolean;
   free: boolean;
   makeGood: boolean;
   freeMinutes: number | null;
@@ -454,6 +456,12 @@ function IncomingDialog({
           <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-left text-[12px] leading-normal text-rose-900 max-lg:rounded-app-btn max-lg:bg-app-error-bg">
             <span aria-hidden="true" className="mr-1.5 inline-block size-2 rounded-full bg-rose-500 align-middle" />
             {RECORDING_NOTICE} By answering you agree.
+          </p>
+        )}
+        {i.chatNotice && (
+          <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-left text-[12px] leading-normal text-amber-900 max-lg:rounded-app-btn max-lg:bg-app-tint max-lg:text-app-ink-2">
+            <b className="font-bold">Chat is saved. </b>
+            {CHAT_NOTICE} By accepting you agree.
           </p>
         )}
         <p className="mt-3 text-[11.5px] leading-normal text-stone-500">

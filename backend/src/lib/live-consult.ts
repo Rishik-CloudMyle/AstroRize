@@ -299,7 +299,6 @@ async function meter(c: Consultation) {
   const by = answerBy(c, secs);
   return {
     id: c.id,
-    ref: c.ref,
     status: c.status === "ACTIVE" ? ("active" as const) : ("connecting" as const),
     /** chat · voice · video, as chosen when joining the queue */
     mode: c.mode.toLowerCase() as "chat" | "voice" | "video",
@@ -335,7 +334,7 @@ export async function hostPrivateView(roomId: string) {
   let c = await privateInRoom(roomId);
   if (c?.status === "ACTIVE" && (await endIfNeverJoined(c)).status !== "ACTIVE") c = await privateInRoom(roomId);
   if (!c) return null;
-  return { ...(await meter(c)), alias: c.customerAlias, profile: c.customer ? consultSummary(c.customer) : null };
+  return { ...(await meter(c)), ref: c.ref, alias: c.customerAlias, profile: c.customer ? consultSummary(c.customer) : null };
 }
 
 /**

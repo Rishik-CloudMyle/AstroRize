@@ -97,7 +97,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
         {makeGood && (
           <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-[12.5px] leading-[1.5] text-emerald-900">
             <b className="block text-[13.5px] text-emerald-800">🎁 Free replacement call · {makeGood.minutes} min</b>
-            We&apos;re sorry about session {makeGood.sessionRef}. Talk to {a.name} again free by Chat, Voice or Video — use it by{" "}
+            We&apos;re sorry about {makeGood.session}. Talk to {a.name} again free by Chat, Voice or Video — use it by{" "}
             {makeGood.validUntil}, when they&apos;re available.
           </div>
         )}

@@ -45,12 +45,14 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [short, setShort] = useState(false);
-  // A private voice or video call is recorded (audio only): the customer accepts the notice first.
+  // A private voice or video call is recorded (audio only) and a private chat is saved as text: the customer accepts the notice first.
   const [consent, setConsent] = useState(false);
-  const needsConsent = mode === "voice" || mode === "video";
+  const needsConsent = mode === "voice" || mode === "video" || mode === "chat";
   const blocked = !mode || (needsConsent && !consent);
 
   function choose(m: LiveMode) {
+    // The chat notice and the call-recording notice differ: a tick for one doesn't count for the other.
+    if ((m === "chat") !== (mode === "chat")) setConsent(false);
     setMode(m);
     setError("");
     setShort(false);
@@ -143,7 +145,7 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
         </Link>
       </p>
 
-      {needsConsent && <RecordingConsent checked={consent} onChange={setConsent} className="mt-3" />}
+      {needsConsent && <RecordingConsent chat={mode === "chat"} checked={consent} onChange={setConsent} className="mt-3" />}
 
       {error && (
         <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">

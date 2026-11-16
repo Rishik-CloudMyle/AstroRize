@@ -16,7 +16,7 @@ import { SessionWindow, windowKindOf } from "./session/session-window";
 import { releaseCallSession } from "@/lib/media/call-session";
 import { unlockSound } from "@/lib/media/ring";
 import { staffConsultNote } from "./consult-gate";
-import { isRecordedChoice } from "./recording-notice";
+import { needsConsentChoice } from "./recording-notice";
 import ConsultSheet, { CHOICE_TITLE, quotedRateFor, type ConsultChoice, type PayChoice, type RateChange } from "./consult-sheet";
 import InCallRecharge from "./in-call-recharge";
 import { offersChanged, useConsultDiscount } from "@/lib/offers";
@@ -344,7 +344,7 @@ export default function ConsultJourney({
       if (pay === "free" && freeHere && choice !== "instant" && !useFree && !useMakeGoodCall) return;
       if (!useFree && !useMakeGoodCall && balance < quoted * 5) return;
       if (useFree && !freeLength) return;
-      if (isRecordedChoice(choice) && !recordingConsent) return;
+      if (needsConsentChoice(choice) && !recordingConsent) return;
     }
     setBusy(true);
     setError("");
@@ -381,8 +381,8 @@ export default function ConsultJourney({
         ...(fixedSession ? { fixedMinutes: fixedSession.minutes } : {}),
         ...(useFree && !fixedSession ? { welcome: true, freeMinutes: freeLength } : {}),
         ...(useMakeGoodCall && !fixedSession ? { makeGoodCreditId: makeGood.id } : {}),
-        // Voice and video are recorded (audio only): the customer ticked the notice on the sheet.
-        ...(isRecordedChoice(choice) || fixedSession ? { recordingConsent: true } : {}),
+        // Voice and video are recorded (audio only), chat is saved as text: the customer ticked the notice on the sheet.
+        ...(needsConsentChoice(choice) || fixedSession ? { recordingConsent: true } : {}),
       });
       if (useMakeGoodCall) makeGoodChanged();
       setPlaced(consultation);
@@ -695,6 +695,8 @@ export default function ConsultJourney({
         astrologer={fresh}
         choice={choice}
         onChoose={(c) => {
+          // The chat notice and the call-recording notice differ: a tick for one doesn't count for the other.
+          if ((c === "chat") !== (choice === "chat")) setRecordingConsent(false);
           setChoice(c);
           setError("");
           setRateChange(null);

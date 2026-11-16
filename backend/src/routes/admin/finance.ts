@@ -12,7 +12,7 @@ import { configNumber, getSetting, putSetting } from "../../lib/settings.ts";
 import { customAmountPolicy } from "../../lib/payments.ts";
 import { priceChangeView } from "../../lib/pricing.ts";
 import { lakh } from "./overview.ts";
-import { creditProposal, proposedMinutes, refundProposerId } from "./support.ts";
+import { creditProposal, proposedMinutes, refundProposerId, splitForTicket } from "./support.ts";
 import { CREDIT_PROPOSED } from "../../lib/tickets.ts";
 
 export const financeRouter = Router();
@@ -109,6 +109,10 @@ financeRouter.get("/finance", async (req, res) => {
               : null,
           proposedBy: t.proposedBy,
           proposedById: await refundProposerId(t.id),
+          /** The team holding it now (Finance, or Admin once escalated) — only that team decides. */
+          team: t.assignedTeam,
+          /** Who bears it (staff only): customer paid, refund, astrologer share reversed, AstroRize share. */
+          split: await splitForTicket(t),
         })),
       ),
       denominations: denominations.map((d) => d.amount),

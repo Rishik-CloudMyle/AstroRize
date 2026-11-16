@@ -6,16 +6,21 @@ import { conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { istDate, istDateKey, istDayMonth, istTime, makeRef, rupee } from "../../lib/format.ts";
 import { makeGoodPolicy } from "../../lib/makegood.ts";
 import { notify } from "../../lib/notifications.ts";
+import { sessionInlineByRef } from "../../lib/session-label.ts";
 import { displayName } from "../../lib/profile.ts";
 import { actorName, adminOf, capabilitiesOf, pagesOf, requireCapability, requirePage, secondPerson } from "../../lib/rbac.ts";
+import { ticketFlow } from "../../lib/ticket-flow.ts";
 import {
+  approverTeam,
   categoryLabel,
   CREDIT_PROPOSED,
   customerOf,
   CUSTOMER_TEAM,
   forwardTargets,
   hasSession,
+  isMoneyTicket,
   isOpen,
+  MONEY_TEAMS,
   isTeam,
   OPEN_TICKET,
   staffTimeline,
@@ -28,6 +33,7 @@ import {
 import { configNumber, getSetting, putSetting } from "../../lib/settings.ts";
 import { staffForwarded, staffRemedyDecided, staffRemedyProposed } from "../../lib/staff-notifications.ts";
 import type { Consultation, Prisma } from "../../generated/prisma/client.ts";
+import type { Team } from "../../lib/tickets.ts";
 
 // Support & disputes: tickets, the metering evidence, and maker-checker remedies. On a complaint
 // Support or Finance proposes one remedy and a second person (Finance — someone other than the
@@ -204,7 +210,7 @@ async function shareOfSession(c: Pick<Consultation, "ref" | "astrologerId">) {
  * whole rupees (₹1 at 50% → ₹1), capped so all reversals on the session never exceed what they
  * earned on it. Never negative.
  */
-async function reversalFor(tx: Prisma.TransactionClient, c: Pick<Consultation, "ref" | "astrologerId">, ticketId: string, amount: number) {
+async function reversalFor(tx: Prisma.TransactionClient | typeof db, c: Pick<Consultation, "ref" | "astrologerId">, ticketId: string, amount: number) {
   const lines = await tx.earningsLine.findMany({
     where: { astrologerId: c.astrologerId, sessionRef: c.ref, fundedBy: "CUSTOMER", kind: { not: "refund_adjustment" } },
     orderBy: { date: "asc" },
@@ -225,6 +231,75 @@ async function reversalFor(tx: Prisma.TransactionClient, c: Pick<Consultation, "
   return { taken: Math.min(stillHeld, Math.max(0, Math.ceil((amount * sharePct) / 100))), sharePct };
 }
 
+/**
+ * Who bears a refund, staff-only (never shown to the customer): what the customer paid, the refund, the
+ * astrologer's share taken back and the AstroRize (company) share absorbed. The astrologer's part is the
+ * very number reversalFor() books as the earnings line, so the screen always matches the ledger.
+ */
+export interface RefundSplit {
+  /** SESSION: refund of a session's charge; CREDIT: a wallet credit (no astrologer deduction). */
+  kind: "SESSION" | "CREDIT";
+  /** The original charge ("₹120"); null for a credit. */
+  paid: string | null;
+  refund: string;
+  /** The astrologer's share taken back ("₹1"), their share % and the company's part ("₹0"). */
+  astrologer: string;
+  sharePct: number | null;
+  company: string;
+  /** True once approved: the figures are the booked earnings line, not a preview. */
+  final: boolean;
+  /** One line for the screen ("AstroRize bears 100% — no astrologer deduction"). */
+  note: string | null;
+}
+
+function splitOf(paid: number, refund: number, taken: number, sharePct: number | null, final: boolean): RefundSplit {
+  return {
+    kind: "SESSION",
+    paid: rupee(paid),
+    refund: rupee(refund),
+    astrologer: rupee(taken),
+    sharePct,
+    company: rupee(refund - taken),
+    final,
+    note: sharePct === null ? "No earnings to take back from the astrologer on this session, so AstroRize bears all of it" : null,
+  };
+}
+
+/** The same split as one audit / log sentence. */
+export const splitText = (s: RefundSplit) =>
+  s.kind === "CREDIT"
+    ? "AstroRize bears 100% — no astrologer deduction"
+    : `customer paid ${s.paid} · astrologer share ${s.astrologer}${s.sharePct !== null ? ` (${s.sharePct}%)` : ""} reversed · AstroRize share ${s.company} absorbed`;
+
+const creditSplit = (amount: number): RefundSplit => ({
+  kind: "CREDIT",
+  paid: null,
+  refund: rupee(amount),
+  astrologer: rupee(0),
+  sharePct: null,
+  company: rupee(amount),
+  final: false,
+  note: "AstroRize bears 100% — no astrologer deduction",
+});
+
+/** The split of a ticket's proposed or granted remedy (null: a free call, or nothing to show). */
+export async function splitForTicket(
+  t: { id: string; sessionRef: string; state: string; refundState: string; refundAmount: number; resolution: string | null },
+  consultation?: Consultation | null,
+): Promise<RefundSplit | null> {
+  if (t.refundState === "NONE" || t.state === MAKEGOOD_PROPOSED || t.resolution === "MAKE_GOOD") return null;
+  if (isCredit(t)) return { ...creditSplit(t.refundAmount), final: t.resolution === WALLET_CREDIT };
+  const c = consultation === undefined ? (hasSession(t) ? await db.consultation.findUnique({ where: { ref: t.sessionRef } }) : null) : consultation;
+  if (!c) return null;
+  const amount = Math.min(t.refundAmount || c.total, c.total);
+  if (t.resolution === "REFUND") {
+    const line = await db.earningsLine.findFirst({ where: { kind: "refund_adjustment", sessionRef: t.id } });
+    return splitOf(c.total, amount, Math.abs(line?.amount ?? 0), line ? (line.sharePct ?? 100) : null, true);
+  }
+  const r = await reversalFor(db, c, t.id, amount);
+  return splitOf(c.total, amount, r?.taken ?? 0, r?.sharePct ?? null, false);
+}
+
 /** Another ticket on the same session that already has a remedy proposed or granted. */
 function otherRemedy(t: { id: string; sessionRef: string }) {
   if (!hasSession(t)) return null;
@@ -235,6 +310,16 @@ const isCredit = (t: { state: string; resolution: string | null }) => t.state ==
 
 const remedyWord = (t: { state: string; resolution: string | null }) =>
   t.state === MAKEGOOD_PROPOSED || t.resolution === "MAKE_GOOD" ? "free replacement call" : isCredit(t) ? "wallet credit" : "refund";
+
+/**
+ * A proposal goes to the approver team on its own (Support or Finance proposes → the ticket moves to
+ * Finance with the proposal waiting): the move itself is part of the proposal's update, and this
+ * records it (from → to, who, why).
+ */
+async function routeProposal(admin: ReturnType<typeof requirePage>, t: { id: string; assignedTeam: string }, what: string) {
+  const to = approverTeam();
+  if (t.assignedTeam !== to) await audit(admin, "support.ticket.route", t.id, `${t.assignedTeam} → ${to} · ${what} needs ${teamLabel(to)} approval`);
+}
 
 supportRouter.get("/support", async (req, res) => {
   const admin = requirePage(req, "support");
@@ -341,9 +426,17 @@ supportRouter.get("/support/:id", async (req, res) => {
     : (otherLine ?? (!c?.customerId || !c.connectedAt ? "A free replacement call needs a real session with a customer that connected" : null));
   const share = c && t.resolution !== "MAKE_GOOD" ? await shareOfSession(c) : null;
   const caps = capabilitiesOf(admin.adminRole);
+  const split = await splitForTicket(t, c ?? null);
+  const outcome = closed.get(t.id) ?? null;
+  const remedy = t.refundState === "NONE" ? null : t.state === MAKEGOOD_PROPOSED || t.resolution === "MAKE_GOOD" ? { word: "free replacement call", amount: `${minutes} min` } : { word: isCredit(t) ? "wallet credit" : "refund", amount: rupee(t.refundAmount) };
+  const flow = await ticketFlow(t, remedy, outcome);
+  const approver = approverTeam();
+  const money = caps.includes("dispute.refund.propose");
+  // Who decides a waiting proposal: the team holding it, or a Super Admin; once escalated to Admin only a Super Admin.
+  const decide = caps.includes("dispute.refund.approve") && t.refundState === "PROPOSED" && (admin.adminRole === "super" || t.assignedTeam !== "super");
+  const moneyTicket = isMoneyTicket(t);
   // Money (a refund, a free call, a wallet credit) is proposed by a department with dispute.refund.propose
   // (Support, Finance and the Super Admin by default) while the ticket is with it; others forward it to Finance.
-  const money = caps.includes("dispute.refund.propose");
   // Why no wallet credit can be proposed (the propose route refuses for the same reasons).
   const creditBlocked = !open ? null : (otherLine ?? (!customer && !c?.customerId ? "Only an issue a customer raised has a wallet to credit" : null));
   res.json({
@@ -354,7 +447,7 @@ supportRouter.get("/support/:id", async (req, res) => {
       /** REFUND | MAKE_GOOD once approved, else null. */
       resolution: t.resolution,
       /** How it ended, once closed (label, the written reason or what was given, when, by whom). */
-      outcome: closed.get(t.id) ?? null,
+      outcome,
       /** Open with nothing proposed, and the session already had a remedy approved on another ticket: it can be closed as covered. */
       coveredBy: granted ? { id: granted.id, remedy: remedyWord(granted) } : null,
       /** What is proposed (or was granted): a refund or a free replacement call. */
@@ -366,7 +459,7 @@ supportRouter.get("/support/:id", async (req, res) => {
       teamLabel: teamLabel(t.assignedTeam),
       category: categoryLabel(t.category),
       /** The team the category usually belongs with (a one-click forward), when it isn't there already. */
-      suggestedTeam: access.act && suggested !== t.assignedTeam && forwardTargets(t.assignedTeam).includes(suggested) ? { key: suggested, label: teamLabel(suggested) } : null,
+      suggestedTeam: access.act && suggested !== t.assignedTeam && forwardTargets(t.assignedTeam, t).includes(suggested) ? { key: suggested, label: teamLabel(suggested) } : null,
       subject: t.subject,
       description: t.description,
       customer: customer ? { name: displayName(customer), alias: t.customerAlias } : null,
@@ -382,7 +475,7 @@ supportRouter.get("/support/:id", async (req, res) => {
       can: {
         act: access.act,
         note: access.note,
-        forwardTo: access.act ? forwardTargets(t.assignedTeam).map((k) => ({ key: k, label: teamLabel(k) })) : [],
+        forwardTo: access.act ? forwardTargets(t.assignedTeam, t).map((k) => ({ key: k, label: teamLabel(k) })) : [],
         /** A proposed remedy must be decided or withdrawn (reject) before the ticket can be resolved. */
         resolve: access.act && t.refundState === "NONE",
         /** Only a ticket a customer raised has someone to reply to. */
@@ -393,7 +486,20 @@ supportRouter.get("/support/:id", async (req, res) => {
         credit: access.act && money && open && !creditBlocked,
         /** Approve or decline someone else's proposal (their own only as a Super Admin). */
         approve: caps.includes("dispute.refund.approve"),
+        /** The proposal on this ticket waits for this person's decision now (not the proposer's own, unless a Super Admin: the page checks). */
+        decide,
+        /** Finance (holding a money ticket) can escalate it to Admin with a reason. */
+        escalate: access.act && moneyTicket && t.assignedTeam === approver && approver !== "super" && isOpen(t),
+        /** Support (or anyone holding a money ticket that isn't with the approver) can hand it to the approver without proposing. */
+        sendToApprover: access.act && moneyTicket && isOpen(t) && t.refundState === "NONE" && t.assignedTeam !== approver && approver !== "super" ? { key: approver, label: teamLabel(approver) } : null,
       },
+      /** The approval flow: Support ↓ Finance ↓ Admin, who holds it now and what happens next. */
+      flow,
+      /** The team that approves money here (Finance by default). */
+      approver: { key: approver, label: teamLabel(approver) },
+      /** Who bears a proposed or approved refund / credit (staff only): customer paid, refund, astrologer share, AstroRize share. */
+      split,
+      moneyTicket,
       /** Why a wallet credit can't be proposed on this open ticket (another remedy, no customer), else null. */
       creditBlocked,
       /** Wallet credit: the limits for a new one, and the one proposed or given on this ticket. */
@@ -456,6 +562,16 @@ supportRouter.get("/support/:id", async (req, res) => {
   });
 });
 
+/** Who would bear a refund of `amount` (the proposal dialog's preview): the same numbers approval books. */
+supportRouter.get("/support/:id/refund/preview", async (req, res) => {
+  const { t } = await visibleTicket(req);
+  const amount = Number(req.query.amount);
+  const file = await caseFile(t);
+  if (!file.consultation || !Number.isInteger(amount) || amount < 1 || amount > file.billed) return res.json({ split: null });
+  const split = await splitForTicket({ ...t, state: "REFUND_PROPOSED", refundState: "PROPOSED", refundAmount: amount, resolution: null }, file.consultation);
+  res.json({ split });
+});
+
 const amountBody = z.object({ amount: z.number({ error: "Enter the refund amount." }).int("Refunds are in whole rupees.").min(1, "Refund at least ₹1.").optional() }).optional();
 
 supportRouter.post("/support/:id/refund/propose", async (req, res) => {
@@ -475,11 +591,13 @@ supportRouter.post("/support/:id/refund/propose", async (req, res) => {
   const value = amount ?? file.billed;
   const { count } = await db.supportTicket.updateMany({
     where: { id: t.id, refundState: "NONE" },
-    data: { refundState: "PROPOSED", state: "REFUND_PROPOSED", refundAmount: value, proposedBy: actorName(admin), lastActivityAt: new Date() },
+    data: { refundState: "PROPOSED", state: "REFUND_PROPOSED", refundAmount: value, proposedBy: actorName(admin), assignedTeam: approverTeam(), lastActivityAt: new Date() },
   });
   if (!count) throw conflict(`${t.id} was just updated by someone else. Reload and check it.`);
-  await audit(admin, "dispute.refund.propose", t.id, `${rupee(value)} proposed${value < file.billed ? ` (of ${rupee(file.billed)} billed)` : ""}`);
-  await staffRemedyProposed(t, { refund: value }, { id: admin.user.id, name: actorName(admin) });
+  const split = file.consultation ? await splitForTicket({ ...t, state: "REFUND_PROPOSED", refundState: "PROPOSED", refundAmount: value, resolution: null }, file.consultation) : null;
+  await audit(admin, "dispute.refund.propose", t.id, `${rupee(value)} proposed${value < file.billed ? ` (of ${rupee(file.billed)} billed)` : ""}${split ? ` · ${splitText(split)}` : ""}`);
+  await routeProposal(admin, t, `refund of ${rupee(value)}`);
+  await staffRemedyProposed({ id: t.id }, { refund: value }, { id: admin.user.id, name: actorName(admin) }, approverTeam());
   res.json({ ok: true, billed: rupee(value) });
 });
 
@@ -491,6 +609,10 @@ async function decider(req: Request, verb: string) {
   const admin = requireCapability(req, "dispute.refund.approve", `Blocked — Support may propose but not ${verb} a refund, wallet credit or free replacement call.`);
   const t = await db.supportTicket.findUnique({ where: { id: String(req.params.id) } });
   if (!t) throw notFound("Ticket not found.");
+  // Escalated to Admin: Admin is the last stop, so only a Super Admin decides it now.
+  if (t.assignedTeam === "super" && admin.adminRole !== "super") {
+    throw forbidden(`${t.id} was escalated to Admin. Only a Super Admin can ${verb} it now.`);
+  }
   return { admin, t };
 }
 
@@ -561,14 +683,14 @@ supportRouter.post("/support/:id/refund/approve", async (req, res) => {
     admin,
     "dispute.refund.approve",
     t.id,
-    `REFUND_PROPOSED → REFUND_INITIATED (${rupee(outcome.refunded)})${outcome.taken ? ` · astrologer adjustment −${rupee(outcome.taken)} (${sharePct}% share)` : ""}${self}`,
+    `REFUND_PROPOSED → REFUND_INITIATED (${rupee(outcome.refunded)})${c && outcome.refunded > 0 ? ` · customer paid ${rupee(c.total)} · astrologer adjustment −${rupee(outcome.taken)}${sharePct !== null ? ` (${sharePct}% share)` : ""} · AstroRize share ${rupee(outcome.refunded - outcome.taken)} absorbed` : ""}${self}`,
   );
   await staffRemedyDecided(t, await refundProposerId(t.id), { approved: true, makeGood: false }, { id: admin.user.id, name: actorName(admin) });
   if (c?.customerId && outcome.refunded > 0) {
     await notify(c.customerId, {
       kind: "refund.approved",
       title: `${rupee(outcome.refunded)} refunded to your wallet`,
-      body: `We've refunded ${rupee(outcome.refunded)} for session ${c.ref} (issue ${t.id}). It's back in your AstroRize wallet.`,
+      body: `We've refunded ${rupee(outcome.refunded)} for ${await sessionInlineByRef(c.ref)} (issue ${t.id}). It's back in your AstroRize wallet.`,
       href: `/support/${t.id}`,
     });
     const astro = outcome.taken ? await db.astrologer.findUnique({ where: { id: c.astrologerId }, select: { userId: true } }) : null;
@@ -610,12 +732,13 @@ supportRouter.post("/support/:id/makegood/propose", async (req, res) => {
   if (!c?.customerId || !c.connectedAt) throw conflict("A free replacement call needs a real session with a customer that connected.");
   const { count } = await db.supportTicket.updateMany({
     where: { id: t.id, refundState: "NONE", state: { not: "RESOLVED" } },
-    data: { refundState: "PROPOSED", state: MAKEGOOD_PROPOSED, refundAmount: 0, proposedBy: actorName(admin) },
+    data: { refundState: "PROPOSED", state: MAKEGOOD_PROPOSED, refundAmount: 0, proposedBy: actorName(admin), assignedTeam: approverTeam(), lastActivityAt: new Date() },
   });
   if (!count) throw conflict(`${t.id} was just updated by someone else. Reload and check it.`);
   await putSetting(minutesKey(t.id), { minutes });
   await audit(admin, "dispute.makegood.propose", t.id, `free replacement call of ${minutes} min proposed (session ${c.ref})`);
-  await staffRemedyProposed(t, { minutes }, { id: admin.user.id, name: actorName(admin) });
+  await routeProposal(admin, t, `free replacement call of ${minutes} min`);
+  await staffRemedyProposed({ id: t.id }, { minutes }, { id: admin.user.id, name: actorName(admin) }, approverTeam());
   res.json({ ok: true, minutes });
 });
 
@@ -648,7 +771,7 @@ supportRouter.post("/support/:id/makegood/approve", async (req, res) => {
   await notify(c.customerId, {
     kind: "makegood.offered",
     title: `Free ${minutes}-minute call with ${c.astrologer.name}`,
-    body: `We're sorry about session ${c.ref}. ${c.astrologer.name} will talk to you again for free — book your free ${minutes}-minute replacement call by ${until} from their profile when they're online.`,
+    body: `We're sorry about ${await sessionInlineByRef(c.ref)}. ${c.astrologer.name} will talk to you again for free — book your free ${minutes}-minute replacement call by ${until} from their profile when they're online.`,
     href: `/astrologer/${c.astrologer.slug}`,
   });
   if (c.astrologer.userId) {
@@ -705,7 +828,7 @@ supportRouter.post("/support/:id/credit/propose", async (req, res) => {
   // Only if nobody proposed, forwarded or closed it meanwhile.
   const { count } = await db.supportTicket.updateMany({
     where: { id: t.id, refundState: "NONE", state: t.state, assignedTeam: t.assignedTeam },
-    data: { refundState: "PROPOSED", state: CREDIT_PROPOSED, refundAmount: body.amount, proposedBy: actorName(admin), lastActivityAt: new Date() },
+    data: { refundState: "PROPOSED", state: CREDIT_PROPOSED, refundAmount: body.amount, proposedBy: actorName(admin), assignedTeam: approverTeam(), lastActivityAt: new Date() },
   });
   if (!count) throw conflict(`${t.id} was just updated by someone else. Reload and check it.`);
   const proposal: CreditProposal = { bucket: body.bucket, reason: body.reason, paymentId: body.linkPayment ? t.paymentId : null };
@@ -715,9 +838,10 @@ supportRouter.post("/support/:id/credit/propose", async (req, res) => {
     admin,
     "dispute.credit.propose",
     t.id,
-    `${rupee(body.amount)} to the customer's ${bucket} balance proposed${proposal.paymentId ? " (for the recharge on this ticket)" : ""} · ${body.reason}`,
+    `${rupee(body.amount)} to the customer's ${bucket} balance proposed${proposal.paymentId ? " (for the recharge on this ticket)" : ""} · AstroRize bears 100% — no astrologer deduction · ${body.reason}`,
   );
-  await staffRemedyProposed(t, { credit: body.amount, bucket }, { id: admin.user.id, name: actorName(admin) });
+  await routeProposal(admin, t, `wallet credit of ${rupee(body.amount)}`);
+  await staffRemedyProposed({ id: t.id }, { credit: body.amount, bucket }, { id: admin.user.id, name: actorName(admin) }, approverTeam());
   res.json({ ok: true, amount: rupee(body.amount), bucket });
 });
 
@@ -858,7 +982,8 @@ supportRouter.post("/support/:id/refund/decline", async (req, res) => {
   const credit = t.state === CREDIT_PROPOSED;
   const { count } = await db.supportTicket.updateMany({
     where: { id: t.id, refundState: "PROPOSED", state: t.state },
-    data: { refundState: "NONE", state: "INVESTIGATING", refundAmount: 0, proposedBy: null },
+    // A decline sends the ticket back to Support, who started it, with the reason.
+    data: { refundState: "NONE", state: "INVESTIGATING", refundAmount: 0, proposedBy: null, assignedTeam: "support", lastActivityAt: new Date() },
   });
   if (!count) throw conflict(`${t.id} was just updated by someone else. Reload and check it.`);
   await audit(
@@ -867,8 +992,12 @@ supportRouter.post("/support/:id/refund/decline", async (req, res) => {
     t.id,
     `${t.state} → INVESTIGATING · ${makeGood ? "free replacement call not given" : credit ? `${rupee(t.refundAmount)} wallet credit not given` : `${rupee(t.refundAmount)} not refunded`} · ${reason}${self}`,
   );
-  await staffRemedyDecided(t, await refundProposerId(t.id), { approved: false, makeGood, credit, reason }, { id: admin.user.id, name: actorName(admin) });
-  res.json({ ok: true });
+  if (t.assignedTeam !== "support") await audit(admin, "support.ticket.route", t.id, `${t.assignedTeam} → support · declined: ${reason}`);
+  const proposer = await refundProposerId(t.id);
+  await staffRemedyDecided(t, proposer, { approved: false, makeGood, credit, reason }, { id: admin.user.id, name: actorName(admin) });
+  // Support (not only the proposer) gets it back to work on.
+  if (t.assignedTeam !== "support") await staffForwarded(t, "support", `Declined by ${actorName(admin)}: ${reason}`, { id: admin.user.id, name: actorName(admin) });
+  res.json({ ok: true, team: "support" });
 });
 
 // ── Working a customer issue: reply, internal note, forward, resolve ──
@@ -924,16 +1053,64 @@ supportRouter.post("/support/:id/note", async (req, res) => {
 supportRouter.post("/support/:id/forward", async (req, res) => {
   const { admin, t } = await workableTicket(req);
   const { team, note } = z.object({ team: z.string().trim(), note: textBody("note for the team", 1000) }).parse(req.body);
-  if (!isTeam(team) || !forwardTargets(t.assignedTeam).includes(team)) throw conflict(`${t.id} can't be forwarded there.`);
+  if (!isTeam(team) || !forwardTargets(t.assignedTeam, t).includes(team)) {
+    throw forbidden(
+      isTeam(team) && isMoneyTicket(t) && !MONEY_TEAMS.includes(team)
+        ? `${t.id} is a payment / refund ticket. It can only go between Support, Finance and Admin, not to ${teamLabel(team)}.`
+        : t.refundState === "PROPOSED"
+          ? `A proposal is waiting on ${t.id}: it can only go to ${teamLabel(approverTeam())} or Admin until it is decided.`
+          : `${t.id} can't be forwarded there.`,
+    );
+  }
+  await moveTicket(admin, t, team, note, "support.ticket.forward");
+  res.json({ ok: true, team, teamLabel: teamLabel(team) });
+});
+
+/** Moves the ticket to one other team (it always has exactly one holder), recording from → to, who and why. */
+async function moveTicket(
+  admin: ReturnType<typeof requirePage>,
+  t: { id: string; customerId: string | null; assignedTeam: string; state: string },
+  team: Team,
+  note: string,
+  action: "support.ticket.forward" | "support.ticket.route" | "support.ticket.escalate",
+) {
   const { count } = await db.supportTicket.updateMany({
     where: { id: t.id, assignedTeam: t.assignedTeam, state: t.state },
     data: { assignedTeam: team, lastActivityAt: new Date() },
   });
   if (!count) throw conflict(`${t.id} was just updated by someone else. Reload and check it.`);
-  await audit(admin, "support.ticket.forward", t.id, `${t.assignedTeam} → ${team} · ${note}`);
-  await staffForwarded(t, team, note, { id: admin.user.id, name: actorName(admin) });
+  await audit(admin, action, t.id, `${t.assignedTeam} → ${team} · ${note}`);
+  await staffForwarded(t, team, note, { id: admin.user.id, name: actorName(admin) }, action === "support.ticket.escalate");
   await tellCustomer(t, "support.status", `Issue ${t.id} is with our ${CUSTOMER_TEAM[team]}`, `We've passed your issue to our ${CUSTOMER_TEAM[team]}. They'll reply on the issue.`);
-  res.json({ ok: true, team, teamLabel: teamLabel(team) });
+}
+
+/**
+ * Support (or whoever holds a payment / refund ticket that isn't with the approver) hands it to the
+ * approver team (Finance) without proposing anything, with a note saying what to check.
+ */
+supportRouter.post("/support/:id/send-to-approver", async (req, res) => {
+  const { admin, t } = await workableTicket(req);
+  const { note } = z.object({ note: textBody("note for the approver", 1000) }).parse(req.body);
+  const to = approverTeam();
+  if (!isMoneyTicket(t)) throw conflict(`${t.id} isn't a payment or refund ticket. Forward it from the Forward tab.`);
+  if (t.assignedTeam === to) throw conflict(`${t.id} is already with ${teamLabel(to)}.`);
+  if (t.refundState !== "NONE") throw conflict(`A ${remedyWord(t)} is already proposed on ${t.id}; it is with ${teamLabel(t.assignedTeam)} for the decision.`);
+  await moveTicket(admin, t, to, note, "support.ticket.route");
+  res.json({ ok: true, team: to, teamLabel: teamLabel(to) });
+});
+
+/**
+ * The approver (Finance) escalates a payment / refund ticket to Admin, the final authority, with a
+ * reason. A waiting proposal stays on the ticket for the Super Admin to decide.
+ */
+supportRouter.post("/support/:id/escalate", async (req, res) => {
+  const { admin, t } = await workableTicket(req);
+  const { reason } = z.object({ reason: textBody("reason for escalating", 1000) }).parse(req.body);
+  if (!isMoneyTicket(t)) throw conflict(`${t.id} isn't a payment or refund ticket. Forward it from the Forward tab.`);
+  if (t.assignedTeam === "super") throw conflict(`${t.id} is already with Admin.`);
+  if (t.assignedTeam !== approverTeam()) throw conflict(`Only the ${teamLabel(approverTeam())} team escalates a ticket it holds. Send ${t.id} to ${teamLabel(approverTeam())} first.`);
+  await moveTicket(admin, t, "super", reason, "support.ticket.escalate");
+  res.json({ ok: true, team: "super", teamLabel: teamLabel("super") });
 });
 
 /**

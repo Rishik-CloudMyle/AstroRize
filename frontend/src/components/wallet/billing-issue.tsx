@@ -11,12 +11,14 @@
 import Link from "next/link";
 import { useEffect, useId, useReducer, useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
-import { rupee } from "@/lib/format";
 import Modal, { CloseButton } from "../ui/modal";
 
 export interface SupportRequest {
   id: string;
-  sessionRef: string;
+  /** The consultation's internal id (its "SES-…" reference is never sent to customers). */
+  consultationId: string;
+  /** The consultation in words: "Voice call with Pt. Raghav Joshi · 6 Nov, 3:42 PM · 12 min · ₹360" */
+  session: string;
   subject: string;
   astrologer: string;
   mode: string;
@@ -34,8 +36,8 @@ interface SupportRequestsData {
   /** Days after a session ends that an issue can be raised. */
   windowDays: number;
   /** Sessions an issue can still be raised about, with the deadline. */
-  raisable: { ref: string; until: string; untilLabel: string }[];
-  /** Recent sessions whose dispute was reviewed and rejected (closed for good). */
+  raisable: { consultationId: string; until: string; untilLabel: string }[];
+  /** Recent sessions (by internal id) whose dispute was reviewed and rejected (closed for good). */
   closed: string[];
   /** Recent sessions already settled with a refund or free replacement call. */
   settled: string[];
@@ -86,14 +88,14 @@ function StatusChip({ status }: { status: SupportRequest["status"] }) {
  * The action for one consultation line: "Raise a billing issue", or — when a request for that
  * session is open — where it stands. `compact` = a small text link (the desktop table).
  */
-export function BillingIssueAction({ txRef, compact = false }: { txRef: string; compact?: boolean }) {
+export function BillingIssueAction({ consultationId, label, compact = false }: { consultationId: string; label: string; compact?: boolean }) {
   const data = useSupportData();
   const [open, setOpen] = useState(false);
   // The newest request about this session (the list is newest first).
-  const mine = data?.requests.find((r) => r.sessionRef === txRef);
-  const slot = data?.raisable.find((r) => r.ref === txRef);
+  const mine = data?.requests.find((r) => r.consultationId === consultationId);
+  const slot = data?.raisable.find((r) => r.consultationId === consultationId);
   // The dialog stays up after sending (its "Request submitted" view) even though the line now has a request.
-  const dialog = open && <RaiseIssueDialog txRef={txRef} until={slot?.untilLabel ?? null} onClose={() => setOpen(false)} />;
+  const dialog = open && <RaiseIssueDialog consultationId={consultationId} label={label} until={slot?.untilLabel ?? null} onClose={() => setOpen(false)} />;
   if (data === null) return null;
   // A request exists (under review, settled, or reviewed and closed): say where it stands.
   if (mine) {
@@ -122,9 +124,9 @@ export function BillingIssueAction({ txRef, compact = false }: { txRef: string; 
   // No request yet, and it can't be raised any more: reviewed and closed on another ticket, or too late.
   // (windowDays 0 = the list couldn't be read: offer the action and let the API decide.)
   if (!slot && data.windowDays > 0) {
-    const [why, short] = data.closed.includes(txRef)
+    const [why, short] = data.closed.includes(consultationId)
       ? ["This issue was reviewed and closed.", "Issue reviewed and closed"]
-      : data.settled.includes(txRef)
+      : data.settled.includes(consultationId)
         ? ["This session's billing issue was already settled.", "Issue settled"]
         : [
             `Billing issues can be raised within ${data.windowDays} ${data.windowDays === 1 ? "day" : "days"} after a session ends — the time for this session has passed.`,
@@ -168,7 +170,7 @@ export function BillingIssueAction({ txRef, compact = false }: { txRef: string; 
   );
 }
 
-function RaiseIssueDialog({ txRef, until, onClose }: { txRef: string; until: string | null; onClose: () => void }) {
+function RaiseIssueDialog({ consultationId, label, until, onClose }: { consultationId: string; label: string; until: string | null; onClose: () => void }) {
   const titleId = useId();
   const [category, setCategory] = useState<(typeof CATEGORIES)[number] | null>(null);
   const [note, setNote] = useState("");
@@ -184,7 +186,7 @@ function RaiseIssueDialog({ txRef, until, onClose }: { txRef: string; until: str
     setBusy(true);
     setError("");
     try {
-      const res = await api.post<{ request: { id: string } }>("/support/requests", { ref: txRef, category, note: text });
+      const res = await api.post<{ request: { id: string } }>("/support/requests", { consultationId, category, note: text });
       setDone(res.request.id);
       void load();
     } catch (e) {
@@ -205,7 +207,7 @@ function RaiseIssueDialog({ txRef, until, onClose }: { txRef: string; until: str
             Request submitted
           </h2>
           <p className="mt-2 mb-0 text-[13.5px] leading-[1.5] text-stone-600 max-lg:text-app-ink-2">
-            We&rsquo;ve received it as <b>{done}</b>. Our support team will review session {txRef}. A refund is reviewed — it is not
+            We&rsquo;ve received it as <b>{done}</b>. Our support team will review it. A refund is reviewed — it is not
             automatic. You&rsquo;ll see the outcome here, in Help &amp; support and in your notifications.
           </p>
           <button
@@ -231,7 +233,7 @@ function RaiseIssueDialog({ txRef, until, onClose }: { txRef: string; until: str
             <CloseButton onClick={onClose} />
           </div>
           <p className="mt-0 mb-4 text-[13px] text-stone-500 max-lg:text-app-ink-2">
-            About session <b className="text-ink max-lg:text-app-ink">{txRef}</b>. Tell us what happened — a refund is reviewed, it is not
+            About <b className="text-ink max-lg:text-app-ink">{label}</b>. Tell us what happened — a refund is reviewed, it is not
             automatic.{until ? ` You can raise it until ${until}.` : ""}
           </p>
           <fieldset className="m-0 border-0 p-0">
@@ -313,12 +315,12 @@ export function BillingIssues({ className = "" }: { className?: string }) {
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <b className="text-[14px] text-ink max-lg:text-app-ink">
-                {r.id} · {r.sessionRef}
+                {r.id}
               </b>
               <StatusChip status={r.status} />
             </div>
             <p className="mt-1 mb-0 text-[12.5px] text-stone-500 max-lg:text-app-ink-2">
-              {r.mode} with {r.astrologer} · billed {rupee(r.billed)} · raised {r.raisedOn}
+              {r.session} · raised {r.raisedOn}
             </p>
             <p className="mt-1 mb-0 text-[12.5px] break-words text-stone-600 max-lg:text-app-ink-2">{r.status.body}</p>
             <Link

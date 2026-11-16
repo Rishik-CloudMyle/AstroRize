@@ -111,7 +111,9 @@ configRouter.get("/config", async (req, res) => {
   });
 });
 
-configRouter.get("/config/:key", async (req, res) => {
+configRouter.get("/config/:key", async (req, res, next) => {
+  // "fixed-sessions" is its own route (declared further down), not a Config key.
+  if (req.params.key === "fixed-sessions") return next();
   requirePage(req, "config");
   res.json({ detail: await keyView(String(req.params.key)) });
 });

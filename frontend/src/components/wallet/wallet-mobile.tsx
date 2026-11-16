@@ -207,7 +207,7 @@ function WalletHome() {
         ) : (
           <ListRows>
             {recent.map((t) => (
-              <TxRow key={t.ref} t={t} />
+              <TxRow key={t.id} t={t} />
             ))}
           </ListRows>
         )}
@@ -264,7 +264,7 @@ function TxRow({ t }: { t: Transaction }) {
   return (
     <button
       type="button"
-      onClick={() => go("tx", { ref: t.ref })}
+      onClick={() => go("tx", { ref: t.id })}
       className="flex min-h-app-hit w-full items-center gap-3 rounded-app-card border border-app-line bg-app-surface p-3 text-left shadow-app-card active:bg-app-elev"
     >
       <TxIcon credit={credit} />
@@ -317,7 +317,7 @@ function Transactions() {
         ) : (
           <ListRows>
             {list.map((t) => (
-              <TxRow key={t.ref} t={t} />
+              <TxRow key={t.id} t={t} />
             ))}
           </ListRows>
         )}
@@ -331,7 +331,7 @@ function Transactions() {
 
 function TransactionDetail({ txRef }: { txRef: string }) {
   const { wallet } = useSession();
-  const t = wallet.transactions.find((x) => x.ref === txRef);
+  const t = wallet.transactions.find((x) => x.id === txRef);
   return (
     <>
       <HideTabBar />
@@ -359,8 +359,8 @@ function TransactionDetail({ txRef }: { txRef: string }) {
             <div className="mt-1 text-[12px] text-app-ink-2">{t.date}</div>
             <dl className="m-0 mt-3 border-t border-app-line pt-1.5 text-[13.333px]">
               <div className="flex justify-between gap-3 py-1.5">
-                <dt className="text-app-ink-2">Transaction ID</dt>
-                <dd className="m-0 font-mono font-semibold [overflow-wrap:anywhere] text-app-ink">{t.ref}</dd>
+                <dt className="shrink-0 text-app-ink-2">{t.ref === null ? "Consultation" : "Transaction ID"}</dt>
+                <dd className={`m-0 font-semibold [overflow-wrap:anywhere] text-app-ink ${t.ref === null ? "text-right" : "font-mono"}`}>{t.ref ?? t.label}</dd>
               </div>
               <div className="flex justify-between gap-3 py-1.5">
                 <dt className="shrink-0 text-app-ink-2">{t.amount >= 0 ? "Credited to" : "Paid from"}</dt>
@@ -374,10 +374,10 @@ function TransactionDetail({ txRef }: { txRef: string }) {
             View payment receipt
           </AppButton>
         )}
-        {t && canRaiseIssue(t) && <BillingIssueAction txRef={t.ref} />}
+        {t && canRaiseIssue(t) && t.consultationId && <BillingIssueAction consultationId={t.consultationId} label={t.label ?? "this consultation"} />}
         {t && (
           <p className="mt-3 mb-0 text-[12px] leading-[1.45] text-app-ink-3">
-            Keep the transaction ID handy if you need to ask us about this payment.
+            {t?.ref ? "Keep the transaction ID handy if you need to ask us about this payment." : "To ask us about this consultation, raise a billing issue above or write to Help & support."}
           </p>
         )}
       </div>

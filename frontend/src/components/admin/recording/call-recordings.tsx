@@ -106,7 +106,7 @@ export default function CallRecordings() {
           <h2 className="mt-0 mb-1 text-[16px] font-bold">Call recordings</h2>
           <p className="m-0 max-w-[72ch] text-[12.5px] leading-[1.55] text-[#78716c]">
             Audio of voice, video and Instant Call consultations (also private calls from a live). Only a Super Admin can
-            see this list or listen; every listen is recorded in the audit log.{" "}
+            see this list or listen here (customers can play their own paid sessions in the app); every listen is recorded in the audit log.{" "}
             {meta && (
               <>
                 {meta.total.toLocaleString("en-IN")} {meta.total === 1 ? "recording" : "recordings"} kept ·{" "}

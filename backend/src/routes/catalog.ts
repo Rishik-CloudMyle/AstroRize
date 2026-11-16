@@ -372,7 +372,6 @@ catalogRouter.post("/live-rooms/:id/queue", async (req, res) => {
         code: "consultation_in_progress",
         message: "You already have a consultation in progress. End or cancel it before joining a queue.",
         consultationId: result.open.id,
-        ref: result.open.ref,
       },
     });
   }

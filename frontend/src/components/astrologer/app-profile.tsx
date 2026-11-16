@@ -127,7 +127,7 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
         {makeGood ? (
           <p className="mt-3 rounded-app-card border border-[#a7f3d0] bg-app-success-bg px-3 py-2.5 text-[12.5px] leading-[1.45] text-app-success">
             <b className="block text-[13px]">🎁 Free replacement call · {makeGood.minutes} min</b>
-            We&apos;re sorry about session {makeGood.sessionRef}. Talk to {a.name} again free by Chat, Voice or Video — use it by {makeGood.validUntil}.
+            We&apos;re sorry about {makeGood.session}. Talk to {a.name} again free by Chat, Voice or Video — use it by {makeGood.validUntil}.
           </p>
         ) : freeMinutesHere ? (
           <p className="mt-3 rounded-app-card border border-[#a7f3d0] bg-app-success-bg px-3 py-2.5 text-[12.5px] leading-[1.45] text-app-success">

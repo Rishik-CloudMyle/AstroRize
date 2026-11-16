@@ -497,6 +497,37 @@ export interface PayoutBatch {
 }
 
 /** A refund Support proposed on a dispute, waiting for a second approver (Finance or Super Admin). */
+/** Who bears a refund or wallet credit (staff only): customer paid, the refund, the astrologer share reversed, the AstroRize (company) share. */
+export interface RefundSplit {
+  kind: "SESSION" | "CREDIT";
+  /** The original charge ("₹120"); null for a wallet credit. */
+  paid: string | null;
+  refund: string;
+  astrologer: string;
+  sharePct: number | null;
+  company: string;
+  /** True once approved: the figures are the booked earnings line, not a preview. */
+  final: boolean;
+  note: string | null;
+}
+
+export type FlowStepStatus = "done" | "current" | "upcoming" | "notneeded";
+export interface FlowEvent {
+  what: string;
+  who: string;
+  at: string;
+  when: string;
+  self: boolean;
+}
+/** The approval flow of a ticket: Support ↓ Finance ↓ Admin, who holds it and what happens next. */
+export interface TicketFlow {
+  money: boolean;
+  holder: string;
+  holderLabel: string;
+  next: string;
+  steps: { key: "support" | "finance" | "admin"; label: string; status: FlowStepStatus; note: string; events: FlowEvent[] }[];
+}
+
 export interface DisputeRefund {
   id: string;
   subject: string;
@@ -510,6 +541,9 @@ export interface DisputeRefund {
   amount: string;
   proposedBy: string | null;
   proposedById: string | null;
+  /** The team holding it now: Finance, or Admin once escalated (only that team decides). */
+  team: string;
+  split: RefundSplit | null;
 }
 
 /** A closed payout cycle with something to pay and no batch yet. */
@@ -658,7 +692,21 @@ export interface SupportCase {
     credit: boolean;
     /** Approve or decline someone else's proposal (their own only as a Super Admin). */
     approve: boolean;
+    /** The proposal on this ticket waits for this person's decision now (the proposer's own: see approve). */
+    decide: boolean;
+    /** Finance, holding a money ticket, can escalate it to Admin with a reason. */
+    escalate: boolean;
+    /** Hand a money ticket to the approver without proposing (null when not allowed here). */
+    sendToApprover: { key: string; label: string } | null;
   };
+  /** The approval flow, who holds it now and the next step. */
+  flow: TicketFlow;
+  /** The team that approves money (Finance by default). */
+  approver: { key: string; label: string };
+  /** Who bears a proposed or approved refund / credit (staff only); null when nothing is proposed. */
+  split: RefundSplit | null;
+  /** A payment / refund / wallet ticket (or one carrying a proposal): it only moves between Support, Finance and Admin. */
+  moneyTicket: boolean;
   /** Why a wallet credit can't be proposed on this open ticket, else null. */
   creditBlocked: string | null;
   /** Wallet credit: the limits for a new one, and the one proposed or given on this ticket. */

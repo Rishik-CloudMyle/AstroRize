@@ -3,7 +3,7 @@
 import { ApiError, api } from "@/lib/api/client";
 
 // Records a consultation's audio in this browser (client decision, Nov 2026: voice and video calls
-// are recorded as AUDIO ONLY; only AstroRize's Super Admin can listen). Both sides of the call run
+// are recorded as AUDIO ONLY; only AstroRize's Super Admin and the customer, in the app, can listen). Both sides of the call run
 // one of these, so the call is kept even if one side's tab goes away; the server keeps the better
 // take (backend lib/recordings.ts).
 //

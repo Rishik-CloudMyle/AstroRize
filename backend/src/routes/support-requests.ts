@@ -7,6 +7,7 @@ import { istDate, istDayMonth, istTime, makeRef, rupee } from "../lib/format.ts"
 import { CHAT_MAX_PHOTO_BYTES, deletePrivateFiles, IMAGE_TYPES, savePrivateFile, sniffImage } from "../lib/media.ts";
 import { displayName } from "../lib/profile.ts";
 import { rateLimit } from "../lib/safety.ts";
+import { DESCRIBE_SELECT, scrubSessionRefs, sessionInline, sessionLabel } from "../lib/session-label.ts";
 import { configNumber } from "../lib/settings.ts";
 import { staffCustomerReplied, staffNewIssue } from "../lib/staff-notifications.ts";
 import {
@@ -66,16 +67,20 @@ const BILLING_AS: Record<(typeof BILLING_CATEGORIES)[number], Category> = {
   Wallet: "WALLET",
 };
 
-const raiseBody = z.object({
-  /** The consultation's reference, as on the wallet line (e.g. "SES-48213"). */
-  ref: z.string().trim().min(1).max(40),
-  category: z.enum(BILLING_CATEGORIES, { error: "Choose what the issue is about." }),
+const raiseBody = z
+  .object({
+    /** The consultation's internal id, as on the wallet line (customers never see or type its "SES-…" reference). */
+    consultationId: z.string().trim().min(1).max(40).optional(),
+    /** Accepted for older clients and tools; the website sends consultationId. */
+    ref: z.string().trim().min(1).max(40).optional(),
+    category: z.enum(BILLING_CATEGORIES, { error: "Choose what the issue is about." }),
   note: z
     .string({ error: "Tell us what happened." })
     .trim()
     .min(10, "Tell us what happened in a few words (at least 10 characters).")
     .max(500, "Keep it to 500 characters."),
-});
+  })
+  .refine((b) => b.consultationId || b.ref, { message: "Choose the consultation this is about.", path: ["consultationId"] });
 
 /** A new ticket id (TKT-1234), unique. */
 async function newTicketId() {
@@ -94,10 +99,10 @@ async function firstResponseDue() {
  * the window, not closed for good after a rejection, not already settled, and no other issue open
  * about it. `charged` = a billing issue (a free session has nothing to refund).
  */
-async function sessionForIssue(userId: string, ref: string, charged: boolean) {
-  const c = await db.consultation.findUnique({
-    where: { ref },
-    select: { ref: true, customerId: true, customerAlias: true, status: true, total: true, endedAt: true },
+async function sessionForIssue(userId: string, key: { id?: string | null; ref?: string | null }, charged: boolean) {
+  const c = await db.consultation.findFirst({
+    where: key.id ? { id: key.id } : { ref: key.ref ?? "" },
+    select: { ref: true, customerId: true, customerAlias: true, status: true, ...DESCRIBE_SELECT },
   });
   if (!c || c.customerId !== userId) throw notFound("We couldn't find that consultation on your account.");
   if (c.status !== "ENDED") throw conflict("You can raise an issue once the consultation has ended.");
@@ -106,16 +111,16 @@ async function sessionForIssue(userId: string, ref: string, charged: boolean) {
   const until = c.endedAt ? disputeDeadline(c.endedAt, days) : null;
   if (!until || until.getTime() < Date.now()) {
     throw conflict(
-      `Issues about a session can be raised within ${days} ${days === 1 ? "day" : "days"} after it ends${until ? ` — for ${c.ref} that was until ${deadlineLabel(until)}` : ""}.`,
+      `Issues about a session can be raised within ${days} ${days === 1 ? "day" : "days"} after it ends${until ? ` — for ${sessionInline(c)} that was until ${deadlineLabel(until)}` : ""}.`,
     );
   }
   // A rejected dispute is final for the session, whichever ticket it came through.
   const rejected = await db.supportTicket.findFirst({ where: { sessionRef: c.ref, state: "RESOLVED", resolution: null } });
   if (rejected) throw conflict(REVIEWED_AND_CLOSED);
   const open = await db.supportTicket.findFirst({ where: { sessionRef: c.ref, state: { notIn: ["RESOLVED", "REFUND_INITIATED"] }, refundState: { not: "INITIATED" } } });
-  if (open) throw conflict(`You already have a request open for ${c.ref} (${open.id}). We'll update you there.`);
+  if (open) throw conflict(`You already have a request open for ${sessionInline(c)} (${open.id}). We'll update you there.`);
   const granted = await db.supportTicket.findFirst({ where: { sessionRef: c.ref, refundState: "INITIATED" } });
-  if (granted) throw conflict(`${c.ref} was already settled on ${granted.id}.`);
+  if (granted) throw conflict(`${sessionInline(c)[0]!.toUpperCase()}${sessionInline(c).slice(1)} was already settled on ${granted.id}.`);
   return c;
 }
 
@@ -155,19 +160,21 @@ supportRequestsRouter.get("/support/requests", async (req, res) => {
     // Charged sessions that ended inside the window: the ones an issue can still be raised about.
     db.consultation.findMany({
       where: { customerId: auth.user.id, status: "ENDED", total: { gt: 0 }, endedAt: { gt: new Date(now.getTime() - days * 86_400_000) } },
-      select: { ref: true, endedAt: true },
+      select: { id: true, ref: true, endedAt: true },
       orderBy: { endedAt: "desc" },
       take: 200,
     }),
   ]);
   const sessions = await db.consultation.findMany({
     where: { customerId: auth.user.id, ref: { in: tickets.map((t) => t.sessionRef) } },
-    select: { ref: true, mode: true, kind: true, total: true, astrologer: { select: { name: true } } },
+    select: { id: true, ref: true, ...DESCRIBE_SELECT },
   });
   const bySession = new Map(sessions.map((s) => [s.ref, s]));
+  const idOfRef = new Map(recent.map((c) => [c.ref, c.id]));
   // Sessions whose dispute was rejected (on any ticket, however it was raised) stay closed; sessions
   // that already had a refund or free replacement call approved are settled.
   const { closed, settled } = await decidedSessions(recent.map((c) => c.ref));
+  const subjects = await scrubSessionRefs(auth.user.id, tickets.map((t) => t.subject));
   res.json({
     /** How many days after a session ends an issue can be raised (Config support.dispute_window_days). */
     windowDays: days,
@@ -176,20 +183,22 @@ supportRequestsRouter.get("/support/requests", async (req, res) => {
       .filter((c) => c.endedAt && !closed.has(c.ref) && !settled.has(c.ref))
       .map((c) => {
         const until = disputeDeadline(c.endedAt!, days);
-        return { ref: c.ref, until: until.toISOString(), untilLabel: deadlineLabel(until) };
+        return { consultationId: c.id, until: until.toISOString(), untilLabel: deadlineLabel(until) };
       }),
-    /** Recent sessions whose dispute was reviewed and rejected: closed for good. */
-    closed: [...closed],
-    /** Recent sessions already settled with a refund or free replacement call. */
-    settled: [...settled],
-    requests: tickets.flatMap((t) => {
+    /** Recent sessions (internal ids) whose dispute was reviewed and rejected: closed for good. */
+    closed: [...closed].flatMap((r) => idOfRef.get(r) ?? []),
+    /** Recent sessions (internal ids) already settled with a refund or free replacement call. */
+    settled: [...settled].flatMap((r) => idOfRef.get(r) ?? []),
+    requests: tickets.flatMap((t, i) => {
       const s = bySession.get(t.sessionRef);
       return s
         ? [
             {
               id: t.id,
-              sessionRef: t.sessionRef,
-              subject: t.subject,
+              consultationId: s.id,
+              /** The consultation in words, instead of its reference. */
+              session: sessionLabel(s),
+              subject: subjects[i]!,
               astrologer: s.astrologer.name,
               mode: modeLabel(s),
               billed: s.total,
@@ -204,9 +213,9 @@ supportRequestsRouter.get("/support/requests", async (req, res) => {
 
 supportRequestsRouter.post("/support/requests", async (req, res) => {
   const auth = requireRole(req, "customer");
-  const { ref, category, note } = raiseBody.parse(req.body);
+  const { consultationId, ref, category, note } = raiseBody.parse(req.body);
   rateLimit(`support-request:${auth.user.id}`, 5, 60 * 60_000, "You've raised several requests in the last hour. Wait a little, or message us from an open one.");
-  const c = await sessionForIssue(auth.user.id, ref, true);
+  const c = await sessionForIssue(auth.user.id, { id: consultationId, ref }, true);
   const id = await newTicketId();
   await db.supportTicket.create({
     data: {
@@ -223,7 +232,7 @@ supportRequestsRouter.post("/support/requests", async (req, res) => {
   });
   await audit(auth, RAISE_ACTION, id, `customer raised · ${category} · ${c.ref} (billed ${rupee(c.total)})`);
   await staffNewIssue({ id, subject: `${category} · ${c.ref}: ${note}`, customerAlias: c.customerAlias }, CATEGORIES[BILLING_AS[category]].label);
-  res.status(201).json({ request: { id, sessionRef: c.ref } });
+  res.status(201).json({ request: { id } });
 });
 
 // ── Help & support ──
@@ -250,7 +259,9 @@ const issueBody = z.object({
     .trim()
     .min(10, "Tell us what happened in a few words (at least 10 characters).")
     .max(DESCRIPTION_MAX, `Keep it to ${DESCRIPTION_MAX.toLocaleString("en-IN")} characters.`),
-  /** One of their own sessions (e.g. "SES-48213"), or nothing. */
+  /** One of their own sessions (its internal id), or nothing. */
+  sessionId: z.string().trim().max(40).optional().nullable(),
+  /** Accepted for older clients and tools; the website sends sessionId. */
   sessionRef: z.string().trim().max(40).optional().nullable(),
   /** One of their own recharges (Payment id), or nothing. */
   paymentId: z.string().trim().max(40).optional().nullable(),
@@ -266,7 +277,7 @@ supportRequestsRouter.get("/support/issues/options", async (req, res) => {
   const [sessions, payments, openTickets] = await Promise.all([
     db.consultation.findMany({
       where: { customerId: auth.user.id, status: "ENDED", endedAt: { gt: new Date(now - days * 86_400_000) } },
-      select: { ref: true, endedAt: true, total: true, mode: true, kind: true, astrologer: { select: { name: true } } },
+      select: { id: true, ref: true, ...DESCRIBE_SELECT },
       orderBy: { endedAt: "desc" },
       take: 30,
     }),
@@ -294,8 +305,9 @@ supportRequestsRouter.get("/support/issues/options", async (req, res) => {
             ? `Issue ${openBySession.get(s.ref)} is open`
             : null;
       return {
-        ref: s.ref,
-        label: `${modeLabel(s)} with ${s.astrologer.name} · ${istDayMonth(s.endedAt!)} · ${s.total > 0 ? rupee(s.total) : "free"}`,
+        id: s.id,
+        /** "Voice call with Pt. Raghav Joshi · 6 Nov, 3:42 PM · 12 min · ₹360": astrologer, date and time, mode, amount. */
+        label: sessionLabel(s),
         charged: s.total > 0,
         untilLabel: deadlineLabel(until),
         /** Why an issue can't be raised about it now (null = it can). */
@@ -310,9 +322,10 @@ supportRequestsRouter.get("/support/issues/options", async (req, res) => {
 supportRequestsRouter.post("/support/issues", async (req, res) => {
   const auth = requireRole(req, "customer");
   const body = issueBody.parse(req.body);
-  if (body.sessionRef && body.paymentId) throw badRequest("Choose either a session or a recharge, not both.");
+  const sessionKey = body.sessionId ? { id: body.sessionId } : body.sessionRef ? { ref: body.sessionRef } : null;
+  if (sessionKey && body.paymentId) throw badRequest("Choose either a session or a recharge, not both.");
   rateLimit(`support-issue:${auth.user.id}`, 5, 60 * 60_000, "You've raised several issues in the last hour. Wait a little, or reply on one you already raised.");
-  const session = body.sessionRef ? await sessionForIssue(auth.user.id, body.sessionRef, body.category === "PAYMENT_REFUND") : null;
+  const session = sessionKey ? await sessionForIssue(auth.user.id, sessionKey, body.category === "PAYMENT_REFUND") : null;
   let payment: { id: string; amount: number; status: string; createdAt: Date } | null = null;
   if (body.paymentId) {
     payment = await db.payment.findFirst({ where: { id: body.paymentId, userId: auth.user.id }, select: { id: true, amount: true, status: true, createdAt: true } });
@@ -359,14 +372,20 @@ supportRequestsRouter.get("/support/issues", async (req, res) => {
     ? await db.supportTicketMessage.groupBy({ by: ["ticketId"], where: { ticketId: { in: tickets.map((t) => t.id) }, author: "STAFF", internal: false }, _max: { createdAt: true } })
     : [];
   const lastReply = new Map(lastReplies.map((r) => [r.ticketId, r._max.createdAt]));
+  const sessionRefs = tickets.filter(hasSession).map((t) => t.sessionRef);
+  const sessions = sessionRefs.length ? await db.consultation.findMany({ where: { ref: { in: sessionRefs }, customerId: auth.user.id }, select: { ref: true, ...DESCRIBE_SELECT } }) : [];
+  const sessionOf = new Map(sessions.map((c) => [c.ref, c]));
+  // Old subjects may carry a session reference typed or generated back then: described on the way out.
+  const subjects = await scrubSessionRefs(auth.user.id, tickets.map((t) => (t.description ? t.subject : t.subject.split(" — ")[0]) ?? t.subject));
   res.json({
-    issues: tickets.map((t) => {
+    issues: tickets.map((t, i) => {
       const reply = lastReply.get(t.id);
+      const session = hasSession(t) ? sessionOf.get(t.sessionRef) : null;
       return {
         id: t.id,
-        subject: t.description ? t.subject : t.subject.split(" — ")[0],
+        subject: subjects[i]!,
         category: categoryLabel(t.category),
-        related: hasSession(t) ? `Session ${t.sessionRef}` : t.paymentId ? "A recharge" : null,
+        related: hasSession(t) ? (session ? sessionLabel(session) : "A consultation") : t.paymentId ? "A recharge" : null,
         raisedOn: istDate(t.createdAt),
         open: isOpen(t),
         status: customerStatus(t),
@@ -389,35 +408,30 @@ supportRequestsRouter.get("/support/issues/:id", async (req, res) => {
   const t = await myTicket(auth.user.id, String(req.params.id));
   const [timeline, session, payment] = await Promise.all([
     customerTimeline(t),
-    hasSession(t)
-      ? db.consultation.findFirst({ where: { ref: t.sessionRef, customerId: auth.user.id }, select: { ref: true, total: true, mode: true, kind: true, endedAt: true, astrologer: { select: { name: true } } } })
-      : null,
+    hasSession(t) ? db.consultation.findFirst({ where: { ref: t.sessionRef, customerId: auth.user.id }, select: DESCRIBE_SELECT }) : null,
     t.paymentId ? db.payment.findFirst({ where: { id: t.paymentId, userId: auth.user.id }, select: { amount: true, status: true, createdAt: true } }) : null,
     db.supportTicket.update({ where: { id: t.id }, data: { customerReadAt: new Date() } }),
   ]);
+  // Older subjects and messages may carry a session reference: the customer is shown the consultation in words.
+  const texts = await scrubSessionRefs(auth.user.id, [(t.description ? t.subject : t.subject.split(" — ")[0]) ?? t.subject, ...timeline.map((m) => m.text)]);
   res.json({
     issue: {
       id: t.id,
-      subject: t.description ? t.subject : t.subject.split(" — ")[0],
+      subject: texts[0]!,
       category: categoryLabel(t.category),
-      related: session
-        ? `${modeLabel(session)} with ${session.astrologer.name} · ${session.ref} · ${session.total > 0 ? `billed ${rupee(session.total)}` : "free"}`
-        : payment
-          ? paymentLabel(payment)
-          : hasSession(t)
-            ? `Session ${t.sessionRef}`
-            : null,
+      related: session ? sessionLabel(session) : payment ? paymentLabel(payment) : hasSession(t) ? "A consultation" : null,
       raisedOn: istDate(t.createdAt),
       open: isOpen(t),
       status: customerStatus(t),
       assignedTeam: t.assignedTeam,
       teamLabel: customerTeam(t.assignedTeam),
-      proposedBy: t.proposedBy,
-      approvedBy: t.approvedBy,
+      // Never a staff member's name: the customer only learns that the team proposed / approved.
+      proposedBy: t.proposedBy ? "our team" : null,
+      approvedBy: t.approvedBy ? "our team" : null,
       state: t.state,
       refundState: t.refundState,
       resolution: t.resolution,
-      timeline,
+      timeline: timeline.map((m, i) => ({ ...m, text: texts[i + 1]! })),
       maxMessage: MESSAGE_MAX,
     },
   });

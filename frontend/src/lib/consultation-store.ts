@@ -14,7 +14,6 @@ export type ConsultationStatus = "requested" | "connecting" | "active" | "ended"
 /** GET /api/consultations/active and /api/consultations/:id */
 export interface ConsultationView extends JoinState {
   id: string;
-  ref: string;
   status: ConsultationStatus;
   kind: "instant" | "standard" | "fixed";
   /** "live": a private consultation taken from a live room (it runs on that room's page). */

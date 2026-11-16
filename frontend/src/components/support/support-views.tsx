@@ -69,7 +69,7 @@ interface Issue {
 interface Options {
   windowDays: number;
   categories: { key: string; label: string }[];
-  sessions: { ref: string; label: string; charged: boolean; untilLabel: string; blocked: string | null }[];
+  sessions: { id: string; label: string; charged: boolean; untilLabel: string; blocked: string | null }[];
   payments: { id: string; label: string; blocked: string | null }[];
 }
 
@@ -215,7 +215,7 @@ function IssueList({ title, issues }: { title: string; issues: IssueSummary[] })
               </div>
               <b className="mt-1 block text-[14px] break-words text-ink max-lg:text-[13.5px] max-lg:text-app-ink">{i.subject}</b>
               <span className="mt-0.5 block text-[12.5px] text-stone-500 max-lg:text-[12px] max-lg:text-app-ink-2">
-                {[i.category ?? (i.related?.startsWith("Session") ? "Billing issue" : null), i.related, `raised ${i.raisedOn}`].filter(Boolean).join(" · ")}
+                {[i.category ?? (i.related ? "Billing issue" : null), i.related, `raised ${i.raisedOn}`].filter(Boolean).join(" · ")}
               </span>
             </Link>
           </li>
@@ -268,7 +268,7 @@ export function RaiseIssueForm() {
   const [loadError, setLoadError] = useState(false);
   const [category, setCategory] = useState<string | null>(null);
   const [customCategory, setCustomCategory] = useState("");
-  // "" = nothing; "s:SES-…" a session; "p:<id>" a recharge.
+  // "" = nothing; "s:<id>" a session (its internal id); "p:<id>" a recharge.
   const [related, setRelated] = useState("");
   const [subject, setSubject] = useState("");
   const [description, setDescription] = useState("");
@@ -327,7 +327,7 @@ export function RaiseIssueForm() {
     );
   }
 
-  const session = related.startsWith("s:") ? options.sessions.find((s) => s.ref === related.slice(2)) : null;
+  const session = related.startsWith("s:") ? options.sessions.find((s) => s.id === related.slice(2)) : null;
 
   async function submit() {
     if (busy) return;
@@ -346,7 +346,7 @@ export function RaiseIssueForm() {
         customCategory: category === "OTHER" ? customCategory.trim() : undefined,
         subject: subject.trim(),
         description: description.trim(),
-        sessionRef: related.startsWith("s:") ? related.slice(2) : null,
+        sessionId: related.startsWith("s:") ? related.slice(2) : null,
         paymentId: related.startsWith("p:") ? related.slice(2) : null,
       });
       let shotFailed: string | null = null;
@@ -435,8 +435,8 @@ export function RaiseIssueForm() {
         {options.sessions.length > 0 && (
           <optgroup label={`Sessions in the last ${options.windowDays} days`}>
             {options.sessions.map((s) => (
-              <option key={s.ref} value={`s:${s.ref}`} disabled={!!s.blocked}>
-                {s.ref} · {s.label}
+              <option key={s.id} value={`s:${s.id}`} disabled={!!s.blocked}>
+                {s.label}
                 {s.blocked ? ` — ${s.blocked}` : ""}
               </option>
             ))}
@@ -455,7 +455,7 @@ export function RaiseIssueForm() {
       </select>
       <p className="mt-1.5 mb-0 text-[12px] text-stone-500 max-lg:text-app-ink-3">
         {session
-          ? `Issues about ${session.ref} can be raised until ${session.untilLabel}. A refund is reviewed — it is not automatic.`
+          ? `Issues about this session can be raised until ${session.untilLabel}. A refund is reviewed — it is not automatic.`
           : `Sessions can be chosen for ${options.windowDays} days after they end. Once an issue about a session is reviewed and closed, it can't be raised again.`}
       </p>
 

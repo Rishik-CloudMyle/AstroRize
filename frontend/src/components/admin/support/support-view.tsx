@@ -6,10 +6,13 @@ import ReasonDialog from "@/components/admin/reason-dialog";
 import SortSelect, { useUrlSort } from "@/components/admin/sort-select";
 import { BlockedAction, EYEBROW, PANEL } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
 import { sortRows, TICKET_SORTS } from "@/lib/admin/sort";
 import type { SupportCase, SupportData, Ticket } from "@/lib/admin/types";
 import AmountDialog from "./amount-dialog";
+import CustomerSessions from "./customer-sessions";
 import { TicketApprovalFlow } from "@/components/support/ticket-flow";
+import { RefundSplitView } from "./refund-split";
 import { IssueSummary, TicketComposer, TicketTimeline } from "./ticket-work";
 import { CreditDialog, WalletCreditCard } from "./wallet-credit";
 
@@ -84,7 +87,9 @@ export default function SupportView({
     : !!caseFile?.proposedBy && caseFile.proposedBy === session.actor;
   // A Super Admin may decide their own proposal (audited as self-approved); anyone else needs a second person.
   const selfBlocked = isProposer && session.role !== "super";
-  const approveBlocked = isSupport || selfBlocked;
+  // Escalated to Admin: only a Super Admin decides it now (the API refuses anyone else).
+  const escalatedAway = !isSupport && !!caseFile && caseFile.refundState === "PROPOSED" && !caseFile.can.decide;
+  const approveBlocked = isSupport || selfBlocked || escalatedAway;
   const billed = caseFile?.refund.billed ?? "—";
   // What is proposed (or was granted) on this ticket: a refund or a free replacement call.
   const makeGood = caseFile?.remedy === "MAKE_GOOD";
@@ -98,8 +103,9 @@ export default function SupportView({
     try {
       const res = await api.get<{ case: SupportCase }>(`/admin/support/${encodeURIComponent(id)}`);
       setFile(res.case);
-    } catch {
-      if (!quiet) say("Couldn't load this ticket's case file. Please try again.");
+    } catch (e) {
+      // A 404 means the ticket just left this person's view (declined back to Support, escalated): not an error.
+      if (!quiet && !(e instanceof ApiError && e.status === 404)) say("Couldn't load this ticket's case file. Please try again.");
     }
   };
   const pick = (id: string) => {
@@ -168,10 +174,11 @@ export default function SupportView({
     const res = await run(
       () => api.post(`/admin/support/${tkt.id}/refund/decline`, { reason }),
       makeGood
-        ? "Free replacement call declined. Nothing was given; the ticket is back under investigation."
-        : "Refund declined. No money moved; the ticket is back under investigation.",
+        ? "Free replacement call declined. Nothing was given; the ticket is back with Support."
+        : "Refund declined. No money moved; the ticket is back with Support.",
     );
-    if (res) await loadCase(tkt.id);
+    // A decline sends the ticket back to Support: anyone but Support and a Super Admin no longer sees it, so don't ask for it.
+    if (res && session.role === "super") await loadCase(tkt.id);
     return !!res;
   };
 
@@ -310,7 +317,8 @@ export default function SupportView({
             <p className="mt-3 mb-0 text-[13.5px] leading-normal break-words whitespace-pre-wrap text-ink">{caseFile.description}</p>
           )}
           {caseFile && <IssueSummary file={caseFile} />}
-          {caseFile && <TicketApprovalFlow data={caseFile} isAdmin className="mt-[18px]" />}
+          {caseFile && <TicketApprovalFlow data={caseFile} flow={caseFile.flow} isAdmin className="mt-[18px]" />}
+          {caseFile && <CustomerSessions ticketId={caseFile.id} />}
 
           {hasSession && (
           <>
@@ -389,6 +397,7 @@ export default function SupportView({
                 )}
               </div>
             )}
+            {!makeGood && caseFile?.split && <RefundSplitView split={caseFile.split} className="mt-3" />}
             {makeGood && mg && (
               <div className="flex flex-col gap-[7px] text-[13.5px] text-[#57534e]">
                 <div className="flex items-center justify-between gap-3 border-b border-[#f3e9d8] py-[5px]">
@@ -423,7 +432,7 @@ export default function SupportView({
                   onClick={() => setProposing("refund")}
                   className="h-[42px] rounded-[11px] border-0 bg-amber-500 px-[18px] text-[13px] font-bold text-ink"
                 >
-                  Propose refund — needs a second approver
+                  Propose refund — goes to {caseFile?.approver.label ?? "Finance"} to approve
                 </button>
               )}
               {stage === "none" && canPropose && caseFile?.makeGoodBlocked && caseFile.makeGoodBlocked !== caseFile.refundBlocked && (
@@ -448,22 +457,22 @@ export default function SupportView({
                   Close — {caseFile.coveredBy.remedy} already given on {caseFile.coveredBy.id}
                 </button>
               )}
-              {stage === "proposed" && (
-                <button
-                  type="button"
-                  onClick={() => void approve()}
-                  aria-disabled={approveBlocked}
-                  className="h-[42px] rounded-[11px] border-0 px-[18px] text-[13px] font-bold"
-                  style={{
-                    background: approveBlocked ? "#f5f5f4" : "#047857",
-                    color: approveBlocked ? "#78716c" : "#fff",
-                  }}
-                >
+              {stage === "proposed" && approveBlocked && (
+                <BlockedAction className="min-h-[42px] px-4 py-2 text-[12.5px]">
                   {isSupport
                     ? `Approve — blocked for ${session.role === "support" ? "Support" : "your department"}`
                     : selfBlocked
                       ? "Approve — blocked, you proposed this"
-                      : `${makeGood ? "Approve free replacement call" : "Approve refund"}${isProposer ? " (your own — self-approval is audited)" : ""}`}
+                      : "Approve — escalated to Admin, only Admin decides"}
+                </BlockedAction>
+              )}
+              {stage === "proposed" && !approveBlocked && (
+                <button
+                  type="button"
+                  onClick={() => void approve()}
+                  className="h-[42px] rounded-[11px] border-0 bg-[#047857] px-[18px] text-[13px] font-bold text-white"
+                >
+                  {`${makeGood ? "Approve free replacement call" : "Approve refund"}${isProposer ? " (your own — self-approval is audited)" : ""}`}
                 </button>
               )}
               {stage === "proposed" && !approveBlocked && (
@@ -520,7 +529,7 @@ export default function SupportView({
           )}
           </>
           )}
-          {caseFile && <WalletCreditCard file={caseFile} onDone={() => loadCase(tkt.id)} />}
+          {caseFile && <WalletCreditCard file={caseFile} onDone={(left) => (left && session.role !== "super" ? Promise.resolve() : loadCase(tkt.id))} />}
           {!hasSession && !credit && settled && caseFile?.outcome && (
             <p className="mt-[18px] mb-0 rounded-xl border border-line bg-cream px-3.5 py-2.5 text-[12.5px] text-[#57534e]">
               <b className="text-ink">
@@ -554,7 +563,7 @@ export default function SupportView({
               ? stage === "proposed"
                 ? `The ticket is resolved and the proposed ${makeGood ? "free replacement call" : `refund of ${caseFile?.refund.amount ?? billed}`} is withdrawn. The reason is kept in the audit log.`
                 : "The ticket is resolved without a refund. The reason is kept in the audit log."
-              : "Nothing is given. The ticket goes back under investigation, with your reason in the audit log."
+              : "Nothing is given. The ticket goes back to Support to investigate, with your reason in the audit log."
           }
           confirm={asking === "reject" ? "Reject dispute" : `Decline ${remedyName}`}
           danger
@@ -567,9 +576,7 @@ export default function SupportView({
           title={`Propose a refund on ${tkt.id}`}
           subtitle={`Session ${tkt.session} · billed ${billed}`}
           intro={
-            session.role === "super"
-              ? "Finance or a Super Admin approves it before any money moves — you may approve it yourself (recorded as self-approved). The full amount is suggested; enter less for a partial refund."
-              : "Someone other than you (Finance or a Super Admin) approves it before any money moves. The full amount is suggested; enter less for a partial refund."
+            `The ticket goes to ${caseFile.approver.label} to approve before any money moves${session.role === "super" ? " — you may approve it yourself (recorded as self-approved)" : ""}. The full amount is suggested; enter less for a partial refund.`
           }
           label="Refund amount"
           unit="₹"
@@ -577,6 +584,7 @@ export default function SupportView({
           min={1}
           max={caseFile.refund.billedValue}
           confirm="Propose refund"
+          previewPath={`/admin/support/${encodeURIComponent(tkt.id)}/refund/preview`}
           onClose={() => setProposing(null)}
           onSubmit={propose}
         />

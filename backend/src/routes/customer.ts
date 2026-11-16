@@ -79,7 +79,8 @@ import { accountStatus, deactivateAccount, deleteAccount } from "../lib/account.
 import { verifyPassword } from "../lib/password.ts";
 import { clearSessionCookie } from "../lib/session.ts";
 import { consumeOtp, issueOtp } from "./auth.ts";
-import type { Astrologer, Consultation, Prisma } from "../generated/prisma/client.ts";
+import { DESCRIBE_SELECT, scrubSessionRefs, sessionInline, sessionLabel } from "../lib/session-label.ts";
+import type { Astrologer, Consultation, Prisma, Transaction } from "../generated/prisma/client.ts";
 
 // Everything here belongs to a signed-in customer.
 export const customerRouter = Router();
@@ -93,6 +94,8 @@ async function uniqueRef(prefix: string, exists: (ref: string) => Promise<boolea
     if (!(await exists(ref))) return ref;
   }
 }
+/** A session reference ("SES-48213"): internal — customers are shown a description of the consultation instead. */
+const SESSION_REF = /^SES-\d+$/;
 const txRef = (prefix: string) => uniqueRef(prefix, async (ref) => !!(await db.transaction.findUnique({ where: { ref } })));
 
 async function walletOf(userId: string) {
@@ -116,16 +119,42 @@ async function walletView(userId: string) {
     promo: wallet.promo,
     held: wallet.held,
     promoExpires: wallet.promoExpiresAt ? istDate(wallet.promoExpiresAt) : null,
-    transactions: transactions.map((t) => ({
+    transactions: await customerTransactions(userId, transactions, paymentOf),
+  };
+}
+
+/**
+ * The wallet lines as the customer sees them. A consultation line is keyed by the consultation's
+ * internal id and described in words — its "SES-…" reference never leaves the server (staff keep using
+ * it). Older ledger text that mentions a reference is scrubbed on the way out, not rewritten.
+ */
+async function customerTransactions(userId: string, transactions: Transaction[], paymentOf: Map<string, string>) {
+  const sessionRefs = transactions.filter((t) => SESSION_REF.test(t.ref)).map((t) => t.ref);
+  const sessions = sessionRefs.length
+    ? await db.consultation.findMany({ where: { ref: { in: sessionRefs }, customerId: userId }, select: { id: true, ref: true, ...DESCRIBE_SELECT } })
+    : [];
+  const byRef = new Map(sessions.map((c) => [c.ref, c]));
+  const types = await scrubSessionRefs(userId, transactions.flatMap((t) => [t.type, t.bucket]));
+  return transactions.map((t, i) => {
+    const c = byRef.get(t.ref);
+    const isSession = SESSION_REF.test(t.ref);
+    return {
+      /** Opaque, unique per line (React key and the mobile detail link). */
+      id: t.id,
       date: istDate(t.createdAt),
-      type: t.type,
-      ref: t.ref,
-      bucket: t.bucket,
+      type: types[i * 2]!,
+      /** The ledger reference (not shown for a consultation line: it is described in `label`). */
+      ref: isSession ? null : t.ref,
+      /** A consultation line in words: "Voice call with Pt. Raghav Joshi · 6 Nov, 3:42 PM · 12 min · ₹360". */
+      label: isSession ? (c ? sessionLabel(c) : "Consultation") : null,
+      /** The consultation's internal id (for "Raise a billing issue"), else null. */
+      consultationId: c?.id ?? null,
+      bucket: types[i * 2 + 1]!,
       amount: t.amount,
       /** The Razorpay order id of the recharge this line came from (its page: /wallet/payment/<id>), else null. */
       payment: paymentOf.get(t.ref) ?? null,
-    })),
-  };
+    };
+  });
 }
 
 customerRouter.get("/wallet", async (req, res) => {
@@ -270,13 +299,12 @@ const newRef = () => uniqueRef("SES", async (r) => !!(await db.consultation.find
 const newAlias = () => `${String.fromCharCode(65 + Math.floor(Math.random() * 26))}-${Math.floor(1000 + Math.random() * 8999)}`;
 
 /** 409 that also tells the website which consultation is still open, so it can take the customer back to it. */
-function inProgress(res: Response, open: { id: string; ref: string }) {
+function inProgress(res: Response, open: { id: string }) {
   res.status(409).json({
     error: {
       code: "consultation_in_progress",
       message: "You already have a consultation in progress. End or cancel it before starting another.",
       consultationId: open.id,
-      ref: open.ref,
     },
   });
 }
@@ -333,7 +361,6 @@ async function consultationView(c: Consultation & { astrologer: Astrologer }) {
   const by = acceptBy(c);
   return {
     id: c.id,
-    ref: c.ref,
     status: c.status.toLowerCase(),
     kind: c.kind === "INSTANT" ? "instant" : "standard",
     /** "live": a private consultation taken from a live room (it runs on that room's page). */
@@ -731,8 +758,12 @@ customerRouter.get("/me/makegood", async (req, res) => {
     ? await db.astrologer.findMany({ where: { id: { in: [...new Set(credits.map((c) => c.astrologerId))] } }, select: { id: true, slug: true, name: true } })
     : [];
   const open = await openConsultationOf(db, auth(req).user.id);
+  const sessions = credits.length
+    ? await db.consultation.findMany({ where: { ref: { in: credits.map((c) => c.sessionRef) }, customerId: auth(req).user.id }, select: { ref: true, ...DESCRIBE_SELECT } })
+    : [];
   res.json({
     credits: credits.map((c) => {
+      const s = sessions.find((x) => x.ref === c.sessionRef);
       const a = astrologers.find((x) => x.id === c.astrologerId);
       return {
         id: c.id,
@@ -740,7 +771,8 @@ customerRouter.get("/me/makegood", async (req, res) => {
         astrologerSlug: a?.slug ?? null,
         astrologerName: a?.name ?? "",
         minutes: c.minutes,
-        sessionRef: c.sessionRef,
+        /** The complaint's session in words ("your voice call with … on 6 Nov, 3:42 PM"); never its reference. */
+        session: s ? sessionInline(s) : "a recent consultation",
         /** "5 Nov 2026": the last day it can be booked. */
         validUntil: istDate(c.expiresAt),
         /** A consultation using it is open right now. */
@@ -948,8 +980,10 @@ customerRouter.get("/messages", async (req, res) => {
     }),
     teamConversations(auth(req).user.id, "customer"),
   ]);
+  // Team messages may mention a session by its reference: the customer is shown the consultation in words.
+  const supportTexts = await scrubSessionRefs(auth(req).user.id, support.flatMap((c) => [c.subject, c.preview]));
   res.json({
-    support,
+    support: support.map((c, i) => ({ ...c, subject: supportTexts[i * 2]!, preview: supportTexts[i * 2 + 1]! })),
     conversations: threads.map((t) => {
       const last = lastDelivered(t.messages);
       return {
@@ -1004,7 +1038,9 @@ customerRouter.get("/messages/search/astrologers", async (req, res) => {
 customerRouter.get("/messages/support/:id", async (req, res) => {
   const me = auth(req).user;
   const thread = await directThreadFor(String(req.params.id), me.id, true);
-  res.json({ conversation: teamThreadView(thread, me.id, "customer") });
+  const view = teamThreadView(thread, me.id, "customer");
+  const texts = await scrubSessionRefs(me.id, [view.subject, ...view.messages.map((m) => m.text)]);
+  res.json({ conversation: { ...view, subject: texts[0]!, messages: view.messages.map((m, i) => ({ ...m, text: texts[i + 1]! })) } });
 });
 
 customerRouter.post("/messages/support/:id", async (req, res) => {

@@ -29,7 +29,7 @@ export const LEGAL_SECTIONS = [
     id: "recording",
     title: "Call recording",
     highlight: false,
-    body: "[Placeholder — wording pending AstroRize's approval] Voice and video consultations are recorded as audio only, after you accept the notice shown before the call; only AstroRize can access the recordings.",
+    body: "[Placeholder — wording pending AstroRize's approval] Voice and video consultations are recorded as audio only, after you accept the notice shown before the call; AstroRize staff and the customer can access the recordings (the customer can play their own recording back inside the app only; it can't be downloaded or shared). Chat consultations are not recorded as audio: you accept a notice before the chat starts that it is saved as text, which AstroRize staff and the customer can read (the customer inside the app only; it can't be downloaded or shared).",
   },
   {
     id: "discount",
