@@ -8,6 +8,7 @@ interface FreeCalls {
   enabled: number;
   weeklyMinutes: number;
   lengthMinutes: number;
+  extraLengths: number[];
   chooseLength: number;
   oneTimeEnabled: number;
   oneTimeMinutes: number;
@@ -17,6 +18,7 @@ interface FreeCalls {
 }
 
 const box = "rounded-2xl border border-line bg-paper p-4";
+const txt = "h-9 w-44 rounded-lg border border-line bg-white px-2 text-center text-sm font-bold text-ink disabled:bg-stone-100 disabled:text-stone-400";
 const num = "h-9 w-24 rounded-lg border border-line bg-white px-2 text-center text-sm font-bold text-ink";
 
 function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
@@ -53,6 +55,7 @@ export default function FreeCallsConfigCard() {
   const [saved, setSaved] = useState<FreeCalls | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [extrasText, setExtrasText] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -62,6 +65,7 @@ export default function FreeCallsConfigCard() {
         if (cancelled) return;
         setV(d);
         setSaved(d);
+        setExtrasText(d.extraLengths.join(", "));
       })
       .catch((e) => !cancelled && setError(e instanceof ApiError ? e.message : "Couldn't load the free-call settings."));
     return () => {
@@ -75,17 +79,21 @@ export default function FreeCallsConfigCard() {
     setV({ ...v, [k]: Number.isFinite(val) ? Math.round(val) : 0 });
     setError(null);
   };
-  const dirty = JSON.stringify(v) !== JSON.stringify(saved);
+  const parseExtras = (t: string) => t.split(/[,\s]+/).filter(Boolean).map(Number);
+  const withExtras = { ...v, extraLengths: parseExtras(extrasText) };
+  const dirty = JSON.stringify(withExtras) !== JSON.stringify(saved);
 
   const save = async () => {
     setSaving(true);
     setError(null);
     try {
-      const res = await api.put<FreeCalls & { ok: boolean }>("/admin/config/free-calls", v);
+      if (withExtras.extraLengths.some((n) => !Number.isInteger(n))) throw new ApiError(400, "bad_request", "Write the extra lengths as whole numbers separated by commas, like 20, 30.", {});
+      const res = await api.put<FreeCalls & { ok: boolean }>("/admin/config/free-calls", withExtras);
       const { ok: _ok, ...clean } = res;
       void _ok;
       setV(clean);
       setSaved(clean);
+      setExtrasText(clean.extraLengths.join(", "));
       say("Free-call settings saved");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't save the free-call settings.");
@@ -114,14 +122,16 @@ export default function FreeCallsConfigCard() {
             <input type="number" min={0} max={600} value={v.weeklyMinutes} onChange={(e) => set("weeklyMinutes", Number(e.target.value))} className={num} />
             <span className="text-xs font-semibold text-stone-500">min</span>
           </Field>
-          <Field title="Length of one free call" hint="10 or 20 minutes — the whole length is taken from the weekly pool once the conversation starts.">
-            <select value={v.lengthMinutes} onChange={(e) => set("lengthMinutes", Number(e.target.value))} className={num}>
-              <option value={10}>10 min</option>
-              <option value={20}>20 min</option>
-            </select>
+          <Field title="Length of one free call" hint="Any whole number of minutes, 1–120 (not 5 or the welcome call's length). The whole length is taken from the weekly pool once the conversation starts.">
+            <input type="number" min={1} max={120} value={v.lengthMinutes} onChange={(e) => set("lengthMinutes", Number(e.target.value))} className={num} />
+            <span className="text-xs font-semibold text-stone-500">min</span>
           </Field>
-          <Field title="Let customers choose 10 or 20" hint="Off: everyone gets the single length above. On: customers pick between 10 and 20 minutes.">
+          <Field title="Let customers choose the length" hint="Off: everyone gets the length above. On: customers pick from that length and the extra lengths below.">
             <Switch on={v.chooseLength === 1} onChange={(x) => set("chooseLength", x ? 1 : 0)} label="Customers choose the length" />
+          </Field>
+          <Field title="Extra lengths customers can choose" hint="Up to 5, separated by commas, for example 20, 30. Used only while choosing is on.">
+            <input type="text" inputMode="numeric" value={extrasText} placeholder="e.g. 20, 30" disabled={v.chooseLength !== 1} onChange={(e) => { setExtrasText(e.target.value); setError(null); }} className={txt} />
+            <span className="text-xs font-semibold text-stone-500">min</span>
           </Field>
         </div>
       </section>
@@ -133,7 +143,7 @@ export default function FreeCallsConfigCard() {
           <Field title="1-time welcome call is on" hint="Off hides it everywhere; customers who haven't used it keep it for when it is back on.">
             <Switch on={v.oneTimeEnabled === 1} onChange={(x) => set("oneTimeEnabled", x ? 1 : 0)} label="1-time welcome call on" />
           </Field>
-          <Field title="Length of the welcome call" hint="1–30 minutes (not 10 or 20, which are the weekly lengths). Customers who already used it are not affected.">
+          <Field title="Length of the welcome call" hint="1–30 minutes, different from every weekly length above. Customers who already used it are not affected.">
             <input type="number" min={1} max={30} value={v.oneTimeMinutes} onChange={(e) => set("oneTimeMinutes", Number(e.target.value))} className={num} />
             <span className="text-xs font-semibold text-stone-500">min</span>
           </Field>

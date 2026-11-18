@@ -50,8 +50,6 @@ function LegalAndCompany() {
         © 2026 {COMPANY.legalName} · CIN {COMPANY.cin}
         <br />
         {COMPANY.tagline}
-        <br />
-        {COMPANY.policyVersions}
       </p>
     </div>
   );

@@ -142,6 +142,8 @@ export function AppVerifiedTick({ size = 14 }: { size?: number }) {
 function tileKind(a: Astrologer, mode: "chat" | "voice" | "video" | "instant"): TileKind {
   // Instant Call precedence: while the astrologer takes Instant Calls only, the other modes are greyed out.
   if (a.instantOnly && mode !== "instant") return "off";
+  // Instant Calls exist only while the astrologer has switched Instant mode on.
+  if (mode === "instant" && !a.instantOnly) return "off";
   if (a.availability === "busy") return mode === "instant" ? "off" : "busy";
   if (a.availability !== "on") return "off";
   return mode === "instant" ? "instant" : "on";

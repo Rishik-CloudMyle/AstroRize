@@ -308,7 +308,7 @@ export default function LoginForm({
           Terms of Use
         </Link>{" "}
         and{" "}
-        <Link href="/terms" onClick={onLeave}>
+        <Link href="/privacy" onClick={onLeave}>
           Privacy Policy
         </Link>
         .

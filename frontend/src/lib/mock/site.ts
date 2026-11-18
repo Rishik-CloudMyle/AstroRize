@@ -5,15 +5,14 @@
 export const COMPANY = {
   legalName: "AstroRize Private Limited",
   cin: "U74999KA2026PTC000000",
-  address: ["AstroRize Private Limited", "Bengaluru, Karnataka 560001"],
+  address: ["AstroRize Private Limited", "D-E-407, MPR Urban City, Patiganpur, Patencheru, Hyderabad, 502319"],
   tagline: "Guidance and entertainment — not medical, legal or financial advice.",
-  policyVersions: "Terms v3.1 · Privacy v2.4 · Refund & Cancellation v1.2",
 };
 
 export const GRIEVANCE_OFFICER = {
   name: "Kunal Prasad",
-  email: "grievance@astrorize.com",
-  timeline: "Acknowledged in 24 h, resolved in 15 days",
+  email: "support@astrorize.com",
+  timeline: "Acknowledged within 48 hours; resolved within 30 days or as required by law",
 };
 
 export const NAV_LINKS = [
@@ -41,7 +40,7 @@ export const FOOTER_COLUMNS = [
   {
     title: "Company",
     links: [
-      { label: "About AstroRize", href: "/terms#scope" },
+      { label: "About AstroRize", href: "/terms#general-description" },
       { label: "Careers", href: "/terms" },
       { label: "Press", href: "/terms" },
     ],
@@ -50,9 +49,11 @@ export const FOOTER_COLUMNS = [
     title: "T&C",
     links: [
       { label: "Terms & Conditions", href: "/terms" },
-      { label: "Privacy Policy", href: "/terms" },
-      { label: "Refund & Cancellation", href: "/terms#money" },
-      { label: "Grievance Officer", href: "/terms#grievance" },
+      { label: "Privacy Policy", href: "/privacy" },
+      { label: "Refund & Cancellation", href: "/terms#refund-and-cancellation-policy" },
+      { label: "Data Deletion Policy", href: "/data-deletion-policy" },
+      { label: "Delete Account", href: "/delete-account" },
+      { label: "Grievance Officer", href: "/terms#grievance-redressal" },
     ],
   },
 ];

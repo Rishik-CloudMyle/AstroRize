@@ -118,10 +118,10 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
                 <span className="sr-only">{classicState === "on" ? "available" : classicState === "busy" ? "busy" : "unavailable"}</span>
               </li>
             ))}
-            <li className={`inline-flex items-center gap-1 ${st === "on" ? "text-app-info" : "text-app-ink-3"}`}>
+            <li className={`inline-flex items-center gap-1 ${st === "on" && a.instantOnly ? "text-app-info" : "text-app-ink-3"}`}>
               Instant
-              <i aria-hidden="true" className={`size-1.5 rounded-full ${st === "on" ? "bg-app-info" : MODE_DOT[modeState]}`} />
-              <span className="sr-only">{st === "on" ? "available" : "unavailable"}</span>
+              <i aria-hidden="true" className={`size-1.5 rounded-full ${st === "on" && a.instantOnly ? "bg-app-info" : a.instantOnly ? MODE_DOT[modeState] : "bg-[#d6d3d1]"}`} />
+              <span className="sr-only">{st === "on" && a.instantOnly ? "available" : "unavailable"}</span>
             </li>
           </ul>
         </div>

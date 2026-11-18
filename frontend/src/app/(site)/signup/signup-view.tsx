@@ -130,7 +130,7 @@ export default function SignupView({ initialRole, next }: { initialRole: SignupR
           <p className="mt-1.5 mb-0 text-[11.5px] text-stone-500">Look around first — no account needed to browse.</p>
           <p className="mt-3 mb-0 text-[12px] text-stone-500">AstroRize staff: ask your Super Admin for an account.</p>
           <p className="mt-3 mb-0 text-xs leading-normal text-stone-500">
-            By continuing you agree to our <Link href="/terms">Terms of Use</Link> and <Link href="/terms">Privacy Policy</Link>.
+            By continuing you agree to our <Link href="/terms">Terms of Use</Link> and <Link href="/privacy">Privacy Policy</Link>.
           </p>
         </div>
       )}

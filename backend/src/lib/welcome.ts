@@ -3,7 +3,7 @@ import { db } from "../db.ts";
 import type { Astrologer, Prisma } from "../generated/prisma/client.ts";
 import { istDate, istDateKey } from "./format.ts";
 import { effectivePresence } from "./presence.ts";
-import { configNumber } from "./settings.ts";
+import { configNumber, getSetting } from "./settings.ts";
 
 // The welcome campaign (spec AR-WEL): every customer with a verified mobile number gets a weekly
 // pool of free minutes (Config welcome.weekly_free_minutes; weeks run Monday to Sunday, IST). For
@@ -24,13 +24,22 @@ import { configNumber } from "./settings.ts";
  */
 export const WELCOME_MODES = ["CHAT", "VOICE"] as const;
 
-/** Minutes of the 1-time welcome call (Config welcome.joining_bonus_minutes). Never 10 or 20: those are the weekly lengths. */
+/** Every weekly free-call length the admin has set (the default one first, then the extras customers may choose), ignoring the choose switch. */
+export async function configuredLengths(): Promise<number[]> {
+  const [base, extras] = await Promise.all([configNumber("welcome.free_call_minutes", 10), getSetting<unknown>("welcome.free_call_extra_lengths", [])]);
+  const ok = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= 120;
+  const first = ok(base) ? base : 10;
+  const more = Array.isArray(extras) ? extras.filter(ok) : [];
+  return [first, ...[...new Set(more)].filter((n) => n !== first).sort((a, b) => a - b)];
+}
+
+/** Minutes of the 1-time welcome call (Config welcome.joining_bonus_minutes). It is never one of the weekly lengths (the admin page refuses that). */
 export async function oneTimeMinutes(client: Tx | typeof db = db): Promise<number> {
   // Read through the caller's own connection: inside a transaction a second connection would wait on it.
   const row = await client.configKey.findUnique({ where: { key: "welcome.joining_bonus_minutes" }, select: { value: true } });
   const raw = row ? Number(row.value) : NaN;
   const n = Math.floor(Number.isFinite(raw) ? raw : 5);
-  return n >= 1 && n <= 30 && n !== 10 && n !== 20 ? n : 5;
+  return n >= 1 && n <= 30 ? n : 5;
 }
 
 /** The periods an astrologer's free-call capacity counts over (IST day, Mon–Sun week). */
@@ -54,8 +63,10 @@ export async function welcomePolicy() {
   ]);
   const oneMin = await oneTimeMinutes();
   // One length, set by the admin (10 or 20 min): customers do not choose it.
-  // The admin may let customers pick between 10 and 20 min (welcome.choose_length); otherwise it is one length.
-  const weeklyLengths = choose === 1 ? [10, 20] : [lenCfg === 20 ? 20 : 10];
+  // One length set by the admin; with welcome.choose_length on, customers pick from the admin's list of lengths.
+  void lenCfg;
+  const all = await configuredLengths();
+  const weeklyLengths = choose === 1 ? all : [all[0]!];
   return {
     enabled: enabled === 1,
     /** Free minutes each customer (mobile number) gets per Mon–Sun week (IST). */

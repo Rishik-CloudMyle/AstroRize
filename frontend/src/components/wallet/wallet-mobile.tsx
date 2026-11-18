@@ -621,8 +621,9 @@ function Settings({
         <SectionHeader title="Legal" variant="link" className="mt-[22px]" />
         <ListRows>
           <ListRow href="/terms" title="Terms & Conditions" />
-          <ListRow href="/terms" title="Privacy Policy" />
-          <ListRow href="/terms#money" title="Refund & Cancellation" />
+          <ListRow href="/privacy" title="Privacy Policy" />
+          <ListRow href="/terms#refund-and-cancellation-policy" title="Refund & Cancellation" />
+          <ListRow href="/data-deletion-policy" title="Data Deletion Policy" />
         </ListRows>
 
         <LogoutButton className={`${appButtonClass({ variant: "secondary", block: true })} mt-[22px]`} />

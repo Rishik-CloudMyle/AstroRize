@@ -4,8 +4,9 @@ import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { istDate } from "../../lib/format.ts";
-import { configNumber, discountLimits } from "../../lib/settings.ts";
+import { configNumber, discountLimits, putSetting } from "../../lib/settings.ts";
 import { getPackages, packageProblem, savePackages } from "../../lib/fixed-packages.ts";
+import { configuredLengths } from "../../lib/welcome.ts";
 import { actorName, requireCapability, requirePage, secondPerson } from "../../lib/rbac.ts";
 
 // Config console: every operational setting, changed by draft → second approver → new version.
@@ -86,14 +87,19 @@ async function keyView(key: string) {
 }
 
 /** Settings replaced by newer ones: kept in the database for history, no longer listed or used. */
-const RETIRED_KEYS = ["welcome.free_call_length_1", "welcome.free_call_length_2", "welcome.free_call_length_3", "marketing.campaign.max_discount_pct", ...[5, 10, 15, 30, 45, 60].map((m) => `fixed_session.discount_${m}m`)];
+const RETIRED_KEYS = ["welcome.free_call_length_1", "welcome.free_call_length_2", "welcome.free_call_length_3", "marketing.campaign.max_discount_pct", ...[5, 10, 15, 30, 45, 60].map((m) => `fixed_session.discount_${m}m`), "welcome.free_call_minutes"];
 
 /** Rules that tie settings together, so every domain follows the same limits. */
 async function keyRules(key: string, n: number) {
-  if (key === "welcome.joining_bonus_minutes" && (!Number.isInteger(n) || n < 1 || n > 30 || n === 10 || n === 20)) {
-    throw badRequest("The 1-time welcome call can be 1–30 whole minutes, but not 10 or 20 (those are the weekly free-call lengths).");
+  if (key === "welcome.joining_bonus_minutes") {
+    if (!Number.isInteger(n) || n < 1 || n > 30) throw badRequest("The 1-time welcome call can be 1–30 whole minutes.");
+    if ((await configuredLengths()).includes(n)) throw badRequest(`${n} minutes is already a weekly free-call length — the 1-time welcome call must be a different length.`);
   }
-  if (key === "welcome.free_call_minutes" && n !== 10 && n !== 20) throw badRequest("A free call can be 10 or 20 minutes — nothing else.");
+  if (key === "welcome.free_call_minutes") {
+    if (!Number.isInteger(n) || n < 1 || n > 120) throw badRequest("A free call can be 1–120 whole minutes.");
+    if (n === 5) throw badRequest("5 minutes is kept for earlier welcome-call records — choose another length.");
+    if (n === (await configNumber("welcome.joining_bonus_minutes", 5))) throw badRequest("That is the length of the 1-time welcome call — choose a different one.");
+  }
   if (key.startsWith("fixed_session.discount_") || key.startsWith("offers.")) {
     const l = await discountLimits();
     if (key.startsWith("fixed_session.discount_") && (n < l.min || n > l.max)) {
@@ -299,7 +305,7 @@ configRouter.get("/config/free-calls", async (req, res) => {
   const entries = await Promise.all(
     (Object.keys(FREE_KEYS) as (keyof typeof FREE_KEYS)[]).map(async (k) => [k, await configNumber(FREE_KEYS[k], FREE_DEFAULTS[k])] as const),
   );
-  res.json(Object.fromEntries(entries));
+  res.json({ ...Object.fromEntries(entries), extraLengths: (await configuredLengths()).slice(1) });
 });
 
 /** Admin: set every free-call rule at once. Each value is checked; nothing is saved unless all are valid. */
@@ -311,7 +317,8 @@ configRouter.put("/config/free-calls", async (req, res) => {
     .object({
       enabled: int("on or off", 0, 1),
       weeklyMinutes: int("the weekly free minutes", 0, 600),
-      lengthMinutes: int("the free-call length", 10, 20),
+      lengthMinutes: int("the free-call length", 1, 120),
+      extraLengths: z.array(int("a free-call length", 1, 120)).max(5, "At most 5 extra lengths."),
       chooseLength: int("on or off for choosing the length", 0, 1),
       oneTimeEnabled: int("on or off for the 1-time call", 0, 1),
       oneTimeMinutes: int("the 1-time call length", 1, 30),
@@ -320,18 +327,26 @@ configRouter.put("/config/free-calls", async (req, res) => {
       reminderSeconds: int("the reminder time", 30, 300),
     })
     .parse(req.body);
-  await keyRules(FREE_KEYS.lengthMinutes, v.lengthMinutes);
-  await keyRules(FREE_KEYS.oneTimeMinutes, v.oneTimeMinutes);
-  if (v.weeklyMinutes !== 0 && v.weeklyMinutes < v.lengthMinutes) throw badRequest(`Weekly free minutes (${v.weeklyMinutes}) must cover at least one free call of ${v.lengthMinutes} minutes — or be 0 to stop free calls.`);
-  if (v.chooseLength === 1 && v.weeklyMinutes !== 0 && v.weeklyMinutes < 20) throw badRequest("To let customers choose between 10 and 20 minutes, weekly free minutes must be at least 20.");
+  const extras = [...new Set(v.extraLengths)].filter((n) => n !== v.lengthMinutes).sort((a, b) => a - b);
+  const lengths = [v.lengthMinutes, ...extras];
+  if (lengths.includes(5)) throw badRequest("5 minutes is kept for earlier welcome-call records — choose another length.");
+  if (lengths.includes(v.oneTimeMinutes)) throw badRequest(`${v.oneTimeMinutes} minutes is both a weekly free-call length and the 1-time welcome call — make them different.`);
+  if (v.oneTimeMinutes < 1 || v.oneTimeMinutes > 30) throw badRequest("The 1-time welcome call can be 1–30 whole minutes.");
+  if (v.weeklyMinutes !== 0 && v.weeklyMinutes < Math.min(...lengths)) throw badRequest(`Weekly free minutes (${v.weeklyMinutes}) must cover at least one free call of ${Math.min(...lengths)} minutes — or be 0 to stop free calls.`);
+  if (v.weeklyMinutes !== 0 && v.weeklyMinutes < v.lengthMinutes) throw badRequest(`Weekly free minutes (${v.weeklyMinutes}) must cover the default free call of ${v.lengthMinutes} minutes — or be 0 to stop free calls.`);
   const before = await getFreeCalls();
+  const beforeExtras = (await configuredLengths()).slice(1);
   for (const k of Object.keys(FREE_KEYS) as (keyof typeof FREE_KEYS)[]) {
     if (before[k] === v[k]) continue;
     await db.configKey.update({ where: { key: FREE_KEYS[k] }, data: { value: String(v[k]), version: { increment: 1 }, updatedAt: new Date() } });
   }
   const changed = (Object.keys(FREE_KEYS) as (keyof typeof FREE_KEYS)[]).filter((k) => before[k] !== v[k]).map((k) => `${FREE_KEYS[k]} ${before[k]} → ${v[k]}`);
+  if (JSON.stringify(beforeExtras) !== JSON.stringify(extras)) {
+    await putSetting("welcome.free_call_extra_lengths", extras);
+    changed.push(`extra lengths [${beforeExtras.join(", ")}] → [${extras.join(", ")}]`);
+  }
   if (changed.length) await audit(admin, "config.free_calls.update", "free_calls", changed.join(" · "));
-  res.json({ ok: true, ...v });
+  res.json({ ok: true, ...v, extraLengths: extras });
 });
 
 async function getFreeCalls() {

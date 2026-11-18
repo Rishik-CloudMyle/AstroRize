@@ -13,6 +13,7 @@ import { ConsultFrozenNote, FROZEN_HINT } from "../consult/consult-lock";
 import { FreeCallBadge } from "../consult/free-call";
 import { multiplierLabel, type OfferedChoice } from "../consult/consult-sheet";
 import FixedSessionSheet from "../consult/fixed-session-sheet";
+import { minBalanceMins } from "@/lib/consult-limits";
 import MessageButton from "../messages/message-button";
 import SendGiftButton from "./send-gift";
 import { DiscountBadge, WasPrice, priceNote } from "./parts";
@@ -138,7 +139,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
           <ul aria-label="Ways to consult" className="flex flex-col gap-1.5">
             {OPTIONS.map((o) => {
               const instant = o.key === "instant";
-              const off = blocked || (!!a.instantOnly && !instant);
+              const off = blocked || (!!a.instantOnly && !instant) || (instant && !a.instantOnly);
               const rate = o.key === "instant" ? a.instant : rateFor(a.price, o.key, a.chatPrice, a.videoPremium);
               // Could be free (the customer picks free or paid in the sheet); the paid rate is shown either way.
               // Free minutes cover the modes the API allows (Chat and Voice); a free replacement call is Chat, Voice or Video.
@@ -149,7 +150,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
                   <button
                     type="button"
                     disabled={off}
-                    title={a.instantOnly && !instant ? "Instant Calls only right now" : disabledTitle}
+                    title={a.instantOnly && !instant ? "Instant Calls only right now" : instant && !a.instantOnly ? `${a.name} hasn't turned on Instant Calls` : disabledTitle}
                     onClick={() => choose(o.key)}
                     className={`flex min-h-[48px] w-full items-center gap-2.5 rounded-xl border px-3 py-2 text-left disabled:cursor-not-allowed ${
                       off
@@ -163,7 +164,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
                     <span className="min-w-0 flex-1">
                       <b className={`block text-[13.5px] font-bold ${off ? "text-stone-500" : instant ? "text-blue-800" : "text-ink"}`}>{o.title}</b>
                       <span className={`block text-[11.5px] leading-snug ${unavailable ? "font-semibold text-rose-700" : "text-stone-500"}`}>
-                        {(a.instantOnly && !instant ? "Off — Instant Calls only right now" : null) ?? unavailable ??
+                        {(a.instantOnly && !instant ? "Off — Instant Calls only right now" : instant && !a.instantOnly ? "Off — not taking Instant Calls" : null) ?? unavailable ??
                           (instant
                             ? multiplierLabel(a)
                             : free
@@ -213,7 +214,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
           <SendGiftButton astrologer={a} variant="desktop" />
         </div>
         <div className="mt-3.5 border-t border-[#f3e9d8] pt-3 text-[11.5px] leading-normal text-stone-500">
-          Eligibility needs 5 minutes of balance{freeOption ? ` (not for ${makeGood ? "your free replacement call" : "a call on your free minutes"})` : ""}. Nothing is billed until you are both
+          Eligibility needs {minBalanceMins()} {minBalanceMins() === 1 ? "minute" : "minutes"} of balance{freeOption ? ` (not for ${makeGood ? "your free replacement call" : "a call on your free minutes"})` : ""}. Nothing is billed until you are both
           connected — failed attempts cost ₹0.
         </div>
       </div>

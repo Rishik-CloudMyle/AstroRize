@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef } from "react";
 import type { Astrologer, ConsultMode, OfferedMode, WelcomeBenefit } from "@/lib/types";
 import { rateFor, rupee } from "@/lib/format";
+import { minBalanceMins } from "@/lib/consult-limits";
 import { bonusNote, freeLength, freeLengthLong, resetWeekday } from "@/lib/free-calls";
 import { discountedRate, type ConsultDiscount } from "@/lib/offers";
 import type { MakeGoodCredit } from "@/lib/makegood";
@@ -132,7 +133,7 @@ export default function ConsultSheet({
   const pctFor = (c: ConsultChoice | null) => (discount && c && c !== "instant" && !isFree(c) ? discount.pct : 0);
   const selected = state === "on" ? choice : null;
   const rate = selected ? quotedRateFor(a, selected, pctFor(selected)) : 0;
-  const needed = rate * 1;
+  const needed = rate * minBalanceMins();
   const free = isFree(selected);
   // Where it could be free, the customer must choose free or paid first — nothing is assumed.
   const payMissing = canBeFree(selected) && pay === null;
@@ -242,7 +243,9 @@ export default function ConsultSheet({
                 // Free minutes don't cover this one (Video, Instant Call): pick "Paid call" to use it.
                 const notFree = payFree && !canBeFree(row.key);
                 const lockedOut = !!a.instantOnly && !instant;
-                const disabled = state !== "on" || notFree || lockedOut;
+                // Instant Calls exist only while the astrologer has switched Instant mode on.
+                const instantOff = instant && !a.instantOnly;
+                const disabled = state !== "on" || notFree || lockedOut || instantOff;
                 return (
                   <button
                     key={row.key}
@@ -279,6 +282,8 @@ export default function ConsultSheet({
                       <span className={`mt-0.5 block text-[12.5px] leading-snug ${notFree ? "text-stone-500" : disabled ? "font-semibold text-rose-700" : "text-stone-500"}`}>
                         {lockedOut
                           ? "Off — this astrologer takes Instant Calls only right now"
+                          : instantOff
+                          ? `Off — ${a.name} hasn't turned on Instant Calls`
                           : notFree
                           ? `Not with free minutes — choose “Paid call” for ${row.title}`
                           : disabled
@@ -487,7 +492,7 @@ function ChoiceDetail({
   onClose: () => void;
 }) {
   const rate = quotedRateFor(a, choice, discount?.pct ?? 0);
-  const needed = rate * 1;
+  const needed = rate * minBalanceMins();
   if (free && welcome) {
     if (!freeMinutes) return null;
     const isOneTime = freeMinutes === (welcome.oneTime?.total ?? 5);
@@ -545,11 +550,11 @@ function ChoiceDetail({
       )}
       {eligible ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] leading-[1.55] text-emerald-800">
-          ✓ Your balance is {rupee(balance)}. You need {rupee(needed)} for one minute at {rupee(rate)}/min — you are eligible.
+          ✓ Your balance is {rupee(balance)}. You need {rupee(needed)} for {minBalanceMins()} {minBalanceMins() === 1 ? "minute" : "minutes"} at {rupee(rate)}/min — you are eligible.
         </div>
       ) : (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] leading-[1.55] text-rose-900">
-          Your balance is {rupee(balance)}. You need {rupee(needed)} for one minute at {rupee(rate)}/min.{" "}
+          Your balance is {rupee(balance)}. You need {rupee(needed)} for {minBalanceMins()} {minBalanceMins() === 1 ? "minute" : "minutes"} at {rupee(rate)}/min.{" "}
           <Link href="/wallet#add-money" onClick={onClose} className="font-bold underline">
             Add money
           </Link>{" "}
@@ -675,7 +680,7 @@ function PayChooser({
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10.5px] font-extrabold text-emerald-800 uppercase">
                   Weekly Free Minutes
                 </span>
-                <b className="mt-1 block text-[13.5px] text-ink">{welcome.lengths[0]?.minutes ?? 10} Min Free Call</b>
+                <b className="mt-1 block text-[13.5px] text-ink">{welcome.lengths.length > 1 ? "Free Call" : `${welcome.lengths[0]?.minutes ?? 10} Min Free Call`}</b>
                 <span className="text-[11.5px] text-stone-500">
                   {welcome.weekly.remaining} of {welcome.weekly.total} min left this week · resets {resetWeekday(welcome.weekly.resetsAt)}
                 </span>

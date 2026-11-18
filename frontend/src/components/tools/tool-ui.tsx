@@ -271,7 +271,7 @@ export function ResultCard({
         <span className="text-[15px] leading-[1.3]">ⓘ</span>
         <div className="text-[13px] leading-normal text-blue-800">
           <b>AI-generated — for guidance; not professional advice.</b> Read the{" "}
-          <Link href="/terms#ai" className="text-blue-900 underline">
+          <Link href="/terms#artificial-intelligence-assisted-features" className="text-blue-900 underline">
             full disclaimer
           </Link>
           .

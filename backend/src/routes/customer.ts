@@ -706,6 +706,10 @@ customerRouter.post("/instant-calls", async (req, res) => {
   // An Instant Call is a video call: its audio is recorded once the customer accepts the notice.
   const customerRecordingConsentAt = customerConsent({ mode: "VOICE", kind: "INSTANT" }, recordingConsent);
   const astrologer = await availableAstrologer(astrologerId);
+  // Instant Calls exist only while the astrologer has switched Instant mode on (portal → Instant mode).
+  if (!(await getSetting<string[]>("instant_mode.astros", [])).includes(astrologerId)) {
+    throw badRequest(`${astrologer.name} hasn't turned on Instant Calls. Please choose Chat, Voice or Video.`);
+  }
   const rate = instantRate(astrologer.price, astrologer.instantMultiplier);
   if (quotedRate !== undefined && quotedRate !== rate) return rateChanged(res, quotedRate, rate);
   const needed = rate * eligibilityMinutes();

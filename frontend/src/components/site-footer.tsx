@@ -38,7 +38,6 @@ export default function SiteFooter() {
           <span>
             © 2026 {COMPANY.legalName} · CIN {COMPANY.cin}
           </span>
-          <span>{COMPANY.policyVersions}</span>
         </div>
       </div>
     </footer>

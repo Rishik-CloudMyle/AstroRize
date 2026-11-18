@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Astrologer, ConsultMode, OfferedMode, Settlement } from "@/lib/types";
 import { ApiError, api } from "@/lib/api/client";
 import { clock, rateFor, rupee, skillLine } from "@/lib/format";
+import { minBalanceMins } from "@/lib/consult-limits";
 import { consultationActions, rememberMinimised, type ConsultationView } from "@/lib/consultation-store";
 import { sessionActions, totalBalance, usableWelcome, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
@@ -357,7 +358,7 @@ export default function ConsultJourney({
     if (!fixedSession) {
       if (payMissing) return;
       if (pay === "free" && freeHere && choice !== "instant" && !useFree && !useMakeGoodCall) return;
-      if (!useFree && !useMakeGoodCall && balance < quoted * 5) return;
+      if (!useFree && !useMakeGoodCall && balance < quoted * minBalanceMins()) return;
       if (useFree && !freeLength) return;
       if (needsConsentChoice(choice) && !recordingConsent) return;
     }
@@ -869,7 +870,7 @@ export default function ConsultJourney({
             </button>
             <p className="mt-3.5 text-center text-xs leading-normal text-stone-500">
               By continuing you agree to our <Link href="/terms" onClick={onClose}>Terms of Use</Link> and{" "}
-              <Link href="/terms" onClick={onClose}>Privacy Policy</Link>.
+              <Link href="/privacy" onClick={onClose}>Privacy Policy</Link>.
             </p>
           </div>
         )}
