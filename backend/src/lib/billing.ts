@@ -1,13 +1,38 @@
 // Money rules for consultations, kept in one place so the website, the portals
 // and the mobile app all charge exactly the same way.
 
-/** Video costs this much more per minute than chat or voice (₹). */
-export const VIDEO_PREMIUM = 12;
-/** A customer needs this many minutes of balance before a consultation can start. */
-/** Minimum minutes of balance required to start a paid consultation (client decision: 1 min). */
-export const ELIGIBILITY_MINUTES = 1;
-/** Longest single consultation, in seconds. */
-export const MAX_SESSION_SECONDS = 15 * 60;
+import { configNumber } from "./settings.ts";
+
+// Commercial limits the admin sets in the Config console (read every few seconds, so a change
+// applies without a restart). Defaults are the launch values.
+const live = { videoPremium: 12, eligibilityMinutes: 1, maxSessionSeconds: 15 * 60, incomingWindowSecs: 180 };
+/** Video costs this much more per minute than chat or voice (₹). Config consult.video_premium. */
+export const videoPremium = () => live.videoPremium;
+/** Minutes of balance a customer needs before a paid consultation can start. Config consult.min_balance_minutes. */
+export const eligibilityMinutes = () => live.eligibilityMinutes;
+/** Longest single consultation, in seconds. Config consult.max_session_minutes. */
+export const maxSessionSeconds = () => live.maxSessionSeconds;
+/** How long an astrologer has to accept a request, in seconds. Config consult.accept_window_seconds. */
+export const incomingWindowSecs = () => live.incomingWindowSecs;
+
+export async function refreshBillingConfig() {
+  try {
+    const [v, e, m, w] = await Promise.all([
+      configNumber("consult.video_premium", 12),
+      configNumber("consult.min_balance_minutes", 1),
+      configNumber("consult.max_session_minutes", 15),
+      configNumber("consult.accept_window_seconds", 180),
+    ]);
+    live.videoPremium = v;
+    live.eligibilityMinutes = e;
+    live.maxSessionSeconds = Math.round(m * 60);
+    live.incomingWindowSecs = w;
+  } catch {
+    // Keep the last known values (database briefly unavailable).
+  }
+}
+void refreshBillingConfig();
+setInterval(() => void refreshBillingConfig(), 10_000).unref();
 /** GST charged on top of a recharge. */
 export const GST_RATE = 0.18;
 
@@ -23,7 +48,7 @@ export type Mode = "CHAT" | "VOICE" | "VIDEO";
  */
 export function rateFor(price: number, mode: Mode, chatPrice?: number | null): number {
   if (mode === "CHAT" && chatPrice) return chatPrice;
-  return price + (mode === "VIDEO" ? VIDEO_PREMIUM : 0);
+  return price + (mode === "VIDEO" ? videoPremium() : 0);
 }
 
 /** The astrologer's chat rate: their own chat price, or their call price when they haven't set one. */

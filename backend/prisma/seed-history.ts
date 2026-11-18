@@ -20,7 +20,7 @@
 
 import { db } from "../src/db.ts";
 import type { Prisma } from "../src/generated/prisma/client.ts";
-import { GST_RATE, VIDEO_PREMIUM, instantRate } from "../src/lib/billing.ts";
+import { GST_RATE, videoPremium, instantRate } from "../src/lib/billing.ts";
 import { istDateKey } from "../src/lib/format.ts";
 
 // About two months, so month-on-month figures and every recent payout cycle have real activity.
@@ -167,7 +167,7 @@ export async function seedHistory(): Promise<void> {
       const roll = rand();
       const instant = roll < 0.08;
       const mode = instant ? "VOICE" : roll < 0.55 ? "CHAT" : roll < 0.87 ? "VOICE" : "VIDEO";
-      const rate = instant ? instantRate(astro.price, astro.instantMultiplier) : astro.price + (mode === "VIDEO" ? VIDEO_PREMIUM : 0);
+      const rate = instant ? instantRate(astro.price, astro.instantMultiplier) : astro.price + (mode === "VIDEO" ? videoPremium() : 0);
       const minutes = Math.ceil(seconds / 60);
       const total = minutes * rate;
 

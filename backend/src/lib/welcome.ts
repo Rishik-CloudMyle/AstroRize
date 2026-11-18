@@ -29,28 +29,20 @@ export type CapacityPeriod = "DAY" | "WEEK";
 /** IST calendar periods: the customer's free minutes count per WEEK (Mon–Sun). */
 type Period = CapacityPeriod;
 
-/** The free-call lengths the customer may choose from (minutes): the Config options that are on, smallest first. */
-function lengthsOf(values: number[]): number[] {
-  const on = values.map((n) => Math.floor(n)).filter((n) => Number.isFinite(n) && n > 0);
-  return [...new Set(on)].sort((a, b) => a - b);
-}
-
 /** Policy, from the Config console (Admin-approved changes, versioned there). */
 export async function welcomePolicy() {
-  const [enabled, weekly, len1, len2, len3, reminder, dailyLimit, minMeaningful, maxRestores, maxPerWeek] = await Promise.all([
+  const [enabled, weekly, lenCfg, reminder, dailyLimit, minMeaningful, maxRestores, maxPerWeek] = await Promise.all([
     configNumber("welcome.enabled", 1),
     configNumber("welcome.weekly_free_minutes", 30),
-    configNumber("welcome.free_call_length_1", 10),
-    configNumber("welcome.free_call_length_2", 30),
-    configNumber("welcome.free_call_length_3", 0),
+    configNumber("welcome.free_call_minutes", 10),
     configNumber("welcome.reminder_seconds", 120),
     configNumber("welcome.daily_limit_default", 5),
     configNumber("welcome.min_meaningful_seconds", 30),
     configNumber("welcome.max_fault_restores", 2),
     configNumber("welcome.astrologer_max_per_week", 50),
   ]);
-  // 5 min is removed from free minutes call; only 10 and 30 min should be there.
-  const weeklyLengths = lengthsOf([len1, len2, len3]).filter((m) => m >= 10);
+  // One length, set by the admin (10 or 20 min): customers do not choose it.
+  const weeklyLengths = [lenCfg === 20 ? 20 : 10];
   return {
     enabled: enabled === 1,
     /** Free minutes each customer (mobile number) gets per Mon–Sun week (IST). */
@@ -58,7 +50,7 @@ export async function welcomePolicy() {
     /** Separate 1-time 5 min call per phone number (1-time usage only). */
     joiningBonusMinutes: 5,
     /** Lengths a free minutes call can be (minutes), only 10 and 30 min. */
-    lengths: weeklyLengths.length ? weeklyLengths : [10, 30],
+    lengths: weeklyLengths,
     reminderSeconds: reminder,
     /** Free calls each astrologer who takes part may take per IST day. */
     dailyLimitDefault: Math.max(0, Math.floor(dailyLimit)),

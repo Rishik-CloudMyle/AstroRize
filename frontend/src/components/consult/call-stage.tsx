@@ -13,7 +13,16 @@ import { VerifiedTick } from "../astrologer/parts";
 // the free window is never billed, paid minutes round up, and one charge is taken at the end.
 
 /** Longest single consultation (seconds), same as the API's cap. */
-const MAX_SESSION_SECONDS = 15 * 60;
+// The longest session (seconds) is set by the admin; read once when the app opens, 15 min until then.
+let MAX_SESSION_SECONDS = 15 * 60;
+if (typeof window !== "undefined") {
+  fetch("/api/consult-limits")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j: { maxSessionSeconds?: number } | null) => {
+      if (j?.maxSessionSeconds) MAX_SESSION_SECONDS = j.maxSessionSeconds;
+    })
+    .catch(() => {});
+}
 /** Paid balance left (seconds) at which the low-balance reminder appears. */
 const LOW_BALANCE_SECONDS = 120;
 
@@ -50,7 +59,9 @@ export function meterOf(m: MeterInput) {
   const endsWithFree = m.complimentary && m.maxSeconds <= m.freeSeconds;
   const freeReminder = m.complimentary && inFree && freeLeft <= m.reminderSeconds;
   const lowBalance = !inFree && balanceLimited && left <= LOW_BALANCE_SECONDS;
-  return { inFree, freeLeft, left, billed, cost, balanceLimited, endsWithFree, freeReminder, lowBalance };
+  // A Fixed Session (reminder set, not a free call) ends by itself: tell the customer a couple of minutes before.
+  const fixedReminder = !m.complimentary && m.reminderSeconds > 0 && !inFree && left > 0 && left <= m.reminderSeconds;
+  return { fixedReminder, inFree, freeLeft, left, billed, cost, balanceLimited, endsWithFree, freeReminder, lowBalance };
 }
 
 const chip = "inline-flex h-7 items-center gap-1 rounded-full px-3 text-[12px] font-bold tabular-nums";
@@ -100,8 +111,8 @@ export function MeterAlerts({ m, onAddMoney }: { m: MeterInput; onAddMoney: () =
         <div className="min-w-0 flex-1 text-[13px] leading-normal text-emerald-100 max-lg:text-[12.5px] max-lg:text-app-success">
           <b className="block">{minutesWord(s.freeLeft)} of your free call left</b>
           {s.endsWithFree
-            ? `Add money to continue at ${rupee(m.rate)}/min — the call stays connected while you pay.`
-            : `After that the call continues at ${rupee(m.rate)}/min from your balance. End it any time.`}
+            ? `Continue with a paid session at ${rupee(m.rate)}/min — add money now and the call stays connected while you pay.`
+            : `After that the call continues as a paid session at ${rupee(m.rate)}/min from your balance. End it any time.`}
         </div>
         {s.endsWithFree && (
           <button
@@ -112,6 +123,26 @@ export function MeterAlerts({ m, onAddMoney }: { m: MeterInput; onAddMoney: () =
             Add money
           </button>
         )}
+      </div>
+    );
+  }
+  if (s.fixedReminder) {
+    return (
+      <div
+        role="status"
+        className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300/50 bg-amber-400/10 px-3.5 py-2.5 max-lg:rounded-app-btn max-lg:border-amber-200 max-lg:bg-amber-50"
+      >
+        <div className="min-w-0 flex-1 text-[13px] leading-normal text-amber-100 max-lg:text-[12.5px] max-lg:text-amber-900">
+          <b className="block">{minutesWord(s.left)} left in your Fixed Session</b>
+          It ends by itself when the time is up. To keep talking, continue with a paid session at {rupee(m.rate)}/min — keep money in your wallet.
+        </div>
+        <button
+          type="button"
+          onClick={onAddMoney}
+          className="h-9 whitespace-nowrap rounded-lg bg-amber-400 px-3.5 text-[13px] font-bold text-ink max-lg:rounded-app-btn max-lg:bg-app-primary"
+        >
+          Add money
+        </button>
       </div>
     );
   }

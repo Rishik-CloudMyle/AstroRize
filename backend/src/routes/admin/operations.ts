@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
-import { RATE_MAX, RATE_MIN, STAGE_LIFECYCLE, answersFor, draftValues, requestedRate, setNote } from "../../lib/application.ts";
+import { rateBounds, STAGE_LIFECYCLE, answersFor, draftValues, requestedRate, setNote } from "../../lib/application.ts";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { chatRate, instantRate, rateFor } from "../../lib/billing.ts";
 import { ageLabel, istDate, istDateKey, istStamp, rupee } from "../../lib/format.ts";
@@ -403,7 +403,7 @@ operationsRouter.get("/applicants/:id", async (req, res) => {
             astrologerId: astro.id,
             answers: answersFor(draftValues(astro.application?.values), astro, { email: astro.user?.email ?? null, phone: astro.user?.phone ?? null }),
             requestedRate: requestedRate(draftValues(astro.application?.values)),
-            rateLimits: { min: RATE_MIN, max: RATE_MAX },
+            rateLimits: await rateBounds(),
           }
         : null,
     },
@@ -413,6 +413,7 @@ operationsRouter.get("/applicants/:id", async (req, res) => {
 operationsRouter.post("/applicants/:id/:action", async (req, res) => {
   const admin = requirePage(req, "hr");
   const action = z.enum(["advance", "request-info", "reject", "interview", "accept-rates", "counter", "activate"]).parse(req.params.action);
+  const { min: RATE_MIN, max: RATE_MAX } = await rateBounds();
   const { version, reason, rate } = z
     .object({
       version: z.number().int(),
@@ -573,7 +574,8 @@ async function campaignFields(body: unknown) {
     return { ...common, percent: null, flatAmount: v.flatAmount, minRecharge: null, maxBenefit: null, usesPerCustomer: 1 };
   }
   if (!v.percent) throw badRequest(v.kind === "CONSULT_DISCOUNT" ? "Set the discount percent." : "Set the cashback percent.");
-  if (v.percent > limits.maxPct) throw badRequest(`The percent can be at most ${limits.maxPct}% (marketing.campaign.max_discount_pct).`);
+  if (v.percent > limits.maxPct) throw badRequest(`The percent can be at most ${limits.maxPct}% (offers.max_discount_pct).`);
+  if (v.percent < limits.minPct) throw badRequest(`The percent must be at least ${limits.minPct}% (offers.min_discount_pct).`);
   if (limits.floorMode === "reject" && v.percent > floorCap(limits)) {
     throw badRequest(`The ${limits.floorPct}% cashback floor allows at most ${floorCap(limits)}% (wallet.cashback.floor_pct; Finance's floor mode is "reject").`);
   }
@@ -671,6 +673,46 @@ operationsRouter.get("/marketing", async (req, res) => {
       bonusMax: limits.bonusMax,
     },
   });
+});
+
+// ── Gift catalogue (what customers can send in lives and on profiles) ──
+
+const giftFields = z.object({
+  name: z.string({ error: "Enter the gift name." }).trim().min(2, "Enter the gift name.").max(30, "Keep the name under 30 characters."),
+  icon: z.string({ error: "Enter an emoji or symbol." }).trim().min(1, "Enter an emoji or symbol.").max(8, "Use one emoji or symbol."),
+  price: z.number({ error: "Enter the price in rupees." }).int("Use whole rupees.").min(1, "The price must be at least ₹1."),
+});
+
+/** Marketing proposes a gift (a draft customers can't see); an Admin makes it live. */
+operationsRouter.post("/gifts", async (req, res) => {
+  requirePage(req, "marketing");
+  const admin = requireCapability(req, "campaign.submit");
+  const v = giftFields.parse(req.body);
+  const cap = await configNumber("marketing.gift.max_value", 5100);
+  if (v.price > cap) throw badRequest(`A gift can cost at most ${rupee(cap)} (marketing.gift.max_value).`);
+  const last = await db.gift.findFirst({ orderBy: { rank: "desc" }, select: { rank: true } });
+  const g = await db.gift.create({ data: { ...v, state: "DRAFT", rank: (last?.rank ?? 0) + 1 } });
+  await audit(admin, "gift.create", g.id, `→ DRAFT · ${g.name} ${g.icon} · ${rupee(g.price)}`);
+  res.status(201).json({ id: g.id });
+});
+
+/**
+ * Edits a gift, or makes it live / hides it. Drafts are edited by Marketing; changing a live gift or
+ * switching one on/off needs an Admin (campaign.approve).
+ */
+operationsRouter.patch("/gifts/:id", async (req, res) => {
+  requirePage(req, "marketing");
+  const body = z.object({ action: z.enum(["activate", "hide"]).optional() }).and(giftFields.partial()).parse(req.body);
+  const g = await db.gift.findUnique({ where: { id: String(req.params.id) } });
+  if (!g) throw notFound("That gift doesn't exist.");
+  const admin = body.action || g.state === "ACTIVE" ? requireCapability(req, "campaign.approve") : requireCapability(req, "campaign.submit");
+  const cap = await configNumber("marketing.gift.max_value", 5100);
+  const price = body.price ?? g.price;
+  if (price > cap) throw badRequest(`A gift can cost at most ${rupee(cap)} (marketing.gift.max_value).`);
+  const state = body.action === "activate" ? "ACTIVE" : body.action === "hide" ? "DRAFT" : g.state;
+  await db.gift.update({ where: { id: g.id }, data: { name: body.name ?? g.name, icon: body.icon ?? g.icon, price, state } });
+  await audit(admin, "gift.update", g.id, `${g.name} ${rupee(g.price)} ${g.state} → ${body.name ?? g.name} ${rupee(price)} ${state}`);
+  res.json({ id: g.id });
 });
 
 /** Marketing drafts a campaign (an Admin approves it later). */

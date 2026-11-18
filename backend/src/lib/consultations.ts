@@ -1,5 +1,5 @@
 import { db } from "../db.ts";
-import { MAX_SESSION_SECONDS, affordableSeconds, settle } from "./billing.ts";
+import { affordableSeconds, incomingWindowSecs, maxSessionSeconds, settle } from "./billing.ts";
 import { rupee } from "./format.ts";
 import { syncPresence } from "./presence.ts";
 import { configNumber } from "./settings.ts";
@@ -13,7 +13,6 @@ import { displayName } from "./profile.ts";
 import type { Consultation, Prisma } from "../generated/prisma/client.ts";
 
 /** A request at the front of an astrologer's queue has this long to be accepted. */
-export const INCOMING_WINDOW_SECS = 180;
 
 /** A customer may have only one of these at a time, across all astrologers. */
 export const OPEN_STATUSES = ["REQUESTED", "CONNECTING", "ACTIVE"];
@@ -48,7 +47,7 @@ export async function expireStaleRequests(astrologerId: string) {
       await db.consultation.updateMany({ where: { id: head.id, status: "REQUESTED", offeredAt: null }, data: { offeredAt: new Date(now) } });
       return;
     }
-    const expiresAt = head.offeredAt.getTime() + INCOMING_WINDOW_SECS * 1000;
+    const expiresAt = head.offeredAt.getTime() + incomingWindowSecs() * 1000;
     if (expiresAt > now) return;
     const { count } = await db.consultation.updateMany({ where: { id: head.id, status: "REQUESTED" }, data: { status: "TIMED_OUT", endedAt: new Date(expiresAt) } });
     // Not answered in time: a free call held for it is the customer's again.
@@ -65,7 +64,7 @@ export async function expireStaleRequests(astrologerId: string) {
 
 /** When the front-of-queue request stops waiting for the astrologer (null until it is offered). */
 export function acceptBy(c: Pick<Consultation, "status" | "offeredAt">): Date | null {
-  return c.status === "REQUESTED" && c.offeredAt ? new Date(c.offeredAt.getTime() + INCOMING_WINDOW_SECS * 1000) : null;
+  return c.status === "REQUESTED" && c.offeredAt ? new Date(c.offeredAt.getTime() + incomingWindowSecs() * 1000) : null;
 }
 
 type Metered = Pick<Consultation, "heldAmount" | "rate" | "billingMode" | "complimentarySeconds"> & { kind?: string };
@@ -91,14 +90,14 @@ export function freeWindow(c: Pick<Consultation, "billingMode" | "complimentaryS
  */
 export function sessionCapSeconds(c: Metered, standardFree: number) {
   if (c.kind === "FIXED") {
-    return c.complimentarySeconds > 0 ? c.complimentarySeconds : MAX_SESSION_SECONDS;
+    return c.complimentarySeconds > 0 ? c.complimentarySeconds : maxSessionSeconds();
   }
   if (startsFree(c)) {
-    const paid = c.rate > 0 ? Math.min(MAX_SESSION_SECONDS, affordableSeconds(c.heldAmount, c.rate, 0)) : 0;
+    const paid = c.rate > 0 ? Math.min(maxSessionSeconds(), affordableSeconds(c.heldAmount, c.rate, 0)) : 0;
     return c.complimentarySeconds + paid;
   }
-  if (c.rate <= 0) return MAX_SESSION_SECONDS;
-  return Math.min(MAX_SESSION_SECONDS, affordableSeconds(c.heldAmount, c.rate, freeWindow(c, standardFree)));
+  if (c.rate <= 0) return maxSessionSeconds();
+  return Math.min(maxSessionSeconds(), affordableSeconds(c.heldAmount, c.rate, freeWindow(c, standardFree)));
 }
 
 export function settlementView(
@@ -303,7 +302,7 @@ export async function endConsultation(c: Consultation, endedBy: "user" | "astrol
     // At the cap: the 15-minute paid limit ("cap"), or the money ran out first ("exhausted"). A free
     // call's own free time doesn't count towards the 15 minutes.
     const complimentary = startsFree(fresh) ? (fresh.complimentarySeconds ?? 0) : 0;
-    const reason = connectedSeconds >= cap ? (cap - complimentary >= MAX_SESSION_SECONDS ? "cap" : "exhausted") : endedBy;
+    const reason = connectedSeconds >= cap ? (cap - complimentary >= maxSessionSeconds() ? "cap" : "exhausted") : endedBy;
     const s = settle({ connectedSeconds, rate: fresh.rate, freeSeconds, held: fresh.heldAmount, promo: wallet?.promo ?? 0 });
 
     await tx.consultation.update({
@@ -462,4 +461,26 @@ export async function sweepAbandonedConsultations() {
   // Requests time out even when neither the astrologer nor the customer has the page open.
   const waiting = await db.consultation.findMany({ where: { status: "REQUESTED" }, distinct: ["astrologerId"], select: { astrologerId: true } });
   for (const { astrologerId } of waiting) await expireStaleRequests(astrologerId);
+}
+
+/**
+ * How long a busy astrologer's customers will wait: what is left of the session in progress, i.e.
+ * the paying customer's balance ÷ the call's price (or the free / fixed time), less what has
+ * already run. Shown on profiles and cards as "~N min"; astrologers who aren't in a session have none.
+ */
+export async function waitEtas(astrologerIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!astrologerIds.length) return out;
+  const open = await db.consultation.findMany({ where: { astrologerId: { in: astrologerIds }, status: { in: ["CONNECTING", "ACTIVE"] } } });
+  const now = Date.now();
+  const best = new Map<string, number>();
+  for (const c of open) {
+    if (!c.astrologerId) continue;
+    const started = (c.billingStartedAt ?? c.connectedAt)?.getTime();
+    const left = sessionCapSeconds(c, 0) - (started ? Math.max(0, Math.floor((now - started) / 1000)) : 0);
+    const mins = Math.max(1, Math.ceil(left / 60));
+    best.set(c.astrologerId, Math.max(best.get(c.astrologerId) ?? 0, mins));
+  }
+  for (const [id, m] of best) out.set(id, `~${m} min`);
+  return out;
 }

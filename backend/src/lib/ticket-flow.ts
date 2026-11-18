@@ -1,14 +1,14 @@
 import { db } from "../db.ts";
 import type { SupportTicket } from "../generated/prisma/client.ts";
 import { istDayMonth, istTime } from "./format.ts";
-import { isOpen, isMoneyTicket, isTeam, MONEY_TEAMS, MOVES, RAISE_ACTION, teamLabel, type Team } from "./tickets.ts";
+import { isOpen, isMoneyTicket, isTeam, MOVES, RAISE_ACTION, suggestedTeam, teamLabel, type Team } from "./tickets.ts";
 
-// The approval flow of a ticket, as staff see it on the Support case: three boxes, Support ↓ Finance ↓
-// Admin, each with who acted, when and what; the box the ticket is in now is highlighted and the boxes
-// it never needs are greyed. Built from the audit trail (every move records from → to, who, why), so it
+// The flow of a ticket, as staff see it on the Support case: one box per team it really goes through
+// (Support first, then the department its issue belongs with, then any team it is forwarded to; Admin only
+// if it is escalated there), each with who acted, when and what; the box the ticket is in now is highlighted. Built from the audit trail (every move records from → to, who, why), so it
 // can never disagree with what happened. The conversation and internal notes are a separate list.
 
-export type StepKey = "support" | "finance" | "admin";
+export type StepKey = Team;
 export type StepStatus = "done" | "current" | "upcoming" | "notneeded";
 
 export interface FlowEvent {
@@ -22,7 +22,7 @@ export interface FlowEvent {
 }
 export interface FlowStep {
   key: StepKey;
-  /** "Support", "Finance" (or Compliance / Marketing on a ticket of theirs), "Admin". */
+  /** The team: "Support", "Finance", "Compliance", "Marketing" or "Admin". */
   label: string;
   status: StepStatus;
   /** A short line under the label ("With Finance now", "Not needed"). */
@@ -39,10 +39,12 @@ export interface TicketFlow {
   steps: FlowStep[];
 }
 
-const stepOfTeam = (team: string): StepKey => (team === "support" ? "support" : team === "super" ? "admin" : "finance");
 const when = (d: Date) => `${istDayMonth(d)}, ${istTime(d)}`;
-const TEAM_NAME: Record<string, string> = { super: "Admin" };
-const name = (team: string) => TEAM_NAME[team] ?? teamLabel(team);
+const name = (team: string) => (team === "super" ? "Admin" : teamLabel(team));
+
+/** The department an issue of this kind belongs with (Support triages first, then this team). */
+export const plannedTeam = (t: Pick<SupportTicket, "category" | "refundState" | "sessionRef">): Team =>
+  isMoneyTicket(t) ? "finance" : suggestedTeam(t.category);
 
 export async function ticketFlow(
   t: SupportTicket,
@@ -58,12 +60,18 @@ export async function ticketFlow(
 
   const money = isMoneyTicket(t);
   const open = isOpen(t);
-  const visited = new Set<StepKey>(["support"]);
-  const events: Record<StepKey, FlowEvent[]> = { support: [], finance: [], admin: [] };
-  let middle: Team = "finance";
-  const push = (step: StepKey, e: { what: string; who: string; at: Date; self?: boolean }) => {
-    visited.add(step);
-    events[step].push({ what: e.what, who: e.who, at: e.at.toISOString(), when: when(e.at), self: !!e.self });
+  // The teams in the order the ticket reached them; `visited` are the ones it has really been to.
+  const order: Team[] = ["support"];
+  const visited = new Set<Team>(["support"]);
+  const events: Partial<Record<Team, FlowEvent[]>> = {};
+  const visit = (team: string) => {
+    if (!isTeam(team)) return;
+    visited.add(team);
+    if (!order.includes(team)) order.push(team);
+  };
+  const push = (team: Team, e: { what: string; who: string; at: Date; self?: boolean }) => {
+    visit(team);
+    (events[team] ??= []).push({ what: e.what, who: e.who, at: e.at.toISOString(), when: when(e.at), self: !!e.self });
   };
 
   for (const e of entries) {
@@ -77,12 +85,11 @@ export async function ticketFlow(
       continue;
     }
     // The step is the acting person's department (a Super Admin acts as Admin).
-    const step = role ? stepOfTeam(role) : "support";
-    if (role === "compliance" || role === "marketing") middle = role;
+    const step: Team = role && isTeam(role) ? role : "support";
     if (MOVES.includes(e.action)) {
       const m = /^(\w+) → (\w+)/.exec(e.diff);
+      const from = m?.[1] ?? "";
       const to = m?.[2] ?? "";
-      if (isTeam(to) && !MONEY_TEAMS.includes(to)) middle = to;
       const verb =
         e.action === "support.ticket.escalate"
           ? "Escalated to"
@@ -91,12 +98,12 @@ export async function ticketFlow(
               ? "Returned to"
               : "Sent for approval to"
             : "Forwarded to";
-      push(m && isTeam(m[1]!) ? stepOfTeam(m[1]!) : step, {
-        what: `${verb} ${name(to)}${parts.slice(1).join(" · ") ? ` — ${parts.slice(1).join(" · ")}` : ""}`,
+      push(isTeam(from) ? from : step, {
+        what: `${verb} ${name(to)}${reason ? ` — ${reason}` : ""}`,
         who: e.actorName,
         at: e.at,
       });
-      if (isTeam(to)) visited.add(stepOfTeam(to));
+      visit(to);
       continue;
     }
     const amount = /₹[\d,]+/.exec(e.diff)?.[0] ?? "";
@@ -120,27 +127,18 @@ export async function ticketFlow(
   }
 
   const holder = t.assignedTeam;
-  const holderStep = stepOfTeam(holder);
-  if (open) visited.add(holderStep);
-  if (isTeam(holder) && !MONEY_TEAMS.includes(holder)) middle = holder;
+  if (open) visit(holder);
+  // Still ahead: the department this kind of issue belongs with. Admin only ever appears once the
+  // ticket is really escalated or forwarded there.
+  const planned = plannedTeam(t);
+  if (open && !order.includes(planned)) order.push(planned);
 
-  const needed = (k: StepKey) => (k === "support" ? true : k === "finance" ? money || middle !== "finance" : false);
-  const status = (k: StepKey): StepStatus => {
-    if (open && holderStep === k) return "current";
-    if (visited.has(k)) return "done";
-    if (!open) return "notneeded";
-    return needed(k) ? "upcoming" : "notneeded";
-  };
-  const noteFor = (k: StepKey, s: StepStatus): string => {
-    if (s === "current") return `With ${name(k === "support" ? "support" : k === "admin" ? "super" : middle)} now`;
-    if (s === "notneeded") return k === "admin" ? "Not needed unless escalated" : "Not needed";
-    if (s === "upcoming") return k === "finance" ? "Approves money" : "Next";
-    return "Done";
-  };
-  const label: Record<StepKey, string> = { support: "Support", finance: name(middle), admin: "Admin" };
-  const steps: FlowStep[] = (["support", "finance", "admin"] as const).map((k) => {
+  const status = (k: Team): StepStatus => (open && holder === k ? "current" : visited.has(k) ? "done" : "upcoming");
+  const noteFor = (k: Team, s: StepStatus): string =>
+    s === "current" ? `With ${name(k)} now` : s === "done" ? "Done" : k === "finance" && money ? "Approves money" : "Next";
+  const steps: FlowStep[] = order.map((k) => {
     const s = status(k);
-    return { key: k, label: label[k], status: s, note: noteFor(k, s), events: events[k] };
+    return { key: k, label: name(k), status: s, note: noteFor(k, s), events: events[k] ?? [] };
   });
 
   // Who has it and what happens next.
@@ -170,4 +168,10 @@ export async function ticketFlow(
   }
   if (open && t.awaitingCustomer) next += ". Waiting on the customer's reply";
   return { money, holder, holderLabel: holderName, next, steps };
+}
+
+/** The teams a ticket goes through and where it is now — for the customer's view (no names, no notes). */
+export async function ticketPath(t: SupportTicket): Promise<{ key: Team; status: StepStatus }[]> {
+  const flow = await ticketFlow(t, null, null);
+  return flow.steps.map((st) => ({ key: st.key, status: st.status }));
 }

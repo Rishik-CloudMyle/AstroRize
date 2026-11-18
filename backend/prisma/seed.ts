@@ -196,7 +196,7 @@ async function main() {
     {
       id: "meera", slug: "acharya-meera-iyer", userId: meeraUser.id, name: "Acharya Meera Iyer", initials: "MI", greeting: "Meera", gender: "Female",
       recognition: "TRUSTED", presence: "OFF", skills: ["Nadi", "Counseling"], languages: ["Tamil", "English", "Hindi"], years: 14, rating: 4.8, consults: 860,
-      price: 32, was: null, eta: "~6–12 min", photo: "/assets/avatars/astro-meera.jpg", ratingDistribution: [666, 140, 40, 10, 4],
+      price: 32, was: null, eta: null, photo: "/assets/avatars/astro-meera.jpg", ratingDistribution: [666, 140, 40, 10, 4],
       about: "Relationship and family charts with a calm, specific style. She names what the chart can answer and what it cannot.",
     },
     {
@@ -208,7 +208,7 @@ async function main() {
     {
       id: "sneha", slug: "sneha-ramanathan", userId: snehaUser.id, name: "Sneha Ramanathan", initials: "SR", greeting: "Sneha", gender: "Female",
       recognition: "RISING", presence: "OFF", skills: ["Tarot", "Numerology"], languages: ["English", "Tamil"], years: 6, rating: 4.6, consults: 188,
-      price: 18, was: 24, eta: "~3–7 min", photo: "/assets/avatars/astro-ananya.jpg", ratingDistribution: [130, 38, 12, 5, 3],
+      price: 18, was: 24, eta: null, photo: "/assets/avatars/astro-ananya.jpg", ratingDistribution: [130, 38, 12, 5, 3],
       about: "Tarot with a counselling background. Best for people who want language for a decision they have already half-made.",
     },
     {

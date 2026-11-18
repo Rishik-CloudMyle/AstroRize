@@ -124,7 +124,7 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
         <div className="flex flex-wrap items-center justify-end gap-2.5">
           {a && canManageSuspension && a.lifecycle === "active" && (
             <Link
-              href="/admin/monitoring#suspensions"
+              href="/admin/monitoring/suspensions"
               className="mr-auto inline-flex h-10 items-center text-[13px] font-bold text-rose-700 hover:no-underline"
             >
               {a.suspension === "none" ? "Suspend on Live monitoring ›" : "Manage suspension ›"}

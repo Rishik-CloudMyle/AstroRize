@@ -1,8 +1,8 @@
 import { EYEBROW } from "@/components/admin/ui";
 import type { FlowStepStatus, TicketFlow } from "@/lib/admin/types";
 
-// The approval trail of a ticket as a vertical flow: Support ↓ Finance ↓ Admin. Each box says who acted,
-// when and what; the box the ticket is in now is highlighted, the ones it never needs are greyed. The
+// The trail of a ticket as a vertical flow: one box per team it really goes through, e.g. Support ↓ Finance. Each box says who acted,
+// when and what; the box the ticket is in now is highlighted, the ones still ahead are dashed. The
 // conversation and internal notes are a separate list (TicketTimeline). One column, so it reads at 390px.
 
 const BOX: Record<FlowStepStatus, string> = {
@@ -28,7 +28,7 @@ const TAG_TEXT: Record<FlowStepStatus, string> = { current: "Here now", done: "D
 export default function ApprovalTrail({ flow, className = "" }: { flow: TicketFlow; className?: string }) {
   return (
     <section aria-label="Approval trail" className={`rounded-2xl border border-line bg-cream p-3.5 sm:p-4 ${className}`}>
-      <div className={EYEBROW}>Approval trail · Support ↓ Finance ↓ Admin</div>
+      <div className={EYEBROW}>Flow · {flow.steps.map((s) => s.label).join(" ↓ ")}</div>
       <p className="mt-1.5 mb-3 text-[13.5px] leading-snug font-bold break-words text-ink">{flow.next}</p>
       <ol className="m-0 flex list-none flex-col p-0">
         {flow.steps.map((s, i) => (

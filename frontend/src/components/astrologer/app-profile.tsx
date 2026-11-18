@@ -59,6 +59,8 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
   const ratings = a.ratingDistribution.reduce((x, y) => x + y, 0);
   const st = a.availability;
   const modeState: "on" | "busy" | "off" = st === "on" ? "on" : st === "busy" ? "busy" : "off";
+  // Instant mode: Chat, Voice and Video read as unavailable (only Instant Call is taken).
+  const classicState: "on" | "busy" | "off" = a.instantOnly ? "off" : modeState;
 
   async function share() {
     const url = `${window.location.origin}/astrologer/${a.slug}`;
@@ -110,10 +112,10 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
           </div>
           <ul aria-label="Ways to consult" className="flex flex-wrap justify-end gap-x-2.5 gap-y-1 text-[11px] font-bold">
             {(["Chat", "Voice", "Video"] as const).map((m) => (
-              <li key={m} className={`inline-flex items-center gap-1 ${modeState === "on" ? "text-app-success" : modeState === "busy" ? "text-app-error" : "text-app-ink-3"}`}>
+              <li key={m} className={`inline-flex items-center gap-1 ${classicState === "on" ? "text-app-success" : classicState === "busy" ? "text-app-error" : "text-app-ink-3"}`}>
                 {m}
-                <i aria-hidden="true" className={`size-1.5 rounded-full ${MODE_DOT[modeState]}`} />
-                <span className="sr-only">{modeState === "on" ? "available" : modeState === "busy" ? "busy" : "unavailable"}</span>
+                <i aria-hidden="true" className={`size-1.5 rounded-full ${MODE_DOT[classicState]}`} />
+                <span className="sr-only">{classicState === "on" ? "available" : classicState === "busy" ? "busy" : "unavailable"}</span>
               </li>
             ))}
             <li className={`inline-flex items-center gap-1 ${st === "on" ? "text-app-info" : "text-app-ink-3"}`}>

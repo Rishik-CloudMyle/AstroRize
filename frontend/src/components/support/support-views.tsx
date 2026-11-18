@@ -58,6 +58,7 @@ interface Issue {
   maxMessage: number;
   // Approval-flow fields (returned by GET /support/issues/:id)
   assignedTeam?: string;
+  path?: { key: string; label: string; status: "done" | "current" | "upcoming" | "notneeded" }[];
   teamLabel?: string;
   proposedBy?: string | null;
   approvedBy?: string | null;
@@ -659,6 +660,7 @@ export function IssueThread({ id }: { id: string }) {
         <TicketApprovalFlow
           data={{
             assignedTeam: issue.assignedTeam,
+            path: issue.path,
             teamLabel: issue.teamLabel,
             state: issue.state,
             refundState: issue.refundState,

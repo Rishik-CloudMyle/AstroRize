@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
 import { discountLabel, languageLine, rupee } from "@/lib/format";
+import { useOpenConsultation } from "@/lib/consultation-store";
 import { useSession } from "@/lib/session-store";
 import type { Astrologer, LiveRoom } from "@/lib/types";
 import { useAppUI } from "../app-provider";
@@ -67,10 +68,17 @@ function LivePreview({ room: initialRoom, host, onJoined }: { room: LiveRoom; ho
     };
   }, [initialRoom.id, ended, markEnded]);
 
+  // One call at a time: someone already in a consultation can't join a live as well.
+  const inCall = !!useOpenConsultation();
+
   async function join() {
     if (joining || ended) return;
     if (!session.loggedIn) {
       openLogin({ notice: "Sign in to join the live." });
+      return;
+    }
+    if (inCall) {
+      toast("You're in a call right now — you can't join this live until it ends.");
       return;
     }
     setJoining(true);

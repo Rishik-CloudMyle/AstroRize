@@ -14,11 +14,12 @@ export interface TicketFlowData {
   resolution?: string | null;
   outcome?: { label?: string | null; by?: string | null; on?: string | null; note?: string | null } | null;
   open?: boolean;
+  /** The teams this issue really goes through (team names only) and where it is now. */
+  path?: { key: string; label: string; status: "done" | "current" | "upcoming" | "notneeded" }[];
 }
 
 export function TicketApprovalFlow({
   data,
-  isAdmin = false,
   className = "",
   flow,
 }: {
@@ -29,118 +30,44 @@ export function TicketApprovalFlow({
   flow?: TicketFlow;
 }) {
   if (flow) return <ApprovalTrail flow={flow} className={className} />;
+  const open = data.open ?? true;
+  // Only the teams this issue needs: Support first, then the team its kind of issue belongs with.
   const team = data.assignedTeam?.toLowerCase() ?? "support";
-  const isSuper = team === "super";
-  const isFinanceOrDept = team === "finance" || team === "compliance" || team === "marketing";
-  const isSupport = team === "support";
-
-  const isProposed =
-    data.refundState === "PROPOSED" ||
-    Boolean(data.proposedBy) ||
-    (data.state ? data.state.includes("PROPOSED") : false);
-
-  const isInitiated =
-    data.refundState === "INITIATED" ||
-    Boolean(data.approvedBy) ||
-    data.state === "REFUND_INITIATED" ||
-    Boolean(data.resolution);
-
-  const isResolved =
-    data.open === false ||
-    isInitiated ||
-    data.state === "RESOLVED" ||
-    data.state === "CLOSED" ||
-    Boolean(data.outcome);
-
-  // Station 1: Support
-  // Support is the entry point. Once forwarded, proposed, or resolved, it's done. If still in initial triage, it's active.
-  const step1Done = !isSupport || isProposed || isResolved || isSuper || isFinanceOrDept;
-  const step1Status: "done" | "active" | "pending" = step1Done ? "done" : "active";
-
-  // Station 2: Finance / Department
-  // If a remedy is proposed, or if approved/resolved, this step is done.
-  // If the ticket is currently allotted to finance/dept and open without a proposal, it's active.
-  // Otherwise pending.
-  const step2Done = isProposed || isInitiated || (isResolved && !isSupport);
-  const step2Active = !step2Done && isFinanceOrDept && (data.open ?? true);
-  const step2Status: "done" | "active" | "pending" = step2Done ? "done" : step2Active ? "active" : "pending";
-
-  // Station 3: Admin
-  // If final approval is granted or ticket is resolved, it's done.
-  // If awaiting approval (proposed) or currently allotted to Super Admin, it's active.
-  // Otherwise pending.
-  const step3Done = isResolved || isInitiated;
-  const step3Active = !step3Done && (isProposed || isSuper) && (data.open ?? true);
-  const step3Status: "done" | "active" | "pending" = step3Done ? "done" : step3Active ? "active" : "pending";
-
-  // Station 2 title/role
-  const deptLabel =
-    team === "compliance"
-      ? "Compliance"
-      : team === "marketing"
-        ? "Marketing"
-        : "Finance";
-
-  // Content for each step
-  const steps = [
-    {
-      key: "support",
-      name: isAdmin ? "Support" : "Support team",
-      role: "Intake & Triage",
-      status: step1Status,
+  const path =
+    data.path && data.path.length > 0
+      ? data.path
+      : [
+          { key: "support", label: "Support team", status: team === "support" && open ? ("current" as const) : ("done" as const) },
+          ...(team === "support" ? [] : [{ key: team, label: data.teamLabel ?? "Team", status: open ? ("current" as const) : ("done" as const) }]),
+        ];
+  const ROLE: Record<string, string> = {
+    support: "Intake & triage",
+    finance: "Payments & refunds",
+    compliance: "Safety & conduct",
+    marketing: "Offers & promotions",
+    super: "Final decision",
+  };
+  const steps = path.map((p, i) => {
+    const status: "done" | "active" | "pending" = p.status === "current" ? "active" : p.status === "done" ? "done" : "pending";
+    const last = i === path.length - 1;
+    return {
+      key: p.key,
+      name: p.label,
+      role: ROLE[p.key] ?? "Review",
+      status,
       detail:
-        step1Status === "done"
-          ? "Allotted on ticket creation · Intake triaged"
-          : "Allotted on ticket creation · Currently investigating",
-      badge: step1Status === "done" ? "Triaged" : "Allotted (Active)",
-    },
-    {
-      key: "finance",
-      name: isAdmin ? deptLabel : `${deptLabel} team`,
-      role: "Review & Remedy Proposal",
-      status: step2Status,
-      detail:
-        data.proposedBy
-          ? isAdmin ? `Remedy proposed by ${data.proposedBy}` : "Remedy proposed by our team"
-          : step2Status === "done"
-            ? `Reviewed by ${deptLabel} team`
-            : step2Status === "active"
-              ? `Allotted to ${deptLabel} team · Investigation in progress`
-              : `Pending allotment to ${deptLabel}`,
-      badge:
-        step2Status === "done"
-          ? data.proposedBy
-            ? "Proposal submitted"
-            : "Reviewed"
-          : step2Status === "active"
-            ? "Allotted (Active)"
-            : "Pending",
-    },
-    {
-      key: "admin",
-      name: isAdmin ? "Admin (Super Admin)" : "Admin team",
-      role: "Final Decision & Approval",
-      status: step3Status,
-      detail:
-        data.approvedBy
-          ? isAdmin ? `Approved by ${data.approvedBy}` : "Approved by our team"
-          : data.outcome
-            ? `${data.outcome.label ?? "Resolved"}${isAdmin && data.outcome.by ? ` by ${data.outcome.by}` : ""}`
-            : step3Status === "done"
-              ? "Final resolution approved and closed"
-              : step3Status === "active"
-                ? "Allotted to Admin · Awaiting second-person approval"
-                : "Pending final review & decision",
-      badge:
-        step3Status === "done"
-          ? data.approvedBy
-            ? "Approved"
-            : "Resolved"
-          : step3Status === "active"
-            ? "Awaiting approval"
-            : "Pending",
-    },
-  ];
+        status === "active"
+          ? p.key === "support"
+            ? "We're looking into your issue"
+            : `With our ${p.label} now`
+          : status === "done"
+            ? !open && last && data.outcome?.label
+              ? data.outcome.label
+              : "Done"
+            : "Comes next, if needed",
+      badge: status === "done" ? "Done" : status === "active" ? "With them now" : "Next",
+    };
+  });
 
   return (
     <div
@@ -149,18 +76,19 @@ export function TicketApprovalFlow({
       <div className="mb-3.5 flex flex-wrap items-center justify-between gap-2 border-b border-line-warm/70 pb-2.5">
         <div>
           <span className="block text-[11px] font-extrabold tracking-[.08em] text-stone-500 uppercase max-lg:text-app-ink-3">
-            Allotment &amp; Approval Flow
+            Where your issue goes
           </span>
           <p className="mt-0.5 mb-0 text-[12px] text-stone-600 max-lg:text-app-ink-2">
-            Sequential assignment trail for this ticket
+            Only the teams your issue needs
           </p>
         </div>
         <div className="inline-flex items-center gap-1.5 rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-bold text-amber-800 shadow-xs border border-line-warm max-lg:border-app-line max-lg:bg-app-bg max-lg:text-app-active">
-          <span>Support</span>
-          <span className="text-amber-500">↓</span>
-          <span>Finance</span>
-          <span className="text-amber-500">↓</span>
-          <span>Admin</span>
+          {path.map((p, i) => (
+            <React.Fragment key={p.key}>
+              {i > 0 && <span className="text-amber-500">↓</span>}
+              <span>{p.label.replace(/ team$/, "")}</span>
+            </React.Fragment>
+          ))}
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 import { config } from "../config.ts";
 import { db } from "../db.ts";
-import { ELIGIBILITY_MINUTES, rateFor, type Mode } from "./billing.ts";
+import { eligibilityMinutes, rateFor, type Mode } from "./billing.ts";
 import {
   OPEN_STATUSES,
   billedElapsed,
@@ -95,7 +95,7 @@ export async function joinQueue(room: LiveRoom, userId: string, mode: Mode, quot
   const astrologer = await db.astrologer.findUniqueOrThrow({ where: { id: room.astrologerId }, select: { price: true, chatPrice: true } });
   const rate = liveRate(astrologer, mode);
   if (quotedRate !== undefined && quotedRate !== rate) return { kind: "rate_changed", rate };
-  const needed = rate * ELIGIBILITY_MINUTES;
+  const needed = rate * eligibilityMinutes();
   await db.wallet.upsert({ where: { userId }, create: { userId }, update: {} });
 
   return db.$transaction(async (tx) => {
@@ -216,7 +216,7 @@ export async function acceptRequest(entryId: string, astrologerId: string): Prom
     // Same eligibility as any consultation: five minutes at the locked rate.
     const wallet = await tx.wallet.findUnique({ where: { userId: fresh.userId } });
     const spendable = wallet ? Math.max(0, wallet.service + wallet.promo - wallet.held) : 0;
-    if (spendable < c.rate * ELIGIBILITY_MINUTES) {
+    if (spendable < c.rate * eligibilityMinutes()) {
       await tx.liveQueueEntry.update({ where: { id: fresh.id }, data: { status: "LEFT", consultationId: c.id } });
       await closeQueued(tx, [c.id], "CANCELLED", "balance");
       return { kind: "short" };

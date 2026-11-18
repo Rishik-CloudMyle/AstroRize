@@ -525,7 +525,7 @@ export interface TicketFlow {
   holder: string;
   holderLabel: string;
   next: string;
-  steps: { key: "support" | "finance" | "admin"; label: string; status: FlowStepStatus; note: string; events: FlowEvent[] }[];
+  steps: { key: string; label: string; status: FlowStepStatus; note: string; events: FlowEvent[] }[];
 }
 
 export interface DisputeRefund {

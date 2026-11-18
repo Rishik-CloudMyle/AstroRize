@@ -4,7 +4,7 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { db } from "../db.ts";
 import { HttpError, badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
-import { chatRate, instantRate } from "../lib/billing.ts";
+import { chatRate, eligibilityMinutes, incomingWindowSecs, instantRate, maxSessionSeconds, videoPremium } from "../lib/billing.ts";
 import { istDate, istTime, percentages, rupee } from "../lib/format.ts";
 import { effectivePresence, hostedLiveRoom, touchViewer, viewerCount } from "../lib/presence.ts";
 import { announceJoin, chatLineView, giftBalance, sendGift, sendProfileGift, sessionFeed } from "../lib/live.ts";
@@ -13,7 +13,8 @@ import { flagContactAttempt } from "../lib/contact-flags.ts";
 import { contactBlockedNotice, findContactDetails, rateLimit } from "../lib/safety.ts";
 import { customerConsent } from "../lib/recordings.ts";
 import { freeCallOpen, welcomePolicy } from "../lib/welcome.ts";
-import { configNumber, getSetting } from "../lib/settings.ts";
+import { openConsultationOf, waitEtas } from "../lib/consultations.ts";
+import { clampDiscount, configNumber, discountLimits, getSetting } from "../lib/settings.ts";
 import { requireRole, requireUser } from "../middleware/auth.ts";
 import type { Astrologer, LiveRoom, Review } from "../generated/prisma/client.ts";
 
@@ -24,7 +25,7 @@ export const catalogRouter = Router();
 type AstrologerWithReviews = Astrologer & { reviews?: Review[] };
 
 /** The shape the website uses for an astrologer (same as frontend/src/lib/types.ts). */
-export function astrologerView(a: AstrologerWithReviews, freeCall = false, fixedEnabled = true) {
+export function astrologerView(a: AstrologerWithReviews, freeCall = false, fixedEnabled = true, instantOnly = false, eta: string | null = null) {
   return {
     id: a.id,
     slug: a.slug,
@@ -44,13 +45,18 @@ export function astrologerView(a: AstrologerWithReviews, freeCall = false, fixed
     /** Chat rate (₹/min): the astrologer's own chat price, or the same as `price`. */
     chatPrice: chatRate(a),
     instant: instantRate(a.price, a.instantMultiplier),
+    /** Extra ₹/min a Video call costs over Voice (admin Config consult.video_premium). */
+    videoPremium: videoPremium(),
     /** Instant Call rate = price × this. */
     instantMultiplier: a.instantMultiplier,
     /** A welcome free call can be taken with them right now (taking part, available, quota left). */
     freeCall,
     /** Whether this astrologer offers Fixed Sessions. */
-    fixedEnabled,
-    eta: a.eta,
+    fixedEnabled: fixedEnabled && !instantOnly,
+    /** Instant mode: only Instant Calls are taken (Chat, Voice, Video and Fixed Sessions are off). */
+    instantOnly,
+    /** Wait while they are in a session: what is left of it (their customer balance / the call price). */
+    eta,
     about: a.about,
     photo: a.photo,
     /** The astrologer's own intro video, or null. */
@@ -70,13 +76,16 @@ catalogRouter.get("/astrologers", async (_req, res) => {
     orderBy: { rank: "asc" },
     include: { reviews: visibleReviews },
   });
-  const [free, disabledAstros] = await Promise.all([
+  const [free, disabledAstros, instantAstros] = await Promise.all([
     freeCallOpen(list),
     getSetting<string[]>("fixed_sessions.disabled_astros", []),
+    getSetting<string[]>("instant_mode.astros", []),
   ]);
   const disabledSet = new Set(disabledAstros);
+  const instantSet = new Set(instantAstros);
+  const waits = await waitEtas(list.map((x) => x.id));
   res.json({
-    astrologers: list.map((a) => astrologerView(a, free.has(a.id), !disabledSet.has(a.id))),
+    astrologers: list.map((a) => astrologerView(a, free.has(a.id), !disabledSet.has(a.id), instantSet.has(a.id), waits.get(a.id) ?? null)),
     total: list.length,
   });
 });
@@ -93,12 +102,15 @@ catalogRouter.get("/welcome-offer", async (_req, res) => {
 catalogRouter.get("/astrologers/:slug", async (req, res) => {
   const a = await db.astrologer.findUnique({ where: { slug: req.params.slug }, include: { reviews: visibleReviews } });
   if (!a || a.lifecycle !== "active") throw notFound("No astrologer at this address.");
-  const [free, disabledAstros] = await Promise.all([
+  const [free, disabledAstros, instantAstros] = await Promise.all([
     freeCallOpen([a]),
     getSetting<string[]>("fixed_sessions.disabled_astros", []),
+    getSetting<string[]>("instant_mode.astros", []),
   ]);
   const disabledSet = new Set(disabledAstros);
-  res.json({ astrologer: astrologerView(a, free.has(a.id), !disabledSet.has(a.id)) });
+  const instantSet = new Set(instantAstros);
+  const waits = await waitEtas([a.id]);
+  res.json({ astrologer: astrologerView(a, free.has(a.id), !disabledSet.has(a.id), instantSet.has(a.id), waits.get(a.id) ?? null) });
 });
 
 /** The gift catalogue for an astrologer's profile (live or not), and what the signed-in customer can spend on gifts. */
@@ -240,9 +252,17 @@ catalogRouter.get("/live-rooms/:id", async (req, res) => {
 });
 
 /** "Join live" from the preview: counts the viewer and, the first time this session, posts "<name> joined". */
+/** A customer in a call can't join another call or a live at the same time (one at a time). */
+async function assertNotInCall(auth: { role: string; user: { id: string } }) {
+  if (auth.role === "customer" && (await openConsultationOf(db, auth.user.id))) {
+    throw conflict("You're in a call right now — you can't join this live until it ends.");
+  }
+}
+
 catalogRouter.post("/live-rooms/:id/join", async (req, res) => {
   const auth = requireUser(req);
   const room = await liveRoomOr404(String(req.params.id));
+  await assertNotInCall(auth);
   if (countsAsViewer(req, room)) {
     touchViewer(room.id, viewerKey(req, res));
     await announceJoin(room, auth.user);
@@ -419,6 +439,7 @@ catalogRouter.post("/live-rooms/:id/private/connect", async (req, res) => {
 catalogRouter.get("/live-rooms/:id/media", async (req, res) => {
   const auth = requireUser(req);
   const room = await liveRoomOr404(String(req.params.id));
+  await assertNotInCall(auth);
   if (!countsAsViewer(req, room)) throw forbidden("This live's video is for viewers who joined it.");
   const joined = await db.chatMessage.findFirst({
     where: { roomId: room.id, userId: auth.user.id, kind: "join", createdAt: { gte: room.startedAt } },
@@ -476,8 +497,14 @@ catalogRouter.get("/reviews/featured", async (_req, res) => {
   res.json({ reviews });
 });
 
+/** Limits the admin sets that the apps show (longest session, request window, minimum balance). */
+catalogRouter.get("/consult-limits", (_req, res) => {
+  res.json({ maxSessionSeconds: maxSessionSeconds(), acceptWindowSeconds: incomingWindowSecs(), minBalanceMinutes: eligibilityMinutes(), videoPremium: videoPremium() });
+});
+
 /** Public configuration for Fixed Sessions (durations and discounts customizable by admin). */
 catalogRouter.get("/fixed-session-config", async (_req, res) => {
+  const range = await discountLimits();
   const [d5, d10, d15, d30, d45, d60] = await Promise.all([
     configNumber("fixed_session.discount_5m", 5),
     configNumber("fixed_session.discount_10m", 10),
@@ -490,12 +517,12 @@ catalogRouter.get("/fixed-session-config", async (_req, res) => {
   res.json({
     durations: [5, 10, 15, 30, 45, 60],
     discounts: {
-      5: d5,
-      10: d10,
-      15: d15,
-      30: d30,
-      45: d45,
-      60: d60,
+      5: clampDiscount(d5, range),
+      10: clampDiscount(d10, range),
+      15: clampDiscount(d15, range),
+      30: clampDiscount(d30, range),
+      45: clampDiscount(d45, range),
+      60: clampDiscount(d60, range),
     },
   });
 });

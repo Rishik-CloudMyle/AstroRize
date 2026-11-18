@@ -6,11 +6,13 @@ import { api } from "@/lib/api/client";
 import { useErrorToast, useToast } from "../portal-provider";
 import { Panel } from "../ui";
 
-export default function FixedSessionsCard({ enabled: initialEnabled }: { enabled: boolean }) {
+export default function FixedSessionsCard({ enabled: initialEnabled, locked = false }: { enabled: boolean; locked?: boolean }) {
   const router = useRouter();
   const toast = useToast();
   const showError = useErrorToast();
   const [enabled, setEnabled] = useState(initialEnabled);
+  // Instant mode switches Fixed Sessions off; the lock lifts when it is turned off.
+  const shown = enabled && !locked;
   const [busy, setBusy] = useState(false);
 
   async function toggle() {
@@ -49,23 +51,25 @@ export default function FixedSessionsCard({ enabled: initialEnabled }: { enabled
         <button
           type="button"
           role="switch"
-          aria-checked={enabled}
+          aria-checked={shown}
           aria-label="Offer Fixed Sessions"
           onClick={() => void toggle()}
-          disabled={busy}
+          disabled={busy || locked}
           className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${
-            enabled ? "bg-amber-600 max-lg:bg-app-primary" : "bg-stone-300"
+            shown ? "bg-amber-600 max-lg:bg-app-primary" : "bg-stone-300"
           }`}
         >
           <span
             className={`absolute top-0.5 size-6 rounded-full bg-white shadow transition-[left] ${
-              enabled ? "left-[22px]" : "left-0.5"
+              shown ? "left-[22px]" : "left-0.5"
             }`}
           />
         </button>
       </div>
 
-      {enabled ? (
+      {locked ? (
+        <p className="mt-3 mb-0 rounded-xl bg-blue-50 px-3 py-2.5 text-[12.5px] text-blue-900">Off while Instant mode is on. Turn Instant mode off to use Fixed Sessions again.</p>
+      ) : enabled ? (
         <div className="mt-3 rounded-[14px] border border-amber-200 bg-amber-50/80 px-3.5 py-3 max-lg:rounded-app-btn max-lg:p-3">
           <b className="block text-[13.5px] text-amber-950">Active on your profile</b>
           <span className="text-[12px] text-amber-900/80">

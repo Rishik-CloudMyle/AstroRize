@@ -38,7 +38,7 @@ export default function LiveQueueModal({ request, onClose }: { request: QueueReq
   const [rates, setRates] = useState<Record<LiveMode, number>>(() => ({
     chat: rateFor(host.price, "chat", host.chatPrice),
     voice: rateFor(host.price, "voice"),
-    video: rateFor(host.price, "video"),
+    video: rateFor(host.price, "video", null, host.videoPremium),
   }));
   const quoted = mode ? rates[mode] : 0;
   const [changedFrom, setChangedFrom] = useState<{ mode: LiveMode; rate: number } | null>(null);

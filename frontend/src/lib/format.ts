@@ -47,9 +47,9 @@ export function ratingLabel(a: Astrologer): string {
  * Per-minute rate by mode: chat at the chat price (when given), voice at the base rate, video at
  * the base rate + the ₹12/min video premium.
  */
-export function rateFor(baseRate: number, mode: ConsultMode | null, chatPrice?: number | null): number {
+export function rateFor(baseRate: number, mode: ConsultMode | null, chatPrice?: number | null, videoPremium = 12): number {
   if (mode === "chat" && chatPrice) return chatPrice;
-  return baseRate + (mode === "video" ? 12 : 0);
+  return baseRate + (mode === "video" ? videoPremium : 0);
 }
 
 /** "3× standard" — Instant Call multiplier shown before dialling. */

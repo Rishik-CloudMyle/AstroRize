@@ -47,19 +47,20 @@ export default function ModeOptions({ astrologer: initial }: { astrologer: Astro
     <div className="mt-2.5 grid grid-cols-4 gap-1">
       {MODES.map((m) => {
         const instant = m.key === "instant";
+        const off = blocked || (!!a.instantOnly && !instant);
         return (
           <button
             key={m.key}
             type="button"
-            disabled={blocked}
-            title={blocked ? blockedHint(gate) : undefined}
+            disabled={off}
+            title={a.instantOnly && !instant ? "Instant Calls only right now" : blocked ? blockedHint(gate) : undefined}
             onClick={() => choose(m.key)}
             aria-label={`${m.label} with ${a.name}${blocked ? ` — ${state.toLowerCase()}` : ""}`}
             className={`flex flex-col items-center gap-px rounded-xl py-1.5 transition-colors disabled:cursor-not-allowed ${
-              blocked ? "opacity-60" : instant ? "hover:bg-blue-50" : "hover:bg-amber-50"
+              off ? "opacity-60" : instant ? "hover:bg-blue-50" : "hover:bg-amber-50"
             }`}
           >
-            <ModeIcon mode={m.key} size={18} className={blocked ? "text-stone-400" : instant ? "text-blue-600" : "text-amber-700"} />
+            <ModeIcon mode={m.key} size={18} className={off ? "text-stone-400" : instant ? "text-blue-600" : "text-amber-700"} />
             <b className={`text-[10px] font-bold ${instant && !blocked ? "text-blue-700" : "text-[#3f4f9a]"}`}>{m.label}</b>
             <span className="text-[10px] font-[650]" style={{ color: instant && !blocked ? "#2563eb" : fg }}>
               {instant && !blocked ? "Ready" : state}

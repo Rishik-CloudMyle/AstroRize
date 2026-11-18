@@ -1,16 +1,11 @@
 import AccessDenied from "@/components/admin/access-denied";
-import CallRecordings from "@/components/admin/recording/call-recordings";
-import RetentionForm from "@/components/admin/recording/retention-form";
-import { PageTitle, PANEL } from "@/components/admin/ui";
+import { PANEL } from "@/components/admin/ui";
 import { allowed } from "@/lib/admin/guard";
 import { getRecording } from "@/lib/admin/api";
 import { periodLabel } from "@/lib/admin/view";
 
 export const metadata = { title: "Recording" };
 
-// What is really captured: written chat, and the AUDIO of voice and video consultations (client
-// decision, Nov 2026 — both sides accept a notice first; only a Super Admin can listen). The
-// picture of a video call and public live video are never saved.
 const RECORDED_AUDIO = [
   { mode: "Voice", note: "Voice consultations, Instant Calls and private voice calls from a live are recorded as audio, once both sides have accepted the recording notice." },
   { mode: "Video", note: "Video consultations are recorded as audio only — the picture is never saved." },
@@ -27,14 +22,8 @@ export default async function RecordingPage() {
   if (!(await allowed("recording"))) return <AccessDenied />;
   const data = await getRecording();
   const { stored, retention } = data;
-
   return (
-    <div>
-      <PageTitle
-        title="Recording & retention"
-        sub="What AstroRize keeps from consultations and lives, and for how long. Changes and every listen are recorded in the audit log."
-      />
-
+    <>
       <div className="mt-[18px] flex items-start gap-3 rounded-2xl border border-line bg-cream px-[18px] py-3.5">
         <span className="text-[16px]" aria-hidden="true">
           ⏺
@@ -105,9 +94,6 @@ export default async function RecordingPage() {
         </p>
       </div>
 
-      {data.calls?.canListen && <CallRecordings />}
-
-      <RetentionForm retention={retention} lastPurge={data.lastPurge} />
-    </div>
+    </>
   );
 }

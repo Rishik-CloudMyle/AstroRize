@@ -22,7 +22,7 @@ import type { Campaign, Prisma } from "../generated/prisma/client.ts";
 import { conflict, forbidden, notFound } from "./errors.ts";
 import { istDate, istDateKey, makeRef, rupee } from "./format.ts";
 import { notify, notifyMany } from "./notifications.ts";
-import { configNumber, getSetting } from "./settings.ts";
+import { configNumber, discountLimits, getSetting } from "./settings.ts";
 import { audit } from "./audit.ts";
 
 type Tx = Prisma.TransactionClient;
@@ -41,8 +41,10 @@ export function isLegacy(c: Pick<Campaign, "kind" | "percent" | "flatAmount">): 
 // ── Limits ──
 
 export interface OfferLimits {
-  /** marketing.campaign.max_discount_pct: the most a campaign may advertise. */
+  /** offers.max_discount_pct: the most a campaign may advertise. */
   maxPct: number;
+  /** offers.min_discount_pct: the least a percent offer may be. */
+  minPct: number;
   /** wallet.cashback.floor_pct: share of the price that must stay payable. */
   floorPct: number;
   /** Finance's floor mode: refuse campaigns above the floor, or clamp them when they apply. */
@@ -52,13 +54,13 @@ export interface OfferLimits {
 }
 
 export async function offerLimits(): Promise<OfferLimits> {
-  const [maxPct, floorPct, floorMode, bonusMax] = await Promise.all([
-    configNumber("marketing.campaign.max_discount_pct", 40),
+  const [range, floorPct, floorMode, bonusMax] = await Promise.all([
+    discountLimits(),
     configNumber("wallet.cashback.floor_pct", 80),
     getSetting<"reject" | "adjust">("finance.floorMode", "reject"),
     configNumber("marketing.bonus_credit.max", 200),
   ]);
-  return { maxPct, floorPct: Math.min(100, Math.max(0, floorPct)), floorMode: floorMode === "adjust" ? "adjust" : "reject", bonusMax };
+  return { maxPct: range.max, minPct: range.min, floorPct: Math.min(100, Math.max(0, floorPct)), floorMode: floorMode === "adjust" ? "adjust" : "reject", bonusMax };
 }
 
 /** The most percent the cashback floor lets apply (80% floor → 20%). */
@@ -74,7 +76,7 @@ export function offerProblem(c: Campaign, l: OfferLimits, now = new Date()): str
     if ((c.flatAmount ?? 0) > l.bonusMax) return `${c.id} gives ${rupee(c.flatAmount ?? 0)}, above the ${rupee(l.bonusMax)} limit (marketing.bonus_credit.max).`;
   } else {
     const pct = c.percent ?? 0;
-    if (pct > l.maxPct) return `${c.id} offers ${pct}%, above the ${l.maxPct}% limit (marketing.campaign.max_discount_pct).`;
+    if (pct > l.maxPct) return `${c.id} offers ${pct}%, above the ${l.maxPct}% limit (offers.max_discount_pct).`;
     if (l.floorMode === "reject" && pct > floorCap(l)) {
       return `${c.id} offers ${pct}%, but the ${l.floorPct}% cashback floor allows at most ${floorCap(l)}% (wallet.cashback.floor_pct, floor mode "reject").`;
     }

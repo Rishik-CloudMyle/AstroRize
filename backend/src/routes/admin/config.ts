@@ -4,7 +4,7 @@ import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { istDate } from "../../lib/format.ts";
-import { configNumber } from "../../lib/settings.ts";
+import { clampDiscount, configNumber, discountLimits } from "../../lib/settings.ts";
 import { actorName, requireCapability, requirePage, secondPerson } from "../../lib/rbac.ts";
 
 // Config console: every operational setting, changed by draft → second approver → new version.
@@ -84,10 +84,28 @@ async function keyView(key: string) {
   };
 }
 
+/** Settings replaced by newer ones: kept in the database for history, no longer listed or used. */
+const RETIRED_KEYS = ["welcome.free_call_length_1", "welcome.free_call_length_2", "welcome.free_call_length_3", "marketing.campaign.max_discount_pct"];
+
+/** Rules that tie settings together, so every domain follows the same limits. */
+async function keyRules(key: string, n: number) {
+  if (key === "welcome.free_call_minutes" && n !== 10 && n !== 20) throw badRequest("A free call can be 10 or 20 minutes — nothing else.");
+  if (key.startsWith("fixed_session.discount_") || key.startsWith("offers.")) {
+    const l = await discountLimits();
+    if (key.startsWith("fixed_session.discount_") && n !== 0 && (n < l.min || n > l.max)) {
+      throw badRequest(`Package discounts must stay within the platform offer range, ${l.min}%–${l.max}% (offers.min_discount_pct / offers.max_discount_pct).`);
+    }
+    if (key === "offers.min_discount_pct" && n > l.max) throw badRequest(`The smallest offer can't be above the largest (${l.max}%).`);
+    if (key === "offers.max_discount_pct" && n < l.min) throw badRequest(`The largest offer can't be below the smallest (${l.min}%).`);
+  }
+  if (key === "pricing.min_rate" && n > (await configNumber("pricing.max_rate", 500))) throw badRequest("The lowest price can't be above the highest price.");
+  if (key === "pricing.max_rate" && n < (await configNumber("pricing.min_rate", 5))) throw badRequest("The highest price can't be below the lowest price.");
+}
+
 configRouter.get("/config", async (req, res) => {
   requirePage(req, "config");
   const [keys, open] = await Promise.all([
-    db.configKey.findMany({ orderBy: { rank: "asc" } }),
+    db.configKey.findMany({ where: { key: { notIn: RETIRED_KEYS } }, orderBy: { rank: "asc" } }),
     db.configChange.findMany({ where: { status: "SUBMITTED" }, select: { key: true } }),
   ]);
   // Keys with a change waiting for a second approver (for the "Needs approval first" sort).
@@ -128,6 +146,7 @@ configRouter.post("/config/:key/draft", async (req, res) => {
   const k = await db.configKey.findUnique({ where: { key: String(req.params.key) } });
   if (!k) throw notFound("Unknown config key.");
   const value = normaliseValue(raw, k.bounds);
+  await keyRules(k.key, Number(value));
   if (Number(value) === Number(k.value)) throw badRequest(`${k.value} is already the current value. Enter a different one.`);
   const open = await db.configChange.findFirst({ where: { key: k.key, status: "SUBMITTED" } });
   if (open) throw conflict("A change to this key is already waiting for approval.");
@@ -253,6 +272,7 @@ configRouter.put("/config/fixed-sessions", async (req, res) => {
   for (const [durStr, disc] of Object.entries(discounts)) {
     const dur = Number(durStr);
     if ([5, 10, 15, 30, 45, 60].includes(dur)) {
+      await keyRules(`fixed_session.discount_${dur}m`, disc);
       updates[dur] = disc;
       const key = `fixed_session.discount_${dur}m`;
       await db.configKey.upsert({

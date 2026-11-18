@@ -76,7 +76,7 @@ export default function ContactFlags({ data }: { data: ContactFlagsData }) {
               key={t.key}
               role="tab"
               aria-selected={on}
-              href={t.key === "open" ? "/admin/trust" : `/admin/trust?flags=${t.key}`}
+              href={t.key === "open" ? "/admin/trust/contact-attempts" : `/admin/trust/contact-attempts?flags=${t.key}`}
               scroll={false}
               className={`inline-flex h-8 items-center rounded-full border px-3.5 text-[12.5px] font-bold ${
                 on ? "border-ink bg-ink text-amber-300" : "border-line bg-white text-[#57534e]"

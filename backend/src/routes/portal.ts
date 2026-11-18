@@ -3,10 +3,9 @@ import { assertNotBlocked, blockEndLabel } from "../lib/account-blocks.ts";
 import { z } from "zod";
 import { db } from "../db.ts";
 import { audit } from "../lib/audit.ts";
-import { MAX_SESSION_SECONDS, VIDEO_PREMIUM, chatRate, instantRate } from "../lib/billing.ts";
-import { META, draftValues, metaValues, missingFor, nextApplicantId, submittedOn, wizardValues } from "../lib/application.ts";
+import { incomingWindowSecs, maxSessionSeconds, videoPremium, chatRate, instantRate } from "../lib/billing.ts";
+import { META, draftValues, metaValues, missingFor, nextApplicantId, rateBounds, submittedOn, wizardValues } from "../lib/application.ts";
 import {
-  INCOMING_WINDOW_SECS,
   acceptConsultation,
   billedElapsed,
   endConsultation,
@@ -176,7 +175,7 @@ function legacyValue(a: Astrologer, l: Pick<EarningsLine, "kind" | "minutes" | "
   const rate =
     rates.get(l.sessionRef) ??
     (l.kind === "video"
-      ? a.price + VIDEO_PREMIUM
+      ? a.price + videoPremium()
       : l.kind === "emergency"
         ? instantRate(a.price, a.instantMultiplier)
         : l.kind === "chat"
@@ -213,7 +212,7 @@ portalRouter.get("/dashboard", async (req, res) => {
   const now = new Date();
   const todayKey = istDateKey(now);
   const since = new Date(now.getTime() - 10 * 86400000);
-  const [lines, slots, room, training, reviews, maxMultiplier, disabledAstros] = await Promise.all([
+  const [lines, slots, room, training, reviews, maxMultiplier, disabledAstros, instantAstros] = await Promise.all([
     db.earningsLine.findMany({ where: { astrologerId: a.id, date: { gte: since } } }),
     db.availabilitySlot.findMany({ where: { astrologerId: a.id, date: new Date(todayKey + "T00:00:00Z"), state: { not: "CANCELLED" } }, orderBy: { start: "asc" }, include: { customer: true } }),
     db.liveRoom.findUnique({ where: { astrologerId: a.id } }),
@@ -221,6 +220,7 @@ portalRouter.get("/dashboard", async (req, res) => {
     db.review.findMany({ where: { astrologerId: a.id, status: "VISIBLE" }, orderBy: { createdAt: "desc" }, take: 2 }),
     configNumber("consult.emergency.max_multiplier", 4),
     getSetting<string[]>("fixed_sessions.disabled_astros", []),
+    getSetting<string[]>("instant_mode.astros", []),
   ]);
 
   // Earnings per day for the last 10 days (bar heights are a % of the best day).
@@ -275,7 +275,9 @@ portalRouter.get("/dashboard", async (req, res) => {
       /** Welcome campaign: taking part, capacity per day or week, and how many are left. */
       freeCalls: await freeCallsView(a),
       /** Whether Fixed Sessions are offered on this astrologer's profile. */
-      fixedSessionsEnabled: !new Set(disabledAstros).has(a.id),
+      fixedSessionsEnabled: !new Set(disabledAstros).has(a.id) && !instantAstros.includes(a.id),
+      /** Instant mode: only Instant Calls are taken; Chat, Voice, Video and Fixed Sessions are off. */
+      instantMode: instantAstros.includes(a.id),
       /** The astrologer's own per-minute price and the rules for changing it. */
       pricing: priceView(a, await pricingPolicy(), now, await priceRequestState(a.id)),
       /** The intro video on the public profile (managed on the Profile page), or null. */
@@ -284,12 +286,27 @@ portalRouter.get("/dashboard", async (req, res) => {
   });
 });
 
+/** Instant mode: on = only Instant Calls; Chat, Voice, Video and Fixed Sessions are switched off for customers. */
+portalRouter.patch("/instant-mode", async (req, res) => {
+  const a = await me(req);
+  const { enabled } = z.object({ enabled: z.boolean({ error: "Choose on or off." }) }).parse(req.body);
+  const set = new Set(await getSetting<string[]>("instant_mode.astros", []));
+  if (enabled) set.add(a.id);
+  else set.delete(a.id);
+  await putSetting("instant_mode.astros", [...set]);
+  await audit(req.auth ?? null, "astrologer.instant_mode.update", a.id, `Instant mode ${enabled ? "on — Chat, Voice, Video and Fixed Sessions off" : "off"} · by the astrologer`);
+  res.json({ instantMode: enabled });
+});
+
 /**
  * Fixed Sessions toggle: the astrologer can enable or disable offering Fixed Sessions on their profile.
  */
 portalRouter.patch("/fixed-sessions", async (req, res) => {
   const a = await me(req);
   const { enabled } = z.object({ enabled: z.boolean({ error: "Choose on or off." }) }).parse(req.body);
+  if (enabled && (await getSetting<string[]>("instant_mode.astros", [])).includes(a.id)) {
+    throw badRequest("Turn Instant mode off first — Fixed Sessions are off while it is on.");
+  }
   const disabled = await getSetting<string[]>("fixed_sessions.disabled_astros", []);
   const set = new Set(disabled);
   if (enabled) {
@@ -458,7 +475,7 @@ async function applicationContext(a: Astrologer) {
   const known = { phone: user?.phone ?? null, email: user?.email ?? null };
   // "docs" is only editable when it's an application this portal sent (HR waits for the update).
   const editable = a.lifecycle === "draft" || (a.lifecycle === "docs" && applicant !== null);
-  return { draft, values, known, editable, missing: missingFor(values, a, known, a.about.trim().length > 0 || pendingBio > 0) };
+  return { draft, values, known, editable, missing: missingFor(values, a, known, a.about.trim().length > 0 || pendingBio > 0, await rateBounds()) };
 }
 
 portalRouter.get("/application", async (req, res) => {
@@ -477,7 +494,7 @@ portalRouter.get("/application", async (req, res) => {
         years: a.years,
         skills: a.skills,
         price: a.price,
-        videoRate: a.price + VIDEO_PREMIUM,
+        videoRate: a.price + videoPremium(),
       },
       // What still stops it going to HR (empty = ready), and where it stands once sent.
       missing,
@@ -705,7 +722,7 @@ portalRouter.get("/consultations", async (req, res) => {
       elapsedSeconds: secs,
       // Two minutes or less of what the balance pays for (not the 15-minute cap; a free call's
       // paid part is capped on its own, after the free time).
-      lowBalance: !!active.billingStartedAt && cap - (free ? active.complimentarySeconds : 0) < MAX_SESSION_SECONDS && cap - secs <= 120,
+      lowBalance: !!active.billingStartedAt && cap - (free ? active.complimentarySeconds : 0) < maxSessionSeconds() && cap - secs <= 120,
       /** Billing starts only once both sides have really joined. */
       ...joinView(active, joinTimeout),
       hasWallet: !!wallet,
@@ -721,8 +738,8 @@ portalRouter.get("/consultations", async (req, res) => {
             mode: modeLabel(first),
             instant: first.kind === "INSTANT",
             free: first.billingMode === COMPLIMENTARY,
-            windowSecs: INCOMING_WINDOW_SECS,
-            remainingSecs: Math.max(0, INCOMING_WINDOW_SECS - Math.floor((now.getTime() - (first.offeredAt ?? now).getTime()) / 1000)),
+            windowSecs: incomingWindowSecs(),
+            remainingSecs: Math.max(0, incomingWindowSecs() - Math.floor((now.getTime() - (first.offeredAt ?? now).getTime()) / 1000)),
             rate: first.rate,
             profile: first.customer ? consultSummary(first.customer) : null,
           }
@@ -814,8 +831,8 @@ portalRouter.get("/incoming", async (req, res) => {
       chatNotice: hasChatNotice(head),
       ...freeOf(head),
       rate: head.rate,
-      secondsLeft: Math.max(0, INCOMING_WINDOW_SECS - Math.floor((now - head.offeredAt.getTime()) / 1000)),
-      windowSecs: INCOMING_WINDOW_SECS,
+      secondsLeft: Math.max(0, incomingWindowSecs() - Math.floor((now - head.offeredAt.getTime()) / 1000)),
+      windowSecs: incomingWindowSecs(),
     };
   } else if (liveHead && !open) {
     const queued = liveHead.consultationId

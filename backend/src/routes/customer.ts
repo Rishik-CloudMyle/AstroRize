@@ -5,9 +5,9 @@ import { config } from "../config.ts";
 import { db } from "../db.ts";
 import { HttpError, badRequest, conflict, notFound } from "../lib/errors.ts";
 import {
-  ELIGIBILITY_MINUTES,
+  eligibilityMinutes,
   GST_RATE,
-  MAX_SESSION_SECONDS,
+  maxSessionSeconds,
   affordableSeconds,
   instantRate,
   rateFor,
@@ -73,7 +73,7 @@ import { cashbackQuotes, discountQuote, discountedRate } from "../lib/campaigns.
 import { NOT_CONNECTED, createRecharge, customAmountPolicy, paymentReceipt, paymentRefsFor, paymentResult, reconcile, settle, type Settled } from "../lib/payments.ts";
 import { RazorpayError, checkoutSignatureValid, fetchPayment, razorpayConfigured } from "../lib/razorpay.ts";
 import { astrologerView } from "./catalog.ts";
-import { configNumber } from "../lib/settings.ts";
+import { clampDiscount, configNumber, discountLimits, getSetting } from "../lib/settings.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
 import { accountStatus, deactivateAccount, deleteAccount } from "../lib/account.ts";
 import { verifyPassword } from "../lib/password.ts";
@@ -390,7 +390,7 @@ async function consultationView(c: Consultation & { astrologer: Astrologer }) {
     /** A free replacement call offered on a complaint (instead of a refund). */
     makeGood: c.billingMode === MAKE_GOOD,
     /** When to remind the customer, before the free time ends, to add money to continue. */
-    reminderSeconds: startsFree(c) ? policy.reminderSeconds : 0,
+    reminderSeconds: startsFree(c) || c.kind === "FIXED" ? policy.reminderSeconds : 0,
     maxSeconds: sessionCapSeconds(c, standardFree),
     endReason: c.endReason,
     settlement: c.status === "ENDED" ? settlementView(c) : null,
@@ -446,6 +446,9 @@ customerRouter.post("/consultations", async (req, res) => {
     })
     .parse(req.body);
 
+  if ((await getSetting<string[]>("instant_mode.astros", [])).includes(astrologerId)) {
+    throw badRequest("This astrologer is taking Instant Calls only right now. Please choose Instant Call.");
+  }
   if (fixedMinutes && (welcome || makeGoodCreditId)) {
     throw badRequest("Fixed Session cannot be combined with free minutes or replacement calls.");
   }
@@ -464,7 +467,7 @@ customerRouter.post("/consultations", async (req, res) => {
   const offer = !fixedMinutes && !welcome && !makeGoodCreditId ? await discountQuote(me.user.id) : null;
 
   if (fixedMinutes) {
-    fixedDisc = await configNumber(`fixed_session.discount_${fixedMinutes}m`, 10);
+    fixedDisc = clampDiscount(await configNumber(`fixed_session.discount_${fixedMinutes}m`, 10), await discountLimits());
     const original = listRate * fixedMinutes;
     const after = Math.trunc((original * (100 - fixedDisc)) / 100);
     const floor = Math.trunc((original * 50) / 100);
@@ -481,7 +484,7 @@ customerRouter.post("/consultations", async (req, res) => {
         ? `Your offer no longer applies (used or expired). The rate is ${rupee(rate)}/min. Continue at ${rupee(rate)}/min?`
         : undefined);
   }
-  const needed = fixedMinutes ? packagePrice : rate * ELIGIBILITY_MINUTES;
+  const needed = fixedMinutes ? packagePrice : rate * eligibilityMinutes();
   const policy = welcome ? await welcomePolicy() : null;
   await walletOf(me.user.id);
   const ref = await newRef();
@@ -700,7 +703,7 @@ customerRouter.post("/instant-calls", async (req, res) => {
   const astrologer = await availableAstrologer(astrologerId);
   const rate = instantRate(astrologer.price, astrologer.instantMultiplier);
   if (quotedRate !== undefined && quotedRate !== rate) return rateChanged(res, quotedRate, rate);
-  const needed = rate * ELIGIBILITY_MINUTES;
+  const needed = rate * eligibilityMinutes();
   await walletOf(me.user.id);
   const ref = await newRef();
 

@@ -413,7 +413,7 @@ export default function ConsultJourney({
         freeSeconds: res.freeSeconds,
         maxSeconds: res.maxSeconds,
         complimentary: !!c.complimentary,
-        reminderSeconds: c.complimentary ? (welcome?.reminderSeconds ?? 120) : 0,
+        reminderSeconds: c.complimentary || fixedSession ? (welcome?.reminderSeconds ?? 120) : 0,
       });
       setConnectStep(3);
       void consultationActions.refresh();
@@ -764,7 +764,7 @@ export default function ConsultJourney({
           }
           clock={clock(elapsed)}
           chips={<MeterChips m={m} instant={instant} />}
-          alerts={flags.freeReminder || flags.lowBalance ? <MeterAlerts m={m} onAddMoney={() => setRecharging(true)} /> : null}
+          alerts={flags.freeReminder || flags.fixedReminder || flags.lowBalance ? <MeterAlerts m={m} onAddMoney={() => setRecharging(true)} /> : null}
           ending={ending}
           onEnd={() => void finish()}
           onMinimise={() => {

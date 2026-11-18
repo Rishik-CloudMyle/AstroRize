@@ -10,6 +10,7 @@ import { rateLimit } from "../lib/safety.ts";
 import { DESCRIBE_SELECT, scrubSessionRefs, sessionInline, sessionLabel } from "../lib/session-label.ts";
 import { configNumber } from "../lib/settings.ts";
 import { staffCustomerReplied, staffNewIssue } from "../lib/staff-notifications.ts";
+import { ticketPath } from "../lib/ticket-flow.ts";
 import {
   CATEGORIES,
   CATEGORY_KEYS,
@@ -406,12 +407,12 @@ async function myTicket(userId: string, id: string) {
 supportRequestsRouter.get("/support/issues/:id", async (req, res) => {
   const auth = requireRole(req, "customer");
   const t = await myTicket(auth.user.id, String(req.params.id));
-  const [timeline, session, payment] = await Promise.all([
+  const [timeline, session, payment, path] = await Promise.all([
     customerTimeline(t),
     hasSession(t) ? db.consultation.findFirst({ where: { ref: t.sessionRef, customerId: auth.user.id }, select: DESCRIBE_SELECT }) : null,
     t.paymentId ? db.payment.findFirst({ where: { id: t.paymentId, userId: auth.user.id }, select: { amount: true, status: true, createdAt: true } }) : null,
     db.supportTicket.update({ where: { id: t.id }, data: { customerReadAt: new Date() } }),
-  ]);
+  ]).then(async ([a, b, c, d]) => [a, b, c, await ticketPath(d)] as const);
   // Older subjects and messages may carry a session reference: the customer is shown the consultation in words.
   const texts = await scrubSessionRefs(auth.user.id, [(t.description ? t.subject : t.subject.split(" — ")[0]) ?? t.subject, ...timeline.map((m) => m.text)]);
   res.json({
@@ -425,6 +426,8 @@ supportRequestsRouter.get("/support/issues/:id", async (req, res) => {
       status: customerStatus(t),
       assignedTeam: t.assignedTeam,
       teamLabel: customerTeam(t.assignedTeam),
+      // The teams this issue really goes through (team names only), so the flow follows the issue.
+      path: path.map((p) => ({ key: p.key, label: customerTeam(p.key), status: p.status })),
       // Never a staff member's name: the customer only learns that the team proposed / approved.
       proposedBy: t.proposedBy ? "our team" : null,
       approvedBy: t.approvedBy ? "our team" : null,

@@ -139,6 +139,7 @@ export interface Dashboard {
   freeCalls: FreeCalls;
   /** Whether Fixed Sessions are offered on your profile (opt-in / opt-out) */
   fixedSessionsEnabled?: boolean;
+  instantMode?: boolean;
   /** Your own per-minute price and the rules for changing it */
   pricing: Pricing;
   /** Intro video on your public profile, or null */

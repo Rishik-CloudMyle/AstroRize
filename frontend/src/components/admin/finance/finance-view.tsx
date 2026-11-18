@@ -34,7 +34,7 @@ function KindChip({ kind }: { kind: BatchKind }) {
 /** The cycle without the kind prefix the chip already shows. */
 const cycleText = (b: PayoutBatch) => b.cycle.replace(/^(Earnings|Free-call compensation) · /, "");
 
-export default function FinanceView({ data }: { data: FinanceData }) {
+export default function FinanceView({ data, part = "all" }: { data: FinanceData; part?: "payouts" | "recharge" | "all" }) {
   const { session, say } = useAdmin();
   const { run, busy } = useAction();
   const [sort, setSort] = useUrlSort(BATCH_SORTS);
@@ -95,6 +95,7 @@ export default function FinanceView({ data }: { data: FinanceData }) {
 
   return (
     <>
+      {part !== "recharge" && (
       <div className={`${PANEL} relative mt-4 p-5`}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -248,7 +249,9 @@ export default function FinanceView({ data }: { data: FinanceData }) {
           still in their payout hold are left for a later batch.
         </p>
       </div>
+      )}
 
+      {part !== "payouts" && (
       <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] items-start gap-4">
         <div className={`${PANEL} p-5`}>
           <h2 className="mt-0 mb-1 text-[16px] font-bold">Recharge denominations</h2>
@@ -314,6 +317,7 @@ export default function FinanceView({ data }: { data: FinanceData }) {
           </p>
         </div>
       </div>
+      )}
     </>
   );
 }

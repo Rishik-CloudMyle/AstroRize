@@ -1,5 +1,6 @@
 import type { Astrologer, Prisma } from "../generated/prisma/client.ts";
 import { istDate, rupee } from "./format.ts";
+import { configNumber } from "./settings.ts";
 
 // An astrologer's own application: the portal wizard's saved answers (ApplicationDraft.values,
 // keyed "step-field" exactly as frontend/src/lib/portal/application-steps.ts lays the steps out),
@@ -9,8 +10,11 @@ import { istDate, rupee } from "./format.ts";
  * Sanity limits for a per-minute rate (whole rupees), both for what the astrologer requests in
  * the wizard and for the rate HR sets on approval. No config key exists for these yet.
  */
-export const RATE_MIN = 1;
-export const RATE_MAX = 1000;
+/** The per-minute price range the admin allows (Config pricing.min_rate / pricing.max_rate) — the same everywhere. */
+export async function rateBounds(): Promise<{ min: number; max: number }> {
+  const [min, max] = await Promise.all([configNumber("pricing.min_rate", 5), configNumber("pricing.max_rate", 500)]);
+  return { min, max };
+}
 
 /** HR's applicant stage → the astrologer's lifecycle (what the portal banner shows). */
 export const STAGE_LIFECYCLE: Record<string, string> = {
@@ -100,7 +104,9 @@ export interface Missing {
 }
 
 /** Everything still missing or invalid before the application can go to HR (empty = ready). */
-export function missingFor(values: DraftValues, a: Astrologer, known: Known, hasBio: boolean): Missing[] {
+export function missingFor(values: DraftValues, a: Astrologer, known: Known, hasBio: boolean, bounds: { min: number; max: number }): Missing[] {
+  const RATE_MIN = bounds.min;
+  const RATE_MAX = bounds.max;
   const v = (key: string) => answer(values, a, known, key);
   const out: Missing[] = [];
   const need = (ok: boolean, step: number, label: string) => {

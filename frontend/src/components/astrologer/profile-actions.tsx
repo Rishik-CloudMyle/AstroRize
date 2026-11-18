@@ -138,7 +138,8 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
           <ul aria-label="Ways to consult" className="flex flex-col gap-1.5">
             {OPTIONS.map((o) => {
               const instant = o.key === "instant";
-              const rate = o.key === "instant" ? a.instant : rateFor(a.price, o.key, a.chatPrice);
+              const off = blocked || (!!a.instantOnly && !instant);
+              const rate = o.key === "instant" ? a.instant : rateFor(a.price, o.key, a.chatPrice, a.videoPremium);
               // Could be free (the customer picks free or paid in the sheet); the paid rate is shown either way.
               // Free minutes cover the modes the API allows (Chat and Voice); a free replacement call is Chat, Voice or Video.
               const free = freeOption && !blocked && o.key !== "instant" && (!!makeGood || !!welcome?.modes.includes(o.key));
@@ -147,22 +148,22 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
                 <li key={o.key}>
                   <button
                     type="button"
-                    disabled={blocked}
-                    title={disabledTitle}
+                    disabled={off}
+                    title={a.instantOnly && !instant ? "Instant Calls only right now" : disabledTitle}
                     onClick={() => choose(o.key)}
                     className={`flex min-h-[48px] w-full items-center gap-2.5 rounded-xl border px-3 py-2 text-left disabled:cursor-not-allowed ${
-                      blocked
+                      off
                         ? "border-line bg-white/60"
                         : instant
                           ? "border-blue-200 bg-blue-50 hover:border-blue-400"
                           : "border-line bg-white hover:border-amber-300"
                     }`}
                   >
-                    <ModeIcon mode={o.key} size={20} className={blocked ? "text-stone-400" : instant ? "text-blue-600" : "text-amber-700"} />
+                    <ModeIcon mode={o.key} size={20} className={off ? "text-stone-400" : instant ? "text-blue-600" : "text-amber-700"} />
                     <span className="min-w-0 flex-1">
-                      <b className={`block text-[13.5px] font-bold ${blocked ? "text-stone-500" : instant ? "text-blue-800" : "text-ink"}`}>{o.title}</b>
+                      <b className={`block text-[13.5px] font-bold ${off ? "text-stone-500" : instant ? "text-blue-800" : "text-ink"}`}>{o.title}</b>
                       <span className={`block text-[11.5px] leading-snug ${unavailable ? "font-semibold text-rose-700" : "text-stone-500"}`}>
-                        {unavailable ??
+                        {(a.instantOnly && !instant ? "Off — Instant Calls only right now" : null) ?? unavailable ??
                           (instant
                             ? multiplierLabel(a)
                             : free
@@ -175,7 +176,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
                       </span>
                     </span>
                     <b
-                      className={`shrink-0 text-[13.5px] tabular-nums ${blocked ? "text-stone-400" : pct ? "text-emerald-700" : instant ? "text-blue-700" : "text-plum"}`}
+                      className={`shrink-0 text-[13.5px] tabular-nums ${off ? "text-stone-400" : pct ? "text-emerald-700" : instant ? "text-blue-700" : "text-plum"}`}
                     >
                       {`${rupee(pct ? discountedRate(rate, pct) : rate)}/min`}
                     </b>

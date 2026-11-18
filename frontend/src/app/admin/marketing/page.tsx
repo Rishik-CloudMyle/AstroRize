@@ -1,24 +1,16 @@
 import AccessDenied from "@/components/admin/access-denied";
 import CampaignsTable from "@/components/admin/marketing/campaigns-table";
-import CopyCheck from "@/components/admin/marketing/copy-check";
-import { PageTitle, PANEL } from "@/components/admin/ui";
+import { PANEL } from "@/components/admin/ui";
 import { allowed } from "@/lib/admin/guard";
 import { getMarketing } from "@/lib/admin/api";
 
-export const metadata = { title: "Marketing" };
-
+export const metadata = { title: "Marketing · Campaigns" };
 
 export default async function MarketingPage() {
   if (!(await allowed("marketing"))) return <AccessDenied />;
   const data = await getMarketing();
-
   return (
-    <div>
-      <PageTitle
-        title="Marketing"
-        sub="Campaign offers customers claim, the gift catalogue and a copy check. Approval and activation are done by an Admin, not by Marketing."
-      />
-
+    <>
       <div className="relative mt-[18px] flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-[18px] py-3.5">
         <span className="text-[16px]">🔒</span>
         <div className="flex-1">
@@ -68,37 +60,6 @@ export default async function MarketingPage() {
         <CampaignsTable campaigns={data.campaigns} limits={data} />
       </div>
 
-      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] items-start gap-4">
-        <div className={`${PANEL} p-5`}>
-          <h2 className="mt-0 mb-1 text-[16px] font-bold">Gift catalogue</h2>
-          <p className="mt-0 mb-3.5 text-[12px] text-[#78716c]">
-            The gifts customers can send in live rooms. A gift priced at the {data.giftCap} cap shows AT CAP.
-          </p>
-          <div className="flex flex-col gap-[7px]">
-            {data.gifts.map((g) => (
-              <div
-                key={g.id}
-                className="flex items-center gap-[11px] rounded-xl border px-3 py-2.5"
-                style={{ background: g.bg, borderColor: g.border }}
-              >
-                <span className="grid h-8 w-8 flex-[0_0_32px] place-items-center rounded-[10px] bg-amber-50 text-[14px] text-amber-800">
-                  {g.icon}
-                </span>
-                <b className="min-w-0 flex-1 text-[13.5px] text-ink">{g.name}</b>
-                <span className="text-[13px] font-bold text-ink tabular-nums">{g.price}</span>
-                <span
-                  className="inline-flex h-[21px] items-center rounded-full px-2 text-[9.5px] font-extrabold"
-                  style={{ background: g.tagBg, color: g.tagFg }}
-                >
-                  {g.state}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <CopyCheck />
-      </div>
-    </div>
+    </>
   );
 }

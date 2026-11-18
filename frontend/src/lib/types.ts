@@ -38,12 +38,16 @@ export interface Astrologer {
   was: number | null;
   /** Instant Call per-minute rate */
   instant: number;
+  /** Extra ₹/min a Video call costs over Voice (set by the admin) */
+  videoPremium?: number;
   /** Instant Call rate = price × this multiplier */
   instantMultiplier: number;
   /** A welcome free call can be taken with them right now (taking part, available, today's quota not used up) */
   freeCall: boolean;
   /** Whether the astrologer offers Fixed Sessions (defaults to true unless switched off) */
   fixedEnabled?: boolean;
+  /** Instant mode: only Instant Calls (Chat, Voice, Video, Fixed Sessions are off). */
+  instantOnly?: boolean;
   /** Wait estimate as a range, e.g. "~6–12 min" */
   eta: string | null;
   about: string;

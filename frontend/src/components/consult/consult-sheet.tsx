@@ -32,7 +32,7 @@ export type PayChoice = "free" | "paid";
  */
 export function quotedRateFor(a: Astrologer, choice: ConsultChoice, discountPct = 0): number {
   if (choice === "instant") return a.instant;
-  const rate = rateFor(a.price, choice, a.chatPrice);
+  const rate = rateFor(a.price, choice, a.chatPrice, a.videoPremium);
   return discountPct > 0 ? discountedRate(rate, discountPct) : rate;
 }
 
@@ -241,7 +241,8 @@ export default function ConsultSheet({
                 const rowFree = isFree(row.key);
                 // Free minutes don't cover this one (Video, Instant Call): pick "Paid call" to use it.
                 const notFree = payFree && !canBeFree(row.key);
-                const disabled = state !== "on" || notFree;
+                const lockedOut = !!a.instantOnly && !instant;
+                const disabled = state !== "on" || notFree || lockedOut;
                 return (
                   <button
                     key={row.key}
@@ -276,7 +277,9 @@ export default function ConsultSheet({
                         {row.title}
                       </b>
                       <span className={`mt-0.5 block text-[12.5px] leading-snug ${notFree ? "text-stone-500" : disabled ? "font-semibold text-rose-700" : "text-stone-500"}`}>
-                        {notFree
+                        {lockedOut
+                          ? "Off — this astrologer takes Instant Calls only right now"
+                          : notFree
                           ? `Not with free minutes — choose “Paid call” for ${row.title}`
                           : disabled
                             ? `In consultation${a.eta ? ` · wait ${a.eta}` : ""}`
@@ -671,7 +674,7 @@ function PayChooser({
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10.5px] font-extrabold text-emerald-800 uppercase">
                   Weekly Free Minutes
                 </span>
-                <b className="mt-1 block text-[13.5px] text-ink">10 or 30 Min Free Call</b>
+                <b className="mt-1 block text-[13.5px] text-ink">{welcome.lengths[0]?.minutes ?? 10} Min Free Call</b>
                 <span className="text-[11.5px] text-stone-500">
                   {welcome.weekly.remaining} of {welcome.weekly.total} min left this week · resets {resetWeekday(welcome.weekly.resetsAt)}
                 </span>
