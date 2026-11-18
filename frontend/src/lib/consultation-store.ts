@@ -25,6 +25,8 @@ export interface ConsultationView extends JoinState {
   /** The price before a claimed offer's discount (null = none), and the percent off */
   listRate?: number | null;
   discountPct?: number;
+  /** A Fixed Session's length in minutes (null/absent for any other consultation) */
+  fixedMinutes?: number | null;
   /** Balance held for the session (₹); 0 until it connects */
   held: number;
   astrologer: Astrologer;

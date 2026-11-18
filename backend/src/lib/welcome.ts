@@ -24,6 +24,15 @@ import { configNumber } from "./settings.ts";
  */
 export const WELCOME_MODES = ["CHAT", "VOICE"] as const;
 
+/** Minutes of the 1-time welcome call (Config welcome.joining_bonus_minutes). Never 10 or 20: those are the weekly lengths. */
+export async function oneTimeMinutes(client: Tx | typeof db = db): Promise<number> {
+  // Read through the caller's own connection: inside a transaction a second connection would wait on it.
+  const row = await client.configKey.findUnique({ where: { key: "welcome.joining_bonus_minutes" }, select: { value: true } });
+  const raw = row ? Number(row.value) : NaN;
+  const n = Math.floor(Number.isFinite(raw) ? raw : 5);
+  return n >= 1 && n <= 30 && n !== 10 && n !== 20 ? n : 5;
+}
+
 /** The periods an astrologer's free-call capacity counts over (IST day, Mon–Sun week). */
 export type CapacityPeriod = "DAY" | "WEEK";
 /** IST calendar periods: the customer's free minutes count per WEEK (Mon–Sun). */
@@ -31,7 +40,7 @@ type Period = CapacityPeriod;
 
 /** Policy, from the Config console (Admin-approved changes, versioned there). */
 export async function welcomePolicy() {
-  const [enabled, weekly, lenCfg, reminder, dailyLimit, minMeaningful, maxRestores, maxPerWeek] = await Promise.all([
+  const [enabled, weekly, lenCfg, reminder, dailyLimit, minMeaningful, maxRestores, maxPerWeek, choose, oneTime] = await Promise.all([
     configNumber("welcome.enabled", 1),
     configNumber("welcome.weekly_free_minutes", 30),
     configNumber("welcome.free_call_minutes", 10),
@@ -40,15 +49,21 @@ export async function welcomePolicy() {
     configNumber("welcome.min_meaningful_seconds", 30),
     configNumber("welcome.max_fault_restores", 2),
     configNumber("welcome.astrologer_max_per_week", 50),
+    configNumber("welcome.choose_length", 0),
+    configNumber("welcome.onetime_enabled", 1),
   ]);
+  const oneMin = await oneTimeMinutes();
   // One length, set by the admin (10 or 20 min): customers do not choose it.
-  const weeklyLengths = [lenCfg === 20 ? 20 : 10];
+  // The admin may let customers pick between 10 and 20 min (welcome.choose_length); otherwise it is one length.
+  const weeklyLengths = choose === 1 ? [10, 20] : [lenCfg === 20 ? 20 : 10];
   return {
     enabled: enabled === 1,
     /** Free minutes each customer (mobile number) gets per Mon–Sun week (IST). */
     weeklyMinutes: Math.max(0, Math.floor(weekly)),
     /** Separate 1-time 5 min call per phone number (1-time usage only). */
-    joiningBonusMinutes: 5,
+    joiningBonusMinutes: oneMin,
+    /** The 1-time 5 min welcome call is on for every host (Config welcome.onetime_enabled). */
+    oneTimeEnabled: oneTime === 1,
     /** Lengths a free minutes call can be (minutes), only 10 and 30 min. */
     lengths: weeklyLengths,
     reminderSeconds: reminder,
@@ -163,16 +178,16 @@ export async function weeklyMinutesOf(client: Tx | typeof db, key: string, polic
  * Status of the separate 1-time 5-min call per phone number (identityKey).
  * 1-time usage only: once redeemed in a call that connected, it cannot be used again.
  */
-export async function oneTimeStatusOf(client: Tx | typeof db, key: string) {
+export async function oneTimeStatusOf(client: Tx | typeof db, key: string, length = 5) {
   const use = await client.freeCallUse.findFirst({
-    where: { identityKey: key, restoredAt: null, OR: [{ bonusMinutes: { gte: 5 } }, { minutes: 5 }] },
+    where: { identityKey: key, restoredAt: null, OR: [{ bonusMinutes: { gt: 0 } }, { minutes: 5 }] },
     select: { id: true, usedAt: true },
   });
   const redeemed = !!use;
   return {
-    total: 5,
-    used: redeemed ? 5 : 0,
-    remaining: redeemed ? 0 : 5,
+    total: length,
+    used: redeemed ? length : 0,
+    remaining: redeemed ? 0 : length,
     available: !redeemed,
     redeemed,
   };
@@ -202,13 +217,14 @@ export async function welcomeAvailability(
   if (!b || !ELIGIBLE.includes(b.status)) return none;
 
   // Separate 1-time 5 min call per phone number (once redeemed cannot be used again)
-  if (minutes === 5) {
-    const oneTime = await oneTimeStatusOf(tx, b.identityKey);
+  if (minutes === policy.joiningBonusMinutes) {
+    if (!policy.oneTimeEnabled) return { ok: false, code: "WEL_NOT_AVAILABLE", message: `The ${minutes}-minute free call isn't available right now. You can still consult at the normal rate.` };
+    const oneTime = await oneTimeStatusOf(tx, b.identityKey, minutes);
     if (oneTime.redeemed) {
       return {
         ok: false,
         code: "WEL_ONETIME_REDEEMED",
-        message: "The 1-time 5 min free call has already been redeemed for this phone number.",
+        message: `The 1-time ${minutes} min free call has already been redeemed for this phone number.`,
       };
     }
     return { ok: true, id: b.id };
@@ -402,10 +418,10 @@ export async function consumeWelcome(tx: Tx | typeof db, consultationId: string,
   if (!c) return;
   const minutes = Math.ceil(c.complimentarySeconds / 60);
 
-  if (minutes === 5) {
-    // One-time 5 min call redeemed (per phone number)
+  if (minutes === (await oneTimeMinutes(tx))) {
+    // The 1-time welcome call redeemed (per phone number)
     await tx.freeCallUse.createMany({
-      data: [{ identityKey: b.identityKey, consultationId, astrologerId: c.astrologerId, usedAt: at, minutes: 5, bonusMinutes: 5 }],
+      data: [{ identityKey: b.identityKey, consultationId, astrologerId: c.astrologerId, usedAt: at, minutes, bonusMinutes: minutes }],
       skipDuplicates: true,
     });
   } else {
@@ -463,10 +479,10 @@ export async function welcomeView(userId: string) {
   const eligible = ELIGIBLE.includes(b.status);
   const [week, oneTime] = await Promise.all([
     weeklyMinutesOf(db, b.identityKey, policy),
-    oneTimeStatusOf(db, b.identityKey),
+    oneTimeStatusOf(db, b.identityKey, policy.joiningBonusMinutes),
   ]);
   const weekLeft = eligible ? week.remaining : 0;
-  const oneTimeAvailable = policy.enabled && eligible && oneTime.available;
+  const oneTimeAvailable = policy.enabled && policy.oneTimeEnabled && eligible && oneTime.available;
   const fits = lengthsThatFit(policy, weekLeft);
   const hasFree = oneTimeAvailable || fits.length > 0;
   const status = b.status === "RESERVED" ? "reserved" : b.status === "REVOKED" ? "revoked" : hasFree ? "granted" : "consumed";
@@ -480,7 +496,7 @@ export async function welcomeView(userId: string) {
     modes: WELCOME_MODES.map((m) => m.toLowerCase()),
     /** The separate 1-time 5 min call per phone number (once redeemed cannot be used again). */
     oneTime: {
-      total: 5,
+      total: oneTime.total,
       used: oneTime.used,
       remaining: eligible ? oneTime.remaining : 0,
       available: oneTimeAvailable,
@@ -496,7 +512,7 @@ export async function welcomeView(userId: string) {
     },
     /** For backwards compatibility */
     joining: {
-      total: 5,
+      total: oneTime.total,
       used: oneTime.used,
       remaining: eligible ? oneTime.remaining : 0,
     },

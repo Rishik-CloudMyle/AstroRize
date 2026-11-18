@@ -1,3 +1,4 @@
+import { packageDiscount } from "../lib/fixed-packages.ts";
 import express, { Router, type NextFunction, type Request, type Response } from "express";
 import { assertNotBlocked } from "../lib/account-blocks.ts";
 import { z } from "zod";
@@ -363,6 +364,8 @@ async function consultationView(c: Consultation & { astrologer: Astrologer }) {
     id: c.id,
     status: c.status.toLowerCase(),
     kind: c.kind === "INSTANT" ? "instant" : "standard",
+    /** A Fixed Session's length in minutes (null for any other consultation). */
+    fixedMinutes: c.kind === "FIXED" ? Math.round(c.complimentarySeconds / 60) : null,
     /** "live": a private consultation taken from a live room (it runs on that room's page). */
     origin: c.origin === "LIVE" ? "live" : "direct",
     liveRoomId: c.liveRoomId,
@@ -467,7 +470,9 @@ customerRouter.post("/consultations", async (req, res) => {
   const offer = !fixedMinutes && !welcome && !makeGoodCreditId ? await discountQuote(me.user.id) : null;
 
   if (fixedMinutes) {
-    fixedDisc = clampDiscount(await configNumber(`fixed_session.discount_${fixedMinutes}m`, 10), await discountLimits());
+    const pkgDisc = await packageDiscount(fixedMinutes);
+    if (pkgDisc === null) throw badRequest("That Fixed Session length isn't offered any more. Please choose one of the current packages.");
+    fixedDisc = pkgDisc;
     const original = listRate * fixedMinutes;
     const after = Math.trunc((original * (100 - fixedDisc)) / 100);
     const floor = Math.trunc((original * 50) / 100);

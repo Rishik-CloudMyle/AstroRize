@@ -1,5 +1,6 @@
 "use client";
 
+import { lockScroll } from "@/lib/scroll-lock";
 import { useEffect, useId, useRef, useState } from "react";
 import type { Astrologer } from "@/lib/types";
 import {
@@ -47,8 +48,7 @@ export default function FilterPanel({
   // Lock page scroll, close on Escape, keep Tab inside the panel, and hand focus back on close.
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlockScroll = lockScroll();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -76,7 +76,7 @@ export default function FilterPanel({
     window.addEventListener("keydown", onKey);
     tabRefs.current[CATEGORIES.findIndex((c) => c.id === initialCategory)]?.focus();
     return () => {
-      document.body.style.overflow = previous;
+      unlockScroll();
       window.removeEventListener("keydown", onKey);
       opener?.focus?.();
     };

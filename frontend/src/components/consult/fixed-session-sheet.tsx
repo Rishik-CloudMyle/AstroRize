@@ -9,8 +9,8 @@ import { rupee } from "@/lib/format";
 import { totalBalance, useSession } from "@/lib/session-store";
 import { useAppUI } from "@/components/app-provider";
 import {
-  PKG_DURATIONS,
-  PKG_TIP,
+  pkgDurations,
+  pkgTip,
   PKG_CONSENT_POINTS,
   PKG_POLICY_POINTS,
   pkgQuote,
@@ -159,7 +159,7 @@ export default function FixedSessionSheet({
       role="dialog"
       aria-modal="true"
       aria-label="Fixed Session"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-xs sm:items-center sm:p-4"
+      className="fixed inset-0 z-[150] flex items-end justify-center bg-black/60 p-0 backdrop-blur-xs sm:items-center sm:p-4"
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -209,7 +209,7 @@ export default function FixedSessionSheet({
                 <b className="block text-sm font-bold text-amber-900 mb-1">
                   Fixed Session, not pay per minute
                 </b>
-                Pay per minute is ₹{a.price}/min and can end when your wallet runs low. A Fixed Session is prepaid time — 5, 10, 15, 30, 45 or 60 min for a discounted package price. Other offers do not stack.
+                Pay per minute is ₹{a.price}/min and can end when your wallet runs low. A Fixed Session is prepaid time — {pkgDurations(discounts).join(", ")} min for a discounted package price. Other offers do not stack.
               </div>
 
               {/* Astrologer info row */}
@@ -267,7 +267,7 @@ export default function FixedSessionSheet({
                 <label className="block text-xs font-bold uppercase tracking-wider text-stone-500">
                   Select Duration
                 </label>
-                {PKG_DURATIONS.map((mins) => {
+                {pkgDurations(discounts).map((mins) => {
                   const q = pkgQuote(ratePerMin, mins, discounts);
                   const isSelected = duration === mins;
                   return (
@@ -285,7 +285,7 @@ export default function FixedSessionSheet({
                         <span className="text-[15px] font-bold text-ink">
                           {mins} minutes
                         </span>
-                        {mins === 60 && (
+                        {mins === Math.max(...pkgDurations(discounts)) && mins >= 30 && (
                           <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-extrabold text-emerald-800">
                             Best value
                           </span>
@@ -301,7 +301,7 @@ export default function FixedSessionSheet({
                         </span>
                       </div>
                       <p className="mt-1 text-xs text-stone-500">
-                        {PKG_TIP[mins]}
+                        {pkgTip(mins)}
                       </p>
                     </button>
                   );

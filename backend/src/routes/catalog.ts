@@ -14,6 +14,7 @@ import { contactBlockedNotice, findContactDetails, rateLimit } from "../lib/safe
 import { customerConsent } from "../lib/recordings.ts";
 import { freeCallOpen, welcomePolicy } from "../lib/welcome.ts";
 import { openConsultationOf, waitEtas } from "../lib/consultations.ts";
+import { getPackages } from "../lib/fixed-packages.ts";
 import { clampDiscount, configNumber, discountLimits, getSetting } from "../lib/settings.ts";
 import { requireRole, requireUser } from "../middleware/auth.ts";
 import type { Astrologer, LiveRoom, Review } from "../generated/prisma/client.ts";
@@ -56,7 +57,8 @@ export function astrologerView(a: AstrologerWithReviews, freeCall = false, fixed
     /** Instant mode: only Instant Calls are taken (Chat, Voice, Video and Fixed Sessions are off). */
     instantOnly,
     /** Wait while they are in a session: what is left of it (their customer balance / the call price). */
-    eta,
+    // A wait time only makes sense for someone in a consultation (never for offline astrologers).
+    eta: effectivePresence(a) === "BUSY" ? eta : null,
     about: a.about,
     photo: a.photo,
     /** The astrologer's own intro video, or null. */
@@ -504,26 +506,10 @@ catalogRouter.get("/consult-limits", (_req, res) => {
 
 /** Public configuration for Fixed Sessions (durations and discounts customizable by admin). */
 catalogRouter.get("/fixed-session-config", async (_req, res) => {
-  const range = await discountLimits();
-  const [d5, d10, d15, d30, d45, d60] = await Promise.all([
-    configNumber("fixed_session.discount_5m", 5),
-    configNumber("fixed_session.discount_10m", 10),
-    configNumber("fixed_session.discount_15m", 15),
-    configNumber("fixed_session.discount_30m", 20),
-    configNumber("fixed_session.discount_45m", 25),
-    configNumber("fixed_session.discount_60m", 30),
-  ]);
-
+  const packages = await getPackages();
   res.json({
-    durations: [5, 10, 15, 30, 45, 60],
-    discounts: {
-      5: clampDiscount(d5, range),
-      10: clampDiscount(d10, range),
-      15: clampDiscount(d15, range),
-      30: clampDiscount(d30, range),
-      45: clampDiscount(d45, range),
-      60: clampDiscount(d60, range),
-    },
+    packages,
+    durations: packages.map((p) => p.minutes),
+    discounts: Object.fromEntries(packages.map((p) => [p.minutes, p.discount])),
   });
 });
-

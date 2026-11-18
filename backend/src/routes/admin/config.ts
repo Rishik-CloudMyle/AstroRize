@@ -4,7 +4,8 @@ import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { istDate } from "../../lib/format.ts";
-import { clampDiscount, configNumber, discountLimits } from "../../lib/settings.ts";
+import { configNumber, discountLimits } from "../../lib/settings.ts";
+import { getPackages, packageProblem, savePackages } from "../../lib/fixed-packages.ts";
 import { actorName, requireCapability, requirePage, secondPerson } from "../../lib/rbac.ts";
 
 // Config console: every operational setting, changed by draft → second approver → new version.
@@ -85,15 +86,25 @@ async function keyView(key: string) {
 }
 
 /** Settings replaced by newer ones: kept in the database for history, no longer listed or used. */
-const RETIRED_KEYS = ["welcome.free_call_length_1", "welcome.free_call_length_2", "welcome.free_call_length_3", "marketing.campaign.max_discount_pct"];
+const RETIRED_KEYS = ["welcome.free_call_length_1", "welcome.free_call_length_2", "welcome.free_call_length_3", "marketing.campaign.max_discount_pct", ...[5, 10, 15, 30, 45, 60].map((m) => `fixed_session.discount_${m}m`)];
 
 /** Rules that tie settings together, so every domain follows the same limits. */
 async function keyRules(key: string, n: number) {
+  if (key === "welcome.joining_bonus_minutes" && (!Number.isInteger(n) || n < 1 || n > 30 || n === 10 || n === 20)) {
+    throw badRequest("The 1-time welcome call can be 1–30 whole minutes, but not 10 or 20 (those are the weekly free-call lengths).");
+  }
   if (key === "welcome.free_call_minutes" && n !== 10 && n !== 20) throw badRequest("A free call can be 10 or 20 minutes — nothing else.");
   if (key.startsWith("fixed_session.discount_") || key.startsWith("offers.")) {
     const l = await discountLimits();
-    if (key.startsWith("fixed_session.discount_") && n !== 0 && (n < l.min || n > l.max)) {
-      throw badRequest(`Package discounts must stay within the platform offer range, ${l.min}%–${l.max}% (offers.min_discount_pct / offers.max_discount_pct).`);
+    if (key.startsWith("fixed_session.discount_") && (n < l.min || n > l.max)) {
+      throw badRequest(`Package discounts must stay within the platform offer range, ${l.min}%–${l.max}% (offers.min_discount_pct is the floor, offers.max_discount_pct the ceiling).`);
+    }
+    if (key === "offers.min_discount_pct" || key === "offers.max_discount_pct") {
+      // The floor and ceiling can't be moved past a Fixed Session package that already sits on the wrong side.
+      for (const p of await getPackages()) {
+        if (key === "offers.min_discount_pct" && p.discount < n) throw badRequest(`The ${p.minutes}-minute Fixed Session discount is ${p.discount}% — below ${n}%. Raise that package first.`);
+        if (key === "offers.max_discount_pct" && p.discount > n) throw badRequest(`The ${p.minutes}-minute Fixed Session discount is ${p.discount}% — above ${n}%. Lower that package first.`);
+      }
     }
     if (key === "offers.min_discount_pct" && n > l.max) throw badRequest(`The smallest offer can't be above the largest (${l.max}%).`);
     if (key === "offers.max_discount_pct" && n < l.min) throw badRequest(`The largest offer can't be below the smallest (${l.min}%).`);
@@ -130,8 +141,8 @@ configRouter.get("/config", async (req, res) => {
 });
 
 configRouter.get("/config/:key", async (req, res, next) => {
-  // "fixed-sessions" is its own route (declared further down), not a Config key.
-  if (req.params.key === "fixed-sessions") return next();
+  // "fixed-sessions" and "free-calls" are their own routes (declared further down), not Config keys.
+  if (req.params.key === "fixed-sessions" || req.params.key === "free-calls") return next();
   requirePage(req, "config");
   res.json({ detail: await keyView(String(req.params.key)) });
 });
@@ -242,62 +253,89 @@ configRouter.post("/config/:key/rollback", async (req, res) => {
   res.json({ restoredFrom: last.version ? last.version - 1 : null, detail: await keyView(k.key) });
 });
 
-/** Admin: read fixed session pricing and discount savings configuration. */
+/** Admin: the Fixed Session packages (length + discount) and the allowed discount range. */
 configRouter.get("/config/fixed-sessions", async (req, res) => {
   requirePage(req, "config");
-  const [d5, d10, d15, d30, d45, d60] = await Promise.all([
-    configNumber("fixed_session.discount_5m", 5),
-    configNumber("fixed_session.discount_10m", 10),
-    configNumber("fixed_session.discount_15m", 15),
-    configNumber("fixed_session.discount_30m", 20),
-    configNumber("fixed_session.discount_45m", 25),
-    configNumber("fixed_session.discount_60m", 30),
-  ]);
-  res.json({
-    durations: [5, 10, 15, 30, 45, 60],
-    discounts: { 5: d5, 10: d10, 15: d15, 30: d30, 45: d45, 60: d60 },
-  });
+  const [packages, limits] = await Promise.all([getPackages(), discountLimits()]);
+  res.json({ packages, limits, durations: packages.map((p) => p.minutes), discounts: Object.fromEntries(packages.map((p) => [p.minutes, p.discount])) });
 });
 
-/** Admin: customize prices and discount savings for Fixed Sessions. */
+/**
+ * Admin: replace the whole list of Fixed Session packages — add a length, change a discount or delete
+ * a length by sending the list as it should be. Anything outside the platform offer range is refused.
+ */
 configRouter.put("/config/fixed-sessions", async (req, res) => {
   requirePage(req, "config");
   const admin = requireCapability(req, "config.write");
-  const schema = z.object({
-    discounts: z.record(z.string(), z.number().int().min(0).max(50)),
-  });
-  const { discounts } = schema.parse(req.body);
-
-  const updates: Record<number, number> = {};
-  for (const [durStr, disc] of Object.entries(discounts)) {
-    const dur = Number(durStr);
-    if ([5, 10, 15, 30, 45, 60].includes(dur)) {
-      await keyRules(`fixed_session.discount_${dur}m`, disc);
-      updates[dur] = disc;
-      const key = `fixed_session.discount_${dur}m`;
-      await db.configKey.upsert({
-        where: { key },
-        create: {
-          key,
-          flagged: false,
-          description: `Discount percentage applied on a ${dur}-minute Fixed Session package.`,
-          value: String(disc),
-          scope: "global",
-          bounds: "0–50",
-          dryRun: `Changes the discount percentage and price savings for ${dur}-minute Fixed Sessions across the platform.`,
-          domain: "consult",
-          rank: 15 + dur,
-          version: 1,
-        },
-        update: {
-          value: String(disc),
-          updatedAt: new Date(),
-        },
-      });
-    }
-  }
-
-  await audit(admin, "config.fixed_sessions.update", "fixed_sessions", JSON.stringify(updates));
-  res.json({ ok: true, discounts: updates });
+  const { packages } = z
+    .object({ packages: z.array(z.object({ minutes: z.number({ error: "Enter the length in minutes." }), discount: z.number({ error: "Enter the discount percent." }) })) })
+    .parse(req.body);
+  const problem = await packageProblem(packages);
+  if (problem) throw badRequest(problem);
+  const before = await getPackages();
+  const saved = await savePackages(packages);
+  const fmt = (l: { minutes: number; discount: number }[]) => l.map((p) => `${p.minutes}m@${p.discount}%`).join(", ");
+  await audit(admin, "config.fixed_sessions.update", "fixed_sessions", `${fmt(before)} → ${fmt(saved)}`);
+  res.json({ ok: true, packages: saved });
 });
 
+// ── Free calls: one page for everything about free minutes ──
+
+const FREE_KEYS = {
+  enabled: "welcome.enabled",
+  weeklyMinutes: "welcome.weekly_free_minutes",
+  lengthMinutes: "welcome.free_call_minutes",
+  chooseLength: "welcome.choose_length",
+  oneTimeEnabled: "welcome.onetime_enabled",
+  oneTimeMinutes: "welcome.joining_bonus_minutes",
+  dailyLimit: "welcome.daily_limit_default",
+  weeklyLimit: "welcome.astrologer_max_per_week",
+  reminderSeconds: "welcome.reminder_seconds",
+} as const;
+const FREE_DEFAULTS: Record<keyof typeof FREE_KEYS, number> = { enabled: 1, weeklyMinutes: 30, lengthMinutes: 10, chooseLength: 0, oneTimeEnabled: 1, oneTimeMinutes: 5, dailyLimit: 5, weeklyLimit: 50, reminderSeconds: 120 };
+
+configRouter.get("/config/free-calls", async (req, res) => {
+  requirePage(req, "config");
+  const entries = await Promise.all(
+    (Object.keys(FREE_KEYS) as (keyof typeof FREE_KEYS)[]).map(async (k) => [k, await configNumber(FREE_KEYS[k], FREE_DEFAULTS[k])] as const),
+  );
+  res.json(Object.fromEntries(entries));
+});
+
+/** Admin: set every free-call rule at once. Each value is checked; nothing is saved unless all are valid. */
+configRouter.put("/config/free-calls", async (req, res) => {
+  requirePage(req, "config");
+  const admin = requireCapability(req, "config.write");
+  const int = (label: string, min: number, max: number) => z.number({ error: `Enter ${label}.` }).int(`${label} must be a whole number.`).min(min, `${label} must be at least ${min}.`).max(max, `${label} can be at most ${max}.`);
+  const v = z
+    .object({
+      enabled: int("on or off", 0, 1),
+      weeklyMinutes: int("the weekly free minutes", 0, 600),
+      lengthMinutes: int("the free-call length", 10, 20),
+      chooseLength: int("on or off for choosing the length", 0, 1),
+      oneTimeEnabled: int("on or off for the 1-time call", 0, 1),
+      oneTimeMinutes: int("the 1-time call length", 1, 30),
+      dailyLimit: int("the daily limit per astrologer", 0, 50),
+      weeklyLimit: int("the weekly limit per astrologer", 0, 500),
+      reminderSeconds: int("the reminder time", 30, 300),
+    })
+    .parse(req.body);
+  await keyRules(FREE_KEYS.lengthMinutes, v.lengthMinutes);
+  await keyRules(FREE_KEYS.oneTimeMinutes, v.oneTimeMinutes);
+  if (v.weeklyMinutes !== 0 && v.weeklyMinutes < v.lengthMinutes) throw badRequest(`Weekly free minutes (${v.weeklyMinutes}) must cover at least one free call of ${v.lengthMinutes} minutes — or be 0 to stop free calls.`);
+  if (v.chooseLength === 1 && v.weeklyMinutes !== 0 && v.weeklyMinutes < 20) throw badRequest("To let customers choose between 10 and 20 minutes, weekly free minutes must be at least 20.");
+  const before = await getFreeCalls();
+  for (const k of Object.keys(FREE_KEYS) as (keyof typeof FREE_KEYS)[]) {
+    if (before[k] === v[k]) continue;
+    await db.configKey.update({ where: { key: FREE_KEYS[k] }, data: { value: String(v[k]), version: { increment: 1 }, updatedAt: new Date() } });
+  }
+  const changed = (Object.keys(FREE_KEYS) as (keyof typeof FREE_KEYS)[]).filter((k) => before[k] !== v[k]).map((k) => `${FREE_KEYS[k]} ${before[k]} → ${v[k]}`);
+  if (changed.length) await audit(admin, "config.free_calls.update", "free_calls", changed.join(" · "));
+  res.json({ ok: true, ...v });
+});
+
+async function getFreeCalls() {
+  const out = {} as Record<keyof typeof FREE_KEYS, number>;
+  for (const k of Object.keys(FREE_KEYS) as (keyof typeof FREE_KEYS)[]) out[k] = await configNumber(FREE_KEYS[k], FREE_DEFAULTS[k]);
+  return out;
+}

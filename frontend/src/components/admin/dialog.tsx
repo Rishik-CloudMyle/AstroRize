@@ -1,5 +1,6 @@
 "use client";
 
+import { lockScroll } from "@/lib/scroll-lock";
 import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
@@ -48,8 +49,7 @@ function DialogPanel({ title, subtitle, onClose, width = 760, footer, children }
 
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlockScroll = lockScroll();
     const panel = panelRef.current;
     // Focus the panel itself (screen readers then read the title), not the first button.
     panel?.focus();
@@ -84,7 +84,7 @@ function DialogPanel({ title, subtitle, onClose, width = 760, footer, children }
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = previousOverflow;
+      unlockScroll();
       if (opener?.isConnected) opener.focus();
     };
   }, []);

@@ -62,7 +62,7 @@ function useSlides(offer: WelcomeOffer | null): PromoSlide[] {
     id: "chat",
     kicker: "Chat or call",
     title: "Chat, call or video — your choice",
-    lead: "Vedic, KP, Nadi, tarot and more. Messages are free; chats and calls are by the minute, first 60 seconds free, and your number always stays private.",
+    lead: "Vedic, KP, Nadi, tarot and more. Messages are free; chats and calls are by the minute, and your number always stays private.",
     cta: "Chat now",
     href: "/astrologers?mode=Chat",
     cta2: { label: "Call now", href: "/astrologers?mode=Voice" },
@@ -365,7 +365,7 @@ function ConsultBand() {
       <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-4 py-2.5 sm:px-14 lg:px-16 lg:py-3 min-[1400px]:px-6">
         <p className="hidden min-w-0 flex-1 text-[13px] leading-snug text-[#f3e3bd] sm:block lg:text-[14.5px]">
           <b className="font-display text-[17px] font-semibold text-[#f3d58a] lg:text-[19px]">Talk to an astrologer now</b>
-          <span className="hidden lg:inline"> · by the minute, first 60 seconds free</span>
+          <span className="hidden lg:inline"> · by the minute, nothing bills before you connect</span>
         </p>
         <div className="grid min-w-0 flex-1 grid-cols-3 gap-2 sm:flex-none sm:gap-2.5">
           {modes.map((m, i) => (

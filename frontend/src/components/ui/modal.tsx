@@ -1,5 +1,6 @@
 "use client";
 
+import { lockScroll } from "@/lib/scroll-lock";
 import { useEffect, useRef } from "react";
 
 /**
@@ -21,15 +22,14 @@ export default function Modal({
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlockScroll = lockScroll();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     panelRef.current?.focus();
     return () => {
-      document.body.style.overflow = previous;
+      unlockScroll();
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);

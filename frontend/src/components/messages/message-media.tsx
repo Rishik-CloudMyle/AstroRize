@@ -1,5 +1,6 @@
 "use client";
 
+import { lockScroll } from "@/lib/scroll-lock";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { preparePhoto } from "@/components/account/profile-form";
@@ -331,8 +332,7 @@ function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
 
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlockScroll = lockScroll();
     closeBtn.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -347,7 +347,7 @@ function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
     document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("keydown", onKey, true);
-      document.body.style.overflow = overflow;
+      unlockScroll();
       opener?.focus();
     };
   }, []);

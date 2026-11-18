@@ -335,8 +335,8 @@ function DirectoryCard({ astrologer: a }: { astrologer: Astrologer }) {
           <AvailabilityBadge astrologer={a} />
           <FreeCallBadge astrologer={a} />
           <IntroBadge astrologer={a} />
-          {a.eta && (
-            <span className="inline-flex h-[22px] items-center gap-[5px] rounded-full bg-blue-50 px-[9px] text-[11px] font-bold text-blue-700">
+          {a.availability === "busy" && a.eta && (
+            <span className="inline-flex h-[22px] items-center gap-[5px] rounded-full bg-[#fde8ee] px-[9px] text-[11px] font-bold text-[#c81e4a]">
               ⏱ waits {a.eta}
             </span>
           )}

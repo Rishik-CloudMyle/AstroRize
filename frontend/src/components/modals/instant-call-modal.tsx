@@ -39,7 +39,12 @@ export default function InstantCallModal({
   const rate = `${rupee(quoted)}/min`;
 
   async function confirm() {
-    if (busy || !consent) return;
+    if (busy) return;
+    // Say what is missing instead of leaving a button that does nothing.
+    if (!consent) {
+      setError("Tick the recording notice above to place the call.");
+      return;
+    }
     if (!session.loggedIn) {
       openLogin({ notice: `Log in to place an Instant Call to ${astrologer.name}.` });
       return;
@@ -96,14 +101,14 @@ export default function InstantCallModal({
       </div>
       <div className="mt-3.5 text-[12.5px] leading-normal text-stone-500">
         If the astrologer declines or doesn&apos;t answer in time you are not charged and nothing is reserved. Billing
-        starts only once the call connects; the first 60 seconds are free.
+        starts only once the call connects, per minute.
       </div>
       {changedFrom !== null && (
         <p role="alert" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-[13px] font-semibold text-amber-900">
           The rate changed from {rupee(changedFrom)} to {rupee(quoted)}/min — continue at {rupee(quoted)}? Nothing has been placed yet.
         </p>
       )}
-      <RecordingConsent checked={consent} onChange={setConsent} className="mt-3.5" />
+      <RecordingConsent checked={consent} onChange={(v) => { setConsent(v); if (v) setError(""); }} className="mt-3.5" />
       {error && (
         <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">
           {error}
@@ -120,7 +125,7 @@ export default function InstantCallModal({
         <button
           type="button"
           onClick={() => void confirm()}
-          disabled={busy || !consent}
+          disabled={busy}
           className="h-12 rounded-xl bg-urgent px-2 text-[14.5px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-70"
         >
           {busy ? "Placing the call…" : `Confirm ${rate}`}

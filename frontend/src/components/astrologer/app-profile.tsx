@@ -299,7 +299,7 @@ function ConsultBar({ astrologer: a, freeNote, discountPct }: { astrologer: Astr
       ? freeNote
       : discountPct > 0
         ? `${discountPct}% off applied`
-        : "First 60 seconds complimentary";
+        : "Billed per minute, only once you connect";
 
   let action: React.ReactNode;
   if (gate.kind === "frozen") {

@@ -6,7 +6,7 @@ import Link from "next/link";
 import type { Astrologer } from "@/lib/types";
 import { rupee, RECOGNITION, AVAILABILITY } from "@/lib/format";
 import {
-  PKG_DURATIONS,
+  pkgDurations,
   DEFAULT_FIX_FILTERS,
   filterAndSortFixedAstrologers,
   pkgQuote,
@@ -391,7 +391,7 @@ export default function FixedSessionsView({
 
                   {/* Fixed Session Pricing Pills (5, 10, 15, 30, 45, 60 min) */}
                   <div className="mt-3.5 grid grid-cols-3 sm:grid-cols-6 gap-1">
-                    {PKG_DURATIONS.map((mins) => {
+                    {pkgDurations(discounts).map((mins) => {
                       const q = pkgQuote(a.price, mins, discounts);
                       return (
                         <div

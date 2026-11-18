@@ -197,7 +197,7 @@ export default async function HomePage() {
             <span className="text-base leading-[1.2]">🔒</span>
             <div className="text-[13px] leading-normal text-amber-900">
               <b>Your balance never ticks down mid-session.</b> We hold your available balance when the call connects,
-              meter the time, and take one single debit after it ends. The first 60 seconds are free.
+              meter the time, and take one single debit after it ends.
             </div>
           </div>
         </div>

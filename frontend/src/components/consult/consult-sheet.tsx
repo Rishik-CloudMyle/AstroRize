@@ -386,7 +386,7 @@ export default function ConsultSheet({
                           : "az-cta max-lg:bg-none max-lg:bg-app-primary max-lg:text-app-on-primary max-lg:shadow-none"
                   }`}
                 >
-                  {startLabel(state, selected, free, rate, busy, payMissing, lengthMissing ? null : free && !replacement ? freeMinutes : undefined)}
+                  {startLabel(state, selected, free, rate, busy, payMissing, lengthMissing ? null : free && !replacement ? freeMinutes : undefined, welcome?.oneTime?.total ?? 5)}
                 </button>
               </>
             )}
@@ -409,6 +409,7 @@ function startLabel(
   busy: boolean,
   payMissing: boolean,
   freeMinutes?: number | null,
+  oneTimeMin = 5,
 ): string {
   if (state === "busy") return "In consultation";
   if (busy) return choice === "instant" ? "Placing the call…" : "Starting…";
@@ -416,7 +417,7 @@ function startLabel(
   if (payMissing) return "Choose free minutes or a paid call";
   if (choice === "instant") return `Confirm ${rupee(rate)}/min`;
   if (free && freeMinutes === null) return "Choose your free consultation";
-  if (free && freeMinutes === 5) return `Start 1-time free ${CHOICE_TITLE[choice].toLowerCase()} · 5 min`;
+  if (free && freeMinutes === oneTimeMin) return `Start 1-time free ${CHOICE_TITLE[choice].toLowerCase()} · ${oneTimeMin} min`;
   if (free && freeMinutes) return `Start free ${CHOICE_TITLE[choice].toLowerCase()} · ${freeMinutes} min`;
   if (free) return `Start free ${CHOICE_TITLE[choice].toLowerCase()}`;
   return `Start ${CHOICE_TITLE[choice].toLowerCase()} · ${rupee(rate)}/min`;
@@ -489,11 +490,11 @@ function ChoiceDetail({
   const needed = rate * 1;
   if (free && welcome) {
     if (!freeMinutes) return null;
-    const isOneTime = freeMinutes === 5;
+    const isOneTime = freeMinutes === (welcome.oneTime?.total ?? 5);
     return (
       <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-[13px] leading-[1.55] text-emerald-900">
         <b className="block text-[14px] text-emerald-800">
-          🎁 {isOneTime ? `1-Time Free ${CHOICE_TITLE[choice]} · 5 min (Once redeemed, cannot be used again)` : `Free ${CHOICE_TITLE[choice].toLowerCase()} · ${freeMinutes} min (from weekly minutes)`}
+          🎁 {isOneTime ? `1-Time Free ${CHOICE_TITLE[choice]} · ${freeMinutes} min (Once redeemed, cannot be used again)` : `Free ${CHOICE_TITLE[choice].toLowerCase()} · ${freeMinutes} min (from weekly minutes)`}
         </b>
         {balance >= rate
           ? `When the free time ends, the call carries on at ${rupee(rate)}/min from your balance (${rupee(balance)}) — end it any time.`
@@ -616,7 +617,7 @@ function PayChooser({
             {replacement
               ? `${replacement.minutes} min · Chat, Voice or Video`
               : welcome?.oneTime?.available
-                ? "1-time 5 min call available"
+                ? `1-time ${welcome.oneTime.total} min call available`
                 : welcome
                   ? `${welcome.weekly.remaining} free min left · Chat or Voice`
                   : ""}
@@ -643,7 +644,7 @@ function PayChooser({
                 <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10.5px] font-extrabold text-amber-800 uppercase">
                   1-Time Welcome Offer
                 </span>
-                <b className="mt-1 block text-[13.5px] text-ink">5 Min Free Call</b>
+                <b className="mt-1 block text-[13.5px] text-ink">{welcome.oneTime?.total ?? 5} Min Free Call</b>
                 <span className="text-[11.5px] text-stone-500">
                   {welcome.oneTime?.redeemed
                     ? "Already redeemed for this phone number (1-time use only)"
@@ -653,16 +654,16 @@ function PayChooser({
               <button
                 type="button"
                 role="radio"
-                aria-checked={freeMinutes === 5}
+                aria-checked={freeMinutes === (welcome.oneTime?.total ?? 5)}
                 disabled={welcome.oneTime?.redeemed || !welcome.oneTime?.available}
-                onClick={() => onFreeMinutes?.(5)}
+                onClick={() => onFreeMinutes?.(welcome.oneTime?.total ?? 5)}
                 className={`min-h-10 min-w-[84px] rounded-full border-2 px-3.5 text-[13px] font-bold tabular-nums transition-colors disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400 ${
-                  freeMinutes === 5
+                  freeMinutes === (welcome.oneTime?.total ?? 5)
                     ? "border-emerald-700 bg-emerald-700 text-white shadow-xs"
                     : "border-emerald-300 bg-white text-emerald-800 hover:border-emerald-600"
                 }`}
               >
-                {welcome.oneTime?.redeemed ? "Redeemed" : "5 min free"}
+                {welcome.oneTime?.redeemed ? "Redeemed" : `${welcome.oneTime?.total ?? 5} min free`}
               </button>
             </div>
           </div>

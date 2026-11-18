@@ -1,5 +1,6 @@
 "use client";
 
+import { lockScroll } from "@/lib/scroll-lock";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -129,11 +130,10 @@ function Lightbox({
   const step = useCallback((d: number) => onIndex((index + d + n) % n), [index, n, onIndex]);
 
   useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlockScroll = lockScroll();
     closeBtn.current?.focus();
     return () => {
-      document.body.style.overflow = previous;
+      unlockScroll();
     };
   }, []);
 

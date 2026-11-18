@@ -1,5 +1,6 @@
 "use client";
 
+import { lockScroll } from "@/lib/scroll-lock";
 import Image from "next/image";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { MediaWants } from "@/lib/media/zego-call";
@@ -137,10 +138,9 @@ export function SessionWindow({
 
   // Lock the page behind the window.
   useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlockScroll = lockScroll();
     return () => {
-      document.body.style.overflow = previous;
+      unlockScroll();
     };
   }, []);
 

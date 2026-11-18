@@ -304,6 +304,13 @@ export async function endConsultation(c: Consultation, endedBy: "user" | "astrol
     const complimentary = startsFree(fresh) ? (fresh.complimentarySeconds ?? 0) : 0;
     const reason = connectedSeconds >= cap ? (cap - complimentary >= maxSessionSeconds() ? "cap" : "exhausted") : endedBy;
     const s = settle({ connectedSeconds, rate: fresh.rate, freeSeconds, held: fresh.heldAmount, promo: wallet?.promo ?? 0 });
+    // A Fixed Session that ran its whole length costs exactly the package price that was quoted and held
+    // (the per-minute rate is that price rounded to whole rupees, so minutes × rate can differ by a rupee or two).
+    if (fresh.kind === "FIXED" && connectedSeconds >= cap && s.total < fresh.heldAmount) {
+      s.total = fresh.heldAmount;
+      s.promoUsed = Math.min(wallet?.promo ?? 0, s.total);
+      s.serviceUsed = s.total - s.promoUsed;
+    }
 
     await tx.consultation.update({
       where: { id: fresh.id },

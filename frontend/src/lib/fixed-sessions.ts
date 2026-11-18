@@ -1,9 +1,16 @@
 import type { Astrologer } from "./types";
 
-export const PKG_DURATIONS = [5, 10, 15, 30, 45, 60] as const;
-export type PkgDuration = (typeof PKG_DURATIONS)[number];
+/** The original packages — used only until the admin's own list (Config → Fixed Sessions) has loaded. */
+export const PKG_DURATIONS: readonly number[] = [5, 10, 15, 30, 45, 60];
+export type PkgDuration = number;
 
-export const PKG_DISC: Record<PkgDuration, number> = {
+/** The package lengths to offer: the admin's list when it is known, else the original six. */
+export function pkgDurations(customDiscounts?: Record<number, number>): number[] {
+  const keys = customDiscounts ? Object.keys(customDiscounts).map(Number).filter((n) => Number.isFinite(n)) : [];
+  return (keys.length ? keys : [...PKG_DURATIONS]).sort((a, b) => a - b);
+}
+
+export const PKG_DISC: Record<number, number> = {
   5: 5,
   10: 10,
   15: 15,
@@ -12,7 +19,7 @@ export const PKG_DISC: Record<PkgDuration, number> = {
   60: 30,
 };
 
-export const PKG_TIP: Record<PkgDuration, string> = {
+const PKG_TIPS: Record<number, string> = {
   5: "A quick question or immediate clarity.",
   10: "One focused topic with direct answers.",
   15: "One focused question and remedies.",
@@ -20,6 +27,11 @@ export const PKG_TIP: Record<PkgDuration, string> = {
   45: "Two related questions in one sitting.",
   60: "A full sitting for a wider chart.",
 };
+
+/** The one-line hint under a package; lengths the admin added get a plain one. */
+export function pkgTip(mins: number): string {
+  return PKG_TIPS[mins] ?? `${mins} minutes of prepaid time with the astrologer.`;
+}
 
 export interface PkgQuote {
   mins: number;
@@ -40,7 +52,7 @@ export function pkgQuote(
   const disc =
     customDiscounts && customDiscounts[mins] !== undefined
       ? customDiscounts[mins]!
-      : PKG_DISC[mins as PkgDuration] ?? 0;
+      : PKG_DISC[mins] ?? 0;
 
   const original = pricePerMin * mins;
   const after = Math.trunc((original * (100 - disc)) / 100);
@@ -62,7 +74,7 @@ export function pkgMinPrice(
   pricePerMin: number,
   customDiscounts?: Record<number, number>,
 ): number {
-  return pkgQuote(pricePerMin, 5, customDiscounts).final;
+  return pkgQuote(pricePerMin, pkgDurations(customDiscounts)[0] ?? 5, customDiscounts).final;
 }
 
 export function isPkgEnabled(a: Astrologer): boolean {

@@ -1,16 +1,18 @@
 "use client";
 
+import { lockScroll } from "@/lib/scroll-lock";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Astrologer, ConsultMode, OfferedMode, Settlement } from "@/lib/types";
 import { ApiError, api } from "@/lib/api/client";
-import { clock, rupee, skillLine } from "@/lib/format";
+import { clock, rateFor, rupee, skillLine } from "@/lib/format";
 import { consultationActions, rememberMinimised, type ConsultationView } from "@/lib/consultation-store";
 import { sessionActions, totalBalance, usableWelcome, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 import { recheckAvailability, useFreshAstrologer } from "../astrologer/use-fresh-astrologer";
+import FixedSessionSheet from "./fixed-session-sheet";
 import { MeterAlerts, MeterChips, RateCard, SettlementSummary, SettlementView, endNoteOf, meterOf, type MeterInput } from "./call-stage";
 import { SessionWindow, windowKindOf } from "./session/session-window";
 import { releaseCallSession } from "@/lib/media/call-session";
@@ -106,7 +108,10 @@ export default function ConsultJourney({
 }) {
   const session = useSession();
   const router = useRouter();
-  const { toast, resumeConsult } = useAppUI();
+  const { toast, resumeConsult, startConsult } = useAppUI();
+  // Chosen at the 2-minute prompt of a Fixed Session: what happens when it ends.
+  const [afterFixed, setAfterFixed] = useState<"paid" | "fixed" | null>(null);
+  const [showFixedSheet, setShowFixedSheet] = useState(false);
 
   const [step, setStep] = useState<Step>(() =>
     resume ? resumeStep(resume) : !session.loggedIn ? "phone" : fixedSession ? "connecting" : "mode"
@@ -124,6 +129,13 @@ export default function ConsultJourney({
         : resume.mode
       : initialMode ?? (fixedSession ? "voice" : null)
   );
+  // The 2-minute choice of a Fixed Session is offered on the Summary once it has ended (see `nextBar`).
+  const goNext = () => {
+    const pick = afterFixed;
+    setAfterFixed(null);
+    if (pick === "paid") startConsult({ astrologer, mode: choice === "chat" ? "chat" : "voice" });
+    else if (pick === "fixed") setShowFixedSheet(true);
+  };
   const [connectStep, setConnectStep] = useState(resume?.status === "connecting" ? 2 : 0);
   const [placed, setPlaced] = useState<Placed | null>(
     resume ? { id: resume.id, rate: resume.rate, held: resume.held, complimentary: resume.complimentary, makeGood: resume.makeGood } : null,
@@ -149,6 +161,9 @@ export default function ConsultJourney({
   const [review, setReview] = useState("");
   // The latest answer about this consultation and when it arrived; countdowns tick from there.
   const [live, setLive] = useState(() => (resume ? { view: resume, at: Date.now() } : null));
+  // A Fixed Session — started from the sheet, or re-opened after a reload (the server says so).
+  const viewNow = live?.view ?? resume;
+  const fixedNow = fixedSession ?? (viewNow?.fixedMinutes ? { minutes: viewNow.fixedMinutes, discountPct: viewNow.discountPct ?? 0, rate: viewNow.rate, price: viewNow.held } : null);
   const [now, setNow] = useState(() => Date.now());
   const [endedByAstrologer, setEndedByAstrologer] = useState(resume?.status === "ended" && resume.endReason === "astrologer");
   // Billing starts only once both sides have really joined the session (the server says when);
@@ -179,12 +194,13 @@ export default function ConsultJourney({
   const payMissing = freeHere && pay === null && !!mode && (makeGoodHere || !!welcome?.modes.includes(mode));
   // Only a length that is valid counts as chosen.
   // If the 1-time 5 min call is available, default to 5, else shortest fitting weekly length (10 or 30 min).
+  const oneTimeMin = welcome?.oneTime?.total ?? 5;
   const defaultFree = welcome?.oneTime?.available
-    ? 5
+    ? oneTimeMin
     : (welcome?.lengths.find((l) => l.fits)?.minutes ?? null);
   const pickedFree = freeMinutes ?? defaultFree;
   const isLengthValid =
-    pickedFree === 5
+    pickedFree === oneTimeMin
       ? !!welcome?.oneTime?.available
       : !!welcome?.lengths.some((l) => l.minutes === pickedFree && l.fits);
   const shownFreeLength = pay === "free" && isLengthValid ? pickedFree : null;
@@ -201,10 +217,9 @@ export default function ConsultJourney({
 
   // Lock page scrolling behind the full-screen flow.
   useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlockScroll = lockScroll();
     return () => {
-      document.body.style.overflow = previous;
+      unlockScroll();
     };
   }, []);
 
@@ -413,7 +428,7 @@ export default function ConsultJourney({
         freeSeconds: res.freeSeconds,
         maxSeconds: res.maxSeconds,
         complimentary: !!c.complimentary,
-        reminderSeconds: c.complimentary || fixedSession ? (welcome?.reminderSeconds ?? 120) : 0,
+        reminderSeconds: c.complimentary || fixedNow ? (welcome?.reminderSeconds ?? 120) : 0,
       });
       setConnectStep(3);
       void consultationActions.refresh();
@@ -752,9 +767,9 @@ export default function ConsultJourney({
           title={modeTitle}
           appLook
           badges={
-            fixedSession ? (
+            fixedNow ? (
               <span className="inline-flex h-7 items-center rounded-full bg-amber-400/20 px-3 text-[12px] font-bold text-amber-300 max-lg:h-6 max-lg:bg-amber-100 max-lg:px-2.5 max-lg:text-[11px] max-lg:text-amber-900">
-                ⏱️ Fixed Session · {fixedSession.minutes} min ({fixedSession.discountPct}% off)
+                ⏱️ Fixed Session · {fixedNow?.minutes} min ({fixedNow?.discountPct}% off)
               </span>
             ) : meter.complimentary ? (
               <span className="inline-flex h-7 items-center rounded-full bg-emerald-400/15 px-3 text-[12px] font-bold text-emerald-300 max-lg:h-6 max-lg:bg-app-success-bg max-lg:px-2.5 max-lg:text-[11px] max-lg:text-app-success">
@@ -764,7 +779,7 @@ export default function ConsultJourney({
           }
           clock={clock(elapsed)}
           chips={<MeterChips m={m} instant={instant} />}
-          alerts={flags.freeReminder || flags.fixedReminder || flags.lowBalance ? <MeterAlerts m={m} onAddMoney={() => setRecharging(true)} /> : null}
+          alerts={flags.freeReminder || flags.fixedReminder || flags.lowBalance ? <MeterAlerts m={m} onAddMoney={() => setRecharging(true)} paidRate={rateFor(astrologer.price, sessionMode === "chat" ? "chat" : "voice", astrologer.chatPrice, astrologer.videoPremium)} {...(fixedNow ? { onContinuePaid: () => setAfterFixed("paid"), onRejoinFixed: () => setAfterFixed("fixed"), picked: afterFixed } : {})} /> : null}
           ending={ending}
           onEnd={() => void finish()}
           onMinimise={() => {
@@ -1041,6 +1056,24 @@ export default function ConsultJourney({
             />
           </div>
         )}
+        {step === "settle" && afterFixed && !showFixedSheet && (
+          <div className="fixed inset-x-0 bottom-0 z-[170] border-t border-app-line bg-app-elev px-4 pt-3 pb-[calc(12px+var(--app-safe-bottom))] shadow-[0_-8px_24px_rgba(28,25,23,.12)]">
+            <p className="text-[13px] font-semibold text-app-ink">
+              {afterFixed === "paid"
+                ? `You chose to carry on at ${rupee(rateFor(astrologer.price, choice === "chat" ? "chat" : "voice", astrologer.chatPrice, astrologer.videoPremium))}/min.`
+                : "You chose to book another Fixed Session."}
+            </p>
+            <div className="mt-2 flex gap-2">
+              <button type="button" onClick={goNext} className="h-11 flex-1 rounded-xl bg-amber-500 text-[14px] font-bold text-ink">
+                {afterFixed === "paid" ? "Continue now" : "Choose a package"}
+              </button>
+              <button type="button" onClick={() => setAfterFixed(null)} className="h-11 rounded-xl border border-app-line px-4 text-[14px] font-bold text-app-ink">
+                Not now
+              </button>
+            </div>
+          </div>
+        )}
+        {step === "settle" && showFixedSheet && <FixedSessionSheet astrologer={astrologer} onClose={() => setShowFixedSheet(false)} />}
         {step === "settle" && settlement && (
           <div className="max-lg:hidden">
             <SettlementView s={settlement} astrologer={astrologer} endedByAstrologer={endedByAstrologer} onContinue={() => setStep("rate")} />

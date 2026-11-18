@@ -100,7 +100,24 @@ export function MeterChips({ m, instant }: { m: MeterInput; instant: boolean }) 
 }
 
 /** The free-call reminder and the low-balance warning, with "Add money" (the call stays connected). */
-export function MeterAlerts({ m, onAddMoney }: { m: MeterInput; onAddMoney: () => void }) {
+export function MeterAlerts({
+  m,
+  onAddMoney,
+  onContinuePaid,
+  onRejoinFixed,
+  picked,
+  paidRate,
+}: {
+  m: MeterInput;
+  /** The astrologer's normal pay-per-minute rate (what carrying on costs after the package). */
+  paidRate?: number;
+  onAddMoney: () => void;
+  /** Fixed Session only: carry on at the per-minute rate when it ends. */
+  onContinuePaid?: () => void;
+  /** Fixed Session only: book another Fixed Session when it ends. */
+  onRejoinFixed?: () => void;
+  picked?: "paid" | "fixed" | null;
+}) {
   const s = meterOf(m);
   if (s.freeReminder) {
     return (
@@ -134,15 +151,38 @@ export function MeterAlerts({ m, onAddMoney }: { m: MeterInput; onAddMoney: () =
       >
         <div className="min-w-0 flex-1 text-[13px] leading-normal text-amber-100 max-lg:text-[12.5px] max-lg:text-amber-900">
           <b className="block">{minutesWord(s.left)} left in your Fixed Session</b>
-          It ends by itself when the time is up. To keep talking, continue with a paid session at {rupee(m.rate)}/min — keep money in your wallet.
+          It ends by itself when the time is up. To keep talking, choose what happens next — keep money in your wallet.
+          {picked && <span className="mt-1 block font-semibold">{picked === "paid" ? "Got it — we'll continue at the per-minute rate when this ends." : "Got it — we'll open a new Fixed Session when this ends."}</span>}
         </div>
-        <button
-          type="button"
-          onClick={onAddMoney}
-          className="h-9 whitespace-nowrap rounded-lg bg-amber-400 px-3.5 text-[13px] font-bold text-ink max-lg:rounded-app-btn max-lg:bg-app-primary"
-        >
-          Add money
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {onContinuePaid && (
+            <button
+              type="button"
+              onClick={onContinuePaid}
+              aria-pressed={picked === "paid"}
+              className={`h-9 whitespace-nowrap rounded-lg px-3.5 text-[13px] font-bold max-lg:rounded-app-btn ${picked === "paid" ? "bg-emerald-400 text-ink" : "bg-amber-400 text-ink max-lg:bg-app-primary"}`}
+            >
+              Continue at {rupee(paidRate ?? m.rate)}/min
+            </button>
+          )}
+          {onRejoinFixed && (
+            <button
+              type="button"
+              onClick={onRejoinFixed}
+              aria-pressed={picked === "fixed"}
+              className={`h-9 whitespace-nowrap rounded-lg border border-amber-300 px-3.5 text-[13px] font-bold max-lg:rounded-app-btn ${picked === "fixed" ? "bg-emerald-400 text-ink" : "text-amber-100 max-lg:text-amber-900"}`}
+            >
+              Rejoin Fixed Session
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onAddMoney}
+            className="h-9 whitespace-nowrap rounded-lg bg-amber-400 px-3.5 text-[13px] font-bold text-ink max-lg:rounded-app-btn max-lg:bg-app-primary"
+          >
+            Add money
+          </button>
+        </div>
       </div>
     );
   }

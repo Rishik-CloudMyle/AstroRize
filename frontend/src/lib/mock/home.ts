@@ -5,7 +5,7 @@ export const TRUST_STRIP = [
   { icon: "✓", title: "Verified astrologers", sub: "Identity, credentials and sample sessions checked" },
   { icon: "🔒", title: "Secure payments", sub: "Razorpay · money held, debited once at the end" },
   { icon: "☎", title: "Masked calls", sub: "Your number is never shown to the astrologer" },
-  { icon: "₹", title: "No surprise charges", sub: "First 60 seconds free · nothing bills before connect" },
+  { icon: "₹", title: "No surprise charges", sub: "Nothing bills before you connect" },
 ];
 
 export const STEPS = [
