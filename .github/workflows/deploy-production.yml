@@ -1,0 +1,63 @@
+name: Deploy to production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to AWS production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      INSTANCE_ID: i-046a804802176a51a
+      AWS_REGION: ap-south-1
+    steps:
+      - name: Assume the deploy role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::445373009088:role/astrorize-prod-deploy
+          aws-region: ap-south-1
+
+      - name: Run the deploy through SSM
+        run: |
+          set -uo pipefail
+          CMD=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "GitHub Actions deploy ${GITHUB_SHA:0:7}" \
+            --parameters commands='["sudo bash /home/astro/deploy-production.sh"]' \
+            --timeout-seconds 1800 \
+            --query Command.CommandId --output text)
+          echo "SSM command: $CMD"
+          STATUS=Pending
+          for i in $(seq 1 120); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD" --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)
+            echo "status: $STATUS"
+            case "$STATUS" in
+              Success|Failed|Cancelled|TimedOut) break ;;
+            esac
+            sleep 15
+          done
+          echo "::group::deploy output"
+          aws ssm get-command-invocation --command-id "$CMD" --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text || true
+          echo "::endgroup::"
+          echo "::group::deploy errors"
+          aws ssm get-command-invocation --command-id "$CMD" --instance-id "$INSTANCE_ID" --query StandardErrorContent --output text || true
+          echo "::endgroup::"
+          test "$STATUS" = "Success"
+
+      - name: Smoke test production
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 http://13.206.169.12/)
+          echo "production -> $code"
+          test "$code" = "200"
