@@ -1,5 +1,6 @@
 "use client";
 
+import { useKeyboardFit } from "@/lib/mobile-fit";
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -440,6 +441,8 @@ function Conversation({
   // Bumped on every send, so a refresh that started before it can't wipe the new message.
   const version = useRef(0);
 
+  useKeyboardFit();
+
   // No astrologer at this address: stop asking.
   const gone = useRef(false);
 
@@ -683,6 +686,7 @@ function SupportConversation({ id, onChange }: { id: string; onChange: () => voi
   const scroller = useRef<HTMLDivElement>(null);
   // Bumped on every send, so a refresh that started before it can't wipe the new message.
   const version = useRef(0);
+  useKeyboardFit();
   const gone = useRef(false);
   const listUpdated = useRef(false);
 
@@ -827,7 +831,7 @@ function SupportConversation({ id, onChange }: { id: string; onChange: () => voi
 // ---- Phone/tablet (< 1024px): a conversation is a full screen of its own, as in the app ----
 // (over the site's header; the tab bar is already hidden on /messages/…).
 const THREAD_SCREEN =
-  "max-lg:fixed max-lg:inset-0 max-lg:z-[60] max-lg:h-auto max-lg:min-h-0 max-lg:rounded-none max-lg:border-0 max-lg:bg-app-bg max-lg:pt-[env(safe-area-inset-top)]";
+  "max-lg:fixed max-lg:inset-x-0 max-lg:top-[var(--vv-top,0px)] max-lg:bottom-auto max-lg:z-[60] max-lg:h-[var(--vv-h,100dvh)] max-lg:min-h-0 max-lg:rounded-none max-lg:border-0 max-lg:bg-app-bg max-lg:pt-[env(safe-area-inset-top)]";
 const THREAD_SCROLL = "max-lg:gap-2 max-lg:pt-2 max-lg:sm:px-4";
 const BUBBLE = "max-lg:max-w-[82%] max-lg:rounded-[14px] max-lg:px-3 max-lg:py-2.5";
 const BUBBLE_ME = "max-lg:border-transparent max-lg:bg-app-tint-2";

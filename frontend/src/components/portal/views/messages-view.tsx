@@ -10,6 +10,7 @@ import type { ChatMessage, CustomerThread, TeamMessage, Thread, ThreadCustomerDe
 import { useErrorToast, usePortalState, useToast } from "../portal-provider";
 import { PageHeader, Panel } from "../ui";
 import { IconBack, IconSearch } from "../../mobile/icons";
+import { useBackToClose, useKeyboardFit } from "@/lib/mobile-fit";
 import { HideTabBar } from "../../mobile/tab-bar";
 import { Avatar, PersonProfileDialog } from "./live-queue-people";
 import { ATTACH_LIMITS, AttachButton, AttachmentChip, MessageMedia, uploadFile, useAttachment } from "../../messages/message-media";
@@ -38,7 +39,7 @@ function TeamAvatar({ size }: { size: number }) {
 
 // Phones/tablets (< 1024px): a conversation is a full-screen screen (the customer messenger's look).
 const THREAD_SCREEN =
-  "max-lg:fixed max-lg:inset-0 max-lg:z-[95] max-lg:gap-0 max-lg:rounded-none max-lg:border-0 max-lg:bg-app-bg max-lg:p-0! max-lg:shadow-none! max-lg:transform-none! max-lg:[backdrop-filter:none]";
+  "max-lg:fixed max-lg:inset-x-0 max-lg:top-[var(--vv-top,0px)] max-lg:bottom-auto max-lg:h-[var(--vv-h,100dvh)] max-lg:z-[95] max-lg:gap-0 max-lg:rounded-none max-lg:border-0 max-lg:bg-app-bg max-lg:p-0! max-lg:shadow-none! max-lg:transform-none! max-lg:[backdrop-filter:none]";
 const BUBBLE = "max-lg:max-w-[82%] max-lg:rounded-[14px] max-lg:px-3 max-lg:py-2.5";
 const BUBBLE_ME = "max-lg:border-transparent max-lg:bg-app-tint-2";
 const BUBBLE_THEM = "max-lg:border-app-line max-lg:bg-app-surface";
@@ -78,6 +79,9 @@ export default function MessagesView({ threads: initialThreads }: { threads: Thr
   const phone = usePhoneLayout();
   // What's actually on screen: on a phone nothing is until a conversation is opened.
   const showing = !phone || mobileOpen;
+  // The phone's Back button closes the open conversation (back to the list), not the whole Messages page.
+  useBackToClose(phone && mobileOpen, () => setMobileOpen(false));
+  useKeyboardFit(phone && mobileOpen);
   const closeProfile = useCallback(() => setProfileOf(null), []);
   const threadPanel = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);

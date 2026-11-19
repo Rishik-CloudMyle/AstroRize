@@ -71,6 +71,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // Android Chrome / the Play Store app: the keyboard resizes the page itself, so fixed screens fit above it.
+  interactiveWidget: "resizes-content",
   themeColor: "#f7f4ee",
 };
 

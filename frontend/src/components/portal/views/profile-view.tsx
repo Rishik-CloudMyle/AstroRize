@@ -28,13 +28,19 @@ export default function ProfileView({ data }: { data: ProfileData }) {
   const lint = hasClaimWarning(bio);
   const discount = discountLabel(me.price, me.was);
 
+  // The skills still free to add; "Add skill" opens this list so the astrologer picks one.
+  const [picking, setPicking] = useState(false);
+  const available = data.skillPool.filter((p) => !skills.includes(p));
   const addSkill = () => {
-    const next = data.skillPool.find((p) => !skills.includes(p));
-    if (!next) {
+    if (!available.length) {
       toast("Every available skill is already on your profile.");
       return;
     }
-    setSkills([...skills, next]);
+    setPicking((open) => !open);
+  };
+  const pickSkill = (skill: string) => {
+    setSkills([...skills, skill]);
+    setPicking(false);
   };
 
   const submit = async () => {
@@ -139,6 +145,28 @@ export default function ProfileView({ data }: { data: ProfileData }) {
               ＋ Add skill
             </button>
           </div>
+          {picking && (
+            <div role="group" aria-label="Choose a skill to add" className="mt-3 rounded-xl border border-line bg-stone-50 p-3 max-lg:rounded-app-btn max-lg:border-app-line max-lg:bg-app-surface">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <b className="text-[12.5px] text-ink">Choose a skill to add</b>
+                <button type="button" onClick={() => setPicking(false)} className="text-[12px] font-bold text-stone-500">
+                  Cancel
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-[7px]">
+                {available.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => pickSkill(k)}
+                    className="inline-flex h-8 items-center rounded-full border border-amber-400 bg-white px-3 text-[12.5px] font-bold text-ink hover:bg-amber-50 max-lg:h-[34px]"
+                  >
+                    ＋ {k}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="mt-[18px] flex gap-2.5">
             <button type="button" onClick={discard} className={`h-[46px] flex-1 rounded-xl border border-line bg-white text-sm font-bold ${M_SECONDARY} max-lg:h-app-hit`}>
