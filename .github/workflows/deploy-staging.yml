@@ -1,0 +1,39 @@
+name: Deploy to staging
+
+on:
+  push:
+    branches: [development]
+  workflow_dispatch:
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to staging.astrorize.com
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "147.93.110.184 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKmV+B14SCVX2ZQh17jv8QYiv0Qcsz8QRoaDlnlirCZw" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy to the VPS
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=yes \
+              -o BatchMode=yes \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=20 \
+              astro@147.93.110.184
+
+      - name: Smoke test the public site
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 https://staging.astrorize.com/)
+          echo "https://staging.astrorize.com/ -> $code"
+          test "$code" = "200"
