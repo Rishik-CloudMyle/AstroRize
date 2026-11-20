@@ -55,10 +55,10 @@ export default function FinanceView({ data, part = "all" }: { data: FinanceData;
       return;
     }
     if (b.state === "APPROVED") {
-      // ⚠ RazorpayX isn't connected yet: releasing records the decision, the transfer is made outside.
+      // Releasing sends one transfer per astrologer (RazorpayX, or the simulation until its keys are set).
       void run(
         () => api.post(`/admin/payouts/${id}/release`),
-        `${id} released by ${actor}. RazorpayX isn't connected yet, so make the transfer and keep its reference.`,
+        `${id} released by ${actor}. Transfers to the astrologers are on their way — follow them under Finance → Transfers.`,
       );
       return;
     }

@@ -6,6 +6,7 @@ import { api } from "@/lib/api/client";
 import { BIO_WORD_LIMIT, hasClaimWarning, wordCount } from "@/lib/portal/bio";
 import { discountLabel, ratingLabel, rupee, skillLine } from "@/lib/portal/format";
 import type { ProfileData } from "@/lib/portal/types";
+import { CUSTOM_SKILL_NOTE, SKILL_MAX_LENGTH, checkCustomSkill, skillInfo } from "@/lib/portal/skills";
 import { useAccount, useErrorToast, usePortalState, useToast } from "../portal-provider";
 import { M_LABEL, M_SECONDARY, PageHeader, Panel } from "../ui";
 import GalleryEditor from "./gallery-editor";
@@ -41,6 +42,21 @@ export default function ProfileView({ data }: { data: ProfileData }) {
   const pickSkill = (skill: string) => {
     setSkills([...skills, skill]);
     setPicking(false);
+  };
+  // "Other": a skill the astrologer types (not in the list).
+  const [custom, setCustom] = useState("");
+  const [customError, setCustomError] = useState("");
+  const addCustom = () => {
+    const r = checkCustomSkill(custom, skills);
+    if ("error" in r) {
+      setCustomError(r.error);
+      return;
+    }
+    setSkills([...skills, r.skill]);
+    setCustom("");
+    setCustomError("");
+    setPicking(false);
+    toast(`${r.skill} added — submit your changes to send it for review.`);
   };
 
   const submit = async () => {
@@ -153,19 +169,68 @@ export default function ProfileView({ data }: { data: ProfileData }) {
                   Cancel
                 </button>
               </div>
-              <div className="flex flex-wrap gap-[7px]">
-                {available.map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => pickSkill(k)}
-                    className="inline-flex h-8 items-center rounded-full border border-amber-400 bg-white px-3 text-[12.5px] font-bold text-ink hover:bg-amber-50 max-lg:h-[34px]"
-                  >
-                    ＋ {k}
+              {available.length > 0 && (
+                <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+                  {available.map((k) => (
+                    <li key={k}>
+                      <button
+                        type="button"
+                        onClick={() => pickSkill(k)}
+                        className="block w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-left hover:bg-amber-50 max-lg:rounded-app-btn"
+                      >
+                        <b className="block text-[13px] text-ink">＋ {k}</b>
+                        <span className="block text-[11.5px] leading-snug text-stone-500">{skillInfo(k)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-3 border-t border-line pt-3">
+                <label htmlFor="custom-skill" className="block text-[12.5px] font-bold text-ink">
+                  Other — add your own skill
+                </label>
+                <p className="mt-0.5 mb-2 text-[11.5px] leading-snug text-stone-500">Not in the list? Type its name. {CUSTOM_SKILL_NOTE}</p>
+                <div className="flex gap-2">
+                  <input
+                    id="custom-skill"
+                    value={custom}
+                    onChange={(e) => {
+                      setCustom(e.target.value);
+                      setCustomError("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addCustom();
+                      }
+                    }}
+                    maxLength={SKILL_MAX_LENGTH}
+                    placeholder="e.g. Lal Kitab"
+                    autoComplete="off"
+                    className="h-10 min-w-0 flex-1 rounded-lg border border-line bg-white px-3 text-[13.5px] text-ink outline-none focus:border-amber-500 max-lg:h-11 max-lg:rounded-app-btn"
+                  />
+                  <button type="button" onClick={addCustom} className="h-10 rounded-lg bg-amber-500 px-4 text-[13px] font-bold text-ink max-lg:h-11 max-lg:rounded-app-btn">
+                    Add
                   </button>
-                ))}
+                </div>
+                {customError && (
+                  <p role="alert" className="mt-1.5 mb-0 text-[12px] font-semibold text-rose-700">
+                    {customError}
+                  </p>
+                )}
               </div>
             </div>
+          )}
+
+          {skills.length > 0 && (
+            <dl className="mt-3.5 mb-0 rounded-xl border border-line-soft bg-white p-3 max-lg:rounded-app-btn max-lg:border-app-line">
+              <dt className="text-[11.5px] font-bold tracking-[.06em] text-stone-500 uppercase">What your skills mean</dt>
+              {skills.map((k) => (
+                <dd key={k} className="m-0 mt-1.5 text-[12px] leading-snug text-stone-600">
+                  <b className="text-ink">{k}</b> — {skillInfo(k) ?? CUSTOM_SKILL_NOTE}
+                </dd>
+              ))}
+            </dl>
           )}
 
           <div className="mt-[18px] flex gap-2.5">

@@ -30,6 +30,7 @@ function modMessage(label: string): string {
 }
 
 const MAX_POLL_OPTIONS = 6;
+const MIN_POLL_OPTIONS = 2;
 /** How often the console re-reads the queue and announcements while open. */
 const REFRESH_MS = 15_000;
 
@@ -485,7 +486,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
 
           <Panel className="p-[18px]">
             <h2 className="m-0 mb-1 text-[15px] font-bold max-lg:text-[16px]">Launch a poll</h2>
-            <p className="mb-3 text-xs text-stone-500">Up to six options. Single vote, no changes.</p>
+            <p className="mb-3 text-xs text-stone-500">Two to six options — remove any you don&apos;t need. Single vote, no changes.</p>
             <div className="flex flex-col gap-[7px]">
               <input
                 value={question}
@@ -496,15 +497,26 @@ function LiveConsole({ data }: { data: LiveRoom }) {
                 className={`h-[42px] min-w-0 rounded-[11px] border border-line bg-white px-3 text-[13.5px] text-ink outline-none ${M_INPUT} max-lg:h-11`}
               />
               {options.map((o, i) => (
-                <input
-                  key={i}
-                  value={o}
-                  onChange={(e) => setOptions(options.map((x, n) => (n === i ? e.target.value : x)))}
-                  aria-label={`Option ${i + 1}`}
-                  placeholder={`Option ${i + 1}`}
-                  maxLength={80}
-                  className={`h-[38px] min-w-0 rounded-[11px] border border-line bg-white px-3 text-[13px] text-stone-600 outline-none ${M_INPUT} max-lg:h-11`}
-                />
+                <div key={i} className="flex min-w-0 items-center gap-1.5">
+                  <input
+                    value={o}
+                    onChange={(e) => setOptions(options.map((x, n) => (n === i ? e.target.value : x)))}
+                    aria-label={`Option ${i + 1}`}
+                    placeholder={`Option ${i + 1}`}
+                    maxLength={80}
+                    className={`h-[38px] min-w-0 flex-1 rounded-[11px] border border-line bg-white px-3 text-[13px] text-stone-600 outline-none ${M_INPUT} max-lg:h-11`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setOptions(options.filter((_, n) => n !== i))}
+                    disabled={options.length <= MIN_POLL_OPTIONS}
+                    aria-label={`Remove option ${i + 1}`}
+                    title={options.length <= MIN_POLL_OPTIONS ? `A poll needs at least ${MIN_POLL_OPTIONS} options` : "Remove this option"}
+                    className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[11px] border border-line bg-white text-[16px] leading-none text-stone-500 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40 max-lg:h-11 max-lg:w-11"
+                  >
+                    ×
+                  </button>
+                </div>
               ))}
               {options.length < MAX_POLL_OPTIONS && (
                 <button

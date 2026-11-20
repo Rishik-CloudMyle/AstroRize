@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { rupee } from "@/lib/portal/format";
+import PayoutAccountCard from "./payout-account-card";
 import type { Earnings, StatementRow } from "@/lib/portal/types";
 import { useToast } from "../portal-provider";
 import { APP_CARD, M_SECONDARY, PageHeader, Panel, Th, tdClass } from "../ui";
@@ -301,6 +302,8 @@ export default function EarningsView({ data }: { data: Earnings }) {
             " A refund adjustment takes back your share of a refund AstroRize gave a customer after a complaint; it comes off your next payout (if it is more than that payout, the rest carries to the one after)."}
         </p>
       </Panel>
+
+      <PayoutAccountCard />
     </div>
   );
 }

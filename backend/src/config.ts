@@ -26,6 +26,19 @@ export const config = {
   razorpayKeySecret: (process.env.RAZORPAY_KEY_SECRET ?? process.env.RAZORPAY_SECRET_KEY ?? "").trim(),
   /** The secret set on the Razorpay webhook (dashboard → Webhooks); empty = webhook refused. */
   razorpayWebhookSecret: (process.env.RAZORPAY_WEBHOOK_SECRET ?? "").trim(),
+  /**
+   * RazorpayX (astrologer payouts). Key id and secret default to the Razorpay ones above (RazorpayX
+   * uses the same API keys); RAZORPAYX_ACCOUNT_NUMBER is the RazorpayX current account the money
+   * leaves from. Until it is set, payouts run in SIMULATION: nothing leaves any bank, the Finance
+   * page says so, and test accounts are paid or failed on pretend.
+   */
+  razorpayxKeyId: (process.env.RAZORPAYX_KEY_ID ?? process.env.RAZORPAY_KEY_ID ?? process.env.RAZORPAY_ID ?? "").trim(),
+  razorpayxKeySecret: (process.env.RAZORPAYX_KEY_SECRET ?? process.env.RAZORPAY_KEY_SECRET ?? process.env.RAZORPAY_SECRET_KEY ?? "").trim(),
+  razorpayxAccountNumber: (process.env.RAZORPAYX_ACCOUNT_NUMBER ?? "").trim(),
+  /** The secret set on the RazorpayX webhook (payout.processed / failed / reversed); empty = webhook refused. */
+  razorpayxWebhookSecret: (process.env.RAZORPAYX_WEBHOOK_SECRET ?? "").trim(),
+  /** Encrypts astrologers' bank account numbers and PAN in the database. Required in production. */
+  payoutDataKey: (process.env.PAYOUT_DATA_KEY ?? "").trim(),
   /** Prints sign-in codes instead of texting them. Never on in production. */
   mockSms: process.env.NODE_ENV !== "production",
   frontendOrigin: process.env.FRONTEND_ORIGIN ?? "http://localhost:3000",

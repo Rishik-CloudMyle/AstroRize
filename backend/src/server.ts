@@ -7,6 +7,7 @@ import { sweepAbandonedConsultations } from "./lib/consultations.ts";
 import { isDatabaseDown } from "./lib/errors.ts";
 import { mediaWorkerMode, startMediaConsumer, workerHost, type Consumer } from "./lib/media-jobs.ts";
 import { sweepPendingPayments } from "./lib/payments.ts";
+import { startPayoutSweep } from "./lib/payouts.ts";
 import { sweepStalePresence } from "./lib/presence.ts";
 import { razorpayConfigured, razorpayMode } from "./lib/razorpay.ts";
 import { sweepProcessingRefunds } from "./lib/wallet-refunds.ts";
@@ -34,6 +35,8 @@ const server = app.listen(config.port, () => {
 // Once a minute: settle consultations left open (closed tab, dropped connection), then switch
 // off astrologers whose portal has been closed for a while (ending their live room); once a
 // day, delete chat and messages older than the retention period.
+startPayoutSweep();
+
 const sweeper = setInterval(() => {
   sweepAbandonedConsultations()
     .catch((e: unknown) => {

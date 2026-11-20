@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { accountsOverview, createPayoutsForBatch, retryPayout, transfersView } from "../../lib/payouts.ts";
+import { payoutMode } from "../../lib/razorpayx.ts";
 import { z } from "zod";
 import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
@@ -163,6 +165,30 @@ financeRouter.post("/payouts/:id/approve", async (req, res) => {
   res.json({ ok: true, actor: actorName(admin) });
 });
 
+/** Every transfer to an astrologer (newest problems first), the payout details on file, and how payouts are being sent. */
+financeRouter.get("/payouts/transfers", async (req, res) => {
+  requirePage(req, "finance");
+  const [transfers, accounts] = await Promise.all([transfersView(), accountsOverview()]);
+  res.json({ mode: payoutMode(), transfers, accounts });
+});
+
+/** Retry a failed or returned transfer (a new attempt; Finance decides, never automatic). */
+financeRouter.post("/payouts/transfers/:id/retry", async (req, res) => {
+  const admin = requireCapability(req, "payout.release", "Your role can approve payouts but not release them.");
+  requirePage(req, "finance");
+  const p = await retryPayout(String(req.params.id), admin);
+  res.json({ ok: true, state: p?.state ?? null });
+});
+
+/** Make (or finish) the transfers of a released batch — if releasing it couldn't reach RazorpayX. */
+financeRouter.post("/payouts/:id/transfers", async (req, res) => {
+  requirePage(req, "finance");
+  const admin = requireCapability(req, "payout.release", "Your role can approve payouts but not release them.");
+  const out = await createPayoutsForBatch(String(req.params.id));
+  await audit(admin, "payout.batch.transfers", String(req.params.id), `${out.transfers} transfers · ${out.paid} paid · ${out.failed} failed`);
+  res.json({ ok: true, ...out });
+});
+
 /** Approver and releaser must be different people — except a Super Admin, who may release what they approved (audited). */
 financeRouter.post("/payouts/:id/release", async (req, res) => {
   requirePage(req, "finance");
@@ -177,8 +203,15 @@ financeRouter.post("/payouts/:id/release", async (req, res) => {
   });
   if (!count) throw conflict(`${b.id} was just released by someone else.`);
   await audit(admin, "payout.batch.release", b.id, `APPROVED → RELEASED${self}`);
-  // RazorpayX isn't connected yet, so no transfer reference exists; the client says so.
-  res.json({ ok: true, actor: actorName(admin) });
+  // One transfer per astrologer through RazorpayX (or the simulation until its keys are set). A problem
+  // here never undoes the release: the transfers can be sent again from the Transfers page.
+  let transfers = null;
+  try {
+    transfers = await createPayoutsForBatch(b.id);
+  } catch (e) {
+    console.error(`Transfers for ${b.id}:`, e instanceof Error ? e.message : e);
+  }
+  res.json({ ok: true, actor: actorName(admin), mode: payoutMode(), transfers });
 });
 
 financeRouter.patch("/denominations/:amount", async (req, res) => {

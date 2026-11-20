@@ -9,6 +9,7 @@ import { grantWelcome, welcomePolicy } from "../src/lib/welcome.ts";
 import { GST_RATE } from "../src/lib/billing.ts";
 import { istDateKey } from "../src/lib/format.ts";
 import { CONFIG_KEYS, DENOMINATIONS, GIFTS, REFERENCE_SETTINGS } from "./reference-data.ts";
+import { addTestPayoutAccounts } from "./test-payout-accounts.ts";
 
 // Demo builds only: one easy password for every seeded account. The seed refuses to run in
 // production, and real accounts must meet the sign-up password rules.
@@ -481,6 +482,7 @@ async function main() {
       await db.auditLog.create({ data: { at: new Date(approvedAt.getTime() + 4 * 3600000), actorId: admins.super.id, actorName: "K. Prasad", action: "payout.batch.release", object: c.id, diff: "APPROVED → RELEASED", correlation: `pb${i}r` } });
     }
   }
+  await addTestPayoutAccounts();
   console.log("Seeded demo data. Demo password for every account:", DEMO_PASSWORD);
 }
 

@@ -275,6 +275,8 @@ enum Presence {
 }
 
 model Astrologer {
+  payoutAccount PayoutAccount?
+  payouts       Payout[]
   /// Short stable id, e.g. "raghav".
   id                  String      @id
   slug                String      @unique
@@ -846,6 +848,7 @@ model PayoutBatch {
   periodStart    DateTime?
   periodEnd      DateTime?
   lines          EarningsLine[]
+  payouts        Payout[]
   astrologers    Int
   gross          Int
   tds            Int
@@ -1211,4 +1214,60 @@ model CallRecording {
 
   @@unique([consultationId, side, take])
   @@index([status, startedAt])
+}
+
+/// Where an astrologer's payouts go (bank account or UPI). The account number and PAN are stored
+/// encrypted; only the last 4 digits are readable. `isTest` rows are made-up details for the demo
+/// astrologers — never real bank data.
+model PayoutAccount {
+  astrologerId          String     @id
+  astrologer            Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  /// BANK | UPI
+  kind                  String
+  holderName            String
+  accountNumberEnc      String?
+  ifsc                  String?
+  upiId                 String?
+  panEnc                String?
+  /// Last 4 digits of the account number (or the UPI handle's start) for display.
+  last4                 String
+  isTest                Boolean    @default(false)
+  /// RazorpayX ids, created the first time a payout is sent (or fake ones in simulation).
+  razorpayContactId     String?
+  razorpayFundAccountId String?
+  /// Fingerprint of the details the fund account was made for: changed details make a new one.
+  fundFingerprint       String?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+}
+
+/// One transfer to one astrologer for one released payout batch.
+model Payout {
+  id               String        @id @default(cuid())
+  batchId          String
+  batch            PayoutBatch   @relation(fields: [batchId], references: [id])
+  astrologerId     String
+  astrologer       Astrologer    @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  /// Owed before TDS, TDS withheld, and what is actually sent (₹).
+  gross            Int
+  tds              Int
+  amount           Int
+  /// QUEUED | PROCESSING | PROCESSED | FAILED | REVERSED
+  state            String        @default("QUEUED")
+  /// IMPS | UPI
+  mode             String?
+  razorpayPayoutId String?       @unique
+  /// The bank's reference once paid.
+  utr              String?
+  failureReason    String?
+  attempts         Int           @default(1)
+  /// Sent to RazorpayX so a repeated request can never pay twice; a retry gets a new one.
+  idempotencyKey   String        @unique
+  /// "HDFC ••••3456" / "UPI ••••@razorpay" — what it was sent to, kept even if the details change.
+  methodLabel      String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@unique([batchId, astrologerId])
+  @@index([state])
 }

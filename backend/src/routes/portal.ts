@@ -1,4 +1,5 @@
 import express, { Router, type NextFunction, type Request, type Response } from "express";
+import { astrologerPayoutsView, saveAccount } from "../lib/payouts.ts";
 import { assertNotBlocked, blockEndLabel } from "../lib/account-blocks.ts";
 import { z } from "zod";
 import { db } from "../db.ts";
@@ -89,7 +90,9 @@ export const portalRouter = Router();
 portalRouter.use(roleGuard("astrologer"));
 
 const MULTIPLIER_OPTIONS = [1.5, 2, 3, 4];
-const SKILL_POOL = ["Prashna", "Vastu", "Numerology", "Tarot", "Palmistry", "Life Coaching"];
+const SKILL_POOL = ["Vedic", "KP", "Nadi", "Prashna", "Face Reading", "Palmistry", "Numerology", "Tarot", "Vastu", "Life Coaching", "Counseling"];
+/** A skill an astrologer typed: letters, numbers, spaces and & ' . / - only (it is reviewed by the team before it shows). */
+const SKILL_NAME = /^[\p{L}\p{N} &'’./-]{2,30}$/u;
 const HOURS = ["10:00", "11:00", "12:00", "13:00", "14:00", "16:00", "18:00", "20:00"];
 
 async function me(req: Request): Promise<Astrologer> {
@@ -287,6 +290,32 @@ portalRouter.get("/dashboard", async (req, res) => {
 });
 
 /** Instant mode: on = only Instant Calls; Chat, Voice, Video and Fixed Sessions are switched off for customers. */
+/** The astrologer's payout details (masked) and their latest payouts. */
+portalRouter.get("/payout-account", async (req, res) => {
+  const a = await me(req);
+  res.json(await astrologerPayoutsView(a.id));
+});
+
+/** Save where payouts go. The account number and PAN are stored encrypted; changes are audited (never with the numbers). */
+portalRouter.put("/payout-account", async (req, res) => {
+  const a = await me(req);
+  const body = z
+    .object({
+      kind: z.enum(["BANK", "UPI"], { error: "Choose bank account or UPI." }),
+      holderName: z.string({ error: "Enter the account holder's name." }).max(80),
+      accountNumber: z.string().max(30).optional(),
+      ifsc: z.string().max(20).optional(),
+      upiId: z.string().max(80).optional(),
+      pan: z.string({ error: "Enter your PAN." }).max(20),
+    })
+    .parse(req.body);
+  const existing = await db.payoutAccount.findUnique({ where: { astrologerId: a.id }, select: { isTest: true } });
+  // A made-up test account is replaced by real details the first time the astrologer saves their own.
+  const saved = await saveAccount(a.id, body, { isTest: false });
+  await audit(req.auth ?? null, "astrologer.payout_account.update", a.id, `${existing ? "updated" : "added"} · ${saved.kind === "BANK" ? `bank ••••${saved.last4}` : "UPI"}`);
+  res.json(await astrologerPayoutsView(a.id));
+});
+
 portalRouter.patch("/instant-mode", async (req, res) => {
   const a = await me(req);
   const { enabled } = z.object({ enabled: z.boolean({ error: "Choose on or off." }) }).parse(req.body);
@@ -1616,7 +1645,7 @@ portalRouter.put("/profile/gallery/order", async (req, res) => {
 portalRouter.post("/profile/submission", async (req, res) => {
   const a = await me(req);
   const { bio, skills } = z
-    .object({ bio: z.string().trim().min(20).max(3000), skills: z.array(z.string().min(1).max(40)).min(1).max(12) })
+    .object({ bio: z.string().trim().min(20).max(3000), skills: z.array(z.string().trim().min(2, "A skill needs at least 2 characters.").max(30, "Keep each skill under 30 characters.").regex(SKILL_NAME, "Skills can use letters, numbers and spaces only.")).min(1, "Keep at least one skill.").max(12, "You can list up to 12 skills.") })
     .parse(req.body);
   if (/guarantee|100%|definitely|cure|certain/i.test(bio)) {
     throw badRequest("Your bio promises an outcome (e.g. “guarantee”, “100%”). Remove it before submitting.");
