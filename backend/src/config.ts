@@ -41,6 +41,17 @@ export const config = {
   payoutDataKey: (process.env.PAYOUT_DATA_KEY ?? "").trim(),
   /** Prints sign-in codes instead of texting them. Never on in production. */
   mockSms: process.env.NODE_ENV !== "production",
+  /**
+   * Fast2SMS (sign-in codes by SMS; see lib/sms.ts). Set FAST2SMS_API_KEY (dashboard → Dev API) to
+   * send for real. Route "dlt" also needs FAST2SMS_SENDER_ID (the approved header) and
+   * FAST2SMS_TEMPLATE_ID (Fast2SMS's message id for the approved DLT template). The key stays on the server.
+   */
+  fast2sms: {
+    apiKey: (process.env.FAST2SMS_API_KEY ?? "").trim(),
+    route: (process.env.FAST2SMS_ROUTE ?? "dlt").trim().toLowerCase(),
+    senderId: (process.env.FAST2SMS_SENDER_ID ?? "").trim(),
+    templateId: (process.env.FAST2SMS_TEMPLATE_ID ?? "").trim(),
+  },
   frontendOrigin: process.env.FRONTEND_ORIGIN ?? "http://localhost:3000",
   /** Session cookie lifetime. */
   sessionDays: 30,
