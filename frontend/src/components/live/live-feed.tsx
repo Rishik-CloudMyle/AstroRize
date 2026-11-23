@@ -23,16 +23,16 @@ export function FeedAvatar({ photo, initials, size = 22 }: { photo: string | nul
 }
 
 /** How long one bubble takes to float up and fade away. */
-const BUBBLE_MS = 3800;
+const BUBBLE_MS = 9000;
 /** How far a bubble rises in that time (the overlay is a little taller than this). */
 const RISE_PX = 160;
 /** Space kept between one bubble and the next as they rise. */
 const BUBBLE_GAP_PX = 6;
 /** At most this many bubbles in the air at once; at most this many waiting their turn. */
-const MAX_FLYING = 5;
-const MAX_WAITING = 5;
+const MAX_FLYING = 6;
+const MAX_WAITING = 8;
 /** On opening, the room's last few lines float up once so the viewer sees what's going on. */
-const SEED_LINES = 3;
+const SEED_LINES = 4;
 /** With reduced motion bubbles don't move, so they only need a short pause between them. */
 const STILL_GAP_MS = 300;
 

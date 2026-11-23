@@ -290,6 +290,8 @@ configRouter.put("/config/fixed-sessions", async (req, res) => {
 const FREE_KEYS = {
   enabled: "welcome.enabled",
   weeklyMinutes: "welcome.weekly_free_minutes",
+  dailyMinutes: "welcome.daily_free_minutes",
+  monthlyMinutes: "welcome.monthly_free_minutes",
   lengthMinutes: "welcome.free_call_minutes",
   chooseLength: "welcome.choose_length",
   oneTimeEnabled: "welcome.onetime_enabled",
@@ -298,7 +300,7 @@ const FREE_KEYS = {
   weeklyLimit: "welcome.astrologer_max_per_week",
   reminderSeconds: "welcome.reminder_seconds",
 } as const;
-const FREE_DEFAULTS: Record<keyof typeof FREE_KEYS, number> = { enabled: 1, weeklyMinutes: 30, lengthMinutes: 10, chooseLength: 0, oneTimeEnabled: 1, oneTimeMinutes: 5, dailyLimit: 5, weeklyLimit: 50, reminderSeconds: 120 };
+const FREE_DEFAULTS: Record<keyof typeof FREE_KEYS, number> = { enabled: 1, weeklyMinutes: 30, dailyMinutes: 0, monthlyMinutes: 0, lengthMinutes: 10, chooseLength: 0, oneTimeEnabled: 1, oneTimeMinutes: 5, dailyLimit: 5, weeklyLimit: 50, reminderSeconds: 120 };
 
 configRouter.get("/config/free-calls", async (req, res) => {
   requirePage(req, "config");
@@ -317,6 +319,8 @@ configRouter.put("/config/free-calls", async (req, res) => {
     .object({
       enabled: int("on or off", 0, 1),
       weeklyMinutes: int("the weekly free minutes", 0, 600),
+      dailyMinutes: int("the daily free minutes", 0, 600),
+      monthlyMinutes: int("the monthly free minutes", 0, 2400),
       lengthMinutes: int("the free-call length", 1, 120),
       extraLengths: z.array(int("a free-call length", 1, 120)).max(5, "At most 5 extra lengths."),
       chooseLength: int("on or off for choosing the length", 0, 1),
@@ -334,6 +338,8 @@ configRouter.put("/config/free-calls", async (req, res) => {
   if (v.oneTimeMinutes < 1 || v.oneTimeMinutes > 30) throw badRequest("The 1-time welcome call can be 1–30 whole minutes.");
   if (v.weeklyMinutes !== 0 && v.weeklyMinutes < Math.min(...lengths)) throw badRequest(`Weekly free minutes (${v.weeklyMinutes}) must cover at least one free call of ${Math.min(...lengths)} minutes — or be 0 to stop free calls.`);
   if (v.weeklyMinutes !== 0 && v.weeklyMinutes < v.lengthMinutes) throw badRequest(`Weekly free minutes (${v.weeklyMinutes}) must cover the default free call of ${v.lengthMinutes} minutes — or be 0 to stop free calls.`);
+  if (v.dailyMinutes !== 0 && v.dailyMinutes < Math.min(...lengths)) throw badRequest(`Daily free minutes (${v.dailyMinutes}) must cover at least one free call of ${Math.min(...lengths)} minutes — or be 0 for no daily limit.`);
+  if (v.monthlyMinutes !== 0 && v.monthlyMinutes < Math.min(...lengths)) throw badRequest(`Monthly free minutes (${v.monthlyMinutes}) must cover at least one free call of ${Math.min(...lengths)} minutes — or be 0 for no monthly limit.`);
   const before = await getFreeCalls();
   const beforeExtras = (await configuredLengths()).slice(1);
   for (const k of Object.keys(FREE_KEYS) as (keyof typeof FREE_KEYS)[]) {

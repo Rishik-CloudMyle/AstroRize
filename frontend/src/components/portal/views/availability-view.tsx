@@ -1,5 +1,6 @@
 "use client";
 
+import TimeSelect, { label12 } from "./time-select";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api/client";
@@ -28,9 +29,22 @@ const LEGEND = [
  * ONE definition of slot validity (logic.js → slotProblem). Both the Save button's
  * look and the save handler use it, so they can never disagree.
  */
-function slotProblem(slots: Slot[], day: string, start: string, end: string): string | null {
+/** Today's date and time in India (slots are IST), as "YYYY-MM-DD" and "HH:MM". */
+function istNow() {
+  const now = new Date();
+  return {
+    date: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(now),
+    time: new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false }).format(now),
+  };
+}
+
+function slotProblem(slots: Slot[], day: string, start: string, end: string, date?: string): string | null {
   if (!start || !end) return "Pick a start and an end time.";
   if (end <= start) return "End time must be after start time.";
+  if (date) {
+    const now = istNow();
+    if (date < now.date || (date === now.date && start <= now.time)) return "That time has already passed. Pick a time that hasn't started yet.";
+  }
   const clash = slots.some((x) => x.day === day && x.state !== "cancelled" && x.start < end && start < x.end);
   if (clash) return `That range overlaps a slot you already have on ${day}.`;
   return null;
@@ -56,7 +70,7 @@ export default function AvailabilityView({ data }: { data: Availability }) {
     if (formOpen) formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [formOpen, day, start]);
 
-  const problem = slotProblem(slots, day, start, end);
+  const problem = slotProblem(slots, day, start, end, data.dayKeys[data.days.indexOf(day)]);
   const valid = problem === null;
 
   const run = async (action: () => Promise<void>) => {
@@ -81,7 +95,7 @@ export default function AvailabilityView({ data }: { data: Availability }) {
     return run(async () => {
       await api.post("/portal/availability", { date, start, end });
       setFormOpen(false);
-      toast(`Slot saved as open · ${day} ${start}–${end} IST.`);
+      toast(`Slot saved as open · ${day} ${label12(start)}–${label12(end)} IST.`);
     });
   };
 
@@ -195,30 +209,13 @@ export default function AvailabilityView({ data }: { data: Availability }) {
                 <label htmlFor="slot-start" className={`mb-1.5 block text-xs font-semibold text-stone-600 ${M_LABEL}`}>
                   Start (IST)
                 </label>
-                <input
-                  id="slot-start"
-                  value={start}
-                  inputMode="numeric"
-                  placeholder="HH:MM"
-                  onChange={(e) => setStart(e.target.value)}
-                  className={`${fieldClass} border-line px-3.5 tabular-nums`}
-                />
+                <TimeSelect id="slot-start" value={start} onChange={setStart} invalid={!valid} className={`${fieldClass} tabular-nums`} />
               </div>
               <div>
                 <label htmlFor="slot-end" className={`mb-1.5 block text-xs font-semibold text-stone-600 ${M_LABEL}`}>
                   End (IST)
                 </label>
-                <input
-                  id="slot-end"
-                  value={end}
-                  inputMode="numeric"
-                  placeholder="HH:MM"
-                  aria-invalid={!valid}
-                  aria-describedby={valid ? undefined : "slot-error"}
-                  onChange={(e) => setEnd(e.target.value)}
-                  className={`${fieldClass} px-3.5 tabular-nums`}
-                  style={{ borderColor: valid ? "#e7e0d6" : "#be123c" }}
-                />
+                <TimeSelect id="slot-end" value={end} onChange={setEnd} invalid={!valid} className={`${fieldClass} tabular-nums`} />
               </div>
             </div>
             {!valid && (

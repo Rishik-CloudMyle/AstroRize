@@ -393,6 +393,8 @@ interface RawFinance {
   kpis: {
     grossVolume: string;
     grossMonth: string;
+    gstTotal: string;
+    gstMonth: string;
     grossDelta: string;
     pendingPayouts: string;
     batchesAwaiting: number;
@@ -448,6 +450,7 @@ export async function getFinance(): Promise<FinanceData> {
   return {
     kpis: [
       kpi(`Gross volume · ${k.grossMonth}`, k.grossVolume, k.grossDelta, "#047857"),
+      kpi(`GST collected · ${k.grossMonth}`, k.gstMonth, `${k.gstTotal} in total, included in what customers paid`, "#78716c"),
       kpi(
         "Pending payouts",
         k.pendingPayouts,

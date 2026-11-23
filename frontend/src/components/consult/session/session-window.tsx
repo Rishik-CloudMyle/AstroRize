@@ -6,7 +6,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { MediaWants } from "@/lib/media/zego-call";
 import { ConsultChat, useConsultChat } from "./consult-chat";
 import { useCallMedia, type CallMedia, type Speaker } from "./use-call-media";
-import { RECORDING_NOTICE, RecordingBadge } from "../recording-notice";
+import { RecordingBadge } from "../recording-notice";
+import ReportDialog from "./report-dialog";
 
 // The consultation's own window, the same for the customer and the astrologer, one per mode:
 //   chat  → a messaging window
@@ -64,7 +65,7 @@ export function SessionWindow({
   chips,
   alerts,
   ending,
-  onEnd,
+  onEnd: endNow,
   onMinimise,
   endNote,
   appLook = false,
@@ -144,6 +145,11 @@ export function SessionWindow({
     };
   }, []);
 
+  // Ending is always confirmed first: every End button below asks "Do you want to end the call?".
+  const [confirmingEnd, setConfirmingEnd] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const onEnd = () => setConfirmingEnd(true);
+
   // On the app's Voice and Video screens the notices and alerts sit under the timer (below 1024px).
   const callScreen = appLook && kind !== "chat";
   const noticeBox = `mx-3 mt-2 rounded-xl border px-3.5 py-2.5 text-[13px] sm:mx-auto sm:w-full sm:max-w-[720px] ${L("max-lg:mx-4 max-lg:sm:w-auto")}`;
@@ -184,11 +190,6 @@ export function SessionWindow({
         Try again
       </button>
     </div>
-  ) : recorded && !media.mediaUp ? (
-    <div role="note" className={`${box} border-white/15 bg-white/5 leading-normal text-stone-200 ${LL("max-lg:border-app-line max-lg:bg-app-surface max-lg:text-app-ink-2")}`}>
-      <span aria-hidden="true" className="mr-1.5 inline-block size-2 rounded-full bg-rose-500 align-middle" />
-      {RECORDING_NOTICE}
-    </div>
   ) : null;
   };
 
@@ -206,6 +207,7 @@ export function SessionWindow({
           </>
         }
         onMinimise={onMinimise}
+        onReport={() => setReporting(true)}
         drawer={drawer}
         unread={chat.unread}
         onToggleDrawer={() => setDrawer((d) => !d)}
@@ -242,6 +244,9 @@ export function SessionWindow({
             {title} · <span className="tabular-nums text-amber-200">{clock}</span>
           </span>
         </div>
+        <button type="button" onClick={() => setReporting(true)} title="Report this consultation" className="h-9 shrink-0 rounded-full border border-white/15 px-3 text-[13px] font-bold text-stone-300 sm:px-3.5">
+          Report
+        </button>
         {onMinimise && (
           <button
             type="button"
@@ -268,6 +273,9 @@ export function SessionWindow({
           <div className="flex min-h-[52px] items-center justify-between gap-2 px-4 py-2">
             <b className="text-[16px] font-bold text-app-ink">{title}</b>
             <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setReporting(true)} className="min-h-9 rounded-app-btn border border-app-line px-3 text-[13px] font-bold text-app-ink-2">
+                Report
+              </button>
               {onMinimise && (
                 <button
                   type="button"
@@ -368,6 +376,32 @@ export function SessionWindow({
           ending={ending}
         />
       )}
+      {reporting && <ReportDialog base={base} onClose={() => setReporting(false)} />}
+      {confirmingEnd && (
+        <div className="fixed inset-0 z-[400] grid place-items-center bg-black/55 px-5" role="presentation">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="end-call-title" className="w-full max-w-[360px] rounded-2xl bg-white p-5 text-ink shadow-2xl">
+            <h2 id="end-call-title" className="m-0 text-[17px] font-bold">
+              {kind === "chat" ? "Do you want to end this chat?" : "Do you want to end the call?"}
+            </h2>
+            <p className="mt-1.5 mb-0 text-[13px] leading-snug text-stone-600">{endNote ?? "The consultation stops for both of you."}</p>
+            <div className="mt-4 grid grid-cols-2 gap-2.5">
+              <button type="button" autoFocus onClick={() => setConfirmingEnd(false)} className="h-11 rounded-xl border border-stone-300 bg-white text-[14px] font-bold text-ink">
+                No
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmingEnd(false);
+                  endNow();
+                }}
+                className="h-11 rounded-xl bg-rose-600 text-[14px] font-bold text-white"
+              >
+                Yes, end
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -397,6 +431,7 @@ function CallHead({
   clock,
   meter,
   onMinimise,
+  onReport,
   drawer,
   unread,
   onToggleDrawer,
@@ -408,6 +443,7 @@ function CallHead({
   clock: string;
   meter: ReactNode;
   onMinimise?: () => void;
+  onReport?: () => void;
   drawer: boolean;
   unread: number;
   onToggleDrawer: () => void;
@@ -422,6 +458,7 @@ function CallHead({
   return (
     <div className="lg:hidden">
       <div className="flex items-center justify-between gap-2 px-4 pt-[max(10px,env(safe-area-inset-top))]">
+        <div className="flex items-center gap-2">
         {onMinimise ? (
           <button
             type="button"
@@ -434,6 +471,12 @@ function CallHead({
         ) : (
           <span />
         )}
+          {onReport && (
+            <button type="button" onClick={onReport} className={`min-h-9 rounded-app-chip border px-3.5 text-[13px] font-bold ${pill}`}>
+              Report
+            </button>
+          )}
+        </div>
         <button
           type="button"
           onClick={onToggleDrawer}
@@ -726,7 +769,7 @@ function VideoStage({
               app ? "max-lg:bottom-[calc(env(safe-area-inset-bottom)+124px)] max-lg:z-[4] max-lg:rounded-xl max-lg:border max-lg:border-white/35 max-lg:sm:aspect-[3/4] max-lg:sm:w-[120px]" : ""
             }`}
           >
-            <video ref={localRef} autoPlay playsInline muted className={`size-full -scale-x-100 object-cover ${media.cameraOff ? "invisible" : ""}`} />
+            <video ref={localRef} autoPlay playsInline muted className={`size-full ${media.rearCamera ? "" : "-scale-x-100"} object-cover ${media.cameraOff ? "invisible" : ""}`} />
             {media.cameraOff && <span className="absolute inset-0 grid place-items-center text-[11.5px] font-bold text-stone-300">Camera off</span>}
             <span className="absolute left-1.5 top-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-bold text-white">
               {media.notConfigured ? "Your preview" : "You"}

@@ -49,7 +49,7 @@ type Period = CapacityPeriod;
 
 /** Policy, from the Config console (Admin-approved changes, versioned there). */
 export async function welcomePolicy() {
-  const [enabled, weekly, lenCfg, reminder, dailyLimit, minMeaningful, maxRestores, maxPerWeek, choose, oneTime] = await Promise.all([
+  const [enabled, weekly, lenCfg, reminder, dailyLimit, minMeaningful, maxRestores, maxPerWeek, choose, oneTime, dayMins, monthMins] = await Promise.all([
     configNumber("welcome.enabled", 1),
     configNumber("welcome.weekly_free_minutes", 30),
     configNumber("welcome.free_call_minutes", 10),
@@ -60,6 +60,8 @@ export async function welcomePolicy() {
     configNumber("welcome.astrologer_max_per_week", 50),
     configNumber("welcome.choose_length", 0),
     configNumber("welcome.onetime_enabled", 1),
+    configNumber("welcome.daily_free_minutes", 0),
+    configNumber("welcome.monthly_free_minutes", 0),
   ]);
   const oneMin = await oneTimeMinutes();
   // One length, set by the admin (10 or 20 min): customers do not choose it.
@@ -71,6 +73,9 @@ export async function welcomePolicy() {
     enabled: enabled === 1,
     /** Free minutes each customer (mobile number) gets per Mon–Sun week (IST). */
     weeklyMinutes: Math.max(0, Math.floor(weekly)),
+    /** Free minutes one customer can use per IST day / calendar month (0 = no limit). */
+    dailyMinutes: Math.max(0, Math.floor(dayMins)),
+    monthlyMinutes: Math.max(0, Math.floor(monthMins)),
     /** Separate 1-time 5 min call per phone number (1-time usage only). */
     joiningBonusMinutes: oneMin,
     /** The 1-time 5 min welcome call is on for every host (Config welcome.onetime_enabled). */
@@ -164,25 +169,28 @@ export function benefitOf(userId: string) {
  * Free minutes this person has used this week (Mon–Sun, IST; minutes given back after an early drop
  * don't count, nor the separate 1-time 5-min call).
  */
-export async function weeklyMinutesOf(client: Tx | typeof db, key: string, policy: Pick<Policy, "weeklyMinutes">, now = new Date()) {
-  const { _sum } = await client.freeCallUse.aggregate({
-    where: {
-      identityKey: key,
-      restoredAt: null,
-      usedAt: { gte: periodStart("WEEK", now) },
-      bonusMinutes: 0,
-      minutes: { not: 5 },
-    },
-    _sum: { minutes: true },
-  });
-  const used = _sum.minutes ?? 0;
-  return {
-    total: policy.weeklyMinutes,
-    used,
-    remaining: Math.max(0, policy.weeklyMinutes - used),
-    /** Monday 00:00 IST: the minutes start again. */
-    resetsAt: periodEnd("WEEK", now),
+export async function weeklyMinutesOf(client: Tx | typeof db, key: string, policy: Pick<Policy, "weeklyMinutes"> & Partial<Pick<Policy, "dailyMinutes" | "monthlyMinutes">>, now = new Date()) {
+  const usedSince = async (since: Date) => {
+    const { _sum } = await client.freeCallUse.aggregate({
+      where: { identityKey: key, restoredAt: null, usedAt: { gte: since }, bonusMinutes: 0, minutes: { not: 5 } },
+      _sum: { minutes: true },
+    });
+    return _sum.minutes ?? 0;
   };
+  const dayCap = policy.dailyMinutes ?? 0;
+  const monthCap = policy.monthlyMinutes ?? 0;
+  const ist = new Date(now.getTime() + 5.5 * 3600_000);
+  const monthStart = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), 1) - 5.5 * 3600_000);
+  const monthEnd = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() + 1, 1) - 5.5 * 3600_000);
+  const used = await usedSince(periodStart("WEEK", now));
+  // Daily and monthly limits (0 = none) can only lower what is left of the week's minutes.
+  const dayLeft = dayCap > 0 ? Math.max(0, dayCap - (await usedSince(periodStart("DAY", now)))) : Infinity;
+  const monthLeft = monthCap > 0 ? Math.max(0, monthCap - (await usedSince(monthStart))) : Infinity;
+  const remaining = Math.min(Math.max(0, policy.weeklyMinutes - used), dayLeft, monthLeft);
+  // When the binding limit resets: the next midnight, Monday or month start, whichever applies.
+  const weekLeft = Math.max(0, policy.weeklyMinutes - used);
+  const resetsAt = remaining === dayLeft && dayLeft < weekLeft ? periodEnd("DAY", now) : remaining === monthLeft && monthLeft < weekLeft ? monthEnd : periodEnd("WEEK", now);
+  return { total: policy.weeklyMinutes, used, remaining, resetsAt };
 }
 
 /**

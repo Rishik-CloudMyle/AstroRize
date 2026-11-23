@@ -325,6 +325,8 @@ export interface ConsultCustomer extends LiveQueueSummary {
 export interface IncomingRequest {
   id: string;
   alias: string;
+  /** The language the customer asked to talk in, if they chose one. */
+  language?: string | null;
   /** "Chat" | "Voice" | "Video" | "Instant Call" */
   mode: string;
   /** Instant Call / Emergency request (charged at the multiplier rate) */

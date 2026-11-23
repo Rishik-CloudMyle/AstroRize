@@ -1,3 +1,6 @@
+import { audit } from "../lib/audit.ts";
+import { fileSessionReport, isBlocked, reportBody } from "../lib/session-reports.ts";
+import { createHash } from "node:crypto";
 import { packageDiscount } from "../lib/fixed-packages.ts";
 import express, { Router, type NextFunction, type Request, type Response } from "express";
 import { assertNotBlocked } from "../lib/account-blocks.ts";
@@ -19,7 +22,7 @@ import { AVATAR_LIMITS, IMAGE_TYPES, MAX_PHOTO_BYTES, deleteMedia, saveImage, sn
 import { optionalEmailSchema } from "../lib/contact.ts";
 import { GENDERS, ageOn, dateKey, genderLabel, initialsOf, ownProfileView } from "../lib/profile.ts";
 import { rateLimit } from "../lib/safety.ts";
-import { consultMessageBody, consultationFor, listMessages, mediaFor, sendMessage } from "../lib/consult-room.ts";
+import { consultMessageBody, consultationFor, listMessages, markTyping, mediaFor, sendMessage } from "../lib/consult-room.ts";
 import { customerConsent } from "../lib/recordings.ts";
 import { mountRecordingRoutes } from "./call-recording.ts";
 import {
@@ -144,8 +147,8 @@ async function customerTransactions(userId: string, transactions: Transaction[],
       id: t.id,
       date: istDate(t.createdAt),
       type: types[i * 2]!,
-      /** The ledger reference (not shown for a consultation line: it is described in `label`). */
-      ref: isSession ? null : t.ref,
+      /** Every line has its own transaction id. A consultation's is derived from the line (never its internal "SES-…" reference); the description is separate, in `label`. */
+      ref: isSession ? `CON-${createHash("sha256").update(t.id).digest("hex").slice(0, 10).toUpperCase()}` : t.ref,
       /** A consultation line in words: "Voice call with Pt. Raghav Joshi · 6 Nov, 3:42 PM · 12 min · ₹360". */
       label: isSession ? (c ? sessionLabel(c) : "Consultation") : null,
       /** The consultation's internal id (for "Raise a billing issue"), else null. */
@@ -432,9 +435,11 @@ customerRouter.post("/consultations", async (req, res) => {
   const me = auth(req);
   // A temporarily blocked account (repeated contact sharing) can't do this until the block ends.
   assertNotBlocked(me);
-  const { astrologerId, mode, quotedRate, welcome, freeMinutes, fixedMinutes, makeGoodCreditId, recordingConsent } = z
+  const { astrologerId, mode, quotedRate, welcome, freeMinutes, fixedMinutes, makeGoodCreditId, recordingConsent, language: wantedLanguage } = z
     .object({
       astrologerId: z.string(),
+      /** The language the customer wants to talk in (must be one the astrologer speaks). */
+      language: z.string().trim().max(40).optional(),
       /** The customer accepted the recording notice (required for voice and video: audio is recorded). */
       recordingConsent: z.boolean().optional(),
       mode: modeSchema,
@@ -449,6 +454,8 @@ customerRouter.post("/consultations", async (req, res) => {
     })
     .parse(req.body);
 
+  const language = wantedLanguage ? ((await db.astrologer.findUnique({ where: { id: astrologerId }, select: { languages: true } }))?.languages.includes(wantedLanguage) ? wantedLanguage : null) : null;
+  if (await isBlocked(astrologerId, me.user.id)) throw badRequest("This astrologer is not available for you right now. Please choose another astrologer.");
   if ((await getSetting<string[]>("instant_mode.astros", [])).includes(astrologerId)) {
     throw badRequest("This astrologer is taking Instant Calls only right now. Please choose Instant Call.");
   }
@@ -536,6 +543,7 @@ customerRouter.post("/consultations", async (req, res) => {
         status: "CONNECTING",
         heldAmount: heldToLock,
         customerRecordingConsentAt,
+        language,
         kind: fixedMinutes ? "FIXED" : "STANDARD",
         // The chosen length, snapshotted: all of it is taken from the weekly minutes once the call starts.
         ...(policy ? { billingMode: COMPLIMENTARY, complimentarySeconds: (freeMinutes ?? 0) * 60 } : {}),
@@ -664,9 +672,56 @@ customerRouter.post("/consultations/:id/rating", async (req, res) => {
 // ── Inside a consultation: its chat, and its voice/video room ──
 
 /** The consultation's chat so far (polled with ?after=<ISO time>). Readable after it ends. */
+/** The customer's own reviews of one astrologer (so the profile can offer to delete them). */
+customerRouter.get("/me/reviews", async (req, res) => {
+  const me = auth(req).user;
+  const { astrologerId } = z.object({ astrologerId: z.string().max(40) }).parse(req.query);
+  const rows = await db.consultation.findMany({
+    where: { customerId: me.id, astrologerId, stars: { not: null } },
+    orderBy: { endedAt: "desc" },
+    select: { id: true, stars: true, reviewText: true, endedAt: true },
+    take: 20,
+  });
+  res.json({ reviews: rows.map((c) => ({ consultationId: c.id, stars: c.stars!, text: c.reviewText ?? "", when: c.endedAt ? istDate(c.endedAt) : "" })) });
+});
+
+/** Deletes the customer's own rating and review; the astrologer's average is worked out again without it. */
+customerRouter.delete("/consultations/:id/rating", async (req, res) => {
+  const me = auth(req);
+  const c = await ownConsultation(me.user.id, String(req.params.id));
+  if (!c.stars) throw notFound("There is no review on this consultation.");
+  const astrologer = await db.astrologer.findUniqueOrThrow({ where: { id: c.astrologerId } });
+  const dist = [...astrologer.ratingDistribution];
+  const slot = 5 - c.stars;
+  dist[slot] = Math.max(0, (dist[slot] ?? 0) - 1);
+  const count = dist.reduce((a, b) => a + b, 0);
+  const average = count ? dist.reduce((sum, n, i) => sum + n * (5 - i), 0) / count : astrologer.rating;
+  await db.$transaction([
+    db.consultation.update({ where: { id: c.id }, data: { stars: null, reviewText: null } }),
+    db.astrologer.update({ where: { id: astrologer.id }, data: { ratingDistribution: dist, rating: average === null ? null : Math.round(average * 10) / 10 } }),
+    db.review.deleteMany({ where: { consultationId: c.id } }),
+  ]);
+  await audit(me, "review.delete", c.ref, `customer deleted their ${c.stars}-star review of ${astrologer.name}`);
+  res.json({ ok: true });
+});
+
+/** The customer reports this session (rude behaviour, asking for contact details, …). Support picks it up. */
+customerRouter.post("/consultations/:id/report", async (req, res) => {
+  const me = auth(req);
+  const c = await ownConsultation(me.user.id, String(req.params.id));
+  const body = reportBody.parse(req.body);
+  const id = await fileSessionReport({ by: "customer", reporterName: me.user.name ?? "customer", customerId: me.user.id, consultation: c, ...body });
+  res.status(201).json({ caseRef: id });
+});
+
 customerRouter.get("/consultations/:id/messages", async (req, res) => {
   const c = await consultationFor(String(req.params.id), "CUSTOMER", auth(req).user.id);
-  res.json(await listMessages(c, "CUSTOMER", req.query.after));
+  res.json(await listMessages(c, "CUSTOMER", req.query.after, req.query.seen === "1"));
+});
+
+customerRouter.post("/consultations/:id/typing", async (req, res) => {
+  markTyping(await consultationFor(String(req.params.id), "CUSTOMER", auth(req).user.id), "CUSTOMER");
+  res.json({ ok: true });
 });
 
 /** Sends a message while the session is in progress. Contact details are never delivered. */

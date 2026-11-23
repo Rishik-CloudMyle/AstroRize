@@ -162,3 +162,16 @@ export function staffRemedyDecided(
     );
   });
 }
+
+/** A payout cycle has closed and its batch is not prepared yet: Finance and the Super Admins are reminded (one reminder per cycle). */
+export function staffPayoutReminder(c: { id: string; kind: "EARNINGS" | "FREE_CALLS"; label: string; astrologers: number; lines: number }) {
+  return safely("payout reminder", async () => {
+    const people = await staffOf(["finance", "super"]);
+    await notifyMany(people.map((p) => p.id), {
+      kind: "staff.payout.reminder",
+      title: `${c.kind === "EARNINGS" ? "Earnings payout" : "Free-call compensation"} ready · ${c.label}`,
+      body: `${c.lines} lines are waiting. Prepare the batch, then approve and release it.`,
+      href: "/admin/finance",
+    });
+  });
+}

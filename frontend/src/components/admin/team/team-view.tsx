@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useAction, useAdmin } from "@/components/admin/admin-provider";
@@ -358,7 +359,9 @@ export default function TeamView({ departments }: { departments: StaffDepartment
             <section key={d.role} className={`${PANEL} p-5`} aria-labelledby={`dept-${d.role}`}>
               <div className="flex items-baseline justify-between gap-3">
                 <h2 id={`dept-${d.role}`} className="m-0 text-[16px] font-bold">
-                  {d.label}
+                  <Link href={`/admin/team/${d.role}`} className="text-inherit hover:underline">
+                    {d.label}
+                  </Link>
                 </h2>
                 <span className="text-[12px] font-semibold text-[#78716c]">
                   {people.length} {people.length === 1 ? "person" : "people"} · {active} active

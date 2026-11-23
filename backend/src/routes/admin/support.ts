@@ -1,4 +1,5 @@
 import { Router, type Request } from "express";
+import { stampPromoExpiry } from "../../lib/wallet-promo.ts";
 import { z } from "zod";
 import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
@@ -888,6 +889,7 @@ supportRouter.post("/support/:id/credit/approve", async (req, res) => {
       create: { userId, service, promo },
       update: { service: { increment: service }, promo: { increment: promo } },
     });
+    if (promo > 0) await stampPromoExpiry(tx, userId);
     // The wallet moves only together with its ledger line (Finance's wallet trial balance checks it).
     await tx.transaction.create({ data: { userId, type: `Credit from support · ${t.id}`, ref, bucket, amount, createdAt: now } });
     await tx.supportTicketMessage.create({

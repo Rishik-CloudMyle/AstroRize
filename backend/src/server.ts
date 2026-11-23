@@ -1,4 +1,5 @@
 import { createApp } from "./app.ts";
+import { sweepExpiredPromo } from "./lib/wallet-promo.ts";
 import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { sweepExpiredBlocks } from "./lib/account-blocks.ts";
@@ -7,7 +8,7 @@ import { sweepAbandonedConsultations } from "./lib/consultations.ts";
 import { isDatabaseDown } from "./lib/errors.ts";
 import { mediaWorkerMode, startMediaConsumer, workerHost, type Consumer } from "./lib/media-jobs.ts";
 import { sweepPendingPayments } from "./lib/payments.ts";
-import { startPayoutSweep } from "./lib/payouts.ts";
+import { startPayoutSweep, sweepPayoutReminders } from "./lib/payouts.ts";
 import { sweepStalePresence } from "./lib/presence.ts";
 import { razorpayConfigured, razorpayMode } from "./lib/razorpay.ts";
 import { sweepProcessingRefunds } from "./lib/wallet-refunds.ts";
@@ -59,6 +60,16 @@ const sweeper = setInterval(() => {
     .then(() => sweepCampaigns())
     .catch((e: unknown) => {
       if (!isDatabaseDown(e)) console.error("Campaign sweep failed:", e);
+    })
+    // Promotional credit past its validity (Config wallet.promo.validity_months) comes off the wallet.
+    .then(() => sweepExpiredPromo())
+    .catch((e: unknown) => {
+      if (!isDatabaseDown(e)) console.error("Promo expiry sweep failed:", e);
+    })
+    // A payout cycle closed: remind Finance once, for earnings and free-call compensation separately.
+    .then(() => sweepPayoutReminders())
+    .catch((e: unknown) => {
+      if (!isDatabaseDown(e)) console.error("Payout reminder sweep failed:", e);
     })
     // Razorpay: recharges still open after a few minutes, and refunds still processing.
     .then(() => sweepPendingPayments())

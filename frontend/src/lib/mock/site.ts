@@ -59,5 +59,6 @@ export const FOOTER_COLUMNS = [
 ];
 
 // App store links: the client still has to provide the real store URLs.
-export const APP_STORE_URL = "#";
-export const PLAY_STORE_URL = "#";
+// Set NEXT_PUBLIC_PLAY_STORE_URL / NEXT_PUBLIC_APP_STORE_URL once the apps are listed; until then the badges read "Coming soon".
+export const APP_STORE_URL = process.env.NEXT_PUBLIC_APP_STORE_URL ?? "";
+export const PLAY_STORE_URL = process.env.NEXT_PUBLIC_PLAY_STORE_URL ?? "";

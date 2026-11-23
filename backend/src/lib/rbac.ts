@@ -11,13 +11,14 @@ import type { AuthContext } from "../middleware/auth.ts";
  */
 export type AdminRoleKey = AdminRoleClaim | "marketing";
 
-export const ROLE_ORDER: AdminRoleKey[] = ["super", "finance", "support", "compliance", "marketing"];
+export const ROLE_ORDER: AdminRoleKey[] = ["super", "finance", "support", "compliance", "marketing", "hr"];
 export const ROLE_LABELS: Record<AdminRoleKey, string> = {
   super: "Super Admin",
   finance: "Finance",
   support: "Support",
   compliance: "Compliance",
   marketing: "Marketing",
+  hr: "HR",
 };
 
 // Who may open which admin console page (prototype part D → CAPS).
@@ -63,6 +64,8 @@ export const PAGES: Record<AdminRoleKey, PageKey[]> = {
   // (they see only those: lib/tickets.ts ticketScope).
   compliance: ["overview", "messages", "compliance", "support", "trust", "audit", "recording"],
   marketing: ["overview", "messages", "marketing", "support", "audit"],
+  // HR recruits and onboards astrologers: the lifecycle page (applications, approval, training).
+  hr: ["overview", "messages", "hr", "audit"],
 };
 
 /**
@@ -84,7 +87,7 @@ export const CAPABILITIES: { key: string; label: string; page: PageKey | null; r
   { key: "live.observer.join", label: "Join a public live as an observer", page: "compliance", roles: ["super", "compliance"] },
   { key: "campaign.submit", label: "Submit a campaign for approval", page: "marketing", roles: ["super", "marketing"] },
   { key: "campaign.approve", label: "Approve and activate a campaign", page: "marketing", roles: ["super"] },
-  { key: "audit.read", label: "Read and export the audit log", page: "audit", roles: ["super", "finance", "support", "compliance", "marketing"] },
+  { key: "audit.read", label: "Read and export the audit log", page: "audit", roles: ["super", "finance", "support", "compliance", "marketing", "hr"] },
   { key: "staff.manage", label: "Add, deactivate and reset staff accounts", page: "team", roles: ["super"] },
   { key: "retention.edit", label: "Change how long chat and messages are kept", page: "recording", roles: ["super"] },
   { key: "recording.listen", label: "Listen to consultation call recordings (audio)", page: "recording", roles: ["super"] },

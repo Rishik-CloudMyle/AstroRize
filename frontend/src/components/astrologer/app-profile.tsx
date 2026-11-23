@@ -1,5 +1,6 @@
 "use client";
 
+import MyReview from "./my-review";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
@@ -376,6 +377,9 @@ function ReviewsScreen({ astrologer: a }: { astrologer: Astrologer }) {
   return (
     <>
       <AppTopbar title="Reviews" subtitle={a.name} backLabel={`Back to ${a.name}`} />
+      <div className="px-4 pt-3">
+        <MyReview astrologerId={a.id} />
+      </div>
       <div className="px-4 pt-3 pb-[calc(24px+var(--app-safe-bottom))]">
         <section aria-label="Rating summary" className="rounded-app-card border border-app-line bg-app-surface p-3.5 shadow-app-card">
           <div className="flex items-center gap-3">

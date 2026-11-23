@@ -73,7 +73,9 @@ export function publicUser(user: User & { astrologer?: { id: string; slug: strin
 async function startSession(res: import("express").Response, userId: string) {
   const user = await db.user.findUniqueOrThrow({ where: { id: userId }, include: { astrologer: { select: { id: true, slug: true } } } });
   const expiresAt = new Date(Date.now() + config.sessionDays * 86400000);
-  const [session] = await db.$transaction([
+  // One sign-in at a time: signing in here ends the account's other sessions (the older device is signed out).
+  const [, session] = await db.$transaction([
+    db.session.deleteMany({ where: { userId } }),
     db.session.create({ data: { userId, expiresAt } }),
     // Signing in again re-activates an account its owner paused ("Deactivate").
     db.user.update({ where: { id: userId }, data: { lastLoginAt: new Date(), pausedAt: null } }),

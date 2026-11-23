@@ -57,6 +57,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   support: "Support",
   compliance: "Compliance",
   marketing: "Marketing",
+  hr: "HR",
 };
 
 export const CONFIG_FACETS: { id: ConfigDomain | "all"; label: string }[] = [

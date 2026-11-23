@@ -256,19 +256,21 @@ function StoreBadge({
   icon: React.ReactNode;
   iconSize: string;
 }) {
+  const live = !!href && href !== "#";
+  const Tag = live ? "a" : "span";
   return (
-    <a
-      href={href}
-      className="inline-flex h-11 items-center gap-[9px] rounded-xl bg-ink px-4 text-[13px] font-semibold text-paper hover:text-paper hover:no-underline"
+    <Tag
+      {...(live ? { href, target: "_blank", rel: "noopener noreferrer" } : { "aria-disabled": true, title: "Coming soon" })}
+      className={`inline-flex h-11 items-center gap-[9px] rounded-xl bg-ink px-4 text-[13px] font-semibold text-paper hover:text-paper hover:no-underline ${live ? "" : "cursor-default opacity-60"}`}
     >
       <span className={`${iconSize} leading-none`} aria-hidden="true">
         {icon}
       </span>
       <span className="flex flex-col leading-[1.1]">
         <span className="text-[9px] opacity-70">{small}</span>
-        <b className="text-[13px]">{big}</b>
+        <b className="text-[13px]">{live ? big : `${big} · soon`}</b>
       </span>
-    </a>
+    </Tag>
   );
 }
 

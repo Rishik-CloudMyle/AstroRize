@@ -352,12 +352,18 @@ export default function NewMessageDialog({
                   <button
                     key={d.line}
                     type="button"
-                    disabled={all}
+                    aria-pressed={all}
+                    title={all ? `Click to remove ${d.line}` : `Add everyone in ${d.line}`}
                     onClick={() => {
                       setProblem("");
-                      setChosen((cur) => [...cur, ...d.members.filter((p) => !cur.some((x) => x.id === p.id))]);
+                      // A second click on a chosen department takes its people off again.
+                      setChosen((cur) =>
+                        all
+                          ? cur.filter((p) => !d.members.some((m) => m.id === p.id))
+                          : [...cur, ...d.members.filter((p) => !cur.some((x) => x.id === p.id))],
+                      );
                     }}
-                    className="h-7 rounded-full border border-line bg-white px-3 text-[11.5px] font-bold text-ink disabled:cursor-default disabled:opacity-50"
+                    className={`h-7 rounded-full border px-3 text-[11.5px] font-bold ${all ? "border-amber-500 bg-amber-100 text-amber-900" : "border-line bg-white text-ink"}`}
                   >
                     {d.line} ({d.members.length}){all ? " ✓" : ""}
                   </button>

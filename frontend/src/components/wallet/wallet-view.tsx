@@ -412,6 +412,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
                       ) : (
                         t.ref
                       )}
+                      {t.ref !== null && t.label && <span className="mt-0.5 block text-[11.5px] font-normal text-stone-500">{t.label}</span>}
                     </td>
                     <td className="border-b border-line-soft px-2.5 py-[11px] text-stone-600">{t.bucket}</td>
                     <td
@@ -471,7 +472,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
               </div>
             ))}
           </div>
-          <AccountSection onClosed={onClosed} />
+          <div id="settings" className="scroll-mt-24"><ScrollToSettings /><AccountSection onClosed={onClosed} /></div>
         </div>
       </div>
 
@@ -594,4 +595,12 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
       </aside>
     </div>
   );
+}
+
+/** "Settings" in the profile menu opens this page at its account section (data rights, deactivate, delete). */
+function ScrollToSettings() {
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("view") === "settings") document.getElementById("settings")?.scrollIntoView({ block: "start" });
+  }, []);
+  return null;
 }

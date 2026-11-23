@@ -3,7 +3,7 @@
 
 import type { PriceChange } from "./price-changes";
 
-export type Role = "super" | "finance" | "support" | "compliance" | "marketing";
+export type Role = "super" | "finance" | "support" | "compliance" | "marketing" | "hr";
 
 /** One key per console page; CAPS decides which keys a role may open. */
 export type PageKey =

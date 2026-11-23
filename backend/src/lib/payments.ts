@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { stampPromoExpiry } from "./wallet-promo.ts";
 import { db } from "../db.ts";
 import type { Payment, Prisma } from "../generated/prisma/client.ts";
 import { audit } from "./audit.ts";
@@ -121,6 +122,7 @@ export async function creditPayment(paymentId: string, paid: { providerPaymentId
       create: { userId, service: payment.amount, promo: payment.bonus + extra },
       update: { service: { increment: payment.amount }, promo: { increment: payment.bonus + extra } },
     });
+    if (payment.bonus + extra > 0) await stampPromoExpiry(tx, userId);
     await tx.transaction.create({ data: { userId, type: "Recharge", ref: await uniqueTxnRef(tx, "PAY"), bucket: "Service", amount: payment.amount } });
     if (payment.bonus > 0) {
       await tx.transaction.create({ data: { userId, type: "Cashback", ref: await uniqueTxnRef(tx, "CMP"), bucket: "Promotional", amount: payment.bonus } });

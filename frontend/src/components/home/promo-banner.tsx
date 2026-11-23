@@ -45,7 +45,7 @@ interface PromoSlide {
   accent: string;
 }
 
-const ADVANCE_MS = 6000;
+const ADVANCE_MS = 3000;
 /** A horizontal swipe longer than this (px) changes slide. */
 const SWIPE_PX = 40;
 
@@ -62,7 +62,7 @@ function useSlides(offer: WelcomeOffer | null): PromoSlide[] {
     id: "chat",
     kicker: "Chat or call",
     title: "Chat, call or video — your choice",
-    lead: "Vedic, KP, Nadi, tarot and more. Messages are free; chats and calls are by the minute, and your number always stays private.",
+    lead: "Vedic, KP, Nadi, Tarot and more. Messages are free; chats and calls are by the minute, and your number always stays private.",
     cta: "Chat now",
     href: "/astrologers?mode=Chat",
     cta2: { label: "Call now", href: "/astrologers?mode=Voice" },
@@ -184,11 +184,33 @@ export default function PromoBanner({ welcomeOffer }: { welcomeOffer: WelcomeOff
   const touchX = useRef<number | null>(null);
   const found = slides.findIndex((s) => s.id === currentId);
   const at = found < 0 ? 0 : found;
-  const go = useCallback((i: number) => setCurrentId(slides[((i % count) + count) % count].id), [slides, count]);
+  // Past the last slide the track slides on to a copy of the first one (same direction), then snaps back to the real first slide unseen.
+  const [onCopy, setOnCopy] = useState(false);
+  const [snap, setSnap] = useState(false);
+  const wrapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => void (wrapTimer.current && clearTimeout(wrapTimer.current)), []);
+  const go = useCallback(
+    (i: number) => {
+      if (i === count && count > 1) {
+        if (onCopy) return;
+        setOnCopy(true);
+        wrapTimer.current = setTimeout(() => {
+          setSnap(true);
+          setOnCopy(false);
+          setCurrentId(slides[0].id);
+          requestAnimationFrame(() => requestAnimationFrame(() => setSnap(false)));
+        }, 720);
+        return;
+      }
+      setCurrentId(slides[((i % count) + count) % count].id);
+    },
+    [slides, count, onCopy],
+  );
+  const trackAt = onCopy ? count : at;
   const paused = hovered || focused || touching;
 
   useEffect(() => {
-    if (paused || count < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (paused || count < 2) return;
     const id = setTimeout(() => go(at + 1), ADVANCE_MS);
     return () => clearTimeout(id);
   }, [at, paused, go, count]);
@@ -226,16 +248,17 @@ export default function PromoBanner({ welcomeOffer }: { welcomeOffer: WelcomeOff
       }}
     >
       <div
-        className="flex touch-pan-y transition-transform duration-700 ease-out motion-reduce:transition-none"
-        style={{ transform: `translateX(-${at * 100}%)` }}
+        className={`flex touch-pan-y ${snap ? "transition-none" : "transition-transform duration-700 ease-out"}`}
+        style={{ transform: `translateX(-${trackAt * 100}%)` }}
       >
-        {slides.map((s, i) => (
+        {(count > 0 ? [...slides, slides[0]] : slides).map((s, i) => (
           <div
-            key={s.id}
+            key={i === count ? `${s.id}-copy` : s.id}
             role="group"
             aria-roledescription="slide"
+            aria-hidden={i === count ? true : undefined}
             aria-label={`${i + 1} of ${count}: ${s.title}`}
-            inert={i !== at}
+            inert={i !== trackAt}
             className="relative h-[256px] w-full flex-none overflow-hidden sm:h-[280px] md:h-[300px] lg:h-[340px] xl:h-[380px]"
             style={{ background: s.bg }}
           >

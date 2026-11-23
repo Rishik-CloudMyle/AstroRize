@@ -89,6 +89,8 @@ export function useCallMedia({
     cameraOff: snap.cameraOff,
     toggleCamera: () => session()?.toggleCamera(),
     canSwitchCamera: snap.cameras.length > 1,
+    /** The rear camera is in use: its picture is not mirrored. */
+    rearCamera: snap.rear,
     switchCamera: async () => session()?.switchCamera(),
     remoteCameraOff: snap.remoteCameraOff,
     levels: snap.levels,

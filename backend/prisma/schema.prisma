@@ -24,11 +24,13 @@ enum AdminRole {
   SUPPORT
   COMPLIANCE
   MARKETING
+  HR
 }
 
 model User {
   id           String     @id @default(cuid())
   campaignClaims  CampaignClaim[]
+  blockedBy       CustomerBlock[]
   notifications   Notification[]
   makeGoodCredits MakeGoodCredit[]
   role         Role       @default(CUSTOMER)
@@ -276,6 +278,7 @@ enum Presence {
 
 model Astrologer {
   payoutAccount PayoutAccount?
+  customerBlocks CustomerBlock[]
   payouts       Payout[]
   /// Short stable id, e.g. "raghav".
   id                  String      @id
@@ -598,6 +601,8 @@ model Consultation {
   /// When each side accepted the recording notice (voice/video: audio only, client Nov 2026).
   /// A call is recorded only when both are set; null = not asked (chat, or requested before recording began).
   customerRecordingConsentAt   DateTime?
+  /// The language the customer asked to talk in (one of the astrologer's languages), if they chose one.
+  language             String?
   astrologerRecordingConsentAt DateTime?
   recordings           CallRecording[]
 
@@ -1270,4 +1275,19 @@ model Payout {
 
   @@unique([batchId, astrologerId])
   @@index([state])
+}
+
+/// A customer an astrologer has blocked: they cannot start a new consultation with that astrologer.
+model CustomerBlock {
+  id           String     @id @default(cuid())
+  astrologerId String
+  astrologer   Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  customerId   String
+  customer     User       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// The session the astrologer was reporting when they blocked, if any.
+  sessionRef   String?
+  createdAt    DateTime   @default(now())
+
+  @@unique([astrologerId, customerId])
+  @@index([customerId])
 }

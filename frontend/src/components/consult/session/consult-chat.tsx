@@ -28,6 +28,8 @@ export function useConsultChat(base: string, active: boolean, visible: boolean) 
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [typing, setTyping] = useState(false);
+  const [peerSeenAt, setPeerSeenAt] = useState<string | null>(null);
   const lastAt = useRef<string | null>(null);
   const visibleRef = useRef(visible);
   useEffect(() => {
@@ -51,9 +53,11 @@ export function useConsultChat(base: string, active: boolean, visible: boolean) 
 
   const poll = useCallback(async () => {
     try {
-      const q = lastAt.current ? `?after=${encodeURIComponent(lastAt.current)}` : "";
-      const res = await api.get<{ messages: ConsultLine[]; open: boolean }>(`${base}/messages${q}`);
+      const q = `?${lastAt.current ? `after=${encodeURIComponent(lastAt.current)}&` : ""}seen=${visibleRef.current ? 1 : 0}`;
+      const res = await api.get<{ messages: ConsultLine[]; open: boolean; typing?: boolean; peerSeenAt?: string | null }>(`${base}/messages${q}`);
       merge(res.messages, true);
+      setTyping(!!res.typing);
+      setPeerSeenAt(res.peerSeenAt ?? null);
       setOpen(res.open);
       setLoaded(true);
       setFailed(false);
@@ -91,13 +95,21 @@ export function useConsultChat(base: string, active: boolean, visible: boolean) 
     [base, merge],
   );
 
+  /** Tells the other side we're typing (at most every 2.5 seconds). */
+  const lastTyping = useRef(0);
+  const notifyTyping = useCallback(() => {
+    if (Date.now() - lastTyping.current < 2500) return;
+    lastTyping.current = Date.now();
+    api.post(`${base}/typing`, {}).catch(() => {});
+  }, [base]);
+
   /** Reports a message the filter stopped here (the consultation id is the last part of `base`). */
   const reportBlocked = useCallback(
     (text: string) => reportContactAttempt("consultation", decodeURIComponent(base.split("/").pop() ?? ""), text),
     [base],
   );
 
-  return { lines, open, loaded, failed, unread, send, reportBlocked };
+  return { lines, open, loaded, failed, unread, typing, peerSeenAt, notifyTyping, send, reportBlocked };
 }
 
 export type ConsultChatState = ReturnType<typeof useConsultChat>;
@@ -186,12 +198,18 @@ export function ConsultChat({
                   <span className="whitespace-pre-wrap break-words">{l.text}</span>
                   <span className={`mt-0.5 block text-right text-[10.5px] ${mine ? "text-ink/60" : "text-stone-400"} ${L("max-lg:text-left max-lg:text-[12px] max-lg:text-app-ink-3")}`}>
                     {timeOf(l.at)}
+                    {mine && chat.peerSeenAt && l.at <= chat.peerSeenAt ? " · Seen" : ""}
                   </span>
                 </div>
               </li>
             );
           })}
         </ul>
+        {chat.typing && chat.open && (
+          <p className={`mt-2 text-[12px] italic text-stone-400 ${L("max-lg:text-app-ink-3")}`} aria-live="polite">
+            {peerName} is typing…
+          </p>
+        )}
       </div>
       <form
         onSubmit={(e) => {
@@ -220,6 +238,7 @@ export function ConsultChat({
               onChange={(e) => {
                 setDraft(e.target.value);
                 setError("");
+                if (e.target.value) chat.notifyTyping();
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {

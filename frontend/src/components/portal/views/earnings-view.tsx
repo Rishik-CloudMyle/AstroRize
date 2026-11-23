@@ -45,16 +45,15 @@ const signed = (n: number) => (n < 0 ? `−${rupee(Math.abs(n))}` : rupee(n));
 /** "4:30" free time on a compensation line. */
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
-function csvCell(v: string | number): string {
-  const s = String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-/** Saves the statement on screen as a CSV file. */
-function downloadCsv(data: Earnings) {
-  const rows = [
-    ["Date", "Session", "Mode", "Minutes", "Gross (INR)", "Your share (%)", "Your amount (INR)", "Paid by"],
-    ...data.statement.map((r) => [
+/** Saves the statement on screen as a locked Excel sheet: it opens read-only (editing is switched off). */
+async function downloadStatement(data: Earnings) {
+  const { default: ExcelJS } = await import("exceljs");
+  const period = data.periods[data.periodIndex];
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Statement");
+  ws.addRow(["Date", "Session", "Mode", "Minutes", "Gross (INR)", "Your share (%)", "Your amount (INR)", "Paid by"]).font = { bold: true };
+  for (const r of data.statement) {
+    ws.addRow([
       r.date,
       r.session,
       r.mode,
@@ -63,13 +62,16 @@ function downloadCsv(data: Earnings) {
       r.sharePct ?? (r.legacy ? "before split" : ""),
       r.amount,
       r.fundedBy === "PLATFORM" ? "AstroRize (free-call compensation)" : "Customer",
-    ]),
-  ];
-  const csv = rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
-  const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+    ]);
+  }
+  ws.columns.forEach((col, n) => (col.width = [14, 16, 12, 10, 14, 14, 18, 34][n] ?? 14));
+  // Every cell is locked and the sheet is protected, so the figures cannot be changed in Excel or Sheets.
+  await ws.protect(crypto.randomUUID(), { selectLockedCells: true, selectUnlockedCells: true, sort: false, autoFilter: false });
+  const buf = await wb.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `astrorize-statement-${data.periods[data.periodIndex].replace(/[^0-9A-Za-z]+/g, "-")}.csv`;
+  a.download = `astrorize-statement-${period.replace(/[^0-9A-Za-z]+/g, "-")}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -115,12 +117,11 @@ export default function EarningsView({ data }: { data: Earnings }) {
           <button
             type="button"
             onClick={() => {
-              downloadCsv(data);
-              toast(`Your statement for ${period} has been downloaded.`);
+              void downloadStatement(data).then(() => toast(`Your statement for ${period} has been downloaded.`));
             }}
             className={`h-[42px] shrink-0 rounded-xl border border-line bg-white px-4 text-[13.5px] font-bold ${M_SECONDARY} max-lg:h-app-hit`}
           >
-            Download CSV
+            Download statement
           </button>
         </div>
       </PageHeader>

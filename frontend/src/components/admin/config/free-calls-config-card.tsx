@@ -7,6 +7,8 @@ import { useAdmin } from "@/components/admin/admin-provider";
 interface FreeCalls {
   enabled: number;
   weeklyMinutes: number;
+  dailyMinutes: number;
+  monthlyMinutes: number;
   lengthMinutes: number;
   extraLengths: number[];
   chooseLength: number;
@@ -120,6 +122,14 @@ export default function FreeCallsConfigCard() {
         <div className="mt-2">
           <Field title="Free minutes per customer per week" hint="The weekly pool. 0 stops weekly free calls.">
             <input type="number" min={0} max={600} value={v.weeklyMinutes} onChange={(e) => set("weeklyMinutes", Number(e.target.value))} className={num} />
+            <span className="text-xs font-semibold text-stone-500">min</span>
+          </Field>
+          <Field title="Daily limit per customer" hint="Most free minutes one customer can use in a day (IST). 0 = no daily limit.">
+            <input type="number" min={0} max={600} value={v.dailyMinutes} onChange={(e) => set("dailyMinutes", Number(e.target.value))} className={num} />
+            <span className="text-xs font-semibold text-stone-500">min</span>
+          </Field>
+          <Field title="Monthly limit per customer" hint="Most free minutes one customer can use in a calendar month (IST). 0 = no monthly limit.">
+            <input type="number" min={0} max={2400} value={v.monthlyMinutes} onChange={(e) => set("monthlyMinutes", Number(e.target.value))} className={num} />
             <span className="text-xs font-semibold text-stone-500">min</span>
           </Field>
           <Field title="Length of one free call" hint="Any whole number of minutes, 1–120 (not 5 or the welcome call's length). The whole length is taken from the weekly pool once the conversation starts.">

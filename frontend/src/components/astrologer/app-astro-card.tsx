@@ -212,10 +212,9 @@ export default function AppAstroCard({ astrologer: a }: { astrologer: Astrologer
             <i aria-hidden="true" className="h-3 w-px shrink-0 bg-[#ddd6e8]" />
             <span className="inline-flex shrink-0 items-center gap-[3px]">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.55" strokeLinejoin="round" aria-hidden="true" className="size-[11px] shrink-0">
-                <path d="M12 2.6c.55.7.45 1.4 0 2" />
-                <path d="M12 4.6v2.6" />
-                <rect x="8" y="9.2" width="8" height="3.1" rx=".7" />
-                <path d="M6 12.3h12v6.2H6z" />
+                <path d="M9 7V5.8A1.8 1.8 0 0 1 10.8 4h2.4A1.8 1.8 0 0 1 15 5.8V7" />
+                <rect x="3.5" y="7" width="17" height="12.5" rx="2" />
+                <path d="M3.5 12.5h17" />
               </svg>
               {a.years} yrs exp
             </span>

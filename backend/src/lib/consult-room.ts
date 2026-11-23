@@ -47,12 +47,32 @@ const visibleTo = (viewer: Party) => (m: ConsultMessage) => !m.blocked || m.send
 /** `?after=<ISO time>`: only what arrived since (inclusive — the caller drops ids it already has). */
 const afterSchema = z.iso.datetime().optional().catch(undefined);
 
+// Typing and "Seen" live in memory: they only matter for the minutes a session lasts.
+const TYPING_MS = 4000;
+const presence = new Map<string, { CUSTOMER: { typingAt: number; seenAt: number }; ASTROLOGER: { typingAt: number; seenAt: number }; touched: number }>();
+function presenceOf(id: string, party: Party) {
+  let p = presence.get(id);
+  if (!p) {
+    // Forget sessions untouched for a day so the map can't grow without end.
+    if (presence.size > 500) for (const [k, v] of presence) if (Date.now() - v.touched > 86_400_000) presence.delete(k);
+    p = { CUSTOMER: { typingAt: 0, seenAt: 0 }, ASTROLOGER: { typingAt: 0, seenAt: 0 }, touched: 0 };
+    presence.set(id, p);
+  }
+  p.touched = Date.now();
+  return p[party];
+}
+
 /**
  * The conversation so far, oldest first. Readable by the two parties in any state (also after it
  * ended, as their record); `open` says whether new messages can still be sent.
  */
-export async function listMessages(c: Consultation, viewer: Party, after: unknown) {
+export async function listMessages(c: Consultation, viewer: Party, after: unknown, opened = false) {
   const since = afterSchema.parse(after);
+  const other: Party = viewer === "CUSTOMER" ? "ASTROLOGER" : "CUSTOMER";
+  const mine = presenceOf(c.id, viewer);
+  // The window being open on this side means everything so far is read ("Seen" for the other side).
+  if (opened) mine.seenAt = Date.now();
+  const theirs = presenceOf(c.id, other);
   const rows = await db.consultMessage.findMany({
     where: { consultationId: c.id, ...(since ? { createdAt: { gte: new Date(since) } } : {}) },
     // The newest page, put back in order below.
@@ -62,7 +82,16 @@ export async function listMessages(c: Consultation, viewer: Party, after: unknow
   return {
     messages: rows.reverse().filter(visibleTo(viewer)).map((m) => lineView(m, viewer)),
     open: c.status === "ACTIVE",
+    /** The other side is typing right now. */
+    typing: Date.now() - theirs.typingAt < TYPING_MS,
+    /** When the other side last had the conversation open: our messages up to then are "Seen". */
+    peerSeenAt: theirs.seenAt ? new Date(theirs.seenAt).toISOString() : null,
   };
+}
+
+/** The sender is typing: shown to the other side for a few seconds. */
+export function markTyping(c: Consultation, party: Party) {
+  presenceOf(c.id, party).typingAt = Date.now();
 }
 
 export const consultMessageBody = z.object({ text: messageText });

@@ -319,3 +319,15 @@ export async function astrologerPayoutsView(astrologerId: string) {
     payouts: recent.map((p) => ({ id: p.id, cycle: p.batch.cycle, amount: p.amount, tds: p.tds, state: p.state, utr: p.utr, reason: p.state === "FAILED" ? p.failureReason : null, at: p.updatedAt.toISOString() })),
   };
 }
+
+/** Once per closed cycle (earnings and free-call compensation each have their own): remind Finance to prepare the batch. */
+export async function sweepPayoutReminders() {
+  const { prepareCandidates } = await import("./earnings.ts");
+  const { staffPayoutReminder } = await import("./staff-notifications.ts");
+  for (const c of await prepareCandidates()) {
+    const done = await db.auditLog.findFirst({ where: { action: "payout.reminder", object: c.id }, select: { id: true } });
+    if (done) continue;
+    await audit(null, "payout.reminder", c.id, `${c.kind} cycle ${c.label}: ${c.lines} lines waiting for a batch`);
+    await staffPayoutReminder(c);
+  }
+}

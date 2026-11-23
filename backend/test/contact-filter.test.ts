@@ -187,7 +187,7 @@ const FREE_OK: string[] = [
   "Will I move to a new house near my office?",
 ];
 
-// Paid chat: only phone numbers are blocked.
+// Paid chat: phone numbers, emails, social/messaging IDs and UPI IDs are blocked (links and addresses are a free-chat rule).
 const PAID_BLOCKED: string[] = [
   "9876543210",
   "+91 98765 43210",
@@ -195,12 +195,14 @@ const PAID_BLOCKED: string[] = [
   "9.8.7.6.5.4.3.2.1.0",
   "call me at 080-23456789",
 ];
+const PAID_NOW_BLOCKED: [string, ContactKind[]][] = [
+  ["sneha.r@gmail.com", ["email"]],
+  ["my insta is astro_sneha", ["social"]],
+  ["find me on WhatsApp", ["social"]],
+  ["sneha@okaxis", ["upi"]],
+];
 const PAID_OK: string[] = [
-  "sneha.r@gmail.com",
   "https://example.com/my-chart.pdf",
-  "my insta is astro_sneha",
-  "find me on WhatsApp",
-  "sneha@okaxis",
   "I was born on 14 May 1994 at 06:42 PM",
   "DOB 14-05-1994, 06:42 pm",
   "₹500 for 5 minutes",
@@ -225,6 +227,7 @@ function check(text: string, policy: ContactPolicy, expect: ContactKind[] | "non
 for (const [text, expect] of FREE_BLOCKED) check(text, "FREE", expect);
 for (const text of FREE_OK) check(text, "FREE", "none");
 for (const text of PAID_BLOCKED) check(text, "PAID", ["phone"]);
+for (const [text, kinds] of PAID_NOW_BLOCKED) check(text, "PAID", kinds);
 for (const text of PAID_OK) check(text, "PAID", "none");
 
 // What staff see of a flagged attempt: the detail itself never shows.

@@ -359,9 +359,15 @@ function TransactionDetail({ txRef }: { txRef: string }) {
             <div className="mt-1 text-[12px] text-app-ink-2">{t.date}</div>
             <dl className="m-0 mt-3 border-t border-app-line pt-1.5 text-[13.333px]">
               <div className="flex justify-between gap-3 py-1.5">
-                <dt className="shrink-0 text-app-ink-2">{t.ref === null ? "Consultation" : "Transaction ID"}</dt>
-                <dd className={`m-0 font-semibold [overflow-wrap:anywhere] text-app-ink ${t.ref === null ? "text-right" : "font-mono"}`}>{t.ref ?? t.label}</dd>
+                <dt className="shrink-0 text-app-ink-2">Transaction ID</dt>
+                <dd className="m-0 font-mono font-semibold [overflow-wrap:anywhere] text-app-ink">{t.ref ?? "—"}</dd>
               </div>
+              {t.label && (
+                <div className="flex justify-between gap-3 py-1.5">
+                  <dt className="shrink-0 text-app-ink-2">Consultation</dt>
+                  <dd className="m-0 text-right font-semibold [overflow-wrap:anywhere] text-app-ink">{t.label}</dd>
+                </div>
+              )}
               <div className="flex justify-between gap-3 py-1.5">
                 <dt className="shrink-0 text-app-ink-2">{t.amount >= 0 ? "Credited to" : "Paid from"}</dt>
                 <dd className="m-0 text-right [overflow-wrap:anywhere] text-app-ink">{bucketText(t.bucket)}</dd>

@@ -14,6 +14,7 @@ import {
 import { REACTIVATED_EVENT, useSession } from "@/lib/session-store";
 import LoginModal, { type LoginOptions } from "./modals/login-modal";
 import InstantCallModal from "./modals/instant-call-modal";
+import FreeCallPopup from "./modals/free-call-popup";
 import LiveQueueModal from "./modals/live-queue-modal";
 import ConsultJourney from "./consult/consult-journey";
 import { staffConsultNote } from "./consult/consult-gate";
@@ -147,9 +148,18 @@ export default function AppProvider({ children }: { children: React.ReactNode })
         if (!blocked()) setOverlay({ kind: "queue", request });
       },
       startConsult: (request) => {
-        if (blocked()) return;
-        setOverlay(null);
-        setConsult(request);
+        const begin = () => {
+          if (blocked()) return;
+          setOverlay(null);
+          setConsult(request);
+        };
+        // Not signed in: the login (or sign-up) comes first, then the consultation carries on.
+        const s = sessionRef.current;
+        if (s.ready && !s.loggedIn) {
+          setOverlay({ kind: "login", options: { notice: "Log in or sign up to consult an astrologer.", then: begin } });
+          return;
+        }
+        begin();
       },
       resumeConsult,
     };
@@ -165,6 +175,7 @@ export default function AppProvider({ children }: { children: React.ReactNode })
   return (
     <AppContext.Provider value={ui}>
       {children}
+      <FreeCallPopup />
       {isCustomer && <CustomerCallWatcher />}
 
       {overlay?.kind === "login" && <LoginModal onClose={closeOverlay} options={overlay.options} />}

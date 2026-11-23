@@ -11,6 +11,8 @@ export interface LoginOptions {
   method?: LoginMethod;
   /** Shown above the form, e.g. when a portal sent the visitor here to sign in. */
   notice?: string;
+  /** Runs once a customer has signed in (e.g. carry on to the consultation they asked for). */
+  then?: () => void;
 }
 
 /**
@@ -30,6 +32,7 @@ export default function LoginModal({ onClose, options = {} }: { onClose: () => v
         onSignedIn={(user) => {
           onClose();
           if (user.role !== "customer") router.push(homeFor(user.role));
+          else options.then?.();
         }}
         onGuest={onClose}
         onLeave={onClose}

@@ -37,6 +37,11 @@ financeRouter.get("/finance", async (req, res) => {
     freeCallsCycleDays(),
   ]);
   const campaigns = await campaignCostThisMonth(now);
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) - 5.5 * 3600_000);
+  const [gstAll, gstMonth] = await Promise.all([
+    db.payment.aggregate({ where: { status: "PAID" }, _sum: { gst: true } }),
+    db.payment.aggregate({ where: { status: "PAID", createdAt: { gte: monthStart } }, _sum: { gst: true } }),
+  ]);
   // The cycles still running, for "nothing to prepare until …".
   const running = (["EARNINGS", "FREE_CALLS"] as const).map((kind) => {
     const c = cycleOf(kind, now, freeDays);
@@ -50,6 +55,8 @@ financeRouter.get("/finance", async (req, res) => {
       kpis: {
         grossVolume: lakh(gross.amount),
         grossMonth: gross.month,
+        gstTotal: rupee(gstAll._sum.gst ?? 0),
+        gstMonth: rupee(gstMonth._sum.gst ?? 0),
         grossDelta:
           grossDelta === null ? `nothing in ${gross.previousMonth} to compare` : `${grossDelta >= 0 ? "+" : "−"}${Math.abs(grossDelta)}% vs same days of ${gross.previousMonth}`,
         pendingPayouts: lakh(awaiting.reduce((s, b) => s + b.gross, 0)),
@@ -170,6 +177,38 @@ financeRouter.get("/payouts/transfers", async (req, res) => {
   requirePage(req, "finance");
   const [transfers, accounts] = await Promise.all([transfersView(), accountsOverview()]);
   res.json({ mode: payoutMode(), transfers, accounts });
+});
+
+/** One batch, astrologer by astrologer: what customers paid, AstroRize's commission, earnings, TDS, what is sent. */
+financeRouter.get("/payouts/:id/details", async (req, res) => {
+  requirePage(req, "finance");
+  const batch = await db.payoutBatch.findUnique({ where: { id: String(req.params.id) }, include: { lines: { include: { astrologer: { select: { id: true, name: true } } } }, payouts: true } });
+  if (!batch) throw notFound("That payout batch does not exist.");
+  const pct = await tdsPct();
+  const by = new Map<string, { name: string; gross: number; earned: number }>();
+  for (const l of batch.lines) {
+    const earned = l.amount ?? 0;
+    const gross = l.gross ?? earned;
+    const row = by.get(l.astrologerId) ?? { name: l.astrologer.name, gross: 0, earned: 0 };
+    row.gross += gross;
+    row.earned += earned;
+    by.set(l.astrologerId, row);
+  }
+  const rows = [...by.entries()].map(([id, r]) => {
+    const p = batch.payouts.filter((x) => x.astrologerId === id).sort((a, b) => b.attempts - a.attempts)[0];
+    const tds = p ? p.tds : Math.round((r.earned * pct) / 100);
+    return {
+      astrologer: r.name,
+      customerPaid: rupee(r.gross),
+      commission: rupee(r.gross - r.earned),
+      earnings: rupee(r.earned),
+      tds: rupee(tds),
+      payable: rupee(p ? p.amount : r.earned - tds),
+      transfer: p ? p.state : "Not sent yet",
+      utr: p?.utr ?? "",
+    };
+  });
+  res.json({ id: batch.id, kind: batch.kind, state: batch.state, rows });
 });
 
 /** Retry a failed or returned transfer (a new attempt; Finance decides, never automatic). */

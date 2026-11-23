@@ -17,6 +17,7 @@
 // Campaigns made before offers existed only have display strings (denominations, "5–14%"): they are
 // "legacy", stay listed in the console and are never claimable.
 
+import { stampPromoExpiry } from "./wallet-promo.ts";
 import { db } from "../db.ts";
 import type { Campaign, Prisma } from "../generated/prisma/client.ts";
 import { conflict, forbidden, notFound } from "./errors.ts";
@@ -196,6 +197,7 @@ export async function claimOffer(userId: string, campaignId: string, now = new D
         const amount = c.flatAmount ?? 0;
         const claim = await tx.campaignClaim.create({ data: { campaignId: c.id, userId, expiresAt: now, usesLeft: 0, status: "USED", lastUsedAt: now } });
         await tx.wallet.upsert({ where: { userId }, create: { userId, promo: amount }, update: { promo: { increment: amount } } });
+        await stampPromoExpiry(tx, userId);
         await tx.transaction.create({ data: { userId, type: "Campaign bonus", ref: ref!, bucket: "Promotional", amount } });
         return { claim, credited: amount };
       }

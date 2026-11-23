@@ -222,12 +222,14 @@ function hasAddress(text: string): boolean {
 export function findContactDetails(text: string, policy: ContactPolicy = "FREE"): ContactKind[] {
   const found: ContactKind[] = [];
   if (hasPhone(text)) found.push("phone");
-  if (policy === "PAID") return found;
+  // Phone numbers, email addresses, social media / messaging IDs and UPI IDs are blocked everywhere,
+  // in a paid consultation too (client, Nov 2026). Links and home addresses are blocked in free chat only.
   const email = EMAIL.test(text);
   if (email) found.push("email");
   if (!email && UPI.test(text)) found.push("upi");
-  if (LINK.test(text) && !email) found.push("link");
   if (SOCIAL.test(text)) found.push("social");
+  if (policy === "PAID") return found;
+  if (LINK.test(text) && !email) found.push("link");
   if (hasAddress(text)) found.push("address");
   return found;
 }
@@ -249,7 +251,7 @@ const KIND_NAME: Record<ContactKind, string> = {
 export function contactBlockedNotice(kinds: ContactKind[], policy: ContactPolicy = "FREE", place = "free chat"): string {
   const what = kinds.length ? kinds.map((k) => KIND_NAME[k]).join(" and ") : "contact details";
   if (policy === "PAID") {
-    return `This message contains ${what}. Phone numbers can't be shared in a consultation; everything else is fine. Keep calls on AstroRize so both of you stay protected.`;
+    return `This message contains ${what}. Phone numbers, email addresses, social media and messaging IDs and UPI IDs can't be shared in a consultation. Keep the conversation on AstroRize so both of you stay protected.`;
   }
   return `This message contains ${what}. Phone numbers, email addresses, links, social media handles, UPI IDs and home addresses can't be shared in ${place}, so everyone stays protected.`;
 }

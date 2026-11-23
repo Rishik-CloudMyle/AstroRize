@@ -59,9 +59,12 @@ export default function IntroVideo({
     <div className={`relative overflow-hidden rounded-2xl bg-ink ${heightClass} ${className}`}>
       <video
         ref={video}
-        src={src}
-        preload={preload}
+        src={`${src}#t=0.1`}
+        preload="metadata"
         playsInline
+        controlsList="nodownload noremoteplayback"
+        disablePictureInPicture
+        onContextMenu={(e) => e.preventDefault()}
         controls={started && !failed}
         tabIndex={started ? 0 : -1}
         aria-label={`Introduction video from ${name}`}
@@ -76,7 +79,8 @@ export default function IntroVideo({
       {/* (Opaque, so a first frame the browser has already loaded doesn't show through.) */}
       {!started && (
         <>
-          <Image src={poster} alt="" fill sizes="(min-width: 1024px) 760px, 100vw" className="object-cover" />
+          {/* The video's own first frame is the preview; the photo only stands in if the video can't load. */}
+          {failed && <Image src={poster} alt="" fill sizes="(min-width: 1024px) 760px, 100vw" className="object-cover" />}
           <span className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,0)_45%,rgba(28,25,23,.35))]" />
         </>
       )}

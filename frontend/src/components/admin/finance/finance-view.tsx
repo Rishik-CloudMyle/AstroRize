@@ -6,7 +6,41 @@ import { PANEL, TD, TH } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
 import { BATCH_SORTS, sortRows } from "@/lib/admin/sort";
 import type { BatchKind, FinanceData, PayoutBatch, PrepareCandidate } from "@/lib/admin/types";
+import AdminDialog from "@/components/admin/dialog";
+import { useEffect, useState } from "react";
 import CustomAmountControl from "./custom-amount";
+
+interface DetailRow { astrologer: string; customerPaid: string; commission: string; earnings: string; tds: string; payable: string; transfer: string; utr: string }
+
+function BatchDetails({ id, onClose }: { id: string; onClose: () => void }) {
+  const [rows, setRows] = useState<DetailRow[] | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    api.get<{ rows: DetailRow[] }>(`/admin/payouts/${id}/details`).then((r) => setRows(r.rows)).catch(() => setErr("Couldn't load this batch."));
+  }, [id]);
+  return (
+    <AdminDialog title={`Batch ${id}`} subtitle="Astrologer-wise breakdown" onClose={onClose} width={900}>
+      {err ? <p role="alert">{err}</p> : !rows ? <p>Loading…</p> : rows.length === 0 ? <p>No lines in this batch.</p> : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] border-collapse text-[13px]">
+            <thead><tr>{["Astrologer", "Customers paid", "Commission", "Earnings", "TDS", "Final payable", "Transfer"].map((h) => <th key={h} className={TH}>{h}</th>)}</tr></thead>
+            <tbody>{rows.map((r) => (
+              <tr key={r.astrologer}>
+                <td className={`${TD} px-2.5 py-2.5 font-semibold`}>{r.astrologer}</td>
+                <td className={`${TD} px-2.5 py-2.5 tabular-nums`}>{r.customerPaid}</td>
+                <td className={`${TD} px-2.5 py-2.5 tabular-nums`}>{r.commission}</td>
+                <td className={`${TD} px-2.5 py-2.5 tabular-nums`}>{r.earnings}</td>
+                <td className={`${TD} px-2.5 py-2.5 tabular-nums text-rose-700`}>{r.tds}</td>
+                <td className={`${TD} px-2.5 py-2.5 font-bold tabular-nums`}>{r.payable}</td>
+                <td className={`${TD} px-2.5 py-2.5`}>{r.transfer}{r.utr && <span className="block font-mono text-[11px] text-[#78716c]">{r.utr}</span>}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </AdminDialog>
+  );
+}
 
 const HEADS: [string, "left" | "right"][] = [
   ["Batch", "left"],
@@ -35,12 +69,13 @@ function KindChip({ kind }: { kind: BatchKind }) {
 const cycleText = (b: PayoutBatch) => b.cycle.replace(/^(Earnings|Free-call compensation) · /, "");
 
 export default function FinanceView({ data, part = "all" }: { data: FinanceData; part?: "payouts" | "recharge" | "all" }) {
-  const { session, say } = useAdmin();
+  const { session } = useAdmin();
   const { run, busy } = useAction();
   const [sort, setSort] = useUrlSort(BATCH_SORTS);
   const batches = sortRows(data.batches, BATCH_SORTS, sort);
   const actor = session.actor;
   const denoms = data.enabledDenominations;
+  const [details, setDetails] = useState<string | null>(null);
   const floor = data.floorMode;
   const canApprove = session.capabilities.includes("payout.approve");
   const canRelease = session.capabilities.includes("payout.release");
@@ -62,11 +97,7 @@ export default function FinanceView({ data, part = "all" }: { data: FinanceData;
       );
       return;
     }
-    say(
-      b.releasedByName
-        ? `${id} · approved by ${b.approvedByName ?? "—"} · released by ${b.releasedByName}${b.releasedAt ? ` on ${b.releasedAt}` : ""}.`
-        : `${id} was released before releases were recorded here.`,
-    );
+    setDetails(b.id);
   };
 
   const prepare = (c: PrepareCandidate) => {
@@ -97,6 +128,7 @@ export default function FinanceView({ data, part = "all" }: { data: FinanceData;
     <>
       {part !== "recharge" && (
       <div className={`${PANEL} relative mt-4 p-5`}>
+        {details && <BatchDetails id={details} onClose={() => setDetails(null)} />}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="m-0 text-[16px] font-bold">Payout batches · RazorpayX</h2>

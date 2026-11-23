@@ -77,6 +77,8 @@ export default function ConsultSheet({
   onStart,
   onClose,
   recordingConsent = false,
+  language,
+  onLanguage,
   onRecordingConsent,
 }: {
   astrologer: Astrologer;
@@ -107,6 +109,9 @@ export default function ConsultSheet({
   /** The customer ticked the recording notice (voice, video and Instant Call are recorded, audio only). */
   recordingConsent?: boolean;
   onRecordingConsent?: (accepted: boolean) => void;
+  /** The language to talk in: the astrologer's languages, and the one chosen. */
+  language?: string;
+  onLanguage?: (language: string) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const state = a.availability;
@@ -370,6 +375,15 @@ export default function ConsultSheet({
                   <p role="alert" className="mt-3 text-center text-[13px] font-semibold text-rose-700">
                     {error}
                   </p>
+                )}
+                {a.languages.length > 1 && onLanguage && (
+                  <label className="mt-4 block text-[13px] font-semibold text-stone-700">
+                    Language to talk in
+                    <select value={language ?? ""} onChange={(e) => onLanguage(e.target.value)} className="mt-1 h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-[14px] font-normal">
+                      <option value="">Any language</option>
+                      {a.languages.map((l) => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                  </label>
                 )}
                 {needsConsentChoice(selected) && !payMissing && (
                   <RecordingConsent chat={selected === "chat"} checked={recordingConsent} onChange={(v) => onRecordingConsent?.(v)} className="mt-4" />

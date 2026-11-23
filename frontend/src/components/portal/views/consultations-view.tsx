@@ -310,6 +310,7 @@ export default function ConsultationsView({ data: initial }: { data: Consultatio
             <div>
               <div className="text-[11.5px] font-semibold text-orange-800">Mode</div>
               <b className="text-[15px]">{inc.mode}</b>
+              {inc.language && <span className="block text-[12px] font-semibold text-orange-800">Language: {inc.language}</span>}
             </div>
             <div>
               <div className="text-[11.5px] font-semibold text-orange-800">Rate</div>

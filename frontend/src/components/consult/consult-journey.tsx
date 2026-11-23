@@ -150,6 +150,7 @@ export default function ConsultJourney({
   const [rateChange, setRateChange] = useState<RateChange | null>(null);
   // The recording notice (voice, video and Instant Call are recorded, audio only), ticked on the sheet.
   const [recordingConsent, setRecordingConsent] = useState(false);
+  const [language, setLanguage] = useState("");
   // Free minutes or a paid call, where a free option exists: the customer's own choice (never assumed).
   const [pay, setPay] = useState<PayChoice | null>(null);
   // The free-call length the customer chose in the sheet (minutes); the whole of it is used.
@@ -393,6 +394,7 @@ export default function ConsultJourney({
       const { consultation } = await api.post<{ consultation: Placed }>("/consultations", {
         astrologerId: fresh.id,
         mode: choice.toUpperCase(),
+        ...(language ? { language } : {}),
         quotedRate: quoted,
         ...(fixedSession ? { fixedMinutes: fixedSession.minutes } : {}),
         ...(useFree && !fixedSession ? { welcome: true, freeMinutes: freeLength } : {}),
@@ -742,6 +744,8 @@ export default function ConsultJourney({
         onClose={onClose}
         recordingConsent={recordingConsent}
         onRecordingConsent={setRecordingConsent}
+        language={language}
+        onLanguage={setLanguage}
       />
     );
   }

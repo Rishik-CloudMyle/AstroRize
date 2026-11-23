@@ -6,7 +6,7 @@
 import { jwtVerify } from "jose";
 
 export type Role = "customer" | "astrologer" | "admin";
-export type AdminRole = "super" | "finance" | "support" | "compliance" | "marketing";
+export type AdminRole = "super" | "finance" | "support" | "compliance" | "marketing" | "hr";
 
 /** What the server needs to know about the signed-in person. */
 export interface SessionClaims {

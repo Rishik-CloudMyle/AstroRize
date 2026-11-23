@@ -52,6 +52,8 @@ export interface CallSnapshot {
   remoteCameraOff: boolean;
   levels: { me: number; peer: number };
   cameras: MediaDeviceInfo[];
+  /** The camera in use faces away from the person (rear): shown unmirrored. */
+  rear: boolean;
   offline: boolean;
   weakNetwork: boolean;
   /** Both directions are up (billing starts once both sides report this). */
@@ -76,6 +78,7 @@ export const EMPTY_CALL: CallSnapshot = {
   remoteCameraOff: false,
   levels: { me: 0, peer: 0 },
   cameras: [],
+  rear: false,
   offline: false,
   weakNetwork: false,
   mediaUp: false,
@@ -325,6 +328,7 @@ export class CallSession {
       if (!track || this.released) return;
       track.enabled = !this.snap.cameraOff;
       await this.call?.replaceVideoTrack(track);
+      this.set({ rear: track.getSettings().facingMode === "environment" });
       current.getVideoTracks().forEach((t) => {
         t.stop();
         current.removeTrack(t);

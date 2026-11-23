@@ -20,6 +20,7 @@ import {
 import { mediaQueue, mediaWorkerMode } from "./media-jobs.ts";
 import { ROLE_LABELS, type AdminRoleKey } from "./rbac.ts";
 import { flagThreadAttempt } from "./contact-flags.ts";
+import { judgeQr, readQr } from "./qr-check.ts";
 import { contactBlockedNotice, findContactDetails, rateLimit } from "./safety.ts";
 
 // Astrologer Messenger: free direct messages between a customer and an astrologer — text, and
@@ -153,6 +154,15 @@ export function checkChatFile(body: unknown): ChatFile {
  */
 export async function postAttachment(threadId: string, sender: Side, caption: string, file: ChatFile) {
   if (caption && findContactDetails(caption, "FREE").length) return postMessage(threadId, sender, caption);
+  // A QR code in a photo is checked first: harmless ones are delivered, risky ones are held back and the sender reported.
+  if (file.kind === "IMAGE") {
+    const qr = await readQr(file.buf);
+    const problem = qr ? judgeQr(qr) : [];
+    if (problem.length) {
+      await flagThreadAttempt(threadId, sender, problem, qr ?? "");
+      throw badRequest("This photo has a QR code that can't be shared on Astrorize (payment, unsafe link or contact details). It was not sent, and the team has been told.");
+    }
+  }
   const name = await savePrivateFile(file.buf, file.type);
   // Videos are compressed in the background (lib/media-jobs.ts): "processing" until the worker is done.
   const compress = file.kind === "VIDEO" && mediaWorkerMode() !== "off";

@@ -4,6 +4,7 @@ import { assertNotBlocked, blockEndLabel } from "../lib/account-blocks.ts";
 import { z } from "zod";
 import { db } from "../db.ts";
 import { audit } from "../lib/audit.ts";
+import { fileSessionReport, reportBody } from "../lib/session-reports.ts";
 import { incomingWindowSecs, maxSessionSeconds, videoPremium, chatRate, instantRate } from "../lib/billing.ts";
 import { META, draftValues, metaValues, missingFor, nextApplicantId, rateBounds, submittedOn, wizardValues } from "../lib/application.ts";
 import {
@@ -58,7 +59,7 @@ import {
 } from "../lib/messaging.ts";
 import { flagContactAttempt } from "../lib/contact-flags.ts";
 import { contactBlockedNotice, findContactDetails, rateLimit } from "../lib/safety.ts";
-import { consultMessageBody, consultationFor, listMessages, mediaFor, sendMessage, windowOf } from "../lib/consult-room.ts";
+import { consultMessageBody, consultationFor, listMessages, markTyping, mediaFor, sendMessage, windowOf } from "../lib/consult-room.ts";
 import { hasChatNotice, isRecorded, recordAstrologerConsent } from "../lib/recordings.ts";
 import { mountRecordingRoutes } from "./call-recording.ts";
 import { canWork, effectivePresence, endLiveRoom, goOffline, goOnline, markSeen, syncPresence, viewerCount } from "../lib/presence.ts";
@@ -661,6 +662,8 @@ portalRouter.post("/availability", async (req, res) => {
     })
     .parse(req.body);
   if (end <= start) throw badRequest("End time must be after start time.");
+  // Times are IST: a slot can't start in the past.
+  if (new Date(`${date}T${start}:00+05:30`).getTime() <= Date.now()) throw badRequest("That time has already passed. Pick a time that hasn't started yet.");
   const day = new Date(date + "T00:00:00Z");
   if (await slotClash(a.id, day, start, end)) throw conflict(`That range overlaps a slot you already have on ${weekdayLabel(date)}.`);
   const slot = await db.availabilitySlot.create({ data: { astrologerId: a.id, date: day, start, end, state: "OPEN" } });
@@ -738,6 +741,7 @@ portalRouter.get("/consultations", async (req, res) => {
     session = {
       id: active.id,
       alias: active.customerAlias,
+      language: active.language,
       mode: modeLabel(active),
       /** The session window to open: chat, voice, or video (Instant Call is a video call). */
       window: windowOf(active),
@@ -764,6 +768,7 @@ portalRouter.get("/consultations", async (req, res) => {
         ? {
             id: first.id,
             alias: first.customerAlias,
+            language: first.language,
             mode: modeLabel(first),
             instant: first.kind === "INSTANT",
             free: first.billingMode === COMPLIMENTARY,
@@ -777,6 +782,7 @@ portalRouter.get("/consultations", async (req, res) => {
       queue: requests.map((r) => ({
         id: r.id,
         alias: r.customerAlias,
+        language: r.language,
         mode: modeLabel(r),
         instant: r.kind === "INSTANT",
         free: r.billingMode === COMPLIMENTARY,
@@ -984,7 +990,13 @@ portalRouter.post("/consultations/:id/end", async (req, res) => {
 portalRouter.get("/consultations/:id/messages", async (req, res) => {
   const a = await me(req);
   const c = await consultationFor(String(req.params.id), "ASTROLOGER", a.id);
-  res.json(await listMessages(c, "ASTROLOGER", req.query.after));
+  res.json(await listMessages(c, "ASTROLOGER", req.query.after, req.query.seen === "1"));
+});
+
+portalRouter.post("/consultations/:id/typing", async (req, res) => {
+  const a = await me(req);
+  markTyping(await consultationFor(String(req.params.id), "ASTROLOGER", a.id), "ASTROLOGER");
+  res.json({ ok: true });
 });
 
 portalRouter.post("/consultations/:id/messages", async (req, res) => {
@@ -1702,6 +1714,35 @@ portalRouter.post("/compliance/:id/respond", async (req, res) => {
   if (notice.respondBy < new Date()) throw conflict("The response window has closed.");
   await db.complianceNotice.update({ where: { id: notice.id }, data: { status: "RESPONDED", response: text, respondedAt: new Date() } });
   res.json({ ok: true, respondBy: istDate(notice.respondBy) });
+});
+
+/** The astrologer reports a session, and may block that customer from consulting them again. */
+portalRouter.post("/consultations/:id/report", async (req, res) => {
+  const a = await me(req);
+  const c = await db.consultation.findUnique({ where: { id: String(req.params.id) } });
+  if (!c || c.astrologerId !== a.id) throw notFound("Session not found.");
+  const body = reportBody.extend({ block: z.boolean().optional() }).parse(req.body);
+  const caseRef = await fileSessionReport({ by: "astrologer", reporterName: a.name, customerId: c.customerId, consultation: c, reason: body.reason, details: body.details });
+  if (body.block && c.customerId) {
+    await db.customerBlock.upsert({ where: { astrologerId_customerId: { astrologerId: a.id, customerId: c.customerId } }, update: {}, create: { astrologerId: a.id, customerId: c.customerId, sessionRef: c.ref } });
+    await audit(null, "customer.block", c.ref, `${a.name} blocked ${c.customerAlias}`);
+  }
+  res.status(201).json({ caseRef, blocked: !!(body.block && c.customerId) });
+});
+
+/** Customers this astrologer has blocked (by the alias they saw). */
+portalRouter.get("/blocks", async (req, res) => {
+  const a = await me(req);
+  const rows = await db.customerBlock.findMany({ where: { astrologerId: a.id }, orderBy: { createdAt: "desc" } });
+  const aliases = await db.consultation.findMany({ where: { astrologerId: a.id, customerId: { in: rows.map((r) => r.customerId) } }, select: { customerId: true, customerAlias: true }, orderBy: { requestedAt: "desc" } });
+  res.json({ blocks: rows.map((r) => ({ id: r.id, alias: aliases.find((x) => x.customerId === r.customerId)?.customerAlias ?? "Customer", sessionRef: r.sessionRef ?? "", when: istDate(r.createdAt) })) });
+});
+
+portalRouter.delete("/blocks/:id", async (req, res) => {
+  const a = await me(req);
+  const { count } = await db.customerBlock.deleteMany({ where: { id: String(req.params.id), astrologerId: a.id } });
+  if (!count) throw notFound("Block not found.");
+  res.json({ ok: true });
 });
 
 /** An astrologer reports a customer or session. Creates a support ticket. */

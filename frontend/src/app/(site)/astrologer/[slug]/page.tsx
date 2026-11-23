@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import MyReview from "@/components/astrologer/my-review";
 import { Portrait, RecognitionBadge, VerifiedTick } from "@/components/astrologer/parts";
 import AppProfile from "@/components/astrologer/app-profile";
 import IntroVideo, { IntroVideoPlaceholder } from "@/components/astrologer/intro-video";
@@ -139,6 +140,7 @@ export default async function AstrologerPage(props: PageProps<"/astrologer/[slug
               </div>
             </div>
             <div className="mt-5 flex flex-col gap-3">
+              <MyReview astrologerId={a.id} />
               {a.reviews.length === 0 && (
                 <p className="border-t border-line-soft pt-3.5 text-[13.5px] text-stone-500">
                   No written reviews yet. Reviews appear here after verified consultations.

@@ -78,6 +78,25 @@ function KundliWorkspace({ tool }: { tool: Tool }) {
   const resultRef = useRef<HTMLDivElement>(null);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
 
+  // What was typed survives a refresh (kept for this browser tab only), and wins over the saved profile
+  // details that fill the blanks below. This effect is declared before the profile one so it runs first.
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.sessionStorage.getItem("astrorize.kundli.form") ?? "null") as Partial<typeof form> | null;
+      // Applied a moment later (not inside the effect body); the profile details then only fill what is still blank.
+      if (saved) void Promise.resolve().then(() => setForm((f) => ({ name: saved.name || f.name, date: saved.date || f.date, time: saved.time || f.time })));
+    } catch {
+      // Storage unavailable: the form simply starts as usual.
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      if (form.name || form.date || form.time) window.sessionStorage.setItem("astrorize.kundli.form", JSON.stringify(form));
+    } catch {
+      // Not saved; nothing else changes.
+    }
+  }, [form]);
+
   // Fill in the birth details saved on the customer's profile; anything already typed is kept.
   useEffect(() => {
     let cancelled = false;
@@ -172,7 +191,7 @@ function KundliWorkspace({ tool }: { tool: Tool }) {
         onSubmit={submit}
       >
         <Field label="Full name">
-          <input required value={form.name} onChange={set("name")} maxLength={80} className={inputClass} autoComplete="name" />
+          <input required value={form.name} onChange={set("name")} onFocus={(e) => e.currentTarget.select()} maxLength={80} className={inputClass} autoComplete="name" />
         </Field>
         <BirthPlaceInput label="Place of birth" value={place} onChange={setPlace} prefill={prefillPlace} invalid={attempted && !place} />
         <Field label="Date of birth" hint={form.date && outsideTestedRange(form.date) ? <span className="text-orange-800">{DATE_RANGE_NOTE}</span> : undefined}>
