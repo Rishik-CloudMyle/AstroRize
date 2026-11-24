@@ -157,3 +157,6 @@ next-env.d.ts
 .vercel
 *.pem
 .DS_Store
+
+# Local knowledge-transfer notes (not part of the repo)
+docs/
