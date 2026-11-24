@@ -160,7 +160,7 @@ function CustomerSignup({ next, onStarted }: { next: string | null; onStarted: (
     setBusy(true);
     setError("");
     try {
-      const sent = await sessionActions.requestOtp(phone);
+      const sent = await sessionActions.requestOtp(phone, "signup");
       setDevCode(sent.devCode ?? "");
       setOtp("");
       setStep("otp");
@@ -298,7 +298,8 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [withPassword, setWithPassword] = useState(false);
+  // A password is part of signing up (so it can be changed later and email log-in works).
+  const withPassword = true;
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [passwordErrors, setPasswordErrors] = useState<{ password?: string; confirm?: string }>({});
@@ -325,11 +326,6 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
     setForm((f) => (f ? { ...f, [key]: value } : f));
     setErrors((e) => ({ ...e, [key]: undefined }));
     setFormError("");
-  }
-
-  function skip() {
-    toast("Welcome to AstroRize! Add your details any time from Wallet & account.");
-    onDone();
   }
 
   async function submit(e: React.FormEvent) {
@@ -368,7 +364,7 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
           // 409: this account already has a password — nothing left to do.
           if (!(err instanceof ApiError && err.status === 409)) {
             setPasswordErrors({ password: errorText(err) });
-            setFormError("Your details are saved, but the password wasn't. Fix it and press Continue again, or skip it.");
+            setFormError("Your details are saved, but the password wasn't. Fix it and press Finish sign-up again.");
             return;
           }
         }
@@ -400,9 +396,6 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
             >
               Try again
             </button>
-            <button type="button" onClick={skip} className="text-[13px] font-semibold text-amber-700 max-lg:min-h-app-hit max-lg:text-app-accent">
-              Skip for now
-            </button>
           </div>
         ) : (
           <div className="mt-3 h-64 rounded-2xl bg-cream" />
@@ -415,7 +408,7 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
     <div>
       <h1 className="m-0 mb-3 font-display text-[30px] font-semibold text-ink max-lg:leading-tight">Welcome to AstroRize</h1>
       <p className="m-0 mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[12.5px] font-semibold text-emerald-800">
-        ✓ Your account is ready. Tell us a little about you — or skip for now.
+        ✓ Mobile number verified. Add your details and a password to finish signing up.
       </p>
       <div className="mb-4 flex justify-center">
         <PhotoPicker
@@ -437,28 +430,12 @@ function CustomerDetails({ onDone }: { onDone: () => void }) {
         phone={profile.phone}
         set={set}
         onSubmit={submit}
-        onCancel={skip}
-        submitLabel="Continue"
-        cancelLabel="Skip for now"
+        submitLabel="Finish sign-up"
       >
         {!passwordSaved ? (
           <div className="mt-6 rounded-2xl border border-line bg-white p-3.5">
-            <label className="flex cursor-pointer items-start gap-2.5">
-              <input
-                type="checkbox"
-                checked={withPassword}
-                onChange={(e) => {
-                  setWithPassword(e.target.checked);
-                  setPasswordErrors({});
-                  setErrors((er) => ({ ...er, email: undefined }));
-                }}
-                className="mt-0.5 size-[18px] shrink-0 accent-amber-600"
-              />
-              <span>
-                <b className="block text-[13.5px] text-ink">Also log in with email and a password (optional)</b>
-                <span className="text-[12px] text-stone-500">Handy on a computer. Your mobile number keeps working too.</span>
-              </span>
-            </label>
+            <b className="block text-[13.5px] text-ink">Create your password</b>
+            <span className="text-[12px] text-stone-500">You can log in with your mobile number or with your email and this password.</span>
             {withPassword && (
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>

@@ -227,13 +227,13 @@ export function showsFreeCalls(s: Session): boolean {
 
 export const sessionActions = {
   /** Step 1 of mobile sign-in. In development the API returns the code as devCode. */
-  async requestOtp(phone: string) {
-    return api.post<{ sent: boolean; expiresInSeconds: number; devCode?: string }>("/auth/otp/request", { phone });
+  async requestOtp(phone: string, purpose: "login" | "signup" = "login") {
+    return api.post<{ sent: boolean; expiresInSeconds: number; devCode?: string }>("/auth/otp/request", { phone, purpose });
   },
 
-  /** Step 2 of mobile sign-in: always a customer account (created on first sign-in). */
+  /** Step 2 of mobile log-in: an existing customer account only (new accounts are made on the sign-up page). */
   async verifyOtp(phone: string, code: string) {
-    const { user, created, reactivated } = await api.post<{ user: ApiUser; created?: boolean; reactivated?: boolean }>("/auth/otp/verify", { phone, code });
+    const { user, created, reactivated } = await api.post<{ user: ApiUser; created?: boolean; reactivated?: boolean }>("/auth/otp/verify", { phone, code, purpose: "login" });
     await applyUser(user);
     const signedIn = withReactivation(user, reactivated);
     return created ? { ...signedIn, created } : signedIn;
@@ -244,7 +244,7 @@ export const sessionActions = {
    * number already had an account (they are simply signed in to it).
    */
   async signUpWithOtp(phone: string, code: string) {
-    const { user, created, reactivated } = await api.post<{ user: ApiUser; created: boolean; reactivated?: boolean }>("/auth/otp/verify", { phone, code });
+    const { user, created, reactivated } = await api.post<{ user: ApiUser; created: boolean; reactivated?: boolean }>("/auth/otp/verify", { phone, code, purpose: "signup" });
     await applyUser(user);
     return { user: withReactivation(user, reactivated), created };
   },

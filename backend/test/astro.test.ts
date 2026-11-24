@@ -24,7 +24,7 @@ import { mangalDosha } from "../src/lib/astro/matchmaking.ts";
 import { kundliReading } from "../src/lib/astro/readings.ts";
 import { YOGINIS, firstYogini } from "../src/lib/astro/yogini.ts";
 import { ASHTAKA_PLANETS, BAV_TABLE, BAV_TOTALS, SAV_TOTAL, computeAshtakavarga } from "../src/lib/astro/ashtakvarga.ts";
-import { computeKp, kpCusps, kpLords, placidusTropical, subBoundaries } from "../src/lib/astro/kp.ts";
+import { KP_SHIFT, computeKp, kpCusps, kpLords, placidusTropical, subBoundaries } from "../src/lib/astro/kp.ts";
 import { NAISARGIKA, ayanaBala, computeShadbala, drishti, uchchaBala } from "../src/lib/astro/shadbala.ts";
 
 // ── Tiny harness ──
@@ -619,7 +619,8 @@ for (const [place, lat, lon, tz, date, rise, set] of RISE) {
   equal(g, "D9 degree at a part edge (3°20′) = 0°", vargaDegree("D9", 10 / 3), 0);
   equal(g, "D60 degree of 0°15′ Taurus = 15°", Math.round(vargaDegree("D60", 30.25)! * 1e9) / 1e9, 15);
   equal(g, "D1 degree = degree in sign", vargaDegree("D1", 47.5), 17.5);
-  equal(g, "D30 has no varga degree", vargaDegree("D30", 12), null);
+  equal(g, "D30 degree: 2° into the 8° part (Aries 10–18) is 7.5°", vargaDegree("D30", 12), 7.5);
+  equal(g, "D30 degree: the first degree of a part is 0°", vargaDegree("D30", 5), 0);
 
   // Old saved charts: removing every new field and completing gives the same chart back.
   const fresh = engine.kundli({ date: "1995-08-15", time: "10:30", latitude: 18.5204, longitude: 73.8567, timezone: "Asia/Kolkata" });
@@ -744,7 +745,8 @@ const OBAMA = { date: "1961-08-04", time: "19:24", latitude: 21 + 18 / 60, longi
   const g3 = "KP vs AstroTalk sample (Delhi 1998)";
   const kp = engine.kundli(DELHI_98).kp;
   const AT = [238.49, 271.3, 307.27, 341.82, 11.19, 35.87, 58.49, 91.3, 127.27, 161.82, 191.19, 215.87];
-  AT.forEach((v, i) => near(g3, `cusp ${i + 1}`, kp.cusps[i]!.longitude, v, 60));
+  // KP now uses the Krishnamurti ayanamsa, KP_SHIFT smaller than Lahiri: every cusp is that much further on.
+  AT.forEach((v, i) => near(g3, `cusp ${i + 1} (Krishnamurti)`, kp.cusps[i]!.longitude, v + KP_SHIFT, 60));
   const c1 = kp.cusps[0]!;
   equal(g3, "cusp 1: Scorpio, Jyeshtha, sub Saturn", `${c1.sign} ${c1.star} ${c1.subLord}`, "7 17 saturn");
   equal(g3, "house system", kp.houseSystem, "Placidus");

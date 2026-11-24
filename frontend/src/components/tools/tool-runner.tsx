@@ -49,9 +49,15 @@ function reduceNumber(n: number): number {
   return n;
 }
 
+/** Reduces to one digit 1–9 (the Indian method used for Mulank and Bhagyank: no master numbers). */
+function reduceToDigit(n: number): number {
+  while (n > 9) n = String(n).split("").reduce((sum, d) => sum + Number(d), 0);
+  return n;
+}
+
 function NumerologyTool({ tool }: { tool: Tool }) {
   const [form, setForm] = useState({ name: "", date: "" });
-  const [result, setResult] = useState<{ name: string; lifePath: number; destiny: number } | null>(null);
+  const [result, setResult] = useState<{ name: string; life: number; destiny: number; nameNumber: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   function calculate() {
@@ -60,10 +66,12 @@ function NumerologyTool({ tool }: { tool: Tool }) {
     if (!form.date) return setError("Enter your date of birth.");
     setError(null);
     const digits = form.date.replace(/\D/g, "").split("").map(Number);
-    const lifePath = reduceNumber(digits.reduce((a, b) => a + b, 0));
+    // Life number (Mulank): the day of birth. Destiny number (Bhagyank): every digit of the full date. Both to 1–9.
+    const life = reduceToDigit(Number(form.date.slice(8, 10)));
+    const destiny = reduceToDigit(digits.reduce((a, b) => a + b, 0));
     const letters = form.name.toLowerCase().replace(/[^a-z]/g, "").split("");
-    const destiny = reduceNumber(letters.reduce((sum, ch) => sum + ((LETTER_VALUES.indexOf(ch) % 9) + 1), 0));
-    setResult({ name: form.name, lifePath, destiny });
+    const nameNumber = reduceNumber(letters.reduce((sum, ch) => sum + ((LETTER_VALUES.indexOf(ch) % 9) + 1), 0));
+    setResult({ name: form.name, life, destiny, nameNumber });
   }
 
   return (
@@ -93,8 +101,9 @@ function NumerologyTool({ tool }: { tool: Tool }) {
         <ResultCard tool={tool} title={`${result.name.split(" ")[0]}'s numbers`}>
           <div className="grid gap-3 sm:grid-cols-2">
             {[
-              { label: "Life path number", value: result.lifePath, from: "from your date of birth" },
-              { label: "Destiny number", value: result.destiny, from: "from the letters of your name" },
+              { label: "Life number (Mulank)", value: result.life, from: "from the day you were born" },
+              { label: "Destiny number (Bhagyank)", value: result.destiny, from: "from every digit of your date of birth, added down to one digit" },
+              { label: "Name number", value: result.nameNumber, from: "from the letters of your name (Pythagorean)" },
             ].map((n) => (
               <div
                 key={n.label}

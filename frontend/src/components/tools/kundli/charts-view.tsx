@@ -244,7 +244,6 @@ function ChartPicker({ chart, style }: { chart: SavedChart; style: "north" | "so
           <p className="mt-2 text-[12px] text-stone-500">
             Each row: sign and degree inside that sign, then the house counted from {data.lagnaLabel.toLowerCase().replace(/^d(\d+)/, "D$1")}.
             {selected === "chalit" && style === "south" ? " In the South Indian style each bhava is drawn in the sign of the matching whole-sign house." : ""}
-            {selected === "D30" ? " D30 has unequal parts, so no degree is given (—)." : ""}
           </p>
         </div>
       </div>

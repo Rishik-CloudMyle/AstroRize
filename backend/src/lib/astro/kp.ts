@@ -1,10 +1,11 @@
 // KP (Krishnamurti Paddhati): Placidus house cusps, star lords, sub lords and sub-sub lords of the
 // cusps and grahas, the Placidus bhava of each graha, and the ruling planets. Pure functions.
 //
-// Ayanamsa (client decision): KP here uses our true Lahiri (Chitrapaksha) ayanamsa, the same as the
-// rest of the Kundli, so a graha's sign and nakshatra agree across every view. Classic KP uses the
-// Krishnamurti ayanamsa, about 6′ smaller than Lahiri, which can move a point lying within 6′ of a
-// sub boundary into the neighbouring sub. Switching would be a one-line change below.
+// Ayanamsa: KP uses the Krishnamurti ayanamsa, 0°05′46″ (0.096259°) smaller than our true Lahiri
+// (Swiss Ephemeris SE_SIDM_KRISHNAMURTI vs SE_SIDM_LAHIRI, both 1900.0: 22.363889° vs 22.460148°), the
+// way KP software such as appliedjyotish.com does it. The client's comparison (Nov 2026) showed cusps,
+// Mars, Mercury, Rahu and Ketu differing from those programs, so every KP position here is the Lahiri
+// position moved by KP_SHIFT. The rest of the Kundli stays Lahiri.
 //
 // Placidus (tropical, then made sidereal by subtracting the ayanamsa). A Placidus cusp is the ecliptic
 // point whose hour angle is a fixed fraction of its own semi-arc: cusps 11 and 12 lie 1/3 and 2/3 of
@@ -143,9 +144,13 @@ export interface RulingPlanets {
   dayLord: GrahaKey;
 }
 
+/** Degrees added to a Lahiri longitude to get the Krishnamurti (KP) one. */
+export const KP_SHIFT = 0.096259;
+const toKp = (lon: number) => norm360(lon + KP_SHIFT);
+
 export interface KpChart {
-  /** "KP with Lahiri ayanamsa" — see the note at the top of kp.ts. */
-  ayanamsa: "Lahiri (Chitrapaksha)";
+  /** "KP with the Krishnamurti ayanamsa" — see the note at the top of kp.ts. */
+  ayanamsa: "Krishnamurti (KP)";
   ayanamsaDegrees: number;
   houseSystem: "Placidus" | "Porphyry";
   /** Placidus has no solution at this latitude; Porphyry cusps were used instead. */
@@ -162,10 +167,11 @@ export interface KpChart {
 export function kpCusps(utc: Date, latitude: number, longitude: number): { cusps: number[]; fallback: boolean; ayanamsa: number } {
   const a = angles(utc, latitude, longitude);
   const trop = placidusTropical(a.ramc, a.obliquity, latitude, a.ascendant + a.ayanamsa, a.midheaven + a.ayanamsa);
-  if (trop) return { cusps: trop.map((c) => norm360(c - a.ayanamsa)), fallback: false, ayanamsa: a.ayanamsa };
+  const kpAyanamsa = a.ayanamsa - KP_SHIFT;
+  if (trop) return { cusps: trop.map((c) => norm360(c - kpAyanamsa)), fallback: false, ayanamsa: kpAyanamsa };
   // Porphyry: trisect each quadrant between the (sidereal) angles.
-  const asc = a.ascendant;
-  const mc = a.midheaven;
+  const asc = toKp(a.ascendant);
+  const mc = toKp(a.midheaven);
   const ic = norm360(mc + 180);
   const dsc = norm360(asc + 180);
   const out: number[] = [];
@@ -173,13 +179,13 @@ export function kpCusps(utc: Date, latitude: number, longitude: number): { cusps
     const span = norm360(to - from);
     for (let i = 0; i < 3; i++) out.push(norm360(from + (span * i) / 3));
   }
-  return { cusps: out, fallback: true, ayanamsa: a.ayanamsa };
+  return { cusps: out, fallback: true, ayanamsa: kpAyanamsa };
 }
 
 /** KP ruling planets for any moment and place (the birth moment, or "now" for a question). */
 export function kpRulingPlanets(at: Date, latitude: number, longitude: number, timezone: string, node: NodeKind = "mean"): RulingPlanets {
-  const asc = kpLords(angles(at, latitude, longitude).ascendant);
-  const moon = kpLords(grahaPositions(at, node).find((g) => g.key === "moon")!.longitude);
+  const asc = kpLords(toKp(angles(at, latitude, longitude).ascendant));
+  const moon = kpLords(toKp(grahaPositions(at, node).find((g) => g.key === "moon")!.longitude));
   return rulingFrom(at, asc, moon, dayFrame(at, latitude, longitude, timezone).dayLord);
 }
 
@@ -207,10 +213,10 @@ export function computeKp(
   const utc = new Date(birth.utc);
   const { cusps, fallback, ayanamsa } = kpCusps(utc, birth.latitude, birth.longitude);
   const cuspRows = cusps.map((c, i) => ({ cusp: i + 1, ...kpLords(c) }));
-  const grahaRows = grahas.map((g) => ({ key: g.key, retrograde: g.retrograde, ...kpLords(g.longitude), bhava: bhavaOf(g.longitude, cusps) }));
+  const grahaRows = grahas.map((g) => ({ key: g.key, retrograde: g.retrograde, ...kpLords(toKp(g.longitude)), bhava: bhavaOf(toKp(g.longitude), cusps) }));
   const moon = grahaRows.find((g) => g.key === "moon")!;
   return {
-    ayanamsa: "Lahiri (Chitrapaksha)",
+    ayanamsa: "Krishnamurti (KP)",
     ayanamsaDegrees: ayanamsa,
     houseSystem: fallback ? "Porphyry" : "Placidus",
     fallback,

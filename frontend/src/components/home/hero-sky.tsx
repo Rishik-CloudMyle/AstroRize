@@ -852,7 +852,6 @@ export default function HeroSky({ className = "" }: { className?: string }) {
   const buttonsRef = useRef<(HTMLButtonElement | null)[]>([]);
   const tipId = useId();
   // null until mounted: the server cannot know the visitor's clock.
-  const [skyDate, setSkyDate] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [tip, setTip] = useState<Tip | null>(null);
   // The planet button that Tab lands on (the others are reached with the arrow keys).
@@ -878,7 +877,6 @@ export default function HeroSky({ className = "" }: { className?: string }) {
     let raf = 0;
     let last = 0;
     let onScreen = true;
-    let shownDate = "";
     let spots: GemSpot[] = [];
     // The gem being looked at, and how: a hover follows the mouse, a tap stays until the next tap.
     let active: { key: GrahaKey; source: Source } | null = null;
@@ -890,9 +888,6 @@ export default function HeroSky({ className = "" }: { className?: string }) {
     const tilt = { x: 0, y: 0, tx: 0, ty: 0 }; // rotateX / rotateY now and wanted (degrees)
     const fine = window.matchMedia("(hover: hover) and (pointer: fine)");
     const zone = stage.closest("section") ?? document.body;
-
-    const dateText = () =>
-      new Date(start + day * DAY_MS).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" });
 
     /** A spot as it appears on screen with the tilt, relative to the stage. */
     const project = (s: GemSpot) => {
@@ -974,11 +969,6 @@ export default function HeroSky({ className = "" }: { className?: string }) {
       spots = draw(ctx, side, layer, cache, day, -(turn * TAU) / TURN_SECONDS, clock, ringKey, ring, fx);
       refreshTip();
       place();
-      const text = dateText();
-      if (text !== shownDate) {
-        shownDate = text;
-        setSkyDate(text);
-      }
     };
 
     const show = (key: GrahaKey | null, source: Source) => {
@@ -1223,15 +1213,7 @@ export default function HeroSky({ className = "" }: { className?: string }) {
         )}
       </div>
       <p className="mt-4 flex max-w-full flex-wrap items-center justify-center gap-x-1.5 gap-y-1.5 text-center text-[12px] font-semibold text-amber-900/80 sm:mt-5">
-        {/* On phones the date goes to a second line. */}
-        <span className="max-sm:basis-full">The real sky, in time-lapse</span>
-        {/* Its own piece, so on a narrow screen it wraps whole; fixed width so nothing shifts as it changes. */}
-        {skyDate && (
-          <span className="inline-block min-w-[12ch] whitespace-nowrap tabular-nums">
-            <span className="mr-1.5 max-sm:hidden">·</span>
-            {skyDate}
-          </span>
-        )}
+        <span>The real sky, in time-lapse</span>
       </p>
     </div>
   );

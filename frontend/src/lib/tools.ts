@@ -52,7 +52,7 @@ const TOOLS: Tool[] = [
     bg: "#3b2461",
     ink: "#fffdf8",
     scrim: "rgba(48,28,82,.88)",
-    description: "Your life path number from your date of birth and your destiny number from your full name.",
+    description: "Your life number and destiny number from your date of birth, and your name number from your full name.",
   },
   {
     id: "tarot",
@@ -82,7 +82,7 @@ export const TOOL_BENEFITS: Record<string, string> = {
   horoscope: "Today or the week ahead for your Moon sign, from real transits.",
   matchmaking: "Guna milan out of 36, with Mangal dosha for both.",
   panchang: "Tithi, nakshatra, sunrise and Rahu Kaal for any place.",
-  numerology: "Your life path and destiny numbers, and what they mean.",
+  numerology: "Your life, destiny and name numbers, and what they mean.",
   tarot: "Three cards for one question: past, present and next.",
   daily: "One short, specific thing to keep in mind today.",
 };

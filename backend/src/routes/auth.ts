@@ -20,7 +20,8 @@ import {
 } from "../lib/signup.ts";
 import { sendOtpSms } from "../lib/sms.ts";
 import { grantWelcome, welcomePolicy } from "../lib/welcome.ts";
-import { requireRole } from "../middleware/auth.ts";
+import { requireRole, requireUser } from "../middleware/auth.ts";
+import { audit } from "../lib/audit.ts";
 import type { User } from "../generated/prisma/client.ts";
 
 export const authRouter = Router();
@@ -164,13 +165,27 @@ export async function consumeOtp(phone: string, code: string): Promise<{ release
   };
 }
 
+/** "login" only for numbers that already have an account; "signup" is the only way a new account is made. */
+const purposeSchema = z.enum(["login", "signup"]).default("login");
+const NO_ACCOUNT = "No account found for this number. Please sign up first.";
+
+/** Log-in must never create an account: an unknown number is told to sign up (checked before a code is sent or used). */
+async function assertAccountExistsForLogin(phone: string) {
+  const existing = await db.user.findUnique({ where: { phone } });
+  if (!existing) throw new HttpError(404, NO_ACCOUNT, "no_account");
+  refuseOtpSignIn(existing);
+}
+
 authRouter.post("/otp/request", async (req, res) => {
   const phone = phoneSchema.parse(req.body?.phone);
+  const purpose = purposeSchema.parse(req.body?.purpose);
+  if (purpose === "login") await assertAccountExistsForLogin(phone);
   res.json(await issueOtp(phone, req.ip));
 });
 
 authRouter.post("/otp/verify", async (req, res) => {
-  const { phone, code } = z.object({ phone: phoneSchema, code: codeSchema }).parse(req.body);
+  const { phone, code, purpose } = z.object({ phone: phoneSchema, code: codeSchema, purpose: purposeSchema }).parse(req.body);
+  if (purpose === "login") await assertAccountExistsForLogin(phone);
   // Refusals that don't depend on the code come first, so a valid code isn't used up for nothing.
   const existing = await db.user.findUnique({ where: { phone } });
   if (existing) refuseOtpSignIn(existing);
@@ -224,6 +239,35 @@ function refuseOtpSignIn(user: User) {
 // ── Sign-up (customers and astrologers; staff accounts are created by a Super Admin) ──
 // Customers sign up with the mobile one-time code above, then fill their profile with
 // PUT /api/me/profile. Optionally they also set a password here so email sign-in works.
+
+/** Whether the signed-in person has a password yet (customers who joined by mobile code may not). */
+authRouter.get("/password/status", async (req, res) => {
+  const auth = requireUser(req);
+  const user = await db.user.findUniqueOrThrow({ where: { id: auth.user.id }, select: { passwordHash: true, email: true } });
+  res.json({ hasPassword: !!user.passwordHash, hasEmail: !!user.email });
+});
+
+/**
+ * Change the password (any signed-in customer, astrologer or staff member): the current password is
+ * checked first. A customer who joined by mobile code and has none yet can set one (needs an email).
+ * Every other device is signed out afterwards.
+ */
+authRouter.post("/password/change", async (req, res) => {
+  const auth = requireUser(req);
+  rateLimit(`change-password:${auth.user.id}`, 8, 10 * 60 * 1000, "Too many attempts. Try again in a few minutes.");
+  const { currentPassword, newPassword } = z.object({ currentPassword: z.string().max(128).optional(), newPassword: passwordSchema }).parse(req.body);
+  const user = await db.user.findUniqueOrThrow({ where: { id: auth.user.id } });
+  if (user.passwordHash) {
+    if (!currentPassword || !(await verifyPassword(currentPassword, user.passwordHash))) throw badRequest("Your current password isn't right.");
+    if (currentPassword === newPassword) throw badRequest("Choose a password different from your current one.");
+  } else if (!user.email) {
+    throw badRequest("Add your email first — you'll log in with it and this password.");
+  }
+  await db.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(newPassword) } });
+  await db.session.deleteMany({ where: { userId: user.id, id: { not: auth.sessionId } } });
+  await audit(auth, "account.password.change", user.id, user.passwordHash ? "changed their password" : "set a password");
+  res.json({ ok: true });
+});
 
 /** A signed-in customer without a password sets one (needs an email on the account). */
 authRouter.post("/password", async (req, res) => {

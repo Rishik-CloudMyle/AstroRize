@@ -20,6 +20,7 @@ import {
   type Profile,
 } from "../account/profile-form";
 import { APP_CTA } from "../account/app-look";
+import ChangePassword from "../account/change-password";
 
 // "Your profile" on Wallet & account: the mobile app's "A little about you" and
 // "Birth details" screens. Shared only with an astrologer whose live consult queue
@@ -220,6 +221,7 @@ export default function ProfileSection() {
                 </button>
                 {justSaved && <span className="text-[12.5px] font-semibold text-emerald-700">✓ Saved</span>}
               </div>
+              <ChangePassword className="mt-5" />
             </>
           )}
         </div>

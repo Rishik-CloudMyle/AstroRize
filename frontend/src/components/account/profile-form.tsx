@@ -203,7 +203,8 @@ export function ProfileForm({
   phone?: string;
   set: <K extends Field>(key: K, value: Form[K]) => void;
   onSubmit: (e: React.FormEvent) => void;
-  onCancel: () => void;
+  /** Leave out to hide the cancel button (the sign-up step can't be skipped). */
+  onCancel?: () => void;
   submitLabel?: string;
   cancelLabel?: string;
   emailHelp?: string;
@@ -350,14 +351,16 @@ export function ProfileForm({
         <button type="submit" disabled={saving} className={`az-cta h-12 min-w-[140px] rounded-full px-7 text-[15px] font-bold ${APP_CTA}`}>
           {saving ? "Saving…" : submitLabel}
         </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={saving}
-          className={`h-12 rounded-full border border-line bg-white px-6 text-[14.5px] font-bold text-ink ${APP_SECONDARY}`}
-        >
-          {cancelLabel}
-        </button>
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className={`h-12 rounded-full border border-line bg-white px-6 text-[14.5px] font-bold text-ink ${APP_SECONDARY}`}
+          >
+            {cancelLabel}
+          </button>
+        )}
       </div>
     </form>
   );

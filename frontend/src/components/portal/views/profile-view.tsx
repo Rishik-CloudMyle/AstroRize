@@ -10,6 +10,7 @@ import { CUSTOM_SKILL_NOTE, SKILL_MAX_LENGTH, checkCustomSkill, skillInfo } from
 import { useAccount, useErrorToast, usePortalState, useToast } from "../portal-provider";
 import { M_LABEL, M_SECONDARY, PageHeader, Panel } from "../ui";
 import GalleryEditor from "./gallery-editor";
+import ChangePassword from "@/components/account/change-password";
 import IntroVideoEditor from "./intro-video-editor";
 
 export default function ProfileView({ data }: { data: ProfileData }) {
@@ -319,6 +320,7 @@ export default function ProfileView({ data }: { data: ProfileData }) {
             <p className="mt-3 text-[12.5px] text-stone-500">Your public profile goes live once your application is approved.</p>
           )}
         </div>
+        <ChangePassword className="mt-4" />
       </div>
     </div>
   );

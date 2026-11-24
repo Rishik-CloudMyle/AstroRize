@@ -149,11 +149,17 @@ export function vargaSign(code: VargaCode, longitude: number): number {
  * Degree of a longitude inside its varga sign, 0–30. For the equal-part vargas the part is
  * stretched to a whole sign: (degrees in sign × n) mod 30, which is the same as (longitude × n)
  * mod 30 (the convention of Jagannatha Hora and most Indian software; D1 gives the plain degree).
- * D30's parts are unequal (5°, 5°, 8°, 7°, 5°) and there is no agreed way to stretch them, so it
- * has no varga degree (null; the website shows "—").
+ * D30's parts are unequal (5°, 5°, 8°, 7°, 5°): the part the graha is in is stretched to 30° the same
+ * way, (degrees into the part ÷ the part's width) × 30.
  */
 export function vargaDegree(code: VargaCode, longitude: number): number | null {
-  if (code === "D30") return null;
+  if (code === "D30") {
+    const { s, d } = split(longitude);
+    const table = isOdd(s) ? TRIMSAMSA_ODD : TRIMSAMSA_EVEN;
+    const i = Math.max(0, table.findIndex(([end]) => d + EPS < end));
+    const lo = i > 0 ? table[i - 1]![0] : 0;
+    return Math.min(30, ((d - lo) / (table[i]![0] - lo)) * 30);
+  }
   const n = Number(code.slice(1));
   const { d } = split(longitude);
   const v = (d * n) % 30;
