@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
 
 const MAX_BYTES = 1024 * 1024;
@@ -23,16 +23,25 @@ export default function CareerForm() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  function clearFile() {
+    setFile(null);
+    setFileError("");
+    if (fileInput.current) fileInput.current.value = "";
+  }
 
   function pick(f: File | null) {
     setFileError("");
     if (f && f.size > MAX_BYTES) {
       setFile(null);
+      if (fileInput.current) fileInput.current.value = "";
       setFileError("The resume is larger than 1 MB. Please attach a smaller file.");
       return;
     }
     if (f && !/\.(pdf|doc|docx)$/i.test(f.name)) {
       setFile(null);
+      if (fileInput.current) fileInput.current.value = "";
       setFileError("Attach a PDF or Word file (.pdf, .doc or .docx).");
       return;
     }
@@ -113,16 +122,35 @@ export default function CareerForm() {
         Message
         <textarea name="message" required maxLength={3000} rows={6} className="w-full rounded-xl border border-line bg-white px-3.5 py-3 text-[14px] text-ink" />
       </label>
-      <div className="grid gap-1.5 text-[13px] font-bold text-ink">
-        <label htmlFor="resume">Resume (PDF or Word, up to 1 MB)</label>
+      <div className="grid gap-2 text-[13px] font-bold text-ink">
+        <span id="resume-label">Resume (PDF or Word, up to 1 MB)</span>
         <input
+          ref={fileInput}
           id="resume"
           type="file"
+          aria-labelledby="resume-label"
           accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           onChange={(e) => pick(e.target.files?.[0] ?? null)}
-          className="block w-full rounded-xl border border-dashed border-line bg-cream p-3 text-[13px] font-normal text-stone-700"
+          className="sr-only"
         />
-        {file && <span className="text-[12px] font-normal text-stone-600">{file.name} · {Math.max(1, Math.round(file.size / 1024))} KB</span>}
+        {file ? (
+          <div className="flex w-full max-w-[420px] items-center gap-3 rounded-xl border border-line bg-cream px-3 py-2.5 font-normal">
+            <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-lg bg-amber-100 text-[11px] font-extrabold text-amber-800 uppercase">
+              {file.name.split(".").pop()}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13.5px] font-semibold text-ink">{file.name}</span>
+              <span className="block text-[12px] text-stone-600">{Math.max(1, Math.round(file.size / 1024))} KB</span>
+            </span>
+            <button type="button" onClick={clearFile} aria-label={`Remove ${file.name}`} className="grid size-8 shrink-0 place-items-center rounded-full text-[18px] leading-none text-stone-600 hover:bg-stone-200 hover:text-ink">
+              ×
+            </button>
+          </div>
+        ) : (
+          <label htmlFor="resume" className="inline-flex h-11 w-fit cursor-pointer items-center rounded-full border border-line bg-white px-5 text-[14px] font-bold text-ink hover:bg-cream focus-within:ring-2">
+            Choose file
+          </label>
+        )}
         {fileError && (
           <span role="alert" className="text-[12.5px] font-semibold text-red-700">
             {fileError}

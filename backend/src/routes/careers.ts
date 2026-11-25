@@ -2,6 +2,7 @@ import express, { Router } from "express";
 import { z } from "zod";
 import { db } from "../db.ts";
 import { badRequest } from "../lib/errors.ts";
+import { sendApplicationEmails } from "../lib/mailer.ts";
 import { notifyMany } from "../lib/notifications.ts";
 import { rateLimit } from "../lib/safety.ts";
 
@@ -62,6 +63,9 @@ careersRouter.post("/", express.json({ limit: "2mb" }), async (req, res) => {
     },
     select: { id: true },
   });
+
+  // Email the application and resume to careers@ and hr@, and an acknowledgement to the candidate (does not hold up the answer, never fails it).
+  void sendApplicationEmails({ name: input.name, email: input.email, phone: input.phone, area: input.area, subject: input.subject, message: input.message, resumeName: `${safeName}.${kind.ext}`, resumeType: kind.type, resume: buf });
 
   // Tell HR (and Super Admins) there is a new application. Never fails the submission.
   try {
