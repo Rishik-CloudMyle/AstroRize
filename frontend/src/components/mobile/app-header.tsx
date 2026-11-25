@@ -31,7 +31,7 @@ export function AppHeader({
     <header className="sticky top-0 z-50 bg-app-bg pt-[env(safe-area-inset-top)] lg:hidden">
       <div className="flex min-h-14 items-center gap-2 px-4 py-1.5">
         <Link href={href} className="flex min-w-0 flex-1 items-center gap-2 text-app-ink hover:text-app-ink hover:no-underline">
-          <Image src="/assets/brand/logo-mark.png" alt="" width={36} height={36} priority className="size-9 shrink-0 object-contain" />
+          <Image src="/assets/brand/logo-mark.png" alt="" width={36} height={36} priority className="size-9 shrink-0 rounded-full object-contain" />
           <span className="min-w-0">
             <span className="block truncate font-display text-[20px] leading-tight font-semibold tracking-[.01em]">AstroRize</span>
             {kicker && <span className="block truncate text-[10px] leading-tight font-bold tracking-[.1em] text-app-ink-3 uppercase">{kicker}</span>}

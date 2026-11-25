@@ -82,15 +82,19 @@ import { addGalleryPhoto, galleryMax, removeGalleryPhoto, reorderGallery } from 
 import { checkDetailsText, detailsDiff, detailsSchema, liveCategories, sessionFeed } from "../lib/live.ts";
 import { acceptRequest, closeRoomConsultations, declineRequest, expireUnanswered, hostPrivateView, liveMedia, liveRate, liveRates } from "../lib/live-consult.ts";
 import { configNumber, getSetting, putSetting } from "../lib/settings.ts";
-import { closedCycles, closesOn, cycleOf, freeCallsCycleDays, sharePolicy, shareStatus, tdsOn, tdsPct } from "../lib/earnings.ts";
+import { closesOn, cycleOf, freeCallsCycleDays, isRange, sharePolicy, shareStatus, statementPeriods } from "../lib/earnings.ts";
+import { astroHelpPortalRouter } from "./astro-help.ts";
+import { estimateTds, loadTdsContext } from "../lib/tds.ts";
+import { hostReactions } from "./catalog.ts";
 import { roleGuard, type AuthContext } from "../middleware/auth.ts";
 import type { Astrologer, EarningsLine } from "../generated/prisma/client.ts";
 
 // The astrologer portal. Every route acts on the signed-in astrologer's own record.
 export const portalRouter = Router();
 portalRouter.use(roleGuard("astrologer"));
+portalRouter.use(astroHelpPortalRouter);
 
-const MULTIPLIER_OPTIONS = [1.5, 2, 3, 4];
+const MULTIPLIER_OPTIONS = [1.5, 2, 3, 4, 5, 6];
 const SKILL_POOL = ["Vedic", "KP", "Nadi", "Prashna", "Face Reading", "Palmistry", "Numerology", "Tarot", "Vastu", "Life Coaching", "Counseling"];
 /** A skill an astrologer typed: letters, numbers, spaces and & ' . / - only (it is reviewed by the team before it shows). */
 const SKILL_NAME = /^[\p{L}\p{N} &'’./-]{2,30}$/u;
@@ -724,7 +728,7 @@ portalRouter.get("/consultations", async (req, res) => {
     db.consultation.findMany({ where: { astrologerId: a.id, status: "REQUESTED" }, orderBy: { requestedAt: "asc" }, include: { customer: true } }),
     db.consultation.findFirst({ where: { astrologerId: a.id, status: "ACTIVE" }, orderBy: { connectedAt: "desc" }, include: { customer: true } }),
     configNumber("live.queue.max_depth", 20),
-    configNumber("consult.free_seconds", 0),
+    configNumber("consult.free_seconds", 60),
     freeCallsView(a),
     joinTimeoutSeconds(),
   ]);
@@ -1022,9 +1026,40 @@ portalRouter.get("/consultations/:id/media", async (req, res) => {
 
 // ── Live room console ──
 
+/**
+ * Every active astrologer has a live room: a newly approved one gets theirs the first time they open
+ * Live (only the demo data used to create rooms, so real astrologers could not go live).
+ */
+async function ensureLiveRoom(a: { id: string; lifecycle: string }) {
+  const found = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
+  if (found || a.lifecycle !== "active") return found;
+  const rank = await db.liveRoom.count();
+  try {
+    return await db.liveRoom.create({
+      data: {
+        id: a.id,
+        astrologerId: a.id,
+        topic: "Ask me anything",
+        thumb: "/assets/spotlight/spotlight-live.jpg",
+        eta: "~5–10 min",
+        pollQuestion: "What should we cover next?",
+        pollOptions: ["Career", "Relationships", "Health"],
+        pollCounts: [0, 0, 0],
+        rank,
+        isLive: false,
+        viewers: 0,
+        state: "normal",
+      },
+    });
+  } catch {
+    // Created a moment ago by another request.
+    return db.liveRoom.findUnique({ where: { astrologerId: a.id } });
+  }
+}
+
 portalRouter.get("/live", async (req, res) => {
   const a = await me(req);
-  const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
+  const room = await ensureLiveRoom(a);
   if (!room) return res.json({ room: null });
   if (room.isLive) await expireUnanswered(room.id);
   const [entries, announcements, categories, inPrivate] = await Promise.all([
@@ -1118,7 +1153,7 @@ portalRouter.post("/live/start", async (req, res) => {
   await expireStaleRequests(a.id);
   const waiting = await db.consultation.count({ where: { astrologerId: a.id, status: "REQUESTED" } });
   if (waiting) throw conflict(`${waiting === 1 ? "A customer is" : `${waiting} customers are`} waiting for you in Consultations — accept or decline first, then go live.`);
-  const room = await db.liveRoom.findUnique({ where: { astrologerId: a.id } });
+  const room = await ensureLiveRoom(a);
   if (!room) throw notFound("You don't have a live room yet.");
   if (room.isLive) return res.json({ ok: true, alreadyLive: true });
 
@@ -1186,6 +1221,8 @@ portalRouter.get("/live/feed", async (req, res) => {
       /** The private consultation in progress, polled with the feed so the console follows it closely. */
       private: inPrivate,
       waiting,
+      /** Viewers' recent reactions, so they float on the astrologer's screen too. */
+      reactions: hostReactions(room.id),
     },
   });
 });
@@ -1459,25 +1496,32 @@ portalRouter.get("/earnings", async (req, res) => {
   const a = await me(req);
   const now = new Date();
   const freeDays = await freeCallsCycleDays();
-  // Half-month statement periods (1–15, 16–end, IST): the running one, then the two before.
+  // Statement periods (IST) for the range the astrologer picked: a day, a week, 15 days (1–15, 16–end) or a month.
+  // The running one first, then the ones before it. Payouts themselves still go out per 15 days.
   const current = cycleOf("EARNINGS", now, freeDays);
-  const list = [current, ...closedCycles("EARNINGS", now, freeDays, 2)];
+  const range = isRange(req.query.range) ? req.query.range : "fortnight";
+  const list = statementPeriods(range, now);
   const index = Math.min(list.length - 1, Math.max(0, Number(req.query.period ?? 0) || 0));
   const p = list[index]!;
   const freeCycle = cycleOf("FREE_CALLS", now, freeDays);
-  const [lines, freeLines, paused, policy, tds] = await Promise.all([
+  const [lines, freeLines, paused, policy, tds, payoutRows] = await Promise.all([
     db.earningsLine.findMany({ where: { astrologerId: a.id, date: { gte: p.start, lte: p.end } }, orderBy: { date: "desc" } }),
     db.earningsLine.findMany({ where: { astrologerId: a.id, fundedBy: "PLATFORM", date: { gte: freeCycle.start, lte: freeCycle.end } }, orderBy: { date: "desc" } }),
     // Finance's payout holds (routes/admin/payout-holds.ts): { reason, … }, or `true` on older ones.
     getSetting<Record<string, { reason?: string } | true>>("payout.paused", {}),
     sharePolicy(),
-    tdsPct(),
+    loadTdsContext(),
+    // The payouts already sent (or on their way) to this astrologer, newest first.
+    db.payout.findMany({ where: { astrologerId: a.id }, orderBy: { createdAt: "desc" }, take: 12, include: { batch: { select: { cycle: true } } } }),
   ]);
   const rates = await sessionRates(a.id, lines);
   const row = (l: EarningsLine) => {
     const v = valued(a, l, rates);
     return {
       date: istDayMonth(l.date),
+      /** "23 Nov 2026" and the time (IST), for the statement file. */
+      dateFull: istDate(l.date),
+      time: istTime(l.date),
       session: l.sessionRef,
       kind: l.kind,
       mode: l.mode,
@@ -1502,16 +1546,34 @@ portalRouter.get("/earnings", async (req, res) => {
   res.json({
     earnings: {
       periodLabel: `${p.label} · ${index === 0 ? "running" : "closed"}`,
+      range,
+      astrologer: a.name,
       periods: list.map((x) => x.label),
+      /** Payouts made to you, newest first: what the cycle was, what you earned, TDS and what was sent. */
+      payouts: payoutRows.map((x) => ({
+        cycle: x.batch.cycle,
+        earned: x.gross,
+        tds: x.tds,
+        tdsPct: x.tdsPct,
+        tdsNote: x.tdsNote,
+        sent: x.amount,
+        state: x.state,
+        utr: x.utr,
+        to: x.methodLabel,
+        on: istDate(x.createdAt),
+        failure: x.state === "FAILED" ? x.failureReason : null,
+      })),
       periodIndex: index,
       /** What customers paid for your sessions and gifts in the period. */
       gross: paid.reduce((s, r) => s + r.gross, 0),
       /** Your share of it. */
       earned,
       gifts: paid.filter((r) => r.kind === "gift").reduce((s, r) => s + r.amount, 0),
-      tdsRate: tds / 100,
+      // Your own rate: PAN on file, residency and any Finance override decide it (see the TDS page in the admin console).
+      tdsRate: estimateTds(tds, a.id, 0).pct / 100,
+      tdsNote: estimateTds(tds, a.id, 0).note,
       // Refund adjustments can take a period below zero; TDS is never negative.
-      tds: tdsOn(Math.max(0, earned), tds),
+      tds: estimateTds(tds, a.id, earned).amount,
       nextPayout: istDayMonth(current.end),
       payoutPaused: !!paused[a.id],
       /** Why Finance paused them (null when no reason was recorded). */
@@ -1524,7 +1586,7 @@ portalRouter.get("/earnings", async (req, res) => {
         minutes: free.reduce((s, r) => s + r.minutes, 0),
         gross: free.reduce((s, r) => s + r.gross, 0),
         amount: freeAmount,
-        tds: tdsOn(freeAmount, tds),
+        tds: estimateTds(tds, a.id, freeAmount).amount,
         paidAfter: closesOn(freeCycle),
         lines: free,
       },

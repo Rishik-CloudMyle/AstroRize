@@ -116,7 +116,7 @@ function useSlides(offer: WelcomeOffer | null): PromoSlide[] {
       id: "wallet",
       kicker: "Wallet",
       title: "Recharge any amount you like",
-      lead: "Pick a pack with bonus credit, or type your own amount. GST is shown before you pay — never again on a session.",
+      lead: "Pick a pack with bonus credit, or type your own amount. No GST is added to a recharge: it is already in each astrologer's per-minute rate.",
       cta: "Add money",
       href: "/wallet#add-money",
       art: "/assets/tools/daily-mountains.jpg",

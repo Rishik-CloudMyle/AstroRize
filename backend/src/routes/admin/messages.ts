@@ -19,7 +19,7 @@ import {
 } from "../../lib/messaging.ts";
 import { byNameMatch } from "../../lib/format.ts";
 import { rateLimit } from "../../lib/safety.ts";
-import { pagesOf, requirePage, type AdminRoleKey } from "../../lib/rbac.ts";
+import { ROLE_LABELS, ROLE_ORDER, pagesOf, requirePage, type AdminRoleKey } from "../../lib/rbac.ts";
 import type { Prisma } from "../../generated/prisma/client.ts";
 
 // Messages: admins talk to other staff (one person or several), to an astrologer or to a
@@ -65,7 +65,8 @@ messagesRouter.get("/messages/people", async (req, res) => {
   const digits = q.replace(/^\+91/, "").replace(/[\s()-]/g, "");
   const byPhone: Prisma.UserWhereInput[] = /^\d{4,10}$/.test(digits) ? [{ phone: { contains: digits } }] : [];
   const searching = q.length > 0;
-  const [staff, astrologers, customers] = await Promise.all([
+  const [me, staff, astrologers, customers] = await Promise.all([
+    db.user.findUniqueOrThrow({ where: { id: admin.user.id }, include: personInclude }),
     db.user.findMany({
       where: { role: "ADMIN", active: true, id: { not: admin.user.id }, ...(q ? { OR: [{ name: text }, { email: text }] } : {}) },
       orderBy: [{ adminRole: "asc" }, { name: "asc" }],
@@ -94,7 +95,12 @@ messagesRouter.get("/messages/people", async (req, res) => {
   ]);
   const ranked = <T extends { name: string | null }>(rows: T[], max: number) =>
     (searching ? byNameMatch(rows, q, (p) => p.name ?? "") : rows).slice(0, max);
-  res.json({ people: [...ranked(staff.filter(canReceive), 100), ...ranked(astrologers, 30), ...ranked(customers, 20)].map(staffSees) });
+  // Every department that can open Messages, so the dialog lists them all (one with nobody to add shows as not available).
+  const departments = ROLE_ORDER.filter((r) => pagesOf(r).includes("messages")).map((r) => ROLE_LABELS[r]);
+  // You are in the list too (marked), so you can message yourself like a note-to-self chat.
+  const mine = !q || (me.name ?? "").toLowerCase().includes(q.toLowerCase()) || (me.email ?? "").toLowerCase().includes(q.toLowerCase()) ? [{ ...staffSees(me), you: true }] : [];
+  const others = [...ranked(staff.filter(canReceive), 100), ...ranked(astrologers, 30), ...ranked(customers, 20)].map(staffSees);
+  res.json({ people: [...mine, ...others], departments });
 });
 
 /**
@@ -173,7 +179,8 @@ messagesRouter.post("/messages", async (req, res) => {
   const me = admin.user.id;
   const body = startBody.parse(req.body);
   const ids = [...new Set(body.memberIds)].filter((id) => id !== me);
-  if (!ids.length) throw badRequest("Choose who to message.");
+  const toSelf = body.memberIds.includes(me);
+  if (!ids.length && !toSelf) throw badRequest("Choose who to message.");
   const people = await db.user.findMany({ where: { id: { in: ids } }, include: personInclude });
   if (people.length !== ids.length || !people.every(canReceive)) {
     throw badRequest("Someone you chose can't receive messages any more. Search for them again.");

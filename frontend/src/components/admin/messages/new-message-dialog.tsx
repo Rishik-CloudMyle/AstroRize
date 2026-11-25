@@ -59,9 +59,12 @@ export default function NewMessageDialog({
   const listId = `${ids}-people`;
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<{ q: string; people: MessagePerson[] } | null>(null);
+  const [allDepartments, setAllDepartments] = useState<string[]>([]);
   const [searchError, setSearchError] = useState("");
   const [chosen, setChosen] = useState<MessagePerson[]>([]);
   const [active, setActive] = useState(0);
+  // The highlighted row (for Enter) shows only once someone uses the arrow keys or types a search.
+  const [navigated, setNavigated] = useState(false);
   const [subject, setSubject] = useState("");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -99,9 +102,10 @@ export default function NewMessageDialog({
     const timer = setTimeout(
       () => {
         api
-          .get<{ people: MessagePerson[] }>(`/admin/messages/people?q=${encodeURIComponent(q)}`)
+          .get<{ people: MessagePerson[]; departments?: string[] }>(`/admin/messages/people?q=${encodeURIComponent(q)}`)
           .then((res) => {
             if (n !== request.current) return;
+            if (res.departments) setAllDepartments(res.departments);
             setResults({ q, people: res.people });
             setSearchError("");
             setActive(0);
@@ -137,11 +141,12 @@ export default function NewMessageDialog({
     setChosen((all) => (all.some((x) => x.id === p.id) ? all.filter((x) => x.id !== p.id) : [...all, p]));
   };
 
-  // Quick add: everyone in a department (staff list when nothing is typed).
+  // Quick add: everyone in a department (staff list when nothing is typed). Every department is listed;
+  // one with nobody to add (no one else in it yet) is shown as not available.
   const departments =
     q || inAstrologers
     ? []
-    : [...new Set(people.filter((p) => p.kind === "staff").map((p) => p.line))].map((line) => ({
+    : [...new Set([...allDepartments, ...people.filter((p) => p.kind === "staff").map((p) => p.line)])].map((line) => ({
         line,
         members: people.filter((p) => p.kind === "staff" && p.line === line),
       }));
@@ -325,11 +330,12 @@ export default function NewMessageDialog({
               if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
                 if (!selectable.length) return;
+                setNavigated(true);
                 const at = Math.min(active, selectable.length - 1);
                 setActive(e.key === "ArrowDown" ? (at + 1) % selectable.length : (at - 1 + selectable.length) % selectable.length);
               } else if (e.key === "Enter") {
                 e.preventDefault();
-                if (activePerson) toggle(activePerson);
+                if (activePerson && (navigated || q)) toggle(activePerson);
               }
             }}
             autoComplete="off"
@@ -347,6 +353,18 @@ export default function NewMessageDialog({
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
               <span className="text-[11.5px] font-bold text-[#57534e]">Add a department:</span>
               {departments.map((d) => {
+                const hasYou = d.members.some((p) => p.you);
+                if (d.members.length === 0) {
+                  return (
+                    <span
+                      key={d.line}
+                      title={`Nobody else in ${d.line} yet`}
+                      className="inline-flex h-7 cursor-not-allowed items-center rounded-full border border-dashed border-stone-300 bg-stone-50 px-3 text-[11.5px] font-bold text-stone-400"
+                    >
+                      {d.line} · not available
+                    </span>
+                  );
+                }
                 const all = d.members.every((p) => chosenIds.has(p.id));
                 return (
                   <button
@@ -365,7 +383,7 @@ export default function NewMessageDialog({
                     }}
                     className={`h-7 rounded-full border px-3 text-[11.5px] font-bold ${all ? "border-amber-500 bg-amber-100 text-amber-900" : "border-line bg-white text-ink"}`}
                   >
-                    {d.line} ({d.members.length}){all ? " ✓" : ""}
+                    {d.line} ({d.members.length}{hasYou ? " · you" : ""}){all ? " ✓" : ""}
                   </button>
                 );
               })}
@@ -374,7 +392,7 @@ export default function NewMessageDialog({
                 disabled={!!customer}
                 title={customer ? "Astrologers can't join a conversation with a customer" : undefined}
                 onClick={() => openAstrologers(true)}
-                className="h-7 rounded-full border border-violet-300 bg-violet-50 px-3 text-[11.5px] font-bold text-violet-900 disabled:cursor-not-allowed disabled:opacity-50"
+                className={`h-7 rounded-full border px-3 text-[11.5px] font-bold disabled:cursor-not-allowed disabled:opacity-50 ${chosenAstrologers.length > 0 ? "border-violet-400 bg-violet-100 text-violet-900" : "border-line bg-white text-ink"}`}
               >
                 Astrologers{astrologers ? ` (${astrologers.length})` : ""}
                 {chosenAstrologers.length > 0 ? ` · ${chosenAstrologers.length} chosen` : ""} ›
@@ -425,7 +443,7 @@ export default function NewMessageDialog({
                       on={chosenIds.has(p.id)}
                       off={blocked(p)}
                       offLine={blockedWhy(p)}
-                      isActive={activePerson?.id === p.id}
+                      isActive={(navigated || !!q) && activePerson?.id === p.id}
                       onPick={() => pick(p)}
                     />
                   ))}
@@ -460,7 +478,7 @@ export default function NewMessageDialog({
                           on={chosenIds.has(p.id)}
                           off={blocked(p)}
                           offLine={blockedWhy(p)}
-                          isActive={activePerson?.id === p.id}
+                          isActive={(navigated || !!q) && activePerson?.id === p.id}
                           onPick={() => pick(p)}
                         />
                       ))}
@@ -553,8 +571,8 @@ function PersonOption({
     >
       <PersonAvatar person={person} size={30} />
       <span className="min-w-0 flex-1">
-        <b className="block truncate text-[13px] text-ink">{person.name}</b>
-        <span className="block truncate text-[11.5px] text-[#78716c]">{off ? offLine : line}</span>
+        <b className="block truncate text-[13px] text-ink">{person.name}{person.you ? " (you)" : ""}</b>
+        <span className="block truncate text-[11.5px] text-[#78716c]">{off ? offLine : person.you ? `${line} · message yourself` : line}</span>
       </span>
       <KindTag kind={person.kind} />
       <span

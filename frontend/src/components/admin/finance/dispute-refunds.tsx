@@ -7,6 +7,7 @@ import { BlockedAction, PANEL, TD, TH } from "@/components/admin/ui";
 import { RefundSplitView } from "@/components/admin/support/refund-split";
 import { api } from "@/lib/api/client";
 import type { DisputeRefund } from "@/lib/admin/types";
+import { AgeChip, AgeLegend, edgeColor, oldestFirst } from "./age-chip";
 
 // "Dispute refunds to approve" on the Finance page: Support or Finance proposes a refund — or a free
 // replacement call with the same astrologer instead — on a ticket, and a second person with
@@ -16,6 +17,7 @@ import type { DisputeRefund } from "@/lib/admin/types";
 // from their next payout. A free replacement call gives the customer free minutes; no money moves.
 
 const HEADS: [string, "left" | "right"][] = [
+  ["Waiting", "left"],
   ["Ticket", "left"],
   ["Customer", "left"],
   ["Session", "left"],
@@ -63,12 +65,14 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
         </span>
       </div>
 
+      {refunds.length > 0 && <AgeLegend />}
+
       {refunds.length === 0 ? (
         <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">No proposed refunds. They appear here when one is proposed on a ticket.</p>
       ) : (
         // Scrolls inside the card on narrow windows, never the page.
         <div className="mt-3.5 overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-[13px]">
+          <table className="w-full min-w-[800px] border-collapse text-[13px]">
             <thead>
               <tr>
                 {HEADS.map(([label, align], i) => (
@@ -79,7 +83,7 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
               </tr>
             </thead>
             <tbody>
-              {refunds.map((r) => {
+              {oldestFirst(refunds, (x) => x.proposedAt).map((r) => {
                 const mine = r.proposedById ? r.proposedById === session.id : r.proposedBy === session.actor;
                 // A Super Admin may decide their own proposal; anyone else needs a second person.
                 const blockedMine = mine && !isSuper;
@@ -88,6 +92,9 @@ export default function DisputeRefundsPanel({ refunds }: { refunds: DisputeRefun
                 return (
                   <Fragment key={r.id}>
                   <tr>
+                    <td className={`${TD} px-2.5 py-[11px] whitespace-nowrap`} style={{ boxShadow: `inset 4px 0 0 ${edgeColor(r.proposedAt)}` }}>
+                      <AgeChip at={r.proposedAt} />
+                    </td>
                     <td className={`${TD} px-2.5 py-[11px]`}>
                       <span className="block font-mono text-[11.5px] whitespace-nowrap text-[#57534e]">{r.id}</span>
                       <span className="block text-[12px] text-ink">{r.subject}</span>

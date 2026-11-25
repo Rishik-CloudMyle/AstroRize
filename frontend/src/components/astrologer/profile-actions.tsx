@@ -89,6 +89,7 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
           <WasPrice astrologer={a} className="text-sm" />
           <span className="text-[30px] font-bold tracking-[-.02em] tabular-nums text-plum">{rupee(a.price)}</span>
           <span className="text-xs font-semibold text-mauve">/min</span>
+          <span className="text-[10.5px] font-semibold text-mauve">incl. GST</span>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <DiscountBadge astrologer={a} className="h-[22px] px-[9px] text-[10.5px]" />
@@ -176,11 +177,14 @@ export default function ProfileActions({ astrologer: initial }: { astrologer: As
                                 : "Billed per minute")}
                       </span>
                     </span>
-                    <b
-                      className={`shrink-0 text-[13.5px] tabular-nums ${off ? "text-stone-400" : pct ? "text-emerald-700" : instant ? "text-blue-700" : "text-plum"}`}
-                    >
-                      {`${rupee(pct ? discountedRate(rate, pct) : rate)}/min`}
-                    </b>
+                    <span className="shrink-0 text-right">
+                      <b
+                        className={`block text-[13.5px] tabular-nums ${off ? "text-stone-400" : pct ? "text-emerald-700" : instant ? "text-blue-700" : "text-plum"}`}
+                      >
+                        {`${rupee(pct ? discountedRate(rate, pct) : rate)}/min`}
+                      </b>
+                      <span className="block text-[10px] text-stone-500">incl. GST</span>
+                    </span>
                   </button>
                 </li>
               );

@@ -11,7 +11,7 @@ import { useErrorToast, usePresence, useToast } from "../portal-provider";
 import { M_INPUT, M_PRIMARY, M_SECONDARY, PageHeader, Panel } from "../ui";
 import { HideTabBar } from "../../mobile/tab-bar";
 import { GiftStack } from "../../live/gift-burst";
-import { LiveFeedOverlay, plannedLabel } from "../../live/live-feed";
+import { LiveFeedQueue, plannedLabel } from "../../live/live-feed";
 import { LiveGiftsPanel, useLiveFeed } from "./live-activity";
 import LiveAnnouncements from "./live-announcements";
 import LiveDetailsForm, { type LiveDetails } from "./live-details-form";
@@ -70,6 +70,33 @@ function LiveConsole({ data }: { data: LiveRoom }) {
   const broadcast = useLiveBroadcast(live);
   const liveClock = useLiveClock(live ? feed?.startedAt : undefined) ?? data.elapsed;
   const selfView = useRef<HTMLVideoElement | null>(null);
+  // The self-view is mirrored like a mirror only for the front camera; the rear camera shows as it is.
+  const [rearCamera, setRearCamera] = useState(false);
+  useEffect(() => {
+    const track = (selfView.current?.srcObject as MediaStream | null)?.getVideoTracks?.()[0];
+    setRearCamera(track?.getSettings?.().facingMode === "environment");
+  }, [broadcast.local, broadcast.camOn]);
+  // Viewers' reactions float up over the video, once each.
+  const [floating, setFloating] = useState<{ id: number; emoji: string; left: number }[]>([]);
+  const seenReaction = useRef<number | null>(null);
+  const reactionId = useRef(0);
+  useEffect(() => {
+    const r = feed?.reactions;
+    if (!r) return;
+    const last = seenReaction.current;
+    seenReaction.current = r.seq;
+    if (last === null) return;
+    r.items
+      .filter((x) => x.n > last)
+      .slice(-8)
+      .forEach((x, i) =>
+        setTimeout(() => {
+          const id = reactionId.current++;
+          setFloating((f) => [...f, { id, emoji: x.emoji, left: 8 + Math.random() * 70 }]);
+          setTimeout(() => setFloating((f) => f.filter((y) => y.id !== id)), 1900);
+        }, i * 350),
+      );
+  }, [feed?.reactions]);
   useEffect(() => {
     const v = selfView.current;
     if (v && v.srcObject !== broadcast.local) v.srcObject = broadcast.local;
@@ -252,9 +279,16 @@ function LiveConsole({ data }: { data: LiveRoom }) {
               muted
               playsInline
               aria-label="Your camera"
-              className={`absolute inset-0 size-full -scale-x-100 object-cover ${broadcast.local && broadcast.camOn ? "opacity-100" : "opacity-0"}`}
+              className={`absolute inset-0 size-full ${rearCamera ? "" : "-scale-x-100"} object-cover ${broadcast.local && broadcast.camOn ? "opacity-100" : "opacity-0"}`}
             />
             <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(28,25,23,.45)_0%,rgba(28,25,23,.08)_40%,rgba(28,25,23,.7)_100%)]" />
+            <div aria-hidden="true" className="pointer-events-none absolute right-0 bottom-24 h-40 w-40">
+              {floating.map((f) => (
+                <span key={f.id} className="az-float absolute bottom-0 text-[28px]" style={{ left: `${f.left}%` }}>
+                  {f.emoji}
+                </span>
+              ))}
+            </div>
             <div className="absolute top-3.5 right-3.5 left-3.5 flex flex-wrap items-center gap-2">
               <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-urgent px-[11px] text-[11px] font-extrabold text-white">
                 ● LIVE {liveClock}
@@ -299,7 +333,7 @@ function LiveConsole({ data }: { data: LiveRoom }) {
             <div className="absolute right-3.5 bottom-3.5 left-3.5 flex flex-col gap-2.5">
             {/* Gifts and what viewers are saying, as they see it: messages float up and fade */}
             <GiftStack gifts={giftsShown} />
-            {feed && <LiveFeedOverlay lines={feed.chat} announce className="-mt-1 h-[120px]" />}
+            {feed && <LiveFeedQueue lines={feed.chat} className="-mt-1 max-h-[170px]" />}
             <div className="flex flex-wrap items-center gap-2">
               {hostControls.map((h) => (
                 <button

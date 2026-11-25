@@ -1,20 +1,22 @@
 import { Router } from "express";
 import { accountsOverview, createPayoutsForBatch, retryPayout, transfersView } from "../../lib/payouts.ts";
 import { payoutMode } from "../../lib/razorpayx.ts";
+import { approveBatch, releaseBatch } from "../../lib/payout-actions.ts";
 import { z } from "zod";
 import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { closesOn, cycleOf, freeCallsCycleDays, prepareBatch, prepareCandidates, prepareDiff, splitThisMonth, tdsPct } from "../../lib/earnings.ts";
 import { istDayMonth, istTime, rupee } from "../../lib/format.ts";
-import { actorName, requireCapability, requirePage, secondPerson } from "../../lib/rbac.ts";
+import type { TdsLine } from "../../lib/tds.ts";
+import { requireCapability, requirePage } from "../../lib/rbac.ts";
 import { duplicatePayments, grossVolume, walletTrialBalance } from "../../lib/ledger.ts";
 import { campaignCostThisMonth } from "../../lib/campaigns.ts";
 import { configNumber, getSetting, putSetting } from "../../lib/settings.ts";
 import { customAmountPolicy } from "../../lib/payments.ts";
 import { priceChangeView } from "../../lib/pricing.ts";
 import { lakh } from "./overview.ts";
-import { creditProposal, proposedMinutes, refundProposerId, splitForTicket } from "./support.ts";
+import { creditProposal, proposedMinutes, refundProposedAt, refundProposerId, splitForTicket } from "./support.ts";
 import { CREDIT_PROPOSED } from "../../lib/tickets.ts";
 
 export const financeRouter = Router();
@@ -38,9 +40,15 @@ financeRouter.get("/finance", async (req, res) => {
   ]);
   const campaigns = await campaignCostThisMonth(now);
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) - 5.5 * 3600_000);
-  const [gstAll, gstMonth] = await Promise.all([
+  // GST collected: on recharges made before it moved into the per-minute rate, plus the GST inside what
+  // customers paid for sessions since (18/118 of a session's total).
+  const usageGst = (since: Date | null) =>
+    db.$queryRaw<{ gst: number | null }[]>`SELECT COALESCE(SUM("total" - ROUND("total" * 100.0 / (100 + "gstPct"))), 0)::int AS gst FROM "Consultation" WHERE "gstPct" > 0 AND "status" = 'ENDED' AND (${since}::timestamp IS NULL OR "endedAt" >= ${since})`;
+  const [gstAll, gstMonth, usageAll, usageMonth] = await Promise.all([
     db.payment.aggregate({ where: { status: "PAID" }, _sum: { gst: true } }),
     db.payment.aggregate({ where: { status: "PAID", createdAt: { gte: monthStart } }, _sum: { gst: true } }),
+    usageGst(null),
+    usageGst(monthStart),
   ]);
   // The cycles still running, for "nothing to prepare until …".
   const running = (["EARNINGS", "FREE_CALLS"] as const).map((kind) => {
@@ -55,8 +63,8 @@ financeRouter.get("/finance", async (req, res) => {
       kpis: {
         grossVolume: lakh(gross.amount),
         grossMonth: gross.month,
-        gstTotal: rupee(gstAll._sum.gst ?? 0),
-        gstMonth: rupee(gstMonth._sum.gst ?? 0),
+        gstTotal: rupee((gstAll._sum.gst ?? 0) + (usageAll[0]?.gst ?? 0)),
+        gstMonth: rupee((gstMonth._sum.gst ?? 0) + (usageMonth[0]?.gst ?? 0)),
         grossDelta:
           grossDelta === null ? `nothing in ${gross.previousMonth} to compare` : `${grossDelta >= 0 ? "+" : "−"}${Math.abs(grossDelta)}% vs same days of ${gross.previousMonth}`,
         pendingPayouts: lakh(awaiting.reduce((s, b) => s + b.gross, 0)),
@@ -118,6 +126,7 @@ financeRouter.get("/finance", async (req, res) => {
               : null,
           proposedBy: t.proposedBy,
           proposedById: await refundProposerId(t.id),
+          proposedAt: (await refundProposedAt(t.id))?.toISOString() ?? null,
           /** The team holding it now (Finance, or Admin once escalated) — only that team decides. */
           team: t.assignedTeam,
           /** Who bears it (staff only): customer paid, refund, astrologer share reversed, AstroRize share. */
@@ -154,22 +163,7 @@ financeRouter.post("/payouts/prepare", async (req, res) => {
 financeRouter.post("/payouts/:id/approve", async (req, res) => {
   requirePage(req, "finance");
   const admin = requireCapability(req, "payout.approve");
-  const b = await db.payoutBatch.findUnique({ where: { id: String(req.params.id) } });
-  if (!b) throw notFound("Payout batch not found.");
-  if (b.state !== "DRAFT") throw conflict(`${b.id} is already ${b.state.toLowerCase()}.`);
-  const { count } = await db.payoutBatch.updateMany({
-    where: { id: b.id, state: "DRAFT" },
-    data: {
-      state: "APPROVED",
-      approvedById: admin.user.id,
-      approvedByName: actorName(admin),
-      approvedRole: admin.adminRole.toUpperCase() as "SUPER" | "FINANCE" | "SUPPORT" | "COMPLIANCE",
-      approvedAt: new Date(),
-    },
-  });
-  if (!count) throw conflict(`${b.id} was just approved by someone else.`);
-  await audit(admin, "payout.batch.approve", b.id, "DRAFT → APPROVED");
-  res.json({ ok: true, actor: actorName(admin) });
+  res.json(await approveBatch(admin, String(req.params.id)));
 });
 
 /** Every transfer to an astrologer (newest problems first), the payout details on file, and how payouts are being sent. */
@@ -196,13 +190,16 @@ financeRouter.get("/payouts/:id/details", async (req, res) => {
   }
   const rows = [...by.entries()].map(([id, r]) => {
     const p = batch.payouts.filter((x) => x.astrologerId === id).sort((a, b) => b.attempts - a.attempts)[0];
-    const tds = p ? p.tds : Math.round((r.earned * pct) / 100);
+    const kept = (batch.tdsDetail as Record<string, TdsLine> | null)?.[id];
+    const tds = p ? p.tds : kept ? kept.amount : Math.round((r.earned * pct) / 100);
     return {
       astrologer: r.name,
       customerPaid: rupee(r.gross),
       commission: rupee(r.gross - r.earned),
       earnings: rupee(r.earned),
       tds: rupee(tds),
+      tdsPct: p?.tdsPct ?? kept?.pct ?? pct,
+      tdsNote: p?.tdsNote ?? kept?.note ?? "",
       payable: rupee(p ? p.amount : r.earned - tds),
       transfer: p ? p.state : "Not sent yet",
       utr: p?.utr ?? "",
@@ -232,25 +229,7 @@ financeRouter.post("/payouts/:id/transfers", async (req, res) => {
 financeRouter.post("/payouts/:id/release", async (req, res) => {
   requirePage(req, "finance");
   const admin = requireCapability(req, "payout.release", "Your role can approve payouts but not release them.");
-  const b = await db.payoutBatch.findUnique({ where: { id: String(req.params.id) } });
-  if (!b) throw notFound("Payout batch not found.");
-  if (b.state !== "APPROVED") throw conflict(`${b.id} must be approved before it can be released.`);
-  const self = secondPerson(admin, b.approvedById === admin.user.id, `Blocked — you approved ${b.id}. Release requires a different actor.`);
-  const { count } = await db.payoutBatch.updateMany({
-    where: { id: b.id, state: "APPROVED", approvedById: b.approvedById },
-    data: { state: "RELEASED", releasedById: admin.user.id, releasedByName: actorName(admin), releasedAt: new Date() },
-  });
-  if (!count) throw conflict(`${b.id} was just released by someone else.`);
-  await audit(admin, "payout.batch.release", b.id, `APPROVED → RELEASED${self}`);
-  // One transfer per astrologer through RazorpayX (or the simulation until its keys are set). A problem
-  // here never undoes the release: the transfers can be sent again from the Transfers page.
-  let transfers = null;
-  try {
-    transfers = await createPayoutsForBatch(b.id);
-  } catch (e) {
-    console.error(`Transfers for ${b.id}:`, e instanceof Error ? e.message : e);
-  }
-  res.json({ ok: true, actor: actorName(admin), mode: payoutMode(), transfers });
+  res.json(await releaseBatch(admin, String(req.params.id)));
 });
 
 financeRouter.patch("/denominations/:amount", async (req, res) => {

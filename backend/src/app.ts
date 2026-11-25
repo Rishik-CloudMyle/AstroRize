@@ -11,6 +11,7 @@ import { authRouter } from "./routes/auth.ts";
 import { catalogRouter } from "./routes/catalog.ts";
 import { contactAttemptsRouter } from "./routes/contact-attempts.ts";
 import { supportRequestsRouter } from "./routes/support-requests.ts";
+import { careersRouter } from "./routes/careers.ts";
 import { customerRouter } from "./routes/customer.ts";
 import { mediaRouter } from "./routes/media.ts";
 import { notificationsRouter } from "./routes/notifications.ts";
@@ -37,6 +38,7 @@ export function createApp() {
   // Razorpay's webhook is signed over its raw body, so it is read before the JSON parser.
   app.use("/api/payments/razorpay/webhook", razorpayWebhookRouter);
   app.use("/api/payments/razorpayx/webhook", razorpayxWebhookRouter);
+  app.use("/api/careers", careersRouter);
   app.use(express.json({ limit: "100kb" }));
   app.use(cookieParser());
 

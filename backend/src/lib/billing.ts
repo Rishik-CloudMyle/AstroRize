@@ -33,8 +33,27 @@ export async function refreshBillingConfig() {
 }
 void refreshBillingConfig();
 setInterval(() => void refreshBillingConfig(), 10_000).unref();
-/** GST charged on top of a recharge. */
-export const GST_RATE = 0.18;
+/** GST added on top of a recharge. None any more: GST is included in every per-minute rate (GST_PCT). */
+export const GST_RATE = 0;
+
+/** GST percent included in the per-minute rate a customer sees and pays. */
+export const GST_PCT = 18;
+
+/** An astrologer's own rate with GST included, rounded up to the next whole rupee: ₹20 + 18% = ₹23.60 → ₹24. */
+export const withGst = (base: number) => Math.ceil((base * (100 + GST_PCT)) / 100);
+
+/** The astrologer's own rate behind a customer rate (the largest rate whose GST-inclusive price is no more than it): ₹24 → ₹20. */
+export const baseOfRate = (rate: number) => Math.floor((rate * 100) / (100 + GST_PCT));
+
+/**
+ * An amount a customer paid (GST included) without its GST, for the revenue split: the amount scaled by
+ * base rate ÷ customer rate, so whole minutes at ₹24 count as exactly ₹20 each. `gstPct` 0 (older
+ * sessions) leaves the amount as it is.
+ */
+export function withoutGst(amount: number, rate: number, gstPct: number): number {
+  if (!gstPct || rate <= 0) return amount;
+  return Math.round((amount * Math.floor((rate * 100) / (100 + gstPct))) / rate);
+}
 
 /**
  * A consultation's mode. Paid chat was withdrawn on 29 Oct 2026 and brought back (client, Nov
@@ -51,6 +70,11 @@ export function rateFor(price: number, mode: Mode, chatPrice?: number | null): n
   return price + (mode === "VIDEO" ? videoPremium() : 0);
 }
 
+/** What a customer pays per minute: the astrologer's rate for the mode, with GST included. */
+export function customerRate(price: number, mode: Mode, chatPrice?: number | null): number {
+  return withGst(rateFor(price, mode, chatPrice));
+}
+
 /** The astrologer's chat rate: their own chat price, or their call price when they haven't set one. */
 export function chatRate(a: { price: number; chatPrice: number | null }): number {
   return rateFor(a.price, "CHAT", a.chatPrice);
@@ -59,6 +83,11 @@ export function chatRate(a: { price: number; chatPrice: number | null }): number
 /** Instant Call rate: the standard rate × the astrologer's multiplier. */
 export function instantRate(price: number, multiplier: number): number {
   return Math.round(price * multiplier);
+}
+
+/** Instant Call rate a customer pays: the standard rate × the multiplier, with GST included. */
+export function customerInstantRate(price: number, multiplier: number): number {
+  return withGst(instantRate(price, multiplier));
 }
 
 export interface Settlement {
@@ -82,9 +111,16 @@ export function settle(input: {
   freeSeconds: number;
   held: number;
   promo: number;
+  /**
+   * The standard free first minute: it only counts when the call runs PAST it. A call that ends inside it
+   * (even at 59 seconds) is billed one minute, so the free minute can not be used over and over.
+   * Refunds for a genuine reason go through the normal billing-issue flow.
+   */
+  shortCharge?: boolean;
 }): Settlement {
   const billedSeconds = Math.max(0, input.connectedSeconds);
-  const billable = Math.max(0, billedSeconds - input.freeSeconds);
+  const short = input.shortCharge && input.freeSeconds > 0 && billedSeconds > 0 && billedSeconds <= input.freeSeconds;
+  const billable = short ? 60 : Math.max(0, billedSeconds - input.freeSeconds);
   const billedMinutes = Math.ceil(billable / 60);
   const total = Math.min(billedMinutes * input.rate, input.held);
   const promoUsed = Math.min(input.promo, total);

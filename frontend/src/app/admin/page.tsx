@@ -1,6 +1,7 @@
 import Link from "next/link";
 import AccessDenied from "@/components/admin/access-denied";
 import { AvailabilityCard, ChannelChart, TopAstrologers, TrendChart } from "@/components/admin/overview/charts";
+import HrOverviewView from "@/components/admin/hr/hr-overview";
 import LiveNow from "@/components/admin/overview/live-now";
 import SearchBox from "@/components/admin/overview/search-box";
 import { KpiCard, PANEL } from "@/components/admin/ui";
@@ -13,6 +14,12 @@ export const metadata = { title: "Overview" };
 export default async function OverviewPage() {
   const session = await getSession();
   if (!canAccess(session, "overview")) return <AccessDenied />;
+
+  // HR has its own home: recruiting and onboarding, not the platform-wide business figures.
+  if (session.role === "hr") {
+    const { dateLine } = await getOverview();
+    return <HrOverviewView dateLine={dateLine} />;
+  }
 
   const data = await getOverview();
   const worklist = data.worklist.filter((w) => {

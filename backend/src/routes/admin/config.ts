@@ -336,10 +336,11 @@ configRouter.put("/config/free-calls", async (req, res) => {
   if (lengths.includes(5)) throw badRequest("5 minutes is kept for earlier welcome-call records — choose another length.");
   if (lengths.includes(v.oneTimeMinutes)) throw badRequest(`${v.oneTimeMinutes} minutes is both a weekly free-call length and the 1-time welcome call — make them different.`);
   if (v.oneTimeMinutes < 1 || v.oneTimeMinutes > 30) throw badRequest("The 1-time welcome call can be 1–30 whole minutes.");
-  if (v.weeklyMinutes !== 0 && v.weeklyMinutes < Math.min(...lengths)) throw badRequest(`Weekly free minutes (${v.weeklyMinutes}) must cover at least one free call of ${Math.min(...lengths)} minutes — or be 0 to stop free calls.`);
-  if (v.weeklyMinutes !== 0 && v.weeklyMinutes < v.lengthMinutes) throw badRequest(`Weekly free minutes (${v.weeklyMinutes}) must cover the default free call of ${v.lengthMinutes} minutes — or be 0 to stop free calls.`);
+  if (v.weeklyMinutes !== 0 && v.weeklyMinutes < Math.min(...lengths)) throw badRequest(`Weekly free minutes (${v.weeklyMinutes}) must cover at least one free call of ${Math.min(...lengths)} minutes — or be 0 (not set).`);
+  if (v.weeklyMinutes !== 0 && v.weeklyMinutes < v.lengthMinutes) throw badRequest(`Weekly free minutes (${v.weeklyMinutes}) must cover the default free call of ${v.lengthMinutes} minutes — or be 0 (not set).`);
   if (v.dailyMinutes !== 0 && v.dailyMinutes < Math.min(...lengths)) throw badRequest(`Daily free minutes (${v.dailyMinutes}) must cover at least one free call of ${Math.min(...lengths)} minutes — or be 0 for no daily limit.`);
   if (v.monthlyMinutes !== 0 && v.monthlyMinutes < Math.min(...lengths)) throw badRequest(`Monthly free minutes (${v.monthlyMinutes}) must cover at least one free call of ${Math.min(...lengths)} minutes — or be 0 for no monthly limit.`);
+  if (v.enabled === 1 && v.weeklyMinutes === 0 && v.dailyMinutes === 0 && v.monthlyMinutes === 0) throw badRequest("Set free minutes for at least one of weekly, daily or monthly — or switch free calls off.");
   const before = await getFreeCalls();
   const beforeExtras = (await configuredLengths()).slice(1);
   for (const k of Object.keys(FREE_KEYS) as (keyof typeof FREE_KEYS)[]) {

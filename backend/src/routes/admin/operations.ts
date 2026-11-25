@@ -60,6 +60,68 @@ async function lockedApplicant(id: string, version: number) {
   return a;
 }
 
+/** The HR department's own overview: applications by stage, who has waited longest, astrologers by status. */
+operationsRouter.get("/hr/overview", async (req, res) => {
+  requirePage(req, "hr");
+  const now = new Date();
+  const slaDays = await configNumber("hr.application.review_sla_days", 5);
+  const weekAgo = new Date(now.getTime() - 7 * 86400000);
+  const monthAgo = new Date(now.getTime() - 30 * 86400000);
+  const slaCutoff = new Date(now.getTime() - slaDays * 86400000);
+  const [applicants, astrologers, priceRequests, trainingOpen, trainingLate, joined30, people] = await Promise.all([
+    db.applicant.findMany({ orderBy: { submittedAt: "asc" } }),
+    db.astrologer.groupBy({ by: ["lifecycle"], _count: { _all: true } }),
+    db.priceChange.count({ where: { status: "PENDING" } }),
+    db.trainingModule.count({ where: { done: false, astrologer: { lifecycle: "training" } } }),
+    db.trainingModule.count({ where: { done: false, dueAt: { lt: now }, astrologer: { lifecycle: "training" } } }),
+    db.astrologer.count({ where: { activatedAt: { gte: monthAgo } } }),
+    // The people themselves, so HR can see who is active and who is in training.
+    db.astrologer.findMany({
+      orderBy: [{ lifecycle: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, lifecycle: true, skills: true, activatedAt: true, training: { select: { done: true, dueAt: true } } },
+    }),
+  ]);
+  const waiting = applicants.filter((a) => !(a.state === "Docs pending" && a.astrologerId));
+  const stage = (state: string) => applicants.filter((a) => a.state === state).length;
+  const by = (name: string) => astrologers.find((g) => g.lifecycle === name)?._count._all ?? 0;
+  res.json({
+    hr: {
+      kpis: {
+        applicationsWaiting: waiting.length,
+        overSla: waiting.filter((a) => a.submittedAt < slaCutoff || a.breach).length,
+        newThisWeek: applicants.filter((a) => a.submittedAt >= weekAgo).length,
+        priceRequests,
+        activeAstrologers: by("active"),
+        inTraining: by("training"),
+        joinedLast30Days: joined30,
+        trainingOpen,
+        trainingLate,
+      },
+      slaDays,
+      stages: ["Under review", "Interview", "Negotiation", "Pricing", "Docs pending"].map((label) => ({ label, count: stage(label) })),
+      people: people.map((p) => ({
+        id: p.id,
+        name: p.name,
+        status: p.lifecycle,
+        skill: p.skills[0] ?? "",
+        since: p.activatedAt ? istDate(p.activatedAt) : null,
+        trainingDone: p.training.filter((t) => t.done).length,
+        trainingTotal: p.training.length,
+        trainingLate: p.training.filter((t) => !t.done && t.dueAt && t.dueAt < now).length,
+      })),
+      astrologersByStatus: astrologers.map((g) => ({ status: g.lifecycle, count: g._count._all })).sort((a, b) => b.count - a.count),
+      oldest: waiting.slice(0, 8).map((a) => ({
+        id: a.id,
+        name: a.name,
+        skill: a.skill,
+        state: a.state,
+        age: ageLabel(a.submittedAt, now),
+        overSla: a.submittedAt < slaCutoff || a.breach,
+      })),
+    },
+  });
+});
+
 operationsRouter.get("/lifecycle", async (req, res) => {
   requirePage(req, "hr");
   const now = new Date();

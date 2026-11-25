@@ -190,6 +190,16 @@ export async function refundProposerId(ticketId: string): Promise<string | null>
   return entry?.actorId ?? null;
 }
 
+/** When the refund, free call or credit on a ticket was proposed (the Finance list's age colour counts from here). */
+export async function refundProposedAt(ticketId: string): Promise<Date | null> {
+  const entry = await db.auditLog.findFirst({
+    where: { action: { in: ["dispute.refund.propose", "dispute.makegood.propose", "dispute.credit.propose"] }, object: ticketId },
+    orderBy: { at: "desc" },
+    select: { at: true },
+  });
+  return entry?.at ?? null;
+}
+
 /** Minutes of the make-good proposed on a ticket (0 when none is recorded). */
 export async function proposedMinutes(ticketId: string): Promise<number> {
   return (await getSetting<{ minutes?: number } | null>(minutesKey(ticketId), null))?.minutes ?? 0;

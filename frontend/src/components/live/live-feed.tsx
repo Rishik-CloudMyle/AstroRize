@@ -257,6 +257,55 @@ export function LiveFeedOverlay({
   );
 }
 
+/** The most notifications (50) the phone's live queue keeps. */
+export const QUEUE_SIZE = 50;
+
+/**
+ * Phone live room: joins, messages and gifts as a queue of the last 50. Nothing floats away; the
+ * viewer scrolls up and down to read them. When a 51st arrives the oldest drops off (first in,
+ * first out). It follows the newest unless the viewer has scrolled up to read.
+ */
+export function LiveFeedQueue({ lines, className = "" }: { lines: LiveChatLine[]; className?: string }) {
+  const queue = lines.slice(-QUEUE_SIZE);
+  const box = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  const last = queue.length ? queue[queue.length - 1].id : "";
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [last]);
+  if (!queue.length) return null;
+  return (
+    <div
+      ref={box}
+      role="log"
+      aria-live="polite"
+      aria-label="Room activity"
+      tabIndex={0}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+      }}
+      className={`pointer-events-auto flex w-[min(78%,320px)] flex-col gap-1.5 overflow-y-auto overscroll-contain pr-1 ${className}`}
+    >
+      {queue.map((l) => (
+        <div
+          key={l.id}
+          className={`flex w-fit max-w-full shrink-0 items-start gap-2 rounded-[14px] py-1.5 pl-1.5 pr-2.5 text-[12px] leading-[1.35] text-[#f8f4ec] ${
+            l.kind === "gift" ? "bg-amber-600/80 font-semibold" : l.kind === "join" ? "bg-[rgba(12,10,18,.4)] text-[#e7e0d6]" : "bg-[rgba(12,10,18,.55)]"
+          }`}
+        >
+          <FeedAvatar photo={l.photo} initials={l.initials} />
+          <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+            <b className="mr-1 text-[10.5px] font-bold text-amber-200">{l.who}</b>
+            {l.kind === "join" ? "joined" : l.text}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // A minute clock for "Live for 12 min". Null during the server render, so the label never
 // disagrees between the server's clock and the browser's.
 function subscribeClock(onChange: () => void) {

@@ -1,6 +1,6 @@
 import { config } from "../config.ts";
 import { db } from "../db.ts";
-import { eligibilityMinutes, rateFor, type Mode } from "./billing.ts";
+import { customerRate, eligibilityMinutes, GST_PCT, type Mode } from "./billing.ts";
 import {
   OPEN_STATUSES,
   billedElapsed,
@@ -53,7 +53,7 @@ export async function answerSeconds(): Promise<number> {
 type LivePriced = { price: number; chatPrice: number | null };
 
 /** The rate of a private consultation from this astrologer's live: the same as a direct one in that mode. */
-export const liveRate = (a: LivePriced, mode: Mode = "VOICE") => rateFor(a.price, mode, a.chatPrice);
+export const liveRate = (a: LivePriced, mode: Mode = "VOICE") => customerRate(a.price, mode, a.chatPrice);
 
 /** What each mode costs from this astrologer's live (₹/min): chat at their chat price. Instant Call isn't offered from a live. */
 export const liveRates = (a: LivePriced) => ({ chat: liveRate(a, "CHAT"), voice: liveRate(a, "VOICE"), video: liveRate(a, "VIDEO") });
@@ -208,6 +208,7 @@ export async function acceptRequest(entryId: string, astrologerId: string): Prom
           astrologerId,
           mode: "VOICE",
           rate: liveRate(a),
+          gstPct: GST_PCT,
           status: QUEUED,
         },
       });
@@ -294,7 +295,7 @@ export async function closeRoomConsultations(roomId: string) {
 
 /** Time and money of a private consultation as it runs (server clock). */
 async function meter(c: Consultation) {
-  const [standardFree, secs, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 0), answerSeconds(), joinTimeoutSeconds()]);
+  const [standardFree, secs, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 60), answerSeconds(), joinTimeoutSeconds()]);
   const now = Date.now();
   const by = answerBy(c, secs);
   return {

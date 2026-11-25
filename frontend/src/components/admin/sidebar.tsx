@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { AdminSession, Environment, NavGroup } from "@/lib/admin/types";
 import LogoutButton from "../logout-button";
@@ -15,6 +15,44 @@ const ENV_STYLES: Record<Environment, [string, string, string, string, string]> 
   production: ["Production", "#292524", "#44403c", "#4ade80", "#d6cbb8"],
   staging: ["Staging", "#422006", "#a16207", "#facc15", "#fde68a"],
   sandbox: ["Sandbox", "#1e3a5f", "#1d4ed8", "#60a5fa", "#bfdbfe"],
+};
+
+/** Pages inside one area of the console. Departments other than the Super Admin get them in this left menu. */
+const SUB_PAGES: Record<string, { href: string; label: string }[]> = {
+  "/admin/lifecycle": [
+    { href: "/admin/lifecycle", label: "Applications" },
+    { href: "/admin/lifecycle?view=astrologers", label: "All astrologers" },
+    { href: "/admin/lifecycle?view=prices", label: "Price requests" },
+  ],
+  "/admin/finance": [
+    { href: "/admin/finance", label: "Payouts" },
+    { href: "/admin/finance/transfers", label: "Transfers" },
+    { href: "/admin/finance/refunds", label: "Refunds" },
+    { href: "/admin/finance/recharges", label: "Recharges" },
+    { href: "/admin/finance/price-changes", label: "Price changes" },
+  ],
+  "/admin/config": [
+    { href: "/admin/config", label: "All settings" },
+    { href: "/admin/config/fixed-sessions", label: "Fixed Sessions" },
+    { href: "/admin/config/free-calls", label: "Free Calls" },
+  ],
+  "/admin/marketing": [
+    { href: "/admin/marketing", label: "Campaigns" },
+    { href: "/admin/marketing/gifts", label: "Gift catalogue" },
+    { href: "/admin/marketing/copy-check", label: "Copy check" },
+  ],
+  "/admin/monitoring": [
+    { href: "/admin/monitoring", label: "Live now" },{ href: "/admin/monitoring/suspensions", label: "Suspensions" }],
+  "/admin/recording": [
+    { href: "/admin/recording", label: "What is recorded" },
+    { href: "/admin/recording/calls", label: "Call recordings" },
+    { href: "/admin/recording/retention", label: "Retention" },
+  ],
+  "/admin/trust": [
+    { href: "/admin/trust", label: "Reviews" },
+    { href: "/admin/trust/contact-attempts", label: "Contact attempts" },
+    { href: "/admin/trust/ranking", label: "Ranking rules" },
+  ],
 };
 
 function isActive(pathname: string, href: string): boolean {
@@ -38,7 +76,7 @@ function Brand({ onNavigate }: { onNavigate?: () => void }) {
         width={34}
         height={34}
         priority
-        className="h-[34px] w-[34px] flex-[0_0_34px] object-contain"
+        className="h-[34px] w-[34px] flex-[0_0_34px] rounded-full object-contain"
       />
       <div className="min-w-0">
         <div className="font-display text-[19px] leading-none font-semibold text-[#f8f4ec]">AstroRize</div>
@@ -51,6 +89,7 @@ function Brand({ onNavigate }: { onNavigate?: () => void }) {
 /** Environment, signed-in admin and the console menu; shared by the desktop rail and the phone menu. */
 function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProps & { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const search = useSearchParams();
   // Kept current by the provider: re-read after every action and every 30 seconds.
   const { counts, hints } = useNavCounts();
   const [envLabel, envBg, envBorder, envDot, envFg] = ENV_STYLES[environment];
@@ -67,7 +106,7 @@ function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProp
         </b>
       </div>
 
-      <div className="mb-3.5 flex items-center gap-[9px] rounded-xl bg-[#292524] p-2.5">
+      <Link href="/admin/profile" onClick={onNavigate} title="My profile" className="mb-3.5 flex items-center gap-[9px] rounded-xl bg-[#292524] p-2.5 hover:bg-[#33302d] hover:no-underline">
         <span className="grid h-[34px] w-[34px] flex-[0_0_34px] place-items-center rounded-full bg-[#44403c] text-[12px] font-extrabold text-amber-300">
           {session.initials}
         </span>
@@ -75,7 +114,7 @@ function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProp
           <b className="block truncate text-[12.5px] text-[#f8f4ec]">{session.name}</b>
           <span className="text-[10.5px] font-bold text-amber-300">{roleLabel}</span>
         </div>
-      </div>
+      </Link>
 
       <nav aria-label="Console" className="flex flex-col gap-0.5">
         {nav.map((g) => (
@@ -84,11 +123,12 @@ function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProp
               {g.title}
             </div>
             {g.items.map((n) => {
-              const active = isActive(pathname, n.href);
-              const count = counts[n.key] ?? 0;
+              const subs = session.role !== "super" ? SUB_PAGES[n.href] : undefined;
+              const active = subs ? false : isActive(pathname, n.href);
+              const count = n.href === "/admin/careers" ? 0 : (counts[n.key] ?? 0);
               return (
+                <div key={n.key}>
                 <Link
-                  key={n.key}
                   href={n.href}
                   onNavigate={onNavigate}
                   aria-current={active ? "page" : undefined}
@@ -98,7 +138,7 @@ function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProp
                       : "font-medium text-[#d6cbb8] hover:text-[#f8f4ec]"
                   }`}
                 >
-                  <span className="w-4 text-center text-[12px] opacity-85">{n.icon}</span>
+                  <span className="inline-block w-5 flex-none overflow-hidden text-center text-[12px] leading-none opacity-85 [font-variant-emoji:text]">{n.icon}</span>
                   <span className="min-w-0 flex-1">{n.label}</span>
                   {n.key === "messages" ? (
                     <MessagesUnreadBadge />
@@ -112,6 +152,26 @@ function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProp
                     </span>
                   ) : null}
                 </Link>
+                {subs && (
+                  <div className="mt-0.5 mb-1 ml-[19px] flex flex-col gap-0.5 border-l border-[#3a3531] pl-2">
+                    {subs.map((p) => {
+                      const [path, q] = p.href.split("?");
+                      const on = q ? pathname === path && [...new URLSearchParams(q)].every(([k, v]) => search.get(k) === v) : p.href === n.href ? pathname === path && !search.get("view") : isActive(pathname, path);
+                      return (
+                        <Link
+                          key={p.href}
+                          href={p.href}
+                          onNavigate={onNavigate}
+                          aria-current={on ? "page" : undefined}
+                          className={`flex w-full items-center rounded-[8px] px-2.5 py-1.5 text-left text-[12.5px] transition-colors hover:no-underline ${on ? "bg-amber-500 font-bold text-ink hover:text-ink" : "font-medium text-[#d6cbb8] hover:text-[#f8f4ec]"}`}
+                        >
+                          {p.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+                </div>
               );
             })}
           </div>
@@ -119,6 +179,15 @@ function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProp
       </nav>
 
       <div className="mt-auto border-t border-[#292524] px-2.5 pt-3.5">
+        <Link
+          href="/admin/settings"
+          onNavigate={onNavigate}
+          aria-current={isActive(pathname, "/admin/settings") ? "page" : undefined}
+          className="mb-1 flex w-full items-center gap-[9px] rounded-[9px] px-0 py-1.5 text-left text-[13px] font-medium text-[#a8a29e] hover:text-[#f8f4ec] hover:no-underline"
+        >
+          <span className="w-4 text-center text-[12px] opacity-85">⚙</span>
+          <span>Settings</span>
+        </Link>
         <LogoutButton className="flex w-full items-center gap-[9px] rounded-[9px] px-0 py-1.5 text-left text-[13px] font-medium text-[#a8a29e] hover:text-[#f8f4ec]">
           <span className="w-4 text-center text-[12px] opacity-85">⎋</span>
           <span>Log out</span>

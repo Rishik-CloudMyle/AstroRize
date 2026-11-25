@@ -20,6 +20,7 @@ import type { Astrologer, EarningsLine, Prisma } from "../generated/prisma/clien
 import { badRequest, conflict } from "./errors.ts";
 import { istDate, istDateKey, istDayMonth, rupee } from "./format.ts";
 import { configNumber, getSetting } from "./settings.ts";
+import { loadTdsContext, type TdsContext, type TdsLine } from "./tds.ts";
 
 type Tx = Prisma.TransactionClient;
 const DAY_MS = 86_400_000;
@@ -186,6 +187,36 @@ function weekOf(at: Date): PayoutCycle {
   return { kind: "FREE_CALLS", id: `FC-${isoYear}-W${pad(week)}`, label, start, end: new Date(start.getTime() + 7 * DAY_MS - 1) };
 }
 
+export type RangeKey = "daily" | "weekly" | "fortnight" | "monthly";
+export interface StatementPeriod {
+  /** Stable id of the period, e.g. "D-20261123", "FC-2026-W48", "PB-2026-11-B", "FC-2026-11". */
+  id: string;
+  label: string;
+  start: Date;
+  /** Last millisecond of the period. */
+  end: Date;
+}
+const RANGE_COUNT: Record<RangeKey, number> = { daily: 14, weekly: 8, fortnight: 8, monthly: 12 };
+export const isRange = (v: unknown): v is RangeKey => v === "daily" || v === "weekly" || v === "fortnight" || v === "monthly";
+
+function dayOf(at: Date): StatementPeriod {
+  const { y, m0, d } = istParts(at);
+  const start = istMidnight(y, m0, d);
+  return { id: `D-${y}${pad(m0 + 1)}${pad(d)}`, label: `${d} ${MONTHS[m0]} ${y}`, start, end: new Date(start.getTime() + DAY_MS - 1) };
+}
+
+/** The statement periods of a range (IST), the running one first, then the ones before it. */
+export function statementPeriods(range: RangeKey, now = new Date()): StatementPeriod[] {
+  const of = range === "daily" ? dayOf : range === "weekly" ? weekOf : range === "monthly" ? monthOf : halfMonthOf;
+  const out: StatementPeriod[] = [];
+  let p: StatementPeriod = of(now);
+  for (let i = 0; i < RANGE_COUNT[range]; i++) {
+    out.push(p);
+    p = of(new Date(p.start.getTime() - 1));
+  }
+  return out;
+}
+
 /** Free-call compensation is paid per calendar month (`payout.free_calls.weekly` 0, the default) or per Monday–Sunday week (1). */
 export async function freeCallsCycleDays(): Promise<7 | 30> {
   return (await configNumber("payout.free_calls.weekly", 0)) === 1 ? 7 : 30;
@@ -213,9 +244,9 @@ export const closesOn = (c: PayoutCycle) => istDayMonth(c.end);
 
 // ── Payout batches ──
 
-/** TDS withheld on what astrologers are owed, percent (Config; 5 by default). */
+/** The default TDS rate, percent (the global TDS rules on the Finance → TDS page; 5 until Finance changes it). Each astrologer's own rate comes from lib/tds.ts. */
 export async function tdsPct(): Promise<number> {
-  return Math.min(100, Math.max(0, await configNumber("payout.tds_pct", 5)));
+  return (await loadTdsContext()).global.defaultPct;
 }
 
 /** TDS on one astrologer's amount, rounded to the nearest rupee. */
@@ -230,7 +261,7 @@ type Candidate = Pick<EarningsLine, "id" | "astrologerId" | "amount" | "date"> &
  * `payout.paused`), and new astrologers still inside `payout.hold_days.new_astrologer` of their
  * activation. Their lines stay unbatched and join the first batch prepared after the hold ends.
  */
-async function holdRules(now: Date) {
+export async function holdRules(now: Date) {
   const [paused, holdDays] = await Promise.all([
     getSetting<Record<string, boolean>>("payout.paused", {}),
     configNumber("payout.hold_days.new_astrologer", 14),
@@ -269,17 +300,20 @@ function withoutNegativeTotals<T extends Pick<Candidate, "astrologerId" | "amoun
   return { take, carried: lines.length - take.length };
 }
 
-/** Owed per astrologer, the batch total and its TDS (worked out per astrologer). */
-function totals(lines: Candidate[], tds: number) {
+/** Owed per astrologer, the batch total and its TDS, worked out for each astrologer by their own rules (kept with the batch). */
+function totals(lines: Candidate[], ctx: TdsContext) {
   const per = new Map<string, number>();
   for (const l of lines) per.set(l.astrologerId, (per.get(l.astrologerId) ?? 0) + (l.amount ?? 0));
   let gross = 0;
   let tdsTotal = 0;
-  for (const v of per.values()) {
+  const detail: Record<string, TdsLine> = {};
+  for (const [id, v] of per) {
+    const t = ctx.compute(id, v);
     gross += v;
-    tdsTotal += tdsOn(v, tds);
+    tdsTotal += t.amount;
+    detail[id] = t;
   }
-  return { gross, tds: tdsTotal, astrologers: per.size };
+  return { gross, tds: tdsTotal, astrologers: per.size, detail };
 }
 
 export interface PrepareCandidate {
@@ -305,7 +339,7 @@ export interface PrepareCandidate {
  * hold, or a cycle whose id was already used) are carried into the next batch prepared.
  */
 export async function prepareCandidates(now = new Date()): Promise<PrepareCandidate[]> {
-  const [freeDays, tds, held] = await Promise.all([freeCallsCycleDays(), tdsPct(), holdRules(now)]);
+  const [freeDays, tds, held] = await Promise.all([freeCallsCycleDays(), loadTdsContext(now), holdRules(now)]);
   const out: PrepareCandidate[] = [];
   for (const kind of ["EARNINGS", "FREE_CALLS"] as const) {
     const cycles = closedCycles(kind, now, freeDays, kind === "EARNINGS" ? 6 : freeDays === 7 ? 8 : 3);
@@ -323,7 +357,7 @@ export async function prepareCandidates(now = new Date()): Promise<PrepareCandid
         label: c.label,
         lines: take.length,
         carriedOver: take.length - inCycle,
-        ...totals(take, tds),
+        ...(({ detail: _detail, ...rest }) => rest)(totals(take, tds)),
         heldPaused: i === 0 ? holdBack.paused : 0,
         heldNew: i === 0 ? holdBack.new : 0,
         heldNegative: carried,
@@ -343,7 +377,7 @@ export async function prepareBatch(kind: BatchKind, cycleId: string, now = new D
   const freeDays = await freeCallsCycleDays();
   const cycle = closedCycles(kind, now, freeDays, kind === "EARNINGS" ? 6 : freeDays === 7 ? 8 : 3).find((c) => c.id === cycleId);
   if (!cycle) throw badRequest("That isn't a closed payout cycle. Only a cycle that has ended can be prepared.");
-  const [tds, held] = await Promise.all([tdsPct(), holdRules(now)]);
+  const [tds, held] = await Promise.all([loadTdsContext(now), holdRules(now)]);
   return db.$transaction(async (tx) => {
     // One prepare at a time, so two clicks (or two people) can't collect the same lines.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('payout:prepare'))`;
@@ -364,6 +398,7 @@ export async function prepareBatch(kind: BatchKind, cycleId: string, now = new D
         astrologers: t.astrologers,
         gross: t.gross,
         tds: t.tds,
+        tdsDetail: t.detail,
         state: "DRAFT",
       },
     });
@@ -371,6 +406,56 @@ export async function prepareBatch(kind: BatchKind, cycleId: string, now = new D
     if (count !== take.length) throw conflict("Earnings changed while the batch was being prepared. Try again.");
     const carriedOver = take.filter((l) => l.date < cycle.start).length;
     return { batch, already: false as const, lines: take.length, carriedOver, holdBack };
+  });
+}
+
+/**
+ * One astrologer's payout for one statement period (a day, week, 15 days or month): a batch of just their
+ * unbatched customer-paid lines dated inside the period. The same rules as a cycle batch: a paused or
+ * new astrologer's lines are held back, lines already in a batch are never taken twice, and someone whose
+ * lines add up below ₹0 (refund adjustments) is carried forward. It starts as a DRAFT: approving and
+ * releasing it needs a second person, exactly like any batch.
+ */
+export async function prepareAstrologerBatch(astrologerId: string, period: StatementPeriod, now = new Date()) {
+  const [tds, held] = await Promise.all([loadTdsContext(now), holdRules(now)]);
+  const astrologer = await db.astrologer.findUnique({ where: { id: astrologerId }, select: { name: true } });
+  if (!astrologer) throw badRequest("That astrologer doesn't exist.");
+  const id = `PA-${astrologerId}-${period.id}`;
+  return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('payout:prepare'))`;
+    const existing = await tx.payoutBatch.findUnique({ where: { id } });
+    if (existing) return { batch: existing, already: true as const, lines: 0, holdBack: { paused: 0, new: 0, negative: 0 } };
+    const eligible = await eligibleLines(tx, "EARNINGS", period.end, held);
+    const mine = eligible.take.filter((l) => l.astrologerId === astrologerId && l.date >= period.start);
+    const { take, carried } = withoutNegativeTotals(mine);
+    // Held back for this astrologer only (the eligibility pass counts everyone).
+    const heldMine = await tx.earningsLine.findMany({
+      where: { astrologerId, payoutBatchId: null, amount: { not: null }, fundedBy: "CUSTOMER", date: { gte: period.start, lte: period.end } },
+      select: { id: true },
+    });
+    const heldBack = Math.max(0, heldMine.length - mine.length);
+    if (!take.length) {
+      const why = heldBack ? "their payouts are on hold (paused, or a new astrologer still in the hold period)" : carried ? "their refund adjustments are more than their earnings, so it is carried forward" : "there is nothing unpaid in it (no earnings, or already in a batch)";
+      throw conflict(`Nothing to pay ${astrologer.name} for ${period.label}: ${why}.`);
+    }
+    const t = totals(take, tds);
+    const batch = await tx.payoutBatch.create({
+      data: {
+        id,
+        kind: "EARNINGS",
+        cycle: `Earnings · ${period.label} · ${astrologer.name}`,
+        periodStart: period.start,
+        periodEnd: period.end,
+        astrologers: 1,
+        gross: t.gross,
+        tds: t.tds,
+        tdsDetail: t.detail,
+        state: "DRAFT",
+      },
+    });
+    const { count } = await tx.earningsLine.updateMany({ where: { id: { in: take.map((l) => l.id) }, payoutBatchId: null }, data: { payoutBatchId: batch.id } });
+    if (count !== take.length) throw conflict("Earnings changed while the payout was being prepared. Try again.");
+    return { batch, already: false as const, lines: take.length, holdBack: { paused: heldBack, new: 0, negative: carried } };
   });
 }
 

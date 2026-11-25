@@ -183,7 +183,7 @@ function WalletHome() {
           </div>
         </AppCard>
         <p className="mt-2 mb-0 text-[12px] leading-[1.45] text-app-ink-3">
-          Promotional balance is used first. GST is added on top of a recharge and never reduces your credit.
+          Promotional balance is used first. GST is already included in each astrologer&apos;s per-minute rate.
         </p>
 
         <AppButton block className="mt-3.5" onClick={() => go("add")}>
@@ -220,7 +220,7 @@ function WalletHome() {
         <SectionHeader title="Account" variant="link" className="mt-[22px]" />
         <ListRows>
           <ListRow onClick={() => go("profile")} title="Profile" subtitle="Name, photo and birth details" />
-          <ListRow onClick={() => go("settings")} title="Settings & data rights" subtitle="Your data, deactivate or delete" />
+          <ListRow href="/settings" title="Settings" subtitle="Password, your data, deactivate or delete" />
           <ListRow href="/support" title="Help & support" subtitle="Raise an issue or follow one you raised" />
           <ListRow href="/offers" title="Offers" subtitle="Cashback and discounts to claim" />
         </ListRows>
@@ -434,7 +434,7 @@ function AddMoney({
         )}
 
         <p className="mt-3.5 mb-2.5 text-[12px] leading-[1.45] text-app-ink-2">
-          Choose how much to add. GST is added only on this payment — not again on a consultation.
+          Choose how much to add. Nothing is added on top: GST is already in each astrologer&apos;s per-minute rate.
         </p>
 
         {loadError && !denominations && (
@@ -487,8 +487,12 @@ function AddMoney({
       <div className="fixed inset-x-0 bottom-0 z-[80] border-t border-app-line bg-app-elev px-4 pt-2.5 pb-[calc(12px+var(--app-safe-bottom))] lg:hidden">
         <div className="flex items-center justify-between gap-2 text-[12px] text-app-ink-2 tabular-nums">
           <span>Recharge {rupee(denom)}</span>
-          <span aria-hidden="true">+</span>
-          <span>GST {rupee(gst)}</span>
+          {gst > 0 && (
+            <>
+              <span aria-hidden="true">+</span>
+              <span>GST {rupee(gst)}</span>
+            </>
+          )}
           <span aria-hidden="true">=</span>
           <b className="text-app-ink">Pay {rupee(denom + gst)}</b>
         </div>
@@ -551,7 +555,7 @@ function SecurePayment({ selected, gstRate, onPaid }: { selected: Denomination; 
           <Rows
             rows={[
               { label: "Recharge", value: rupee(selected.amount) },
-              { label: `GST (${Math.round(gstRate * 100)}%)`, value: rupee(gst) },
+              ...(gst > 0 ? [{ label: `GST (${Math.round(gstRate * 100)}%)`, value: rupee(gst) }] : []),
               { label: "Total payable", value: rupee(total), strong: true, rule: true },
               { label: "Wallet credit", value: rupee(selected.amount) },
               ...(selected.bonus > 0 ? [{ label: "Bonus to Promotional Balance", value: rupee(selected.bonus) }] : []),

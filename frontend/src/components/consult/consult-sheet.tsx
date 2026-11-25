@@ -302,19 +302,22 @@ export default function ConsultSheet({
                       {rowFree ? (
                         <>
                           <b className="block text-[14.5px] font-extrabold text-emerald-700">Free{freeSecs > 0 ? ` · ${freeLength(freeSecs)}` : ""}</b>
-                          <span className="block text-[11px] text-stone-500">then {rupee(quotedRateFor(a, row.key))}/min</span>
+                          <span className="block text-[11px] text-stone-500">then {rupee(quotedRateFor(a, row.key))}/min · incl. GST</span>
                         </>
                       ) : pctFor(row.key) > 0 && !disabled ? (
                         <>
                           <b className="block text-[15px] tabular-nums text-emerald-700">{rupee(quotedRateFor(a, row.key, pctFor(row.key)))}/min</b>
                           <span className="block text-[11px] text-stone-500">
-                            <s>{rupee(quotedRateFor(a, row.key))}</s> · {pctFor(row.key)}% off
+                            <s>{rupee(quotedRateFor(a, row.key))}</s> · {pctFor(row.key)}% off · incl. GST
                           </span>
                         </>
                       ) : (
-                        <b className={`text-[15px] tabular-nums ${disabled ? "text-stone-400" : instant ? "text-blue-700" : "text-plum"}`}>
-                          {rupee(quotedRateFor(a, row.key))}/min
-                        </b>
+                        <>
+                          <b className={`block text-[15px] tabular-nums ${disabled ? "text-stone-400" : instant ? "text-blue-700" : "text-plum"}`}>
+                            {rupee(quotedRateFor(a, row.key))}/min
+                          </b>
+                          <span className="block text-[10.5px] text-stone-500">incl. GST</span>
+                        </>
                       )}
                     </span>
                   </button>
@@ -546,11 +549,12 @@ function ChoiceDetail({
           <div className="flex flex-wrap items-baseline gap-2">
             <b className="text-[22px] tabular-nums text-blue-900">{rupee(a.instant)}</b>
             <span className="text-[13px] font-semibold">/min</span>
+            <span className="text-[11px] font-semibold text-blue-800">incl. GST</span>
             <span className="ml-auto inline-flex h-6 items-center rounded-full bg-orange-100 px-2.5 text-[11.5px] font-extrabold text-orange-700">
               {multiplierLabel(a)}
             </span>
           </div>
-          Standard rate {rupee(a.price)}/min. {a.name} is asked straight away and has 3 minutes to accept — you go into the
+          Standard rate {rupee(a.price)}/min (incl. GST). {a.name} is asked straight away and has 3 minutes to accept — you go into the
           call as soon as they do. If they decline or don&apos;t answer, you&apos;re not charged.
         </div>
       )}

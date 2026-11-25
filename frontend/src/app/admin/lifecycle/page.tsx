@@ -7,6 +7,7 @@ import { PageTitle } from "@/components/admin/ui";
 import { allowed } from "@/lib/admin/guard";
 import { getLifecycle, getLifecycleAstrologers } from "@/lib/admin/api";
 import { getPriceRequests } from "@/lib/admin/price-changes";
+import SuperOnly from "@/components/admin/super-only";
 
 export const metadata = { title: "Astrologer lifecycle" };
 
@@ -33,6 +34,7 @@ export default async function LifecyclePage({ searchParams }: PageProps<"/admin/
         sub="Application → interview → negotiation → pricing → training → active. Every action is checked against the latest version of the record."
       />
 
+      <SuperOnly>
       <nav aria-label="Lifecycle views" className="mt-[18px] flex gap-1 border-b border-line">
         {TABS.map((t) => {
           const on = t.view === view;
@@ -55,6 +57,7 @@ export default async function LifecyclePage({ searchParams }: PageProps<"/admin/
           );
         })}
       </nav>
+      </SuperOnly>
 
       {view === "prices" ? (
         <PriceRequestsView data={prices} />

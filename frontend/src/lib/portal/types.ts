@@ -599,6 +599,9 @@ export interface ThreadCustomerDetail {
 // ── Earnings ──
 export interface StatementRow {
   date: string;
+  /** "23 Nov 2026" and the time (IST), for the statement file */
+  dateFull?: string;
+  time?: string;
   session: string;
   /** voice | chat | video | emergency | gift | free_call | welcome (before compensation) | adjustment */
   kind: string;
@@ -620,7 +623,28 @@ export interface StatementRow {
   freeSeconds: number;
 }
 
+export interface PayoutMade {
+  cycle: string;
+  earned: number;
+  tds: number;
+  sent: number;
+  /** QUEUED | PROCESSING | PROCESSED | FAILED | REVERSED */
+  state: string;
+  utr: string | null;
+  to: string;
+  on: string;
+  failure: string | null;
+  tdsPct?: number;
+  tdsNote?: string | null;
+}
+
+export type EarningsRange = "daily" | "weekly" | "fortnight" | "monthly";
+
 export interface Earnings {
+  range: EarningsRange;
+  astrologer: string;
+  /** Payouts made to you, newest first */
+  payouts: PayoutMade[];
   periodLabel: string;
   periods: string[];
   periodIndex: number;
@@ -637,6 +661,8 @@ export interface Earnings {
   payoutPaused: boolean;
   /** Why AstroRize Finance paused your payouts, when a reason was recorded. */
   payoutPauseReason: string | null;
+  /** Why this is your rate: no PAN, residency, a custom rate… */
+  tdsNote?: string;
   /** Your share now and, while you are new, when and to what it changes */
   share: { pct: number; nextPct: number | null; changesOn: string | null };
   /** Free-call compensation in the running cycle (paid by AstroRize, separately) */

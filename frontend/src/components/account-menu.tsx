@@ -13,6 +13,7 @@ const ITEMS = [
   { href: "/me/consultations", label: "My consultations" },
   { href: "/messages", label: "Messages" },
   { href: "/me", label: "Profile" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export default function AccountMenu({ initials, name }: { initials: string; name: string }) {

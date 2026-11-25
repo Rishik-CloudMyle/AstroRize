@@ -6,13 +6,14 @@
 // It is live: the server renders the first snapshot (no flash), then the band asks the API again
 // every few seconds and whenever the tab comes back, so an astrologer who comes online, goes live
 // or starts a session shows up without a reload. Available astrologers come first, then those
-// who are live (their card opens the live), then those in a consultation.
+// who are live (the photo opens the profile, "Join" opens the live), then those in a consultation.
 
 "use client";
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Portrait } from "@/components/astrologer/parts";
+import { useAppUI } from "@/components/app-provider";
 import { api } from "@/lib/api/client";
 import { AVAILABILITY, rupee } from "@/lib/format";
 import type { Astrologer, AvailabilityKey } from "@/lib/types";
@@ -215,31 +216,74 @@ export default function AvailableNow({
 }
 
 function Card({ a }: { a: AvailableAstrologer }) {
+  const { startConsult, toast } = useAppUI();
+  const [opening, setOpening] = useState(false);
   const live = a.availability === "live";
   const busy = a.availability === "busy";
-  const href = live ? `/live?room=${encodeURIComponent(a.id)}` : `/astrologer/${a.slug}`;
-  const action = live ? "watch live" : busy ? "in a consultation — view profile" : "consult now";
+  const profile = `/astrologer/${a.slug}`;
+
+  // A live astrologer's card: the photo and the name open the profile; only "Live · Join" opens the live.
+  if (live) {
+    return (
+      <div className="az-lift group flex h-full items-center gap-3 rounded-2xl border border-amber-900/10 bg-white/80 p-2.5 pr-3 hover:bg-white min-[90rem]:gap-2.5 min-[90rem]:p-2 min-[90rem]:pr-2.5">
+        <Link href={profile} aria-label={`${a.name} — view profile`} className="shrink-0 rounded-full hover:no-underline">
+          <Portrait astrologer={a} size={48} statusDot />
+        </Link>
+        <span className="block min-w-0 flex-1">
+          <Link href={profile} className="block hover:no-underline" aria-label={`${a.name}, ${skills(a)} — view profile`}>
+            <b className="block truncate font-name text-[14.5px] font-bold tracking-[-.02em] text-plum">{a.name}</b>
+            <span className="mt-px block truncate text-[11.5px] text-mauve">{skills(a)}</span>
+          </Link>
+          <span className="mt-1.5 flex items-center justify-between gap-2">
+            <span className="text-[13px] font-bold tabular-nums text-plum">
+              {rupee(a.price)}
+              <span className="text-[10.5px] font-semibold text-mauve">/min</span>
+            </span>
+            <Link
+              href={`/live?room=${encodeURIComponent(a.id)}`}
+              aria-label={`Join ${a.name}'s live`}
+              className="inline-flex h-[26px] shrink-0 items-center gap-1.5 rounded-full bg-urgent px-2.5 text-[11.5px] font-bold text-white hover:no-underline"
+            >
+              <span aria-hidden="true" className="az-live-dot size-1.5 rounded-full bg-white" />
+              Live · Join ›
+            </Link>
+          </span>
+        </span>
+      </div>
+    );
+  }
+
+  // Everyone else: the photo and the name open the profile; "Consult now" opens the choice of
+  // Chat, Voice, Video or Instant Call straight away, without going to the profile first.
+  const open = async () => {
+    if (opening) return;
+    setOpening(true);
+    try {
+      const { astrologer } = await api.get<{ astrologer: Astrologer }>(`/astrologers/${encodeURIComponent(a.slug)}`);
+      startConsult({ astrologer });
+    } catch {
+      toast("Couldn't open the options just now. Try again, or open their profile.");
+    } finally {
+      setOpening(false);
+    }
+  };
+
   return (
-    <Link
-      href={href}
-      aria-label={`${a.name}, ${skills(a)}, ${rupee(a.price)} per minute — ${action}`}
-      className="az-lift group flex h-full items-center gap-3 rounded-2xl border border-amber-900/10 bg-white/80 p-2.5 pr-3 hover:bg-white hover:no-underline min-[90rem]:gap-2.5 min-[90rem]:p-2 min-[90rem]:pr-2.5"
-    >
-      <Portrait astrologer={a} size={48} statusDot />
+    <div className="az-lift group flex h-full items-center gap-3 rounded-2xl border border-amber-900/10 bg-white/80 p-2.5 pr-3 hover:bg-white min-[90rem]:gap-2.5 min-[90rem]:p-2 min-[90rem]:pr-2.5">
+      <Link href={profile} aria-label={`${a.name} — view profile`} className="shrink-0 rounded-full hover:no-underline">
+        <Portrait astrologer={a} size={48} statusDot />
+      </Link>
       <span className="block min-w-0 flex-1">
-        <b className="block truncate font-name text-[14.5px] font-bold tracking-[-.02em] text-plum">{a.name}</b>
-        <span className="mt-px block truncate text-[11.5px] text-mauve">{skills(a)}</span>
+        <Link href={profile} className="block hover:no-underline" aria-label={`${a.name}, ${skills(a)} — view profile`}>
+          <b className="block truncate font-name text-[14.5px] font-bold tracking-[-.02em] text-plum">{a.name}</b>
+          <span className="mt-px block truncate text-[11.5px] text-mauve">{skills(a)}</span>
+        </Link>
         <span className="mt-1.5 flex items-center justify-between gap-2">
           <span className="text-[13px] font-bold tabular-nums text-plum">
             {rupee(a.price)}
             <span className="text-[10.5px] font-semibold text-mauve">/min</span>
           </span>
-          {live ? (
-            <span className="inline-flex h-[26px] shrink-0 items-center gap-1.5 rounded-full bg-urgent px-2.5 text-[11.5px] font-bold text-white">
-              <span aria-hidden="true" className="az-live-dot size-1.5 rounded-full bg-white" />
-              Live · Join ›
-            </span>
-          ) : busy ? (
+          {busy ? (
             <span
               className="inline-flex h-[26px] shrink-0 items-center rounded-full px-2.5 text-[11.5px] font-bold"
               style={{ background: AVAILABILITY.busy.bg, color: AVAILABILITY.busy.fg }}
@@ -247,10 +291,18 @@ function Card({ a }: { a: AvailableAstrologer }) {
               In consultation
             </span>
           ) : (
-            <span className="az-cta inline-flex h-[26px] shrink-0 items-center rounded-full px-2.5 text-[11.5px] font-bold">Consult now ›</span>
+            <button
+              type="button"
+              onClick={() => void open()}
+              disabled={opening}
+              aria-label={`Consult ${a.name} now: choose chat, voice, video or instant call`}
+              className="az-cta inline-flex h-[26px] shrink-0 items-center rounded-full px-2.5 text-[11.5px] font-bold disabled:opacity-70"
+            >
+              {opening ? "Opening…" : "Consult now ›"}
+            </button>
           )}
         </span>
       </span>
-    </Link>
+    </div>
   );
 }

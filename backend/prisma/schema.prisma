@@ -31,6 +31,8 @@ model User {
   id           String     @id @default(cuid())
   campaignClaims  CampaignClaim[]
   blockedBy       CustomerBlock[]
+  handoversReceived AdminHandover[] @relation("HandoverReceiver")
+  handoversGiven    AdminHandover[] @relation("HandoverGiver")
   notifications   Notification[]
   makeGoodCredits MakeGoodCredit[]
   role         Role       @default(CUSTOMER)
@@ -277,8 +279,10 @@ enum Presence {
 }
 
 model Astrologer {
+  issues AstrologerIssue[]
   payoutAccount PayoutAccount?
   customerBlocks CustomerBlock[]
+  tdsProfile     TdsProfile?
   payouts       Payout[]
   /// Short stable id, e.g. "raghav".
   id                  String      @id
@@ -571,6 +575,10 @@ model Consultation {
   rate                 Int
   /// The astrologer's price before a campaign discount (null = no discount); `rate` is what the customer pays.
   listRate             Int?
+  /// GST percent included in `rate` (18 for sessions priced with GST in the per-minute rate, 0 for older ones).
+  gstPct               Int              @default(0)
+  /// A Fixed Session's package price (₹), held when it started; money held beyond it pays for pay-per-minute extension.
+  packageAmount        Int?
   /// The claimed campaign whose discount applies, and its percent.
   campaignClaimId      String?
   discountPct          Int              @default(0)
@@ -857,6 +865,8 @@ model PayoutBatch {
   astrologers    Int
   gross          Int
   tds            Int
+  /// Per astrologer: what TDS was worked out for them in this batch and why { astrologerId: { earned, pct, amount, note } }.
+  tdsDetail      Json?
   /// DRAFT | APPROVED | RELEASED
   state          String
   approvedById   String?
@@ -1256,6 +1266,9 @@ model Payout {
   /// Owed before TDS, TDS withheld, and what is actually sent (₹).
   gross            Int
   tds              Int
+  /// The TDS rate that applied (percent) and why (for example "No PAN on file: 20%").
+  tdsPct           Int           @default(0)
+  tdsNote          String?
   amount           Int
   /// QUEUED | PROCESSING | PROCESSED | FAILED | REVERSED
   state            String        @default("QUEUED")
@@ -1290,4 +1303,126 @@ model CustomerBlock {
 
   @@unique([astrologerId, customerId])
   @@index([customerId])
+}
+
+/// A Super Admin handing the Super Admin role to someone else, for a time or for good. The person is either
+/// an existing staff member promoted (previousRole is what they go back to) or a new account made for it.
+model AdminHandover {
+  id              String     @id @default(cuid())
+  userId          String
+  user            User       @relation("HandoverReceiver", fields: [userId], references: [id], onDelete: Cascade)
+  grantedById     String
+  grantedBy       User       @relation("HandoverGiver", fields: [grantedById], references: [id], onDelete: Cascade)
+  /// TEMPORARY (ends by itself at endsAt) | PERMANENT (a second Super Admin until revoked)
+  kind            String
+  endsAt          DateTime?
+  previousRole    AdminRole?
+  createdAccount  Boolean    @default(false)
+  note            String?
+  /// ACTIVE | ENDED (time ran out) | REVOKED (a Super Admin took it back)
+  state           String     @default("ACTIVE")
+  createdAt       DateTime   @default(now())
+  endedAt         DateTime?
+
+  @@index([userId, state])
+}
+
+/// What decides an astrologer's TDS besides the global defaults: where they live (billing address,
+/// residential status), and a Finance override (their own rate, exempt, or their own threshold).
+/// PAN is read from their payout details. Changes go through TdsChange (Finance proposes, a Super Admin acknowledges).
+model TdsProfile {
+  astrologerId       String     @id
+  astrologer         Astrologer @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  /// RESIDENT | NON_RESIDENT
+  residentialStatus  String     @default("RESIDENT")
+  billingAddress     String?
+  /// Their own rate (percent), replacing the global rules; null = follow the global rules.
+  ratePct            Int?
+  /// No TDS at all (for example a lower-deduction certificate on file).
+  exempt             Boolean    @default(false)
+  /// Their own per-payout threshold (₹), replacing the global one; null = follow the global one.
+  thresholdPerPayout Int?
+  note               String?
+  updatedAt          DateTime   @updatedAt
+  updatedByName      String?
+}
+
+/// A proposed change to the global TDS rules or to one astrologer's TDS profile. It takes effect only when
+/// a Super Admin acknowledges it (a Super Admin can acknowledge their own).
+model TdsChange {
+  id             String    @id @default(cuid())
+  /// GLOBAL | ASTROLOGER
+  scope          String
+  astrologerId   String?
+  astrologerName String?
+  /// The values being proposed, and what they replace (for the history).
+  proposed       Json
+  previous       Json
+  reason         String?
+  /// PENDING | ACKNOWLEDGED | REJECTED
+  state          String    @default("PENDING")
+  proposedById   String
+  proposedByName String
+  createdAt      DateTime  @default(now())
+  decidedById    String?
+  decidedByName  String?
+  decidedAt      DateTime?
+  decisionNote   String?
+
+  @@index([state, createdAt])
+}
+
+/// A job application sent from the website Careers form (technical, astrologer or any other role).
+/// HR reads it on the Careers page of the admin console and can forward the resume.
+model JobApplication {
+  id         String   @id @default(cuid())
+  name       String
+  email      String
+  phone      String?
+  area       String
+  subject    String
+  message    String
+  resumeName String
+  resumeType String
+  resumeData Bytes
+  status     String   @default("NEW")
+  createdAt  DateTime @default(now())
+
+  @@index([status, createdAt])
+}
+
+/// An issue an astrologer raised from the portal Help page (payout, a customer, a technical problem, safety...).
+/// HR, Finance or Compliance (the `team`) reply from the admin console; Super Admins see all.
+model AstrologerIssue {
+  id             String                  @id @default(cuid())
+  astrologerId   String
+  astrologer     Astrologer              @relation(fields: [astrologerId], references: [id], onDelete: Cascade)
+  /// PAYOUT | CONSULTATION | SAFETY | TECHNICAL | PROFILE | LIVE | OTHER
+  topic          String
+  /// hr | finance | compliance | super
+  team           String
+  subject        String
+  /// OPEN | WAITING (staff asked the astrologer something) | RESOLVED
+  state          String                  @default("OPEN")
+  createdAt      DateTime                @default(now())
+  lastActivityAt DateTime                @default(now())
+  /// When the astrologer last opened it (staff replies after it count as unread).
+  readAt         DateTime?
+  messages       AstrologerIssueMessage[]
+
+  @@index([astrologerId])
+  @@index([team, state])
+}
+
+model AstrologerIssueMessage {
+  id         String         @id @default(cuid())
+  issueId    String
+  issue      AstrologerIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  /// ASTROLOGER | STAFF
+  author     String
+  authorName String
+  text       String
+  createdAt  DateTime       @default(now())
+
+  @@index([issueId, createdAt])
 }

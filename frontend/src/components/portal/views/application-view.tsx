@@ -32,7 +32,21 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
   const [step, setStep] = useState(Math.max(0, Math.min(last, data.currentStep)));
   const [edits, setEdits] = useState<Record<string, string>>(data.values);
   const [savedLabel, setSavedLabel] = useState(data.lastSaved);
-  const [bio] = usePortalState("bio", me.bio);
+  const [bio, setBio] = usePortalState("bio", me.bio);
+  const [bioBusy, setBioBusy] = useState(false);
+  const saveBio = async () => {
+    if (bioBusy) return;
+    setBioBusy(true);
+    try {
+      await api.post("/portal/profile/submission", { bio, skills: me.skills });
+      toast("Bio saved and sent for review.");
+      router.refresh();
+    } catch (e) {
+      showError(e);
+    } finally {
+      setBioBusy(false);
+    }
+  };
   // What the API says still stops the application going to HR; re-checked on the last step.
   const [missing, setMissing] = useState<ApplicationMissing[]>(data.missing);
   const [submitting, setSubmitting] = useState(false);
@@ -236,6 +250,24 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
             const fg = f.readOnly ? "#78716c" : f.error ? "#be123c" : "#1c1917";
             const chip = f.chip ? chipColors(f.chip) : null;
             const inputId = `wiz-${key}`;
+            if (current.short === "Bio" && i === 0 && editable) {
+              return (
+                <div key={key} className="col-span-full">
+                  <label htmlFor="wiz-bio" className={`mb-1.5 block text-xs font-semibold text-stone-600 ${M_LABEL}`}>Bio</label>
+                  <textarea
+                    id="wiz-bio"
+                    rows={6}
+                    value={bio}
+                    onChange={(e) => setBio(e.target.value)}
+                    className="w-full rounded-xl border border-line bg-white p-3.5 text-[14.5px] text-ink outline-none max-lg:text-[16px]"
+                  />
+                  <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[12px] text-stone-500">
+                    <span>{wordCount(bio)} / {BIO_WORD_LIMIT} words{hasClaimWarning(bio) ? " · remove guaranteed-outcome wording" : ""}</span>
+                    <button type="button" disabled={bioBusy || bio.trim().length < 20} onClick={() => void saveBio()} className="h-9 rounded-lg border border-line bg-white px-4 text-[13px] font-bold text-ink disabled:opacity-50">{bioBusy ? "Saving…" : "Save bio"}</button>
+                  </div>
+                </div>
+              );
+            }
             if (f.check) {
               const ticked = value === "yes";
               return (

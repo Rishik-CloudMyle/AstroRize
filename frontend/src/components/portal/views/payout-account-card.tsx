@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api/client";
-import { rupee } from "@/lib/portal/format";
 import { useToast } from "../portal-provider";
 import { Panel } from "../ui";
 
@@ -29,14 +28,6 @@ interface Data {
   account: Account | null;
   payouts: PayoutRow[];
 }
-
-const STATE: Record<PayoutRow["state"], [string, string, string]> = {
-  QUEUED: ["On its way", "#fef3c7", "#92400e"],
-  PROCESSING: ["On its way", "#fef3c7", "#92400e"],
-  PROCESSED: ["Paid", "#ecfdf5", "#047857"],
-  FAILED: ["Not paid — action needed", "#fff1f2", "#be123c"],
-  REVERSED: ["Returned by the bank", "#fff1f2", "#be123c"],
-};
 
 const input = "h-11 w-full rounded-xl border border-line bg-white px-3.5 text-[14px] text-ink outline-none focus:border-amber-500 max-lg:rounded-app-btn max-lg:border-app-line";
 const label = "mb-1.5 mt-3 block text-xs font-semibold text-stone-600";
@@ -198,29 +189,6 @@ export default function PayoutAccountCard() {
                 </button>
               </div>
             </form>
-          )}
-
-          {data.payouts.length > 0 && (
-            <div className="mt-5 border-t border-line pt-3.5">
-              <h3 className="m-0 text-[13.5px] font-bold">Your payouts</h3>
-              <ul className="m-0 mt-2 list-none space-y-2 p-0">
-                {data.payouts.map((p) => {
-                  const [text, bg, fg] = STATE[p.state];
-                  return (
-                    <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
-                      <span className="min-w-0">
-                        <b className="tabular-nums">{rupee(p.amount)}</b> <span className="text-stone-500">· {p.cycle}</span>
-                        {p.utr && <span className="block text-[11.5px] text-stone-500">Bank reference {p.utr}</span>}
-                        {p.reason && <span className="block text-[11.5px] text-rose-700">{p.reason}</span>}
-                      </span>
-                      <span className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[11px] font-bold" style={{ background: bg, color: fg }}>
-                        {text}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
           )}
         </>
       )}

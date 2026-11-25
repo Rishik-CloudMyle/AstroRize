@@ -37,13 +37,15 @@ function navItems(account: Account): NavItem[] {
     { href: "/portal/earnings", label: "Earnings", icon: "₹" },
     { href: "/portal/profile", label: "Profile", icon: "◍" },
     { href: "/portal/compliance", label: "Compliance", icon: "⚖", count: c.compliance },
+    { href: "/portal/help", label: "Help", icon: "?" },
+    { href: "/portal/settings", label: "Settings", icon: "⚙" },
   ];
 }
 
 function Brand() {
   return (
     <div className="flex items-center gap-2.5">
-      <Image src="/assets/brand/logo-mark.png" alt="" width={36} height={36} className="size-9 flex-[0_0_36px] object-contain" priority />
+      <Image src="/assets/brand/logo-mark.png" alt="" width={36} height={36} className="size-9 flex-[0_0_36px] rounded-full object-contain" priority />
       <div className="min-w-0">
         <div className="font-display text-[20px] leading-none font-semibold">AstroRize</div>
         <div className="mt-0.5 text-[10px] font-bold tracking-[.1em] text-stone-400 uppercase">Astrologer portal</div>
@@ -114,6 +116,8 @@ const MORE: { href: string; label: string; icon: React.ReactNode; count?: (a: Ac
   { href: "/portal/profile", label: "Profile", icon: <IconUser /> },
   { href: "/portal/compliance", label: "Compliance", icon: <IconShield />, count: (a) => a.counts.compliance },
   { href: "/portal/application", label: "Application", icon: <IconDoc /> },
+  { href: "/portal/help", label: "Help", icon: <IconMessage /> },
+  { href: "/portal/settings", label: "Settings", icon: <IconMore /> },
 ];
 
 /**

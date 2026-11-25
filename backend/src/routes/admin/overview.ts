@@ -110,7 +110,13 @@ async function navCounts(admin: Admin) {
       .filter(Boolean)
       .join(" · ");
   }
-  return { counts: { hr: applications + prices, finance, support: tickets + approvals, compliance, trust }, hints };
+  // Finance → Refunds tab: dispute refunds waiting for a second approver plus customer wallet refunds to pay.
+  const [proposedRefunds, walletRefundsDue] = await Promise.all([
+    caps.includes("dispute.refund.approve") && pages.includes("finance") ? db.supportTicket.count({ where: { refundState: "PROPOSED" } }) : 0,
+    pages.includes("finance") && caps.includes("wallet.refund.process") ? db.walletRefund.count({ where: { status: "PENDING" } }) : 0,
+  ]);
+  const refunds = proposedRefunds + walletRefundsDue;
+  return { counts: { hr: applications + prices, finance, support: tickets + approvals, compliance, trust }, hints, refunds };
 }
 
 // ── Analytics, computed from the database on every request ──

@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useAdmin } from "./admin-provider";
 
 export type SubNavItem = { href: string; label: string; badge?: number };
 
 /** The pages inside one area of the console (Finance → Payouts, Refunds…), each its own page. */
 export default function SubNav({ items, label }: { items: SubNavItem[]; label: string }) {
+  const { session } = useAdmin();
   const pathname = usePathname();
   const search = useSearchParams();
   const active = items.reduce<string | null>((best, it) => {
@@ -19,6 +21,8 @@ export default function SubNav({ items, label }: { items: SubNavItem[]; label: s
     }
     return best ?? it.href;
   }, null);
+  // Other departments see these pages in the left menu; only the Super Admin gets the tabs.
+  if (session.role !== "super") return null;
   return (
     <nav aria-label={label} className="mt-[18px] flex gap-1 overflow-x-auto border-b border-line">
       {items.map((t) => {

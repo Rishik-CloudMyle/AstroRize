@@ -4,7 +4,7 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { db } from "../db.ts";
 import { HttpError, badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
-import { chatRate, eligibilityMinutes, incomingWindowSecs, instantRate, maxSessionSeconds, videoPremium } from "../lib/billing.ts";
+import { chatRate, customerInstantRate, eligibilityMinutes, incomingWindowSecs, maxSessionSeconds, videoPremium, withGst } from "../lib/billing.ts";
 import { istDate, istTime, percentages, rupee } from "../lib/format.ts";
 import { effectivePresence, hostedLiveRoom, touchViewer, viewerCount } from "../lib/presence.ts";
 import { announceJoin, chatLineView, giftBalance, sendGift, sendProfileGift, sessionFeed } from "../lib/live.ts";
@@ -41,13 +41,14 @@ export function astrologerView(a: AstrologerWithReviews, freeCall = false, fixed
     years: a.years,
     rating: a.rating,
     consults: a.consults,
-    price: a.price,
-    was: a.was,
+    // What a customer pays per minute: the astrologer's rate with 18% GST included, rounded up (₹20 → ₹24).
+    price: withGst(a.price),
+    was: a.was ? withGst(a.was) : a.was,
     /** Chat rate (₹/min): the astrologer's own chat price, or the same as `price`. */
-    chatPrice: chatRate(a),
-    instant: instantRate(a.price, a.instantMultiplier),
+    chatPrice: withGst(chatRate(a)),
+    instant: customerInstantRate(a.price, a.instantMultiplier),
     /** Extra ₹/min a Video call costs over Voice (admin Config consult.video_premium). */
-    videoPremium: videoPremium(),
+    videoPremium: withGst(a.price + videoPremium()) - withGst(a.price),
     /** Instant Call rate = price × this. */
     instantMultiplier: a.instantMultiplier,
     /** A welcome free call can be taken with them right now (taking part, available, quota left). */
@@ -250,7 +251,7 @@ catalogRouter.get("/live-rooms/:id", async (req, res) => {
   await expireUnanswered(room.id);
   const key = viewerKey(req, res);
   if (req.query.watching === "1" && countsAsViewer(req, room)) touchViewer(room.id, key);
-  res.json({ room: await roomView(room, key, req.auth?.user.id ?? null) });
+  res.json({ room: await roomView(room, key, req.auth?.user.id ?? null), reactions: recentReactions(room.id, key) });
 });
 
 /** "Join live" from the preview: counts the viewer and, the first time this session, posts "<name> joined". */
@@ -346,9 +347,34 @@ catalogRouter.post("/live-rooms/:id/poll-vote", async (req, res) => {
   res.json({ room: await roomView(fresh, key, req.auth?.user.id ?? null) });
 });
 
+// Recent reactions per room, kept in memory (they only matter for a few seconds): each viewer's refresh
+// gets the ones it has not seen, so everyone in the room sees them float up.
+const REACTION_KEEP = 40;
+const reactionLog = new Map<string, { seq: number; items: { n: number; emoji: string; by: string; at: number }[] }>();
+function recentReactions(roomId: string, viewer: string) {
+  const log = reactionLog.get(roomId);
+  if (!log) return { seq: 0, items: [] as { n: number; emoji: string; mine: boolean }[] };
+  const fresh = log.items.filter((r) => Date.now() - r.at < 20_000);
+  return { seq: log.seq, items: fresh.map((r) => ({ n: r.n, emoji: r.emoji, mine: r.by === viewer })) };
+}
+
+/** The room's recent reactions for the astrologer's console (all of them, nothing is "mine"). */
+export function hostReactions(roomId: string) {
+  const log = reactionLog.get(roomId);
+  if (!log) return { seq: 0, items: [] as { n: number; emoji: string }[] };
+  return { seq: log.seq, items: log.items.filter((r) => Date.now() - r.at < 20_000).map((r) => ({ n: r.n, emoji: r.emoji })) };
+}
+
 catalogRouter.post("/live-rooms/:id/reactions", async (req, res) => {
-  z.object({ emoji: z.enum(["❤️", "🙏", "🔥", "✨", "👏"]) }).parse(req.body);
-  rateLimit(`react:${viewerKey(req, res)}`, 5, 10_000, "Slow down a little — reactions are limited to 5 every 10 seconds.");
+  const { emoji } = z.object({ emoji: z.enum(["❤️", "🙏", "🔥", "✨", "👏"]) }).parse(req.body);
+  const by = viewerKey(req, res);
+  rateLimit(`react:${by}`, 5, 10_000, "Slow down a little — reactions are limited to 5 every 10 seconds.");
+  const id = String(req.params.id);
+  const log = reactionLog.get(id) ?? { seq: 0, items: [] };
+  log.seq += 1;
+  log.items.push({ n: log.seq, emoji, by, at: Date.now() });
+  if (log.items.length > REACTION_KEEP) log.items.splice(0, log.items.length - REACTION_KEEP);
+  reactionLog.set(id, log);
   res.status(202).json({ ok: true });
 });
 

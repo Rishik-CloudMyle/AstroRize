@@ -18,7 +18,7 @@ import { IconGift, IconMore, IconPhone } from "../mobile/icons";
 import { SHEET_PANEL, SHEET_SCRIM, SheetHandle } from "../mobile/sheet";
 import { GiftStack, useGiftShow } from "./gift-burst";
 import GiftPanel from "./gift-panel";
-import { FeedAvatar, LiveFeedOverlay, liveForLabel, plannedLabel, useMinuteClock } from "./live-feed";
+import { FeedAvatar, LiveFeedOverlay, LiveFeedQueue, liveForLabel, plannedLabel, useMinuteClock } from "./live-feed";
 import { PRIVATE_TITLE, PrivateCallOverlay } from "./live-private-call";
 import LiveStage from "./live-stage";
 import { LIVE_ICON_BUTTON, LiveShareButton, LiveTopBar } from "./live-top-bar";
@@ -136,8 +136,15 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
       if (document.hidden) return;
       try {
         // ?watching=1: each refresh counts this viewer as still watching.
-        const { room: fresh } = await api.get<{ room: LiveRoom }>(`/live-rooms/${encodeURIComponent(initialRoom.id)}?watching=1`);
+        const { room: fresh, reactions } = await api.get<{ room: LiveRoom; reactions?: { seq: number; items: { n: number; emoji: string; mine: boolean }[] } }>(`/live-rooms/${encodeURIComponent(initialRoom.id)}?watching=1`);
         if (cancelled) return;
+        // Other viewers' reactions float up too (your own already did when you sent them).
+        if (reactions) {
+          const first = seenSeq.current === null;
+          const news = reactions.items.filter((r) => !r.mine && (seenSeq.current === null ? false : r.n > seenSeq.current));
+          seenSeq.current = reactions.seq;
+          if (!first) news.slice(-8).forEach((r, i) => setTimeout(() => floatReaction(r.emoji), i * 350));
+        }
         if (fresh.startedAt !== startedAt) roomEnded();
         else setRoom(fresh);
       } catch (e) {
@@ -189,6 +196,13 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
     }
   }
 
+  const seenSeq = useRef<number | null>(null);
+  function floatReaction(emoji: string) {
+    const id = nextId.current++;
+    setFloating((f) => [...f, { id, emoji, left: 8 + Math.random() * 20 }]);
+    setTimeout(() => setFloating((f) => f.filter((x) => x.id !== id)), 1900);
+  }
+
   function sendReaction(emoji: string, now: number) {
     if (ended) return;
     sentTimes.current = sentTimes.current.filter((t) => now - t < REACTION_WINDOW_MS);
@@ -201,9 +215,7 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
     api.post(`/live-rooms/${encodeURIComponent(room.id)}/reactions`, { emoji }).catch((e) => {
       if (!endedBy(e)) toast(errorText(e));
     });
-    const id = nextId.current++;
-    setFloating((f) => [...f, { id, emoji, left: 8 + Math.random() * 20 }]);
-    setTimeout(() => setFloating((f) => f.filter((x) => x.id !== id)), 1900);
+    floatReaction(emoji);
   }
 
   async function sendChat(e: React.FormEvent) {
@@ -683,7 +695,10 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
                 {/* Gifts slide in above the feed; the feed's bubbles float up and fade on their own
                     (decorative here: the Room chat list beside it is the readable one). */}
                 <GiftStack gifts={gifts.shown} />
-                <LiveFeedOverlay lines={chat} className="-mt-1 h-[120px] sm:h-[190px] max-lg:sm:h-[160px]" />
+                <LiveFeedQueue lines={chat} className="-mt-1 max-h-[170px] lg:hidden" />
+                <div className="max-lg:hidden">
+                  <LiveFeedOverlay lines={chat} className="-mt-1 h-[120px] sm:h-[190px]" />
+                </div>
                 {room.state === "monitor" && (
                   <div className="flex items-center gap-2.5 rounded-xl bg-blue-700/90 px-[13px] py-2.5 text-[12.5px] font-semibold text-white">
                     <span>🛡</span>

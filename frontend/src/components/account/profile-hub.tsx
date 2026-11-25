@@ -118,7 +118,7 @@ export default function ProfileHub() {
     return (
       <>
         <AppCard padding="lg" className="mt-4 text-center">
-          <Image src="/assets/brand/logo-mark.png" alt="" width={56} height={56} className="mx-auto size-14 object-contain" />
+          <Image src="/assets/brand/logo-mark.png" alt="" width={56} height={56} className="mx-auto size-14 rounded-full object-contain" />
           <h2 className="mt-2 mb-1 font-display text-[24px] leading-tight font-semibold text-app-ink">Welcome to AstroRize</h2>
           <p className="m-0 text-[13px] leading-[1.45] text-app-ink-2">Log in to see your wallet, messages and notifications.</p>
           <AppButton block className="mt-4" onClick={() => openLogin()}>
@@ -186,7 +186,7 @@ export default function ProfileHub() {
         <ListRow href="/offers" title="Offers" />
         <ListRow href="/free-tools" title="Kundli & free tools" />
         <ListRow href="/support" title="Help & support" subtitle="Raise an issue or follow one you raised" />
-        <ListRow href="/wallet?view=settings" title="Settings & data rights" />
+        <ListRow href="/settings" title="Settings" />
       </ListRows>
 
       <LegalAndCompany />

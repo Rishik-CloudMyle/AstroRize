@@ -63,7 +63,7 @@ function summaryOf(p: PaymentReceipt): string {
 function breakdown(p: PaymentReceipt) {
   const rows: { label: string; value: string; strong?: boolean; green?: boolean; rule?: boolean }[] = [
     { label: "Recharge", value: rupee(p.amount) },
-    { label: "GST", value: rupee(p.gst) },
+    ...(p.gst > 0 ? [{ label: "GST", value: rupee(p.gst) }] : []),
     { label: p.status === "PAID" ? "Total paid" : "Total", value: rupee(p.total), strong: true },
   ];
   // A failed payment adds nothing, so its credit isn't listed.
@@ -263,7 +263,7 @@ export default function PaymentResult({ data }: { data: PaymentPageData }) {
             )}
           </div>
           <p className="mt-5 text-center text-[12px] leading-normal text-stone-500">
-            GST is charged on top of your recharge and never reduces your wallet credit. Keep the {p.paymentId ? "payment ID" : "receipt number"} handy if you
+            {p.gst > 0 ? "GST was charged on top of this recharge and never reduced your wallet credit. " : ""}Keep the {p.paymentId ? "payment ID" : "receipt number"} handy if you
             need to ask us about this payment.
           </p>
         </div>
@@ -311,7 +311,7 @@ export default function PaymentResult({ data }: { data: PaymentPageData }) {
             <h2 className="m-0 mb-1 text-[13.333px] font-bold text-app-ink">Payment details</h2>
             <MobileRows
               rows={[
-                ...(p.status === "PAID" ? [{ label: "You paid", value: `${rupee(p.total)} incl. ${rupee(p.gst)} GST` }] : []),
+                ...(p.status === "PAID" ? [{ label: "You paid", value: p.gst > 0 ? `${rupee(p.total)} incl. ${rupee(p.gst)} GST` : rupee(p.total) }] : []),
                 ...info,
               ]}
             />
@@ -325,7 +325,7 @@ export default function PaymentResult({ data }: { data: PaymentPageData }) {
 
           {p.status !== "FAILED" && (
             <p className="mx-auto mt-3 mb-0 max-w-[44ch] text-center text-[12px] leading-[1.45] text-app-ink-3">
-              Wallet credit is the recharge amount — GST paid with it never reduces it.
+              Wallet credit is the full recharge amount.
               {p.bonus + p.cashback > 0 && " Bonus and cashback go to your Promotional Balance."}
             </p>
           )}

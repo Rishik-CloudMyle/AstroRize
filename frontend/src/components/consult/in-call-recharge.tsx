@@ -120,7 +120,7 @@ export default function InCallRecharge({
               </span>
             )}
             <span className="mt-1.5 block text-[12.5px] text-stone-500 max-lg:text-app-ink-3">
-              You paid {rupee(paid.order.total)} incl. {rupee(paid.order.gst)} GST
+              You paid {rupee(paid.order.total)}{paid.order.gst > 0 ? ` incl. ${rupee(paid.order.gst)} GST` : ""}
               {paid.method ? ` · ${methodName(paid.method)}` : ""}
             </span>
             {paid.paymentId && (
@@ -188,7 +188,7 @@ export default function InCallRecharge({
 
           {selected && (
             <p className="mt-3 text-[12.5px] text-stone-500">
-              {rupee(selected.amount)} talk time + {rupee(gst)} GST · you pay {rupee(selected.amount + gst)}
+              {gst > 0 ? `${rupee(selected.amount)} talk time + ${rupee(gst)} GST · you pay ${rupee(selected.amount + gst)}` : `${rupee(selected.amount)} of talk time · you pay ${rupee(selected.amount)}`}
               {selected.cashback > 0 && (
                 <span className="block font-semibold text-emerald-700">
                   +{rupee(selected.cashback)} cashback from {selected.cashbackFrom ?? "your offer"}

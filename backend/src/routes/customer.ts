@@ -9,12 +9,14 @@ import { config } from "../config.ts";
 import { db } from "../db.ts";
 import { HttpError, badRequest, conflict, notFound } from "../lib/errors.ts";
 import {
+  baseOfRate,
+  customerInstantRate,
+  customerRate,
   eligibilityMinutes,
+  GST_PCT,
   GST_RATE,
   maxSessionSeconds,
   affordableSeconds,
-  instantRate,
-  rateFor,
   type Mode,
 } from "../lib/billing.ts";
 import { byNameMatch, istDate, istDateKey, makeRef, rupee } from "../lib/format.ts";
@@ -357,7 +359,7 @@ async function ownConsultation(userId: string, id: string) {
 /** What the website needs to show (or resume) a consultation: waiting, connecting, in session or finished. */
 async function consultationView(c: Consultation & { astrologer: Astrologer }) {
   const now = new Date();
-  const [standardFree, policy, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 0), welcomePolicy(), joinTimeoutSeconds()]);
+  const [standardFree, policy, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 60), welcomePolicy(), joinTimeoutSeconds()]);
   const ahead =
     c.status === "REQUESTED"
       ? await db.consultation.count({ where: { astrologerId: c.astrologerId, status: "REQUESTED", requestedAt: { lt: c.requestedAt } } })
@@ -470,7 +472,7 @@ customerRouter.post("/consultations", async (req, res) => {
   const astrologer = await availableAstrologer(astrologerId);
   // The rate is fixed now and the whole session is billed at it. A claimed consultation offer
   // lowers it — never together with a free call or a free replacement call.
-  const listRate = rateFor(astrologer.price, mode as Mode, astrologer.chatPrice);
+  const listRate = customerRate(astrologer.price, mode as Mode, astrologer.chatPrice);
   let rate = listRate;
   let fixedDisc = 0;
   let packagePrice = 0;
@@ -492,9 +494,11 @@ customerRouter.post("/consultations", async (req, res) => {
   if (!fixedMinutes && quotedRate !== undefined && quotedRate !== rate) {
     return rateChanged(res, quotedRate, rate, offer && quotedRate === listRate
       ? `Your ${offer.pct}% offer (${offer.name}) applies: ${rupee(rate)}/min instead of ${rupee(listRate)}. Continue at ${rupee(rate)}/min?`
-      : !offer && quotedRate < listRate
-        ? `Your offer no longer applies (used or expired). The rate is ${rupee(rate)}/min. Continue at ${rupee(rate)}/min?`
-        : undefined);
+      : !offer && quotedRate === baseOfRate(listRate)
+        ? `Rates now include 18% GST, so the rate is ${rupee(rate)}/min. Continue at ${rupee(rate)}/min?`
+        : !offer && quotedRate < listRate
+            ? `Your offer no longer applies (used or expired). The rate is ${rupee(rate)}/min. Continue at ${rupee(rate)}/min?`
+          : undefined);
   }
   const needed = fixedMinutes ? packagePrice : rate * eligibilityMinutes();
   const policy = welcome ? await welcomePolicy() : null;
@@ -544,10 +548,11 @@ customerRouter.post("/consultations", async (req, res) => {
         heldAmount: heldToLock,
         customerRecordingConsentAt,
         language,
+        gstPct: GST_PCT,
         kind: fixedMinutes ? "FIXED" : "STANDARD",
         // The chosen length, snapshotted: all of it is taken from the weekly minutes once the call starts.
         ...(policy ? { billingMode: COMPLIMENTARY, complimentarySeconds: (freeMinutes ?? 0) * 60 } : {}),
-        ...(fixedMinutes ? { complimentarySeconds: fixedMinutes * 60, listRate, discountPct: fixedDisc } : {}),
+        ...(fixedMinutes ? { complimentarySeconds: fixedMinutes * 60, listRate, discountPct: fixedDisc, packageAmount: packagePrice } : {}),
         ...(makeGood ? { billingMode: MAKE_GOOD, complimentarySeconds: makeGood.credit.minutes * 60, makeGoodCreditId: makeGood.credit.id } : {}),
         // The offer is only used up once the conversation starts (both sides joined).
         ...(offer && !fixedMinutes ? { listRate, discountPct: offer.pct, campaignClaimId: offer.claimId } : {}),
@@ -601,7 +606,7 @@ customerRouter.post("/consultations/:id/connect", async (req, res) => {
   if (result === "gone") throw conflict("This consultation can no longer connect.");
   await syncPresence(c.astrologerId); // the astrologer is now in a session → BUSY
   const updated = await db.consultation.findUniqueOrThrow({ where: { id: c.id } });
-  const [standardFree, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 0), joinTimeoutSeconds()]);
+  const [standardFree, joinTimeout] = await Promise.all([configNumber("consult.free_seconds", 60), joinTimeoutSeconds()]);
   res.json({
     consultation: { id: updated.id, status: updated.status, connectedAt: updated.connectedAt, ...joinView(updated, joinTimeout) },
     freeSeconds: freeWindow(updated, standardFree),
@@ -626,6 +631,21 @@ customerRouter.post("/consultations/:id/joined", async (req, res) => {
  * connects (still waiting for the astrologer, or connecting) this cancels it: the hold is
  * released and nothing is charged.
  */
+/**
+ * "Extend": use the wallet money not held yet to keep a running session going (a Fixed Session carries on
+ * at pay-per-minute after its package time). `extended` is false when there is nothing to add, so the
+ * website shows the recharge sheet instead; a recharge extends it by itself once it is paid.
+ */
+customerRouter.post("/consultations/:id/extend", async (req, res) => {
+  const me = auth(req);
+  const c = await ownConsultation(me.user.id, String(req.params.id));
+  if (c.status !== "ACTIVE") throw conflict("This consultation is not running.");
+  const before = c.heldAmount;
+  const after = await extendHold(me.user.id);
+  const extended = !!after && after.heldAmount > before;
+  res.json({ extended, consultation: await viewOf(c.id) });
+});
+
 customerRouter.post("/consultations/:id/end", async (req, res) => {
   const c = await ownConsultation(auth(req).user.id, String(req.params.id));
   const ended = await endConsultation(c, "user");
@@ -765,7 +785,7 @@ customerRouter.post("/instant-calls", async (req, res) => {
   if (!(await getSetting<string[]>("instant_mode.astros", [])).includes(astrologerId)) {
     throw badRequest(`${astrologer.name} hasn't turned on Instant Calls. Please choose Chat, Voice or Video.`);
   }
-  const rate = instantRate(astrologer.price, astrologer.instantMultiplier);
+  const rate = customerInstantRate(astrologer.price, astrologer.instantMultiplier);
   if (quotedRate !== undefined && quotedRate !== rate) return rateChanged(res, quotedRate, rate);
   const needed = rate * eligibilityMinutes();
   await walletOf(me.user.id);

@@ -10,7 +10,7 @@ import AdminDialog from "@/components/admin/dialog";
 import { useEffect, useState } from "react";
 import CustomAmountControl from "./custom-amount";
 
-interface DetailRow { astrologer: string; customerPaid: string; commission: string; earnings: string; tds: string; payable: string; transfer: string; utr: string }
+interface DetailRow { astrologer: string; customerPaid: string; commission: string; earnings: string; tds: string; tdsPct?: number; tdsNote?: string; payable: string; transfer: string; utr: string }
 
 function BatchDetails({ id, onClose }: { id: string; onClose: () => void }) {
   const [rows, setRows] = useState<DetailRow[] | null>(null);
@@ -30,7 +30,7 @@ function BatchDetails({ id, onClose }: { id: string; onClose: () => void }) {
                 <td className={`${TD} px-2.5 py-2.5 tabular-nums`}>{r.customerPaid}</td>
                 <td className={`${TD} px-2.5 py-2.5 tabular-nums`}>{r.commission}</td>
                 <td className={`${TD} px-2.5 py-2.5 tabular-nums`}>{r.earnings}</td>
-                <td className={`${TD} px-2.5 py-2.5 tabular-nums text-rose-700`}>{r.tds}</td>
+                <td className={`${TD} px-2.5 py-2.5 tabular-nums text-rose-700`}>{r.tds}{r.tdsPct !== undefined && <span className="block text-[11px] font-normal text-[#78716c]" title={r.tdsNote}>{r.tdsPct}%{r.tdsNote ? ` · ${r.tdsNote}` : ""}</span>}</td>
                 <td className={`${TD} px-2.5 py-2.5 font-bold tabular-nums`}>{r.payable}</td>
                 <td className={`${TD} px-2.5 py-2.5`}>{r.transfer}{r.utr && <span className="block font-mono text-[11px] text-[#78716c]">{r.utr}</span>}</td>
               </tr>
@@ -133,8 +133,8 @@ export default function FinanceView({ data, part = "all" }: { data: FinanceData;
           <div>
             <h2 className="m-0 text-[16px] font-bold">Payout batches · RazorpayX</h2>
             <span className="mt-1 block text-[12px] text-[#78716c]">
-              Earnings are paid half-monthly (1–15, 16–end); free-call compensation in its own batch. TDS {data.tdsPct}% on what each
-              astrologer is owed.
+              Earnings are paid half-monthly (1–15, 16–end); free-call compensation in its own batch. TDS is worked out for each
+              astrologer by their own rate (default {data.tdsPct}%; set on the TDS page) and kept with the batch.
             </span>
           </div>
           <SortSelect options={BATCH_SORTS} value={sort} onChange={setSort} />

@@ -11,8 +11,11 @@ export type PageKey =
   | "messages"
   | "config"
   | "hr"
+  | "astrohelp"
   | "marketing"
   | "finance"
+  | "payouts"
+  | "tds"
   | "support"
   | "compliance"
   | "trust"
@@ -541,6 +544,8 @@ export interface DisputeRefund {
   amount: string;
   proposedBy: string | null;
   proposedById: string | null;
+  /** When it was proposed (ISO); the age colour counts from here. */
+  proposedAt: string | null;
   /** The team holding it now: Finance, or Admin once escalated (only that team decides). */
   team: string;
   split: RefundSplit | null;
@@ -983,6 +988,8 @@ export interface MessagePerson {
   initials: string;
   photo: string | null;
   line: string;
+  /** The signed-in person themselves (for "message yourself"). */
+  you?: boolean;
 }
 
 /** GET /admin/messages */

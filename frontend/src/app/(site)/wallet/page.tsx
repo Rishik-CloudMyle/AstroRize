@@ -16,7 +16,7 @@ export default function WalletPage() {
         <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Wallet & account" }]} />
         <h1 className="mb-1 font-display text-[36px] font-semibold text-ink sm:text-[42px]">Wallet &amp; account</h1>
         <p className="mb-6 text-sm text-stone-600">
-          Recharge, see every transaction and manage your data. GST is added on top and never reduces your credit.
+          Recharge, see every transaction and manage your data. GST is already included in each astrologer&apos;s per-minute rate, so recharges have no extra charge.
         </p>
       </div>
       <WalletView />

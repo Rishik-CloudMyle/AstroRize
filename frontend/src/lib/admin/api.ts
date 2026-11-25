@@ -443,6 +443,16 @@ interface RawFinance {
   floorMode: "reject" | "adjust";
 }
 
+/** Open refunds for the Finance → Refunds tab badge (0 when it can't be read). */
+export async function getRefundsBadge(): Promise<number> {
+  try {
+    const r = await apiGet<{ refunds?: number }>("/admin/nav-counts");
+    return r.refunds ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function getFinance(): Promise<FinanceData> {
   const { finance: f } = await apiGet<{ finance: RawFinance }>("/admin/finance");
   const k = f.kpis;
@@ -450,7 +460,7 @@ export async function getFinance(): Promise<FinanceData> {
   return {
     kpis: [
       kpi(`Gross volume · ${k.grossMonth}`, k.grossVolume, k.grossDelta, "#047857"),
-      kpi(`GST collected · ${k.grossMonth}`, k.gstMonth, `${k.gstTotal} in total, included in what customers paid`, "#78716c"),
+      kpi(`GST collected · ${k.grossMonth}`, k.gstMonth, `${k.gstTotal} in total · inside the per-minute rates since GST moved there`, "#78716c"),
       kpi(
         "Pending payouts",
         k.pendingPayouts,

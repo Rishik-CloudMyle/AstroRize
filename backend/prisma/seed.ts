@@ -171,6 +171,7 @@ async function main() {
     support: await db.user.create({ data: { role: "ADMIN", adminRole: "SUPPORT", name: "S. Banerjee", initials: "SB", actorName: "S. Banerjee", email: "support@astrorize.com", passwordHash } }),
     compliance: await db.user.create({ data: { role: "ADMIN", adminRole: "COMPLIANCE", name: "M. Rathore", initials: "MR", actorName: "M. Rathore", email: "compliance@astrorize.com", passwordHash } }),
     marketing: await db.user.create({ data: { role: "ADMIN", adminRole: "MARKETING", name: "R. Kapoor", initials: "RK", actorName: "R. Kapoor", email: "marketing@astrorize.com", passwordHash } }),
+    hr: await db.user.create({ data: { role: "ADMIN", adminRole: "HR", name: "K. Menon", initials: "KM", actorName: "K. Menon", email: "hr@astrorize.com", passwordHash } }),
   };
   // More people per department, so one can cover when another is away.
   await db.user.createMany({

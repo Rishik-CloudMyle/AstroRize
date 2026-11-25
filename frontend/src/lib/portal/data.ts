@@ -44,8 +44,8 @@ export async function getThreads(): Promise<Thread[]> {
 }
 
 /** `period` 0 = current half-month, 1 and 2 = the two before it. */
-export async function getEarnings(period = 0): Promise<Earnings> {
-  return (await apiGet<{ earnings: Earnings }>(`/portal/earnings?period=${period}`)).earnings;
+export async function getEarnings(period = 0, range = "fortnight"): Promise<Earnings> {
+  return (await apiGet<{ earnings: Earnings }>(`/portal/earnings?range=${range}&period=${period}`)).earnings;
 }
 
 export async function getProfileData(): Promise<ProfileData> {

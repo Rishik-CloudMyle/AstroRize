@@ -11,8 +11,8 @@ import { HttpError } from "./errors.ts";
  *
  * Routes (FAST2SMS_ROUTE):
  *   "dlt" (default)  the DLT route: FAST2SMS_SENDER_ID is the approved header and FAST2SMS_TEMPLATE_ID
- *                    is Fast2SMS's message id for the approved template; the code fills its two variables: the OTP, then the app name
- *                    ("{#var#} is your one-time password to log in to {#var#}. …"; FAST2SMS_APP_NAME, default ASTRORIZE).
+ *                    is Fast2SMS's message id for the approved template. The template has ONE variable, the code:
+ *                    "Your ASTRORIZE verification code is {#VAR#}. It is valid for 5 minutes. Do not share it with anyone."
  *   "otp"            Fast2SMS's ready-made OTP route (no sender id or template needed).
  */
 
@@ -34,7 +34,7 @@ async function sendViaFast2sms(phone: string, code: string): Promise<void> {
   const body =
     f.route === "otp"
       ? { route: "otp", variables_values: code, numbers: phone, flash: 0 }
-      : { route: "dlt", sender_id: f.senderId, message: f.templateId, variables_values: `${code}|${process.env.FAST2SMS_APP_NAME?.trim() || "ASTRORIZE"}`, numbers: phone, flash: 0 };
+      : { route: "dlt", sender_id: f.senderId, message: f.templateId, variables_values: code, numbers: phone, flash: 0 };
   let res: Response;
   try {
     res = await fetch(URL_BULK, {

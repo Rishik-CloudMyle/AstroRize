@@ -266,7 +266,7 @@ export default function ConfigView({
                     </span>
                   )}
                   {k.flagged && (
-                    <span className="flex-none text-[11px]" title="Sensitive setting">
+                    <span className="ml-1 inline-block w-4 flex-none overflow-hidden text-center text-[11px] leading-none" title="Sensitive setting">
                       🔒
                     </span>
                   )}

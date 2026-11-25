@@ -183,14 +183,37 @@ export async function weeklyMinutesOf(client: Tx | typeof db, key: string, polic
   const monthStart = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), 1) - 5.5 * 3600_000);
   const monthEnd = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() + 1, 1) - 5.5 * 3600_000);
   const used = await usedSince(periodStart("WEEK", now));
-  // Daily and monthly limits (0 = none) can only lower what is left of the week's minutes.
+  // Each period's limit counts only when the admin has set it (0 = not set). Free minutes are available
+  // while at least one period is set, and the customer gets the smallest amount left of those that are.
+  const weekLeft = policy.weeklyMinutes > 0 ? Math.max(0, policy.weeklyMinutes - used) : Infinity;
   const dayLeft = dayCap > 0 ? Math.max(0, dayCap - (await usedSince(periodStart("DAY", now)))) : Infinity;
   const monthLeft = monthCap > 0 ? Math.max(0, monthCap - (await usedSince(monthStart))) : Infinity;
-  const remaining = Math.min(Math.max(0, policy.weeklyMinutes - used), dayLeft, monthLeft);
+  const tightest = Math.min(weekLeft, dayLeft, monthLeft);
+  const remaining = Number.isFinite(tightest) ? tightest : 0; // nothing set at all: free calls are off
   // When the binding limit resets: the next midnight, Monday or month start, whichever applies.
-  const weekLeft = Math.max(0, policy.weeklyMinutes - used);
   const resetsAt = remaining === dayLeft && dayLeft < weekLeft ? periodEnd("DAY", now) : remaining === monthLeft && monthLeft < weekLeft ? monthEnd : periodEnd("WEEK", now);
-  return { total: policy.weeklyMinutes, used, remaining, resetsAt };
+  // The pool shown as "X of Y": the weekly one, or (weekly not set) what is left plus what was used this week.
+  const total = policy.weeklyMinutes > 0 ? policy.weeklyMinutes : remaining + used;
+  return { total, used, remaining, resetsAt };
+}
+
+/**
+ * The free minutes by period (day, week, month, IST) as the customer sees them: the admin's limit for
+ * each (0 = no limit), what was used and what is left (null where there is no limit).
+ */
+export async function periodsOf(client: Tx | typeof db, key: string, policy: Pick<Policy, "weeklyMinutes" | "dailyMinutes" | "monthlyMinutes">, now = new Date()) {
+  const usedSince = async (since: Date) => {
+    const { _sum } = await client.freeCallUse.aggregate({
+      where: { identityKey: key, restoredAt: null, usedAt: { gte: since }, bonusMinutes: 0, minutes: { not: 5 } },
+      _sum: { minutes: true },
+    });
+    return _sum.minutes ?? 0;
+  };
+  const ist = new Date(now.getTime() + 5.5 * 3600_000);
+  const monthStart = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), 1) - 5.5 * 3600_000);
+  const row = (limit: number, used: number) => ({ limit, used, remaining: limit > 0 ? Math.max(0, limit - used) : null });
+  const [day, week, month] = await Promise.all([usedSince(periodStart("DAY", now)), usedSince(periodStart("WEEK", now)), usedSince(monthStart)]);
+  return { daily: row(policy.dailyMinutes, day), weekly: row(policy.weeklyMinutes, week), monthly: row(policy.monthlyMinutes, month) };
 }
 
 /**
@@ -496,8 +519,9 @@ export async function welcomeView(userId: string) {
   }
   const policy = await welcomePolicy();
   const eligible = ELIGIBLE.includes(b.status);
-  const [week, oneTime] = await Promise.all([
+  const [week, periods, oneTime] = await Promise.all([
     weeklyMinutesOf(db, b.identityKey, policy),
+    periodsOf(db, b.identityKey, policy),
     oneTimeStatusOf(db, b.identityKey, policy.joiningBonusMinutes),
   ]);
   const weekLeft = eligible ? week.remaining : 0;
@@ -521,6 +545,8 @@ export async function welcomeView(userId: string) {
       available: oneTimeAvailable,
       redeemed: oneTime.redeemed,
     },
+    /** Free minutes by period (daily, weekly, monthly): each limit is set by the admin; null remaining = no limit. */
+    periods,
     /** This Mon–Sun week's (IST) free minutes. */
     weekly: {
       total: week.total,

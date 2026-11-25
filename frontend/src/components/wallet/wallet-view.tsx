@@ -515,7 +515,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
           <div className="mt-4 border-t border-[#f3e9d8] pt-3.5">
             {[
               { label: "Recharge", value: rupee(denom) },
-              { label: denominations ? `GST ${Math.round(gstRate * 100)}%` : "GST", value: rupee(gst) },
+              ...(gst > 0 ? [{ label: `GST ${Math.round(gstRate * 100)}%`, value: rupee(gst) }] : []),
               { label: "Total payable", value: rupee(denom + gst), strong: true },
               { label: "Wallet credit", value: rupee(denom), strong: true, green: true },
               ...(selected && selected.bonus > 0 ? [{ label: "Bonus · promotional", value: `+${rupee(selected.bonus)}`, strong: true, green: true }] : []),
@@ -585,7 +585,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
             Paying by UPI on a computer? Scan the QR code with any UPI app on your phone.
           </p>
           <p className="mt-2.5 text-[11.5px] leading-normal text-stone-500">
-            GST is charged on top of your recharge. Your wallet is credited the full {rupee(denom)} talk-time value.
+            Nothing is added on top: GST is already included in each astrologer&apos;s per-minute rate. Your wallet is credited the full {rupee(denom)} talk-time value.
             {selected && selected.cashback > 0 && " Cashback is promotional credit from an offer you claimed."}
           </p>
           <Link href="/offers" className="mt-1.5 inline-block text-[12px] font-bold text-amber-700">

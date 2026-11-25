@@ -107,7 +107,7 @@ function ProfileScreen({ astrologer: a }: { astrologer: Astrologer }) {
         {/* ---------- Price and ways to consult ---------- */}
         <div className="mt-3.5 flex items-end justify-between gap-3">
           <div>
-            <div className="text-[22px] leading-none font-bold text-app-ink tabular-nums">{rupee(a.price)}/min</div>
+            <div className="text-[22px] leading-none font-bold text-app-ink tabular-nums">{rupee(a.price)}/min <span className="text-[11px] font-semibold text-app-ink-3">incl. GST</span></div>
             {a.was && a.was > a.price && <s className="mt-1 block text-[12px] text-app-ink-3 tabular-nums">{rupee(a.was)}/min</s>}
             {a.chatPrice !== a.price && <div className="mt-1 text-[12px] font-semibold text-app-ink-2 tabular-nums">Chat {rupee(a.chatPrice)}/min</div>}
           </div>

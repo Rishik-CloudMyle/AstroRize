@@ -58,6 +58,7 @@ export default function FreeCallsConfigCard() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [extrasText, setExtrasText] = useState("");
+  const [period, setPeriod] = useState<"weekly" | "daily" | "monthly">("weekly");
 
   useEffect(() => {
     let cancelled = false;
@@ -120,18 +121,40 @@ export default function FreeCallsConfigCard() {
         <h3 className="text-[15px] font-bold text-ink">Weekly free call</h3>
         <p className="text-xs text-stone-500">What every customer gets each week (Monday to Sunday, IST).</p>
         <div className="mt-2">
-          <Field title="Free minutes per customer per week" hint="The weekly pool. 0 stops weekly free calls.">
-            <input type="number" min={0} max={600} value={v.weeklyMinutes} onChange={(e) => set("weeklyMinutes", Number(e.target.value))} className={num} />
+          <Field
+            title="Free minutes per customer"
+            hint={
+              period === "weekly"
+                ? "Weekly (Monday to Sunday, IST). 0 = not set. Set at least one of weekly, daily or monthly: customers get free minutes from whichever are set, and the smallest amount left applies."
+                : period === "daily"
+                  ? "Daily (IST): most free minutes one customer can use in a day. 0 = not set, no daily limit."
+                  : "Monthly (calendar month, IST): most free minutes one customer can use in a month. 0 = not set, no monthly limit."
+            }
+          >
+            <select
+              aria-label="Choose the period to set"
+              value={period}
+              onChange={(e) => setPeriod(e.target.value as "weekly" | "daily" | "monthly")}
+              className="h-9 rounded-lg border border-line bg-white px-2 text-sm font-bold text-ink"
+            >
+              <option value="weekly">Weekly</option>
+              <option value="daily">Daily</option>
+              <option value="monthly">Monthly</option>
+            </select>
+            <input
+              type="number"
+              min={0}
+              max={period === "monthly" ? 2400 : 600}
+              aria-label={`Free minutes, ${period}`}
+              value={period === "weekly" ? v.weeklyMinutes : period === "daily" ? v.dailyMinutes : v.monthlyMinutes}
+              onChange={(e) => set(period === "weekly" ? "weeklyMinutes" : period === "daily" ? "dailyMinutes" : "monthlyMinutes", Number(e.target.value))}
+              className={num}
+            />
             <span className="text-xs font-semibold text-stone-500">min</span>
           </Field>
-          <Field title="Daily limit per customer" hint="Most free minutes one customer can use in a day (IST). 0 = no daily limit.">
-            <input type="number" min={0} max={600} value={v.dailyMinutes} onChange={(e) => set("dailyMinutes", Number(e.target.value))} className={num} />
-            <span className="text-xs font-semibold text-stone-500">min</span>
-          </Field>
-          <Field title="Monthly limit per customer" hint="Most free minutes one customer can use in a calendar month (IST). 0 = no monthly limit.">
-            <input type="number" min={0} max={2400} value={v.monthlyMinutes} onChange={(e) => set("monthlyMinutes", Number(e.target.value))} className={num} />
-            <span className="text-xs font-semibold text-stone-500">min</span>
-          </Field>
+          <p className="m-0 mb-1 text-[12px] text-stone-500">
+            Now: weekly {v.weeklyMinutes || "not set"} · daily {v.dailyMinutes || "not set"} · monthly {v.monthlyMinutes || "not set"}. Customers see these as three buttons.
+          </p>
           <Field title="Length of one free call" hint="Any whole number of minutes, 1–120 (not 5 or the welcome call's length). The whole length is taken from the weekly pool once the conversation starts.">
             <input type="number" min={1} max={120} value={v.lengthMinutes} onChange={(e) => set("lengthMinutes", Number(e.target.value))} className={num} />
             <span className="text-xs font-semibold text-stone-500">min</span>

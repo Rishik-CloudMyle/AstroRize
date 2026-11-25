@@ -38,6 +38,8 @@ export interface LiveFeed {
   private: LiveHostPrivate | null;
   /** People waiting in the consult queue. */
   waiting: number;
+  /** Viewers' recent reactions (newest have the highest n). */
+  reactions?: { seq: number; items: { n: number; emoji: string }[] };
 }
 
 export interface LiveSnapshot {

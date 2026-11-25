@@ -74,7 +74,7 @@ export function MeterChips({ m, instant }: { m: MeterInput; instant: boolean }) 
   const s = meterOf(m);
   return (
     <>
-      <span className={`${chip} bg-white/10 text-amber-200 ${appChip} max-lg:bg-app-tint-2 max-lg:text-app-active`}>{rupee(m.rate)}/min</span>
+      <span className={`${chip} bg-white/10 text-amber-200 ${appChip} max-lg:bg-app-tint-2 max-lg:text-app-active`}>{rupee(m.rate)}/min · incl. GST</span>
       {instant && <span className={`${chip} bg-blue-500/20 text-blue-200 ${appChip} max-lg:bg-app-info-bg max-lg:text-app-info`}>⚡ Instant Call</span>}
       {s.inFree && m.complimentary ? (
         <span
@@ -112,7 +112,7 @@ export function MeterAlerts({
   /** The astrologer's normal pay-per-minute rate (what carrying on costs after the package). */
   paidRate?: number;
   onAddMoney: () => void;
-  /** Fixed Session only: carry on at the per-minute rate when it ends. */
+  /** Fixed Session only: keep this call going at the per-minute rate (uses wallet money; asks to recharge when there is none). */
   onContinuePaid?: () => void;
   /** Fixed Session only: book another Fixed Session when it ends. */
   onRejoinFixed?: () => void;
@@ -151,18 +151,17 @@ export function MeterAlerts({
       >
         <div className="min-w-0 flex-1 text-[13px] leading-normal text-amber-100 max-lg:text-[12.5px] max-lg:text-amber-900">
           <b className="block">{minutesWord(s.left)} left in your Fixed Session</b>
-          It ends by itself when the time is up. To keep talking, choose what happens next — keep money in your wallet.
-          {picked && <span className="mt-1 block font-semibold">{picked === "paid" ? "Got it — we'll continue at the per-minute rate when this ends." : "Got it — we'll open a new Fixed Session when this ends."}</span>}
+          It ends by itself when the time is up. To keep talking, extend this call at the per-minute rate (from your wallet; if it is short you will be asked to add money), or book another Fixed Session.
+          {picked === "fixed" && <span className="mt-1 block font-semibold">Got it — we&apos;ll open a new Fixed Session when this ends.</span>}
         </div>
         <div className="flex flex-wrap gap-2">
           {onContinuePaid && (
             <button
               type="button"
               onClick={onContinuePaid}
-              aria-pressed={picked === "paid"}
-              className={`h-9 whitespace-nowrap rounded-lg px-3.5 text-[13px] font-bold max-lg:rounded-app-btn ${picked === "paid" ? "bg-emerald-400 text-ink" : "bg-amber-400 text-ink max-lg:bg-app-primary"}`}
+              className="h-9 whitespace-nowrap rounded-lg bg-amber-400 px-3.5 text-[13px] font-bold text-ink max-lg:rounded-app-btn max-lg:bg-app-primary"
             >
-              Continue at {rupee(paidRate ?? m.rate)}/min
+              Extend at {rupee(paidRate ?? m.rate)}/min
             </button>
           )}
           {onRejoinFixed && (
@@ -420,7 +419,7 @@ export function SettlementSummary({
             </div>
           ))}
           <p className="m-0 mt-1 text-[12px] leading-[1.45] text-app-ink-3">{note}</p>
-          <p className="m-0 text-[12px] leading-[1.45] text-app-ink-3">GST was applied when you added money — not again on this sitting.</p>
+          <p className="m-0 text-[12px] leading-[1.45] text-app-ink-3">GST is already included in the per-minute rate.</p>
         </div>
         <button type="button" onClick={onRate} className="mt-4 min-h-app-hit w-full rounded-app-btn bg-app-primary text-[15px] font-bold text-app-on-primary">
           Rate this consultation

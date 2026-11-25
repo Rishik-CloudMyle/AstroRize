@@ -43,7 +43,7 @@ export default function AuthShell({
         width={88}
         height={88}
         priority
-        className="mx-auto mb-3 size-[88px] object-contain lg:hidden"
+        className="mx-auto mb-3 size-[88px] rounded-full object-contain lg:hidden"
       />
       <aside className="relative top-24 hidden min-h-[560px] lg:sticky overflow-hidden rounded-[22px] border border-line lg:block">
         <Image src="/assets/spotlight/spotlight-welcome.jpg" alt="" fill priority sizes="(min-width: 1240px) 700px, 50vw" className="object-cover" />

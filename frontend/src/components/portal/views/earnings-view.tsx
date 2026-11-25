@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { downloadStatementXlsx } from "@/lib/earnings-export";
 import { rupee } from "@/lib/portal/format";
 import PayoutAccountCard from "./payout-account-card";
 import type { Earnings, StatementRow } from "@/lib/portal/types";
@@ -45,36 +46,20 @@ const signed = (n: number) => (n < 0 ? `−${rupee(Math.abs(n))}` : rupee(n));
 /** "4:30" free time on a compensation line. */
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
-/** Saves the statement on screen as a locked Excel sheet: it opens read-only (editing is switched off). */
-async function downloadStatement(data: Earnings) {
-  const { default: ExcelJS } = await import("exceljs");
-  const period = data.periods[data.periodIndex];
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet("Statement");
-  ws.addRow(["Date", "Session", "Mode", "Minutes", "Gross (INR)", "Your share (%)", "Your amount (INR)", "Paid by"]).font = { bold: true };
-  for (const r of data.statement) {
-    ws.addRow([
-      r.date,
-      r.session,
-      r.mode,
-      r.minutes,
-      r.gross,
-      r.sharePct ?? (r.legacy ? "before split" : ""),
-      r.amount,
-      r.fundedBy === "PLATFORM" ? "AstroRize (free-call compensation)" : "Customer",
-    ]);
-  }
-  ws.columns.forEach((col, n) => (col.width = [14, 16, 12, 10, 14, 14, 18, 34][n] ?? 14));
-  // Every cell is locked and the sheet is protected, so the figures cannot be changed in Excel or Sheets.
-  await ws.protect(crypto.randomUUID(), { selectLockedCells: true, selectUnlockedCells: true, sort: false, autoFilter: false });
-  const buf = await wb.xlsx.writeBuffer();
-  const url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `astrorize-statement-${period.replace(/[^0-9A-Za-z]+/g, "-")}.xlsx`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+const RANGES = [
+  { key: "daily", label: "Daily" },
+  { key: "weekly", label: "Weekly" },
+  { key: "fortnight", label: "15 days" },
+  { key: "monthly", label: "Monthly" },
+] as const;
+
+const PAYOUT_STATE: Record<string, { label: string; color: string }> = {
+  PROCESSED: { label: "Paid", color: "#047857" },
+  PROCESSING: { label: "On its way", color: "#b45309" },
+  QUEUED: { label: "On its way", color: "#b45309" },
+  FAILED: { label: "Failed — add or fix your payout details", color: "#be123c" },
+  REVERSED: { label: "Returned by the bank", color: "#be123c" },
+};
 
 export default function EarningsView({ data }: { data: Earnings }) {
   const router = useRouter();
@@ -86,7 +71,7 @@ export default function EarningsView({ data }: { data: Earnings }) {
   const hasRefunds = data.statement.some((r) => r.kind === "refund_adjustment");
 
   const kpis = [
-    { label: "Customers paid", value: signed(data.gross), sub: "sessions and gifts", color: "#1c1917" },
+    { label: "Gross (before GST)", value: signed(data.gross), sub: "sessions and gifts", color: "#1c1917" },
     {
       label: "Your earnings",
       value: signed(data.earned),
@@ -105,7 +90,7 @@ export default function EarningsView({ data }: { data: Earnings }) {
             value={period}
             onChange={(e) => {
               const i = data.periods.indexOf(e.target.value);
-              router.push(i > 0 ? `/portal/earnings?period=${i}` : "/portal/earnings");
+              router.push(i > 0 ? `/portal/earnings?range=${data.range}&period=${i}` : `/portal/earnings?range=${data.range}`);
             }}
             aria-label="Statement period"
             className="h-[42px] min-w-0 flex-1 rounded-xl border border-line bg-white px-3.5 text-[13.5px] font-semibold text-ink min-[560px]:flex-none max-lg:h-app-hit max-lg:rounded-app-input max-lg:border-app-line max-lg:bg-app-surface max-lg:text-[16px] max-lg:font-medium"
@@ -117,7 +102,14 @@ export default function EarningsView({ data }: { data: Earnings }) {
           <button
             type="button"
             onClick={() => {
-              void downloadStatement(data).then(() => toast(`Your statement for ${period} has been downloaded.`));
+              void downloadStatementXlsx({
+                astrologer: data.astrologer,
+                periodLabel: period,
+                rangeLabel: RANGES.find((r) => r.key === data.range)?.label ?? "15 days",
+                tdsPct,
+                rows: data.statement.map((r) => ({ ...r, date: r.dateFull ?? r.date })),
+                payouts: data.payouts,
+              }).then(() => toast(`Your statement for ${period} has been downloaded.`));
             }}
             className={`h-[42px] shrink-0 rounded-xl border border-line bg-white px-4 text-[13.5px] font-bold ${M_SECONDARY} max-lg:h-app-hit`}
           >
@@ -125,6 +117,20 @@ export default function EarningsView({ data }: { data: Earnings }) {
           </button>
         </div>
       </PageHeader>
+
+      <div role="group" aria-label="Statement range" className="mt-3.5 flex flex-wrap gap-2">
+        {RANGES.map((r) => (
+          <button
+            key={r.key}
+            type="button"
+            aria-pressed={data.range === r.key}
+            onClick={() => router.push(`/portal/earnings?range=${r.key}`)}
+            className={`h-10 rounded-full border px-4 text-[13px] font-bold ${data.range === r.key ? "border-ink bg-ink text-white" : "border-line bg-white text-ink"}`}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
 
       {data.payoutPaused && (
         <div className="relative mt-[18px] flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-[18px] py-3.5 max-lg:mt-3.5 max-lg:gap-2.5 max-lg:rounded-app-card max-lg:p-3">
@@ -295,6 +301,20 @@ export default function EarningsView({ data }: { data: Earnings }) {
             </tbody>
           </table>
         </div>
+        <dl className="m-0 mt-4 grid grid-cols-2 gap-2.5 min-[700px]:grid-cols-4" aria-label="Totals for this period">
+          {[
+            { label: "Total gross (before GST)", value: rupee(data.gross), color: "#1c1917" },
+            { label: "Your total earnings", value: rupee(data.earned), color: "#047857" },
+            { label: `TDS · ${tdsPct}%`, value: data.tds > 0 ? "−" + rupee(data.tds) : rupee(0), color: data.tds > 0 ? "#be123c" : "#78716c" },
+            { label: "Net payable after TDS", value: rupee(data.earned - data.tds), color: "#1c1917" },
+          ].map((k) => (
+            <div key={k.label} className="min-w-0 rounded-[12px] border border-line-soft bg-white/70 px-3.5 py-3">
+              <dt className="truncate text-[11px] font-bold tracking-[.06em] text-stone-500 uppercase">{k.label}</dt>
+              <dd className="m-0 mt-1 text-[18px] font-bold tabular-nums" style={{ color: k.color }}>{k.value}</dd>
+            </div>
+          ))}
+        </dl>
+        {data.tdsNote && <p className="mt-3 mb-0 text-[12px] font-semibold text-stone-600">Your TDS: {data.tdsNote}. It is worked out again, with any thresholds, when each payout is prepared.</p>}
         <p className="mt-3 mb-0 text-[11.5px] leading-[1.5] text-stone-500 max-lg:text-[12px] max-lg:text-app-ink-3">
           Your amount is the gross × your share, rounded down to the rupee. Free-call compensation lines are paid separately by
           AstroRize and aren&apos;t in this period&apos;s totals.
@@ -302,6 +322,34 @@ export default function EarningsView({ data }: { data: Earnings }) {
           {hasRefunds &&
             " A refund adjustment takes back your share of a refund AstroRize gave a customer after a complaint; it comes off your next payout (if it is more than that payout, the rest carries to the one after)."}
         </p>
+      </Panel>
+
+      <Panel className="relative mt-4 p-5 max-lg:mt-[22px]" mobile="plain">
+        <h2 className="m-0 mb-1 text-[17px] font-bold max-lg:text-[16px]">Your payouts</h2>
+        <p className="mt-0 mb-3 text-[12.5px] text-stone-500">What AstroRize has sent you (or is sending), newest first. Payouts go out for 15 days at a time, after the period ends.</p>
+        {data.payouts.length === 0 ? (
+          <p className="m-0 text-[13px] text-stone-500">No payout yet. Your first one is made after your first 15-day period closes.</p>
+        ) : (
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            {data.payouts.map((p, i) => {
+              const st = PAYOUT_STATE[p.state] ?? { label: p.state, color: "#78716c" };
+              return (
+                <li key={`${p.cycle}-${i}`} className="rounded-xl border border-line-soft bg-white/70 px-3.5 py-3 text-[13px]">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <b className="min-w-0 [overflow-wrap:anywhere]">{p.cycle}</b>
+                    <b className="tabular-nums" style={{ color: st.color }}>{rupee(p.sent)} · {st.label}</b>
+                  </div>
+                  <div className="mt-1 text-[12px] text-stone-500 tabular-nums">
+                    Earned {rupee(p.earned)} − TDS {rupee(p.tds)}{p.tdsPct ? ` (${p.tdsPct}%)` : ""} = {rupee(p.sent)} · to {p.to} · {p.on}
+                    {p.utr ? ` · bank reference ${p.utr}` : ""}
+                  </div>
+                  {p.tdsNote && <div className="mt-0.5 text-[11.5px] text-stone-500">TDS: {p.tdsNote}</div>}
+                  {p.failure && <div className="mt-1 text-[12px] font-semibold text-rose-700">{p.failure}</div>}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </Panel>
 
       <PayoutAccountCard />

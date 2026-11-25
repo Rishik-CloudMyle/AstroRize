@@ -27,8 +27,11 @@ export type PageKey =
   | "messages"
   | "config"
   | "hr"
+  | "astrohelp"
   | "marketing"
   | "finance"
+  | "payouts"
+  | "tds"
   | "support"
   | "compliance"
   | "trust"
@@ -43,8 +46,11 @@ export const PAGE_LABELS: Record<PageKey, string> = {
   messages: "Messages",
   config: "Config console",
   hr: "Astrologer lifecycle",
+  astrohelp: "Astrologer help",
   marketing: "Marketing",
   finance: "Finance",
+  payouts: "Astrologer payouts",
+  tds: "TDS",
   support: "Support & disputes",
   compliance: "Live monitoring",
   trust: "Trust & reviews",
@@ -57,15 +63,15 @@ export const PAGE_ORDER = Object.keys(PAGE_LABELS) as PageKey[];
 
 /** The default page access. The Super Admin can override it per department (Setting "rbac.matrix"). */
 export const PAGES: Record<AdminRoleKey, PageKey[]> = {
-  super: ["overview", "messages", "config", "hr", "marketing", "finance", "support", "compliance", "trust", "rbac", "audit", "recording", "team"],
-  finance: ["overview", "messages", "config", "finance", "support", "audit"],
+  super: ["overview", "messages", "config", "hr", "astrohelp", "marketing", "finance", "payouts", "tds", "support", "compliance", "trust", "rbac", "audit", "recording", "team"],
+  finance: ["overview", "messages", "config", "finance", "astrohelp", "payouts", "tds", "support", "audit"],
   support: ["overview", "messages", "support", "audit"],
   // Compliance and Marketing open "Support & disputes" for the customer issues forwarded to them
   // (they see only those: lib/tickets.ts ticketScope).
-  compliance: ["overview", "messages", "compliance", "support", "trust", "audit", "recording"],
+  compliance: ["overview", "messages", "compliance", "astrohelp", "support", "trust", "audit", "recording"],
   marketing: ["overview", "messages", "marketing", "support", "audit"],
   // HR recruits and onboards astrologers: the lifecycle page (applications, approval, training).
-  hr: ["overview", "messages", "hr", "audit"],
+  hr: ["overview", "messages", "hr", "astrohelp", "payouts", "audit"],
 };
 
 /**
@@ -77,6 +83,11 @@ export const CAPABILITIES: { key: string; label: string; page: PageKey | null; r
   { key: "config.write", label: "Draft, approve and roll back settings", page: "config", roles: ["super", "finance"] },
   { key: "payout.approve", label: "Approve a payout batch", page: "finance", roles: ["super", "finance"] },
   { key: "payout.release", label: "Release an approved payout batch", page: "finance", roles: ["super"] },
+  { key: "astro_payout.prepare", label: "Prepare one astrologer's payout for a day, week, 15 days or month", page: "payouts", roles: ["super", "finance", "hr"] },
+  { key: "astro_payout.approve", label: "Approve one astrologer's prepared payout", page: "payouts", roles: ["super", "finance", "hr"] },
+  { key: "astro_payout.release", label: "Release one astrologer's approved payout", page: "payouts", roles: ["super", "finance"] },
+  { key: "tds.propose", label: "Propose TDS rates and thresholds, or one astrologer's TDS settings", page: "tds", roles: ["super", "finance"] },
+  { key: "tds.acknowledge", label: "Acknowledge (approve) a proposed TDS change", page: "tds", roles: ["super"] },
   { key: "wallet.refund.process", label: "Mark a customer wallet refund paid or failed", page: "finance", roles: ["super", "finance"] },
   { key: "dispute.refund.propose", label: "Propose a refund, wallet credit or free replacement call on a ticket, or reject a dispute", page: "support", roles: ["super", "support", "finance"] },
   { key: "dispute.refund.approve", label: "Approve or decline a proposed refund, wallet credit or free replacement call (someone else's)", page: "finance", roles: ["super", "finance"] },
@@ -182,10 +193,13 @@ export function normalise(input: Partial<Matrix> | null | undefined): Matrix {
   const pages = {} as Matrix["pages"];
   for (const role of ROLE_ORDER) {
     const asked = new Set(Array.isArray(input?.pages?.[role]) ? input!.pages![role] : base.pages[role]);
+    // A Super Admin's saved list always holds every page that existed then, so a missing one is a page added since.
+    const isNewPage = (p: PageKey) => (p === "payouts" || p === "tds") && !!input?.pages?.super && !input.pages.super.includes(p);
     pages[role] = PAGE_ORDER.filter((p) => {
       if (role === "super") return true;
       const lock = PAGE_LOCKS[p];
-      return lock ? lock.roles.includes(role) : asked.has(p);
+      if (lock) return lock.roles.includes(role);
+      return asked.has(p) || (isNewPage(p) && base.pages[role].includes(p));
     });
   }
   const capabilities: Matrix["capabilities"] = {};

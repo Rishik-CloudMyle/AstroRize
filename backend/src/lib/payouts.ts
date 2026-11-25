@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { db } from "../db.ts";
 import type { PayoutAccount } from "../generated/prisma/client.ts";
 import { audit } from "./audit.ts";
-import { tdsOn, tdsPct } from "./earnings.ts";
+import { loadTdsContext, type TdsLine } from "./tds.ts";
 import { badRequest, conflict, notFound } from "./errors.ts";
 import { rupee } from "./format.ts";
 import {
@@ -118,13 +118,16 @@ export async function createPayoutsForBatch(batchId: string) {
   if (batch.state !== "RELEASED") throw conflict(`${batch.id} must be released before transfers are made.`);
   const [grouped, pct] = await Promise.all([
     db.earningsLine.groupBy({ by: ["astrologerId"], where: { payoutBatchId: batch.id }, _sum: { amount: true } }),
-    tdsPct(),
+    loadTdsContext(),
   ]);
   const accounts = new Map((await db.payoutAccount.findMany({ where: { astrologerId: { in: grouped.map((g) => g.astrologerId) } } })).map((a) => [a.astrologerId, a]));
   let created = 0;
   for (const g of grouped) {
     const gross = g._sum.amount ?? 0;
-    const tds = tdsOn(gross, pct);
+    // The TDS worked out when the batch was prepared (and why); a batch from before that is worked out now.
+    const kept = (batch.tdsDetail as Record<string, TdsLine> | null)?.[g.astrologerId];
+    const t = kept && kept.earned === gross ? kept : pct.compute(g.astrologerId, gross);
+    const tds = t.amount;
     const amount = gross - tds;
     if (amount <= 0) continue;
     const exists = await db.payout.findUnique({ where: { batchId_astrologerId: { batchId: batch.id, astrologerId: g.astrologerId } }, select: { id: true } });
@@ -135,6 +138,8 @@ export async function createPayoutsForBatch(batchId: string) {
         astrologerId: g.astrologerId,
         gross,
         tds,
+        tdsPct: t.pct,
+        tdsNote: t.note,
         amount,
         state: "QUEUED",
         idempotencyKey: `${batch.id}:${g.astrologerId}:1`,

@@ -20,6 +20,7 @@ export const NAV_LINKS = [
   { href: "/fixed-sessions", label: "Fixed Sessions" },
   { href: "/live", label: "Live", live: true },
   { href: "/free-tools", label: "Free tools" },
+  { href: "/blog", label: "Blog" },
   { href: "/offers", label: "Offers" },
   { href: "/wallet", label: "Wallet" },
   { href: "/terms", label: "T&C" },
@@ -40,9 +41,9 @@ export const FOOTER_COLUMNS = [
   {
     title: "Company",
     links: [
-      { label: "About AstroRize", href: "/terms#general-description" },
-      { label: "Careers", href: "/terms" },
-      { label: "Press", href: "/terms" },
+      { label: "About AstroRize", href: "/terms" },
+      { label: "Careers", href: "/careers" },
+      { label: "Blog", href: "/blog" },
     ],
   },
   {

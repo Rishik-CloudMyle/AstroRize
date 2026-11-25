@@ -218,6 +218,8 @@ export interface WelcomeBenefit {
     available: boolean;
     redeemed: boolean;
   };
+  /** Free minutes by period, each limit set by AstroRize (limit 0 = no limit; remaining null = no limit) */
+  periods?: Record<"daily" | "weekly" | "monthly", { limit: number; used: number; remaining: number | null }>;
   /** This Mon–Sun week's (IST) free minutes (set by AstroRize) */
   weekly: {
     total: number;

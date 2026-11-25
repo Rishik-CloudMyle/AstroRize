@@ -12,7 +12,7 @@ export const STEPS = [
   {
     n: "1",
     title: "Recharge your wallet",
-    body: "Pick a denomination. GST is added on top — your talk-time credit is the full amount you chose.",
+    body: "Pick a denomination. Nothing is added on top — your talk-time credit is the full amount you chose.",
   },
   {
     n: "2",

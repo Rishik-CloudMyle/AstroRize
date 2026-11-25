@@ -31,7 +31,7 @@ export default function SiteHeader() {
             width={40}
             height={40}
             priority
-            className="size-10 shrink-0 object-contain"
+            className="size-10 shrink-0 rounded-full object-contain"
           />
           <span className="font-display text-[22px] font-semibold leading-none min-[380px]:text-[25px] tracking-[.01em] text-ink">AstroRize</span>
         </Link>

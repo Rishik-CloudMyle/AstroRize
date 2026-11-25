@@ -8,6 +8,7 @@ import { sweepAbandonedConsultations } from "./lib/consultations.ts";
 import { isDatabaseDown } from "./lib/errors.ts";
 import { mediaWorkerMode, startMediaConsumer, workerHost, type Consumer } from "./lib/media-jobs.ts";
 import { sweepPendingPayments } from "./lib/payments.ts";
+import { sweepHandovers } from "./lib/handover.ts";
 import { startPayoutSweep, sweepPayoutReminders } from "./lib/payouts.ts";
 import { sweepStalePresence } from "./lib/presence.ts";
 import { razorpayConfigured, razorpayMode } from "./lib/razorpay.ts";
@@ -65,6 +66,11 @@ const sweeper = setInterval(() => {
     .then(() => sweepExpiredPromo())
     .catch((e: unknown) => {
       if (!isDatabaseDown(e)) console.error("Promo expiry sweep failed:", e);
+    })
+    // Temporary Super Admin handovers whose time is up end.
+    .then(() => sweepHandovers())
+    .catch((e: unknown) => {
+      if (!isDatabaseDown(e)) console.error("Handover sweep failed:", e);
     })
     // A payout cycle closed: remind Finance once, for earnings and free-call compensation separately.
     .then(() => sweepPayoutReminders())

@@ -175,3 +175,28 @@ export function staffPayoutReminder(c: { id: string; kind: "EARNINGS" | "FREE_CA
     });
   });
 }
+
+/** Finance proposed a TDS change: the Super Admins (except the proposer) are asked to acknowledge it. */
+export function staffTdsProposed(c: { scopeLabel: string; byName: string; proposerId: string }) {
+  return safely("TDS proposal", async () => {
+    const people = await staffOf(["super"], [c.proposerId]);
+    await notifyMany(people.map((p) => p.id), {
+      kind: "staff.tds.proposed",
+      title: "TDS change to acknowledge",
+      body: `${c.byName} proposed a change to ${c.scopeLabel}. It takes effect once you acknowledge it.`,
+      href: "/admin/tds",
+    });
+  });
+}
+
+/** A Super Admin decided a TDS proposal: the person who proposed it is told. */
+export function staffTdsDecided(c: { proposerId: string; scopeLabel: string; acknowledged: boolean; byName: string; note?: string | null }) {
+  return safely("TDS decision", async () => {
+    await notifyMany([c.proposerId], {
+      kind: "staff.tds.decided",
+      title: c.acknowledged ? "TDS change acknowledged" : "TDS change rejected",
+      body: `${c.byName} ${c.acknowledged ? "acknowledged" : "rejected"} your change to ${c.scopeLabel}${c.note ? `: ${c.note}` : "."}`,
+      href: "/admin/tds",
+    });
+  });
+}

@@ -656,6 +656,23 @@ export default function ConsultJourney({
 
   /** Paid during the call: re-read the session so its new length shows straight away. */
   // The recharge sheet stays open on its "Payment successful" state until "Back to your call".
+  /** Fixed Session: keep going at pay-per-minute. Uses the wallet money that is free; with none, opens the recharge sheet. */
+  async function extendNow() {
+    if (!consultationId) return;
+    try {
+      const r = await api.post<{ extended: boolean; consultation: ConsultationView }>(`/consultations/${consultationId}/extend`);
+      if (r.extended) {
+        applyViewRef.current(r.consultation);
+        void sessionActions.refreshWallet().catch(() => {});
+        toast("Your call is extended at the per-minute rate.");
+      } else {
+        setRecharging(true);
+      }
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
   async function rechargedInCall() {
     if (!consultationId) return;
     try {
@@ -784,7 +801,7 @@ export default function ConsultJourney({
           }
           clock={clock(elapsed)}
           chips={<MeterChips m={m} instant={instant} />}
-          alerts={flags.freeReminder || flags.fixedReminder || flags.lowBalance ? <MeterAlerts m={m} onAddMoney={() => setRecharging(true)} paidRate={rateFor(astrologer.price, sessionMode === "chat" ? "chat" : "voice", astrologer.chatPrice, astrologer.videoPremium)} {...(fixedNow ? { onContinuePaid: () => setAfterFixed("paid"), onRejoinFixed: () => setAfterFixed("fixed"), picked: afterFixed } : {})} /> : null}
+          alerts={flags.freeReminder || flags.fixedReminder || flags.lowBalance ? <MeterAlerts m={m} onAddMoney={() => setRecharging(true)} paidRate={rateFor(astrologer.price, sessionMode === "chat" ? "chat" : "voice", astrologer.chatPrice, astrologer.videoPremium)} {...(fixedNow ? { onContinuePaid: () => void extendNow(), onRejoinFixed: () => setAfterFixed("fixed"), picked: afterFixed } : {})} /> : null}
           ending={ending}
           onEnd={() => void finish()}
           onMinimise={() => {

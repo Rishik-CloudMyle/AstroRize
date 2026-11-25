@@ -6,6 +6,7 @@ import AdminDialog from "@/components/admin/dialog";
 import { BlockedAction, Chip, PANEL, TD, TH } from "@/components/admin/ui";
 import { api } from "@/lib/api/client";
 import type { WalletRefund, WalletRefunds } from "@/lib/admin/refunds";
+import { AgeChip, AgeLegend, edgeColor, oldestFirst } from "./age-chip";
 
 // "Wallet refunds" on the Finance page: money owed back to customers who deleted their account
 // (service balance → original payment method). "Refund via Razorpay" sends it back over the
@@ -77,6 +78,8 @@ export default function WalletRefundsPanel({ data }: { data: WalletRefunds }) {
         </span>
       </div>
 
+      {data.refunds.some((x) => x.status !== "PAID") && <AgeLegend />}
+
       {data.refunds.length === 0 ? (
         <p className="mt-4 mb-0 text-center text-[13px] text-[#78716c]">
           No wallet refunds yet. They appear here when a customer with a paid balance deletes their account.
@@ -95,17 +98,23 @@ export default function WalletRefundsPanel({ data }: { data: WalletRefunds }) {
               </tr>
             </thead>
             <tbody>
-              {data.refunds.map((r) => {
+              {[...oldestFirst(data.refunds.filter((x) => x.status !== "PAID"), (x) => x.requestedAt), ...data.refunds.filter((x) => x.status === "PAID")].map((r) => {
                 const [bg, fg, label] = STATUS[r.status];
                 return (
                   <tr key={r.ref} className="align-top">
-                    <td className={`${TD} px-2.5 py-[11px] font-mono text-[11.5px] whitespace-nowrap text-[#57534e]`}>{r.ref}</td>
+                    <td className={`${TD} px-2.5 py-[11px] font-mono text-[11.5px] whitespace-nowrap text-[#57534e]`} style={r.status === "PAID" ? undefined : { boxShadow: `inset 4px 0 0 ${edgeColor(r.requestedAt)}` }}>{r.ref}</td>
                     <td className={`${TD} min-w-[190px] px-2.5 py-[11px] text-[#57534e]`}>
                       {r.customer}
                       <span className="block text-[11.5px] text-[#a8a29e]">{r.reason}</span>
                     </td>
                     <td className={`${TD} px-2.5 py-[11px] text-right font-bold whitespace-nowrap text-ink tabular-nums`}>{rupee(r.amount)}</td>
-                    <td className={`${TD} px-2.5 py-[11px] whitespace-nowrap text-[#57534e] tabular-nums`}>{when(r.requestedAt)}</td>
+                    <td className={`${TD} px-2.5 py-[11px] whitespace-nowrap text-[#57534e] tabular-nums`}>{when(r.requestedAt)}
+                      {r.status !== "PAID" && (
+                        <span className="mt-1 block">
+                          <AgeChip at={r.requestedAt} />
+                        </span>
+                      )}
+                    </td>
                     <td className={`${TD} max-w-[240px] px-2.5 py-[11px] break-words text-[#57534e]`}>{r.method}</td>
                     <td className={`${TD} px-2.5 py-[11px]`}>
                       <Chip bg={bg} fg={fg}>

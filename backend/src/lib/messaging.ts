@@ -302,6 +302,16 @@ async function threadsOf(userId: string) {
 const creatorOf = (t: { createdById: string; members: { userId: string; user: Person }[] }) =>
   t.members.find((m) => m.userId === t.createdById)?.user ?? t.members.find((m) => m.user.role === "ADMIN")?.user;
 
+/** Everyone in a conversation except the viewer; a conversation with yourself shows you, marked as such. */
+function othersFor(t: { members: { userId: string; user: Person }[] }, userId: string) {
+  const others = t.members.filter((m) => m.userId !== userId).map((m) => staffSees(m.user));
+  if (others.length) return others;
+  const mine = t.members.find((m) => m.userId === userId);
+  if (!mine) return [];
+  const you = staffSees(mine.user);
+  return [{ ...you, name: `${you.name} (you)`, line: "Message yourself" }];
+}
+
 /** The list for a staff member: who else is in each conversation. */
 export async function staffConversations(userId: string) {
   const [threads, unread] = await Promise.all([threadsOf(userId), directUnread(userId)]);
@@ -310,7 +320,7 @@ export async function staffConversations(userId: string) {
     return {
       id: t.id,
       subject: t.subject,
-      people: t.members.filter((m) => m.userId !== userId).map((m) => staffSees(m.user)),
+      people: othersFor(t, userId),
       preview: last?.text.slice(0, 100) ?? "",
       lastAt: (last?.createdAt ?? t.createdAt).toISOString(),
       lastFromMe: last?.senderId === userId,
@@ -366,7 +376,7 @@ export function staffThreadView(t: FullThread, userId: string) {
     subject: t.subject,
     startedBy: t.members.find((m) => m.userId === t.createdById)?.user.name ?? null,
     startedAt: t.createdAt.toISOString(),
-    people: t.members.filter((m) => m.userId !== userId).map((m) => staffSees(m.user)),
+    people: othersFor(t, userId),
     messages: t.messages.map((m) => ({
       id: m.id,
       mine: m.senderId === userId,

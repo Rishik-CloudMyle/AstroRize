@@ -6,7 +6,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { MediaWants } from "@/lib/media/zego-call";
 import { ConsultChat, useConsultChat } from "./consult-chat";
 import { useCallMedia, type CallMedia, type Speaker } from "./use-call-media";
-import { RecordingBadge } from "../recording-notice";
 import ReportDialog from "./report-dialog";
 
 // The consultation's own window, the same for the customer and the astrologer, one per mode:
@@ -112,12 +111,9 @@ export function SessionWindow({
     }
   }, [kind, media.notConfigured]);
   const chatVisible = kind === "chat" || drawer;
-  // Voice and video calls are recorded, audio only (both sides accepted the notice): the indicator
-  // shows while the call is up, the notice itself until then.
-  const recorded = kind !== "chat" && media.answer?.available === true && !!media.answer.recorded;
+  // The recording notice is shown before the session starts (consent); no recording indicator during the call.
   const allBadges = (
     <>
-      {recorded && media.mediaUp && <RecordingBadge />}
       {badges}
     </>
   );

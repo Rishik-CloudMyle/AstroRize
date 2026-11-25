@@ -117,6 +117,16 @@ export default function AvailabilityView({ data }: { data: Availability }) {
       toast(`Slot open again · ${slot.day} ${slot.start}–${slot.end} IST.`);
     });
 
+  // A time that has already finished can't get a new slot (earlier days of this week, and hours gone today).
+  const isPast = (d: string, hour: string) => {
+    const date = data.dayKeys[data.days.indexOf(d)];
+    if (!date) return false;
+    const now = istNow();
+    if (date < now.date) return true;
+    const endHour = `${String(Number(hour.slice(0, 2)) + 1).padStart(2, "0")}:00`;
+    return date === now.date && endHour <= now.time;
+  };
+
   const clickCell = (d: string, hour: string) => {
     const slot = slots.find((x) => x.day === d && x.state !== "cancelled" && x.start <= hour && hour < x.end) ??
       slots.find((x) => x.day === d && x.start <= hour && hour < x.end);
@@ -127,6 +137,7 @@ export default function AvailabilityView({ data }: { data: Availability }) {
       if (slot.customerName) return setBookingId(slot.id);
       return toast(slot.detail ? `Booked · ${slot.detail}. Cancelling needs a reason.` : data.bookedDetail);
     }
+    if (isPast(d, hour)) return toast("That time has already passed. Pick today (a time that hasn't finished) or a later day.");
     setDay(d);
     setStart(hour);
     setEnd(hour);
@@ -146,27 +157,29 @@ export default function AvailabilityView({ data }: { data: Availability }) {
       </PageHeader>
 
       {/* Phones/tablets: one day at a time — pick a day, then its hours as rows. */}
-      <MobileAgenda days={data.days} today={data.today} hours={data.hours} slots={slots} onClick={clickCell} />
+      <MobileAgenda days={data.days} today={data.today} hours={data.hours} slots={slots} onClick={clickCell} isPast={isPast} />
 
       <Panel className="mt-5 overflow-x-auto p-5 max-lg:hidden">
         <div className="grid min-w-[640px] grid-cols-[56px_repeat(7,minmax(74px,1fr))] gap-1">
           <div />
           {data.days.map((d) => {
             const [label, date] = d.split(" ");
+            const isToday = d === data.today;
+            const past = !isToday && data.dayKeys[data.days.indexOf(d)]! < istNow().date;
             return (
               <div
                 key={d}
-                className="pb-1.5 text-center text-[11.5px] font-bold"
-                style={{ color: d === data.today ? "#b45309" : "#78716c" }}
+                className={`mb-1 rounded-[9px] pt-1 pb-1.5 text-center text-[11.5px] font-bold ${isToday ? "bg-ink text-white" : past ? "text-stone-400" : "text-stone-700"}`}
               >
                 {label}
                 <br />
                 <span className="text-[15px] font-bold">{date}</span>
+                {isToday && <span className="block text-[9.5px] font-extrabold tracking-[.08em] text-amber-300 uppercase">Today</span>}
               </div>
             );
           })}
           {data.hours.map((hour) => (
-            <Row key={hour} hour={hour} days={data.days} slots={slots} onClick={clickCell} />
+            <Row key={hour} hour={hour} days={data.days} today={data.today} slots={slots} onClick={clickCell} isPast={isPast} />
           ))}
         </div>
       </Panel>
@@ -200,9 +213,11 @@ export default function AvailabilityView({ data }: { data: Availability }) {
                   Day
                 </label>
                 <select id="slot-day" value={day} onChange={(e) => setDay(e.target.value)} className={`${fieldClass} border-line px-3`}>
-                  {data.days.map((d) => (
-                    <option key={d}>{d}</option>
-                  ))}
+                  {data.days
+                    .filter((_, i) => data.dayKeys[i]! >= istNow().date)
+                    .map((d) => (
+                      <option key={d}>{d}</option>
+                    ))}
                 </select>
               </div>
               <div>
@@ -342,12 +357,14 @@ function MobileAgenda({
   hours,
   slots,
   onClick,
+  isPast,
 }: {
   days: string[];
   today: string;
   hours: string[];
   slots: Slot[];
   onClick: (day: string, hour: string) => void;
+  isPast: (day: string, hour: string) => boolean;
 }) {
   const [picked, setPicked] = useState(days.includes(today) ? today : days[0]);
   const day = days.includes(picked) ? picked : days[0];
@@ -382,8 +399,11 @@ function MobileAgenda({
           const slot = slotAt(slots, day, hour);
           const c = CELL[slot ? slot.state : "unset"];
           const who = slot?.state === "booked" ? (slot.customerName ?? null) : null;
+          const gone = !slot && isPast(day, hour);
           const label = !slot
-            ? "Add a slot"
+            ? gone
+              ? "Passed"
+              : "Add a slot"
             : slot.state === "booked"
               ? who
                 ? `Booked · ${who}`
@@ -397,7 +417,8 @@ function MobileAgenda({
                 type="button"
                 onClick={() => onClick(day, hour)}
                 aria-label={`${day} ${hour}: ${c.label || "no slot — add one"}${who ? ` · ${who}` : ""}`}
-                className="flex min-h-app-hit w-full items-center gap-3 rounded-app-card border border-app-line bg-app-surface p-2 pl-3 text-left shadow-app-card active:bg-app-elev"
+                aria-disabled={gone || undefined}
+                className={`flex min-h-app-hit w-full items-center gap-3 rounded-app-card border bg-app-surface p-2 pl-3 text-left shadow-app-card active:bg-app-elev ${gone ? "cursor-not-allowed border-app-line opacity-45" : day === today ? "border-2 border-ink" : "border-stone-400"}`}
               >
                 <b className="w-12 shrink-0 text-[13.333px] text-app-ink tabular-nums">{hour}</b>
                 <span
@@ -421,13 +442,17 @@ function MobileAgenda({
 function Row({
   hour,
   days,
+  today,
   slots,
   onClick,
+  isPast,
 }: {
   hour: string;
   days: string[];
+  today: string;
   slots: Slot[];
   onClick: (day: string, hour: string) => void;
+  isPast: (day: string, hour: string) => boolean;
 }) {
   return (
     <>
@@ -440,14 +465,24 @@ function Row({
         const c = CELL[slot ? slot.state : "unset"];
         // Booked cells show who booked them (first name; the full name is in the label).
         const who = slot?.state === "booked" ? slot.customerName ?? null : null;
+        const gone = !slot && isPast(d, hour);
+        const isToday = d === today;
+        // Today: black borders and a warm tint. Coming days: dark borders. Times that have passed: pale grey.
+        const look = gone
+          ? { background: "#efede8", borderColor: "#e3dfd6", color: c.fg }
+          : slot
+            ? { background: c.bg, borderColor: isToday ? "#1c1917" : c.border, color: c.fg }
+            : { background: isToday ? "#fff4d6" : "#fffdf8", borderColor: isToday ? "#1c1917" : "#a8a29e", color: c.fg };
         return (
           <button
             key={d}
             type="button"
+            aria-disabled={gone || undefined}
+            title={gone ? "This time has passed" : undefined}
             onClick={() => onClick(d, hour)}
             aria-label={`${d} ${hour}: ${c.label || "no slot — add one"}${who ? ` · ${who}` : ""}`}
-            className="h-[34px] truncate rounded-[7px] border px-1 text-[10.5px] font-bold"
-            style={{ background: c.bg, borderColor: c.border, color: c.fg }}
+            className={`h-[34px] truncate rounded-[7px] px-1 text-[10.5px] font-bold ${isToday && !gone ? "border-2" : "border"} ${gone ? "cursor-not-allowed opacity-60" : ""}`}
+            style={look}
           >
             {who ? who.split(" ")[0] : c.label}
           </button>
