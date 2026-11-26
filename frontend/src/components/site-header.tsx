@@ -24,7 +24,7 @@ export default function SiteHeader() {
   return (
     // Desktop only (≥ 1024px). Phones and tablets get the app header and tab bar (components/mobile/site-app-shell.tsx).
     <header className="sticky top-0 z-50 border-b border-line bg-paper max-lg:hidden">
-      <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-4 py-3 min-[380px]:gap-4 sm:px-6 lg:gap-4 xl:gap-7">
+      <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-4 py-3 min-[380px]:gap-4 sm:px-6 lg:gap-3 xl:gap-5">
         <Link href="/" className="flex min-w-0 items-center gap-2.5 hover:no-underline">
           <Image
             src="/assets/brand/logo-mark.png"
@@ -43,7 +43,7 @@ export default function SiteHeader() {
               key={link.href}
               href={link.href}
               aria-current={pathname.startsWith(link.href) ? "page" : undefined}
-              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[10px] px-3 py-2 text-sm font-semibold text-stone-600 lg:max-xl:px-2 hover:bg-amber-100 hover:text-amber-800 hover:no-underline"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[10px] px-2.5 py-2 text-sm font-semibold text-stone-600 lg:max-xl:px-1.5 lg:max-xl:text-[13px] hover:bg-amber-100 hover:text-amber-800 hover:no-underline"
             >
               {link.live && someoneLive && <span aria-hidden="true" className="az-live-dot size-[7px] rounded-full bg-urgent" />}
               {link.label}
@@ -53,7 +53,7 @@ export default function SiteHeader() {
             <Link
               href="/messages"
               aria-current={pathname.startsWith("/messages") ? "page" : undefined}
-              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[10px] px-3 py-2 text-sm font-semibold text-stone-600 lg:max-xl:px-2 hover:bg-amber-100 hover:text-amber-800 hover:no-underline"
+              className="lg:max-[1151px]:hidden inline-flex items-center gap-1.5 whitespace-nowrap rounded-[10px] px-2.5 py-2 text-sm font-semibold text-stone-600 lg:max-xl:px-1.5 lg:max-xl:text-[13px] hover:bg-amber-100 hover:text-amber-800 hover:no-underline"
             >
               Messages
             </Link>
@@ -114,7 +114,7 @@ export default function SiteHeader() {
               </Link>
               <Link
                 href="/astrologers"
-                className="az-cta az-sheen hidden h-[38px] items-center rounded-full px-[18px] text-sm font-bold hover:text-cta-ink hover:no-underline sm:inline-flex whitespace-nowrap lg:max-xl:px-3"
+                className="az-cta az-sheen hidden h-[38px] items-center rounded-full px-[18px] text-sm font-bold hover:text-cta-ink hover:no-underline sm:inline-flex whitespace-nowrap lg:max-xl:px-3 lg:max-[1151px]:hidden"
               >
                 Consult an astrologer
               </Link>
