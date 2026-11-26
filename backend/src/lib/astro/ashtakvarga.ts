@@ -1,7 +1,10 @@
 // Ashtakavarga: Bhinnashtakavarga (BAV) of the seven grahas and the Sarvashtakavarga (SAV).
 // Pure function of the D1 signs of the seven grahas and the lagna; no database.
 //
-// Source of the tables: Brihat Parashara Hora Shastra, the "Ashtakavarga" chapter (ch. 66 in
+// The Moon's rows from the Moon, Mars and Jupiter, and Venus's row from Mars, follow parasara.net (the
+// client's reference; verified sign for sign on three charts). Books differ on exactly these rows.
+//
+// Source of the other tables: Brihat Parashara Hora Shastra, the "Ashtakavarga" chapter (ch. 66 in
 // R. Santhanam's translation, Ranjan Publications, vol. 2), the same tables as B. V. Raman,
 // "Ashtakavarga System of Prediction", and the Ashtakavarga of Jagannatha Hora. Every row was
 // transcribed twice and its count checked against the row totals noted beside each planet. Each row lists the houses, counted from the reference (the graha or the
@@ -35,13 +38,13 @@ export const BAV_TABLE: Record<AshtakaPlanet, Record<AshtakaRef, readonly number
     saturn: [1, 2, 4, 7, 8, 9, 10, 11],
     lagna: [3, 4, 6, 10, 11, 12],
   },
-  // Moon: 6+6+7+8+7+7+4+4 = 49
+  // Moon: 6+7+6+8+7+7+4+4 = 49
   moon: {
     sun: [3, 6, 7, 8, 10, 11],
-    moon: [1, 3, 6, 7, 10, 11],
-    mars: [2, 3, 5, 6, 9, 10, 11],
+    moon: [1, 3, 6, 7, 9, 10, 11],
+    mars: [2, 3, 5, 6, 10, 11],
     mercury: [1, 3, 4, 5, 7, 8, 10, 11],
-    jupiter: [1, 4, 7, 8, 10, 11, 12],
+    jupiter: [1, 2, 4, 7, 8, 10, 11],
     venus: [3, 4, 5, 7, 9, 10, 11],
     saturn: [3, 5, 6, 11],
     lagna: [3, 6, 10, 11],
@@ -83,7 +86,7 @@ export const BAV_TABLE: Record<AshtakaPlanet, Record<AshtakaRef, readonly number
   venus: {
     sun: [8, 11, 12],
     moon: [1, 2, 3, 4, 5, 8, 9, 11, 12],
-    mars: [3, 5, 6, 9, 11, 12],
+    mars: [3, 4, 6, 9, 11, 12],
     mercury: [3, 5, 6, 9, 11],
     jupiter: [5, 8, 9, 10, 11],
     venus: [1, 2, 3, 4, 5, 8, 9, 10, 11],

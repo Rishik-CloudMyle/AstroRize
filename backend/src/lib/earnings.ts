@@ -16,6 +16,7 @@
 // are never put in a payout batch (they were paid outside these batches).
 
 import { db } from "../db.ts";
+import { payoutSchedule } from "./payout-schedule.ts";
 import type { Astrologer, EarningsLine, Prisma } from "../generated/prisma/client.ts";
 import { badRequest, conflict } from "./errors.ts";
 import { istDate, istDateKey, istDayMonth, rupee } from "./format.ts";
@@ -36,21 +37,29 @@ export interface SharePolicy {
   standardPct: number;
   /** Days after activation an astrologer counts as new. */
   newDays: number;
+  /** Own shares agreed with particular astrologers (id → percent): they replace the two above. */
+  custom?: Record<string, number>;
 }
+
+/** Setting holding the own shares (admin: Config console → Revenue share). */
+export const CUSTOM_SHARE_SETTING = "earnings.custom_share";
 
 const pct = (n: number) => Math.min(100, Math.max(0, Math.round(n)));
 
 /** The shares in force (Config console). Read before a transaction, not inside one. */
 export async function sharePolicy(): Promise<SharePolicy> {
-  const [newPct, standardPct, newDays] = await Promise.all([
+  const [newPct, standardPct, newDays, custom] = await Promise.all([
     configNumber("earnings.share_pct.new", 50),
     configNumber("earnings.share_pct.standard", 70),
     configNumber("earnings.new_period_days", 90),
+    getSetting<Record<string, number>>(CUSTOM_SHARE_SETTING, {}),
   ]);
-  return { newPct: pct(newPct), standardPct: pct(standardPct), newDays: Math.max(0, Math.round(newDays)) };
+  return { newPct: pct(newPct), standardPct: pct(standardPct), newDays: Math.max(0, Math.round(newDays)), custom };
 }
 
-type Activation = Pick<Astrologer, "activatedAt" | "createdAt">;
+type Activation = Pick<Astrologer, "activatedAt" | "createdAt"> & { id?: string };
+
+const ownShare = (a: Activation, p: SharePolicy) => (a.id ? p.custom?.[a.id] : undefined);
 
 /** When the astrologer started (activation; older accounts without one count from sign-up). */
 export const activationOf = (a: Activation) => a.activatedAt ?? a.createdAt;
@@ -60,6 +69,8 @@ export const newPeriodEnd = (a: Activation, p: SharePolicy) => new Date(activati
 
 /** The share (percent) the astrologer keeps of money earned at `at`. */
 export function sharePctFor(a: Activation, at: Date, p: SharePolicy): number {
+  const own = ownShare(a, p);
+  if (own !== undefined) return pct(own);
   return at < newPeriodEnd(a, p) ? p.newPct : p.standardPct;
 }
 
@@ -67,7 +78,7 @@ export function sharePctFor(a: Activation, at: Date, p: SharePolicy): number {
 export function shareStatus(a: Activation, p: SharePolicy, now = new Date()) {
   const current = sharePctFor(a, now, p);
   const end = newPeriodEnd(a, p);
-  const changes = now < end && p.newPct !== p.standardPct;
+  const changes = ownShare(a, p) === undefined && now < end && p.newPct !== p.standardPct;
   return { pct: current, nextPct: changes ? p.standardPct : null, changesOn: changes ? istDate(end) : null };
 }
 
@@ -129,7 +140,7 @@ export const isLegacy = (l: Pick<EarningsLine, "amount">) => l.amount === null;
 export type BatchKind = "EARNINGS" | "FREE_CALLS";
 export interface PayoutCycle {
   kind: BatchKind;
-  /** Batch id for the cycle: "PB-2026-10-A" (earnings) or "FC-2026-10" / "FC-2026-W43" (free calls). */
+  /** Batch id for the cycle: "PB-2026-10" (monthly earnings) or "PB-2026-10-A" (half-monthly) or "FC-2026-10" / "FC-2026-W43" (free calls). */
   id: string;
   /** "1–15 Oct 2026", "Oct 2026", "19–25 Oct 2026" */
   label: string;
@@ -169,6 +180,9 @@ function monthOf(at: Date): PayoutCycle {
   return { kind: "FREE_CALLS", id: `FC-${y}-${pad(m0 + 1)}`, label: `${MONTHS[m0]} ${y}`, start, end: new Date(next.getTime() - 1) };
 }
 
+/** Earnings paid monthly: "PB-2026-10". */
+const earningsMonthOf = (at: Date): PayoutCycle => ({ ...monthOf(at), kind: "EARNINGS", id: monthOf(at).id.replace(/^FC-/, "PB-") });
+
 /** Monday–Sunday (IST) weeks, named by ISO week: "FC-2026-W43". */
 function weekOf(at: Date): PayoutCycle {
   const { y, m0, d } = istParts(at);
@@ -205,6 +219,23 @@ function dayOf(at: Date): StatementPeriod {
   return { id: `D-${y}${pad(m0 + 1)}${pad(d)}`, label: `${d} ${MONTHS[m0]} ${y}`, start, end: new Date(start.getTime() + DAY_MS - 1) };
 }
 
+/** A payout period between two dates chosen by the admin (IST, both days included). */
+export function customPeriod(from: string, to: string): StatementPeriod {
+  const day = (v: string) => {
+    const [y, m, d] = v.split("-").map(Number);
+    const at = istMidnight(y!, m! - 1, d!);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(at.getTime()) || istParts(at).d !== d) throw badRequest("Choose a real start and end date.");
+    return at;
+  };
+  const start = day(from);
+  const last = day(to);
+  if (last < start) throw badRequest("The end date must be on or after the start date.");
+  if (start > new Date()) throw badRequest("The start date can't be in the future.");
+  if (last.getTime() - start.getTime() > 366 * DAY_MS) throw badRequest("Choose a period of one year or less.");
+  const end = new Date(last.getTime() + DAY_MS - 1);
+  return { id: `CU-${from.replaceAll("-", "")}-${to.replaceAll("-", "")}`, label: `${istDate(start)} – ${istDate(end)}`, start, end };
+}
+
 /** The statement periods of a range (IST), the running one first, then the ones before it. */
 export function statementPeriods(range: RangeKey, now = new Date()): StatementPeriod[] {
   const of = range === "daily" ? dayOf : range === "weekly" ? weekOf : range === "monthly" ? monthOf : halfMonthOf;
@@ -223,17 +254,17 @@ export async function freeCallsCycleDays(): Promise<7 | 30> {
 }
 
 /** The cycle of `kind` that contains `at`. */
-export function cycleOf(kind: BatchKind, at: Date, freeCycleDays: 7 | 30): PayoutCycle {
-  if (kind === "EARNINGS") return halfMonthOf(at);
+export function cycleOf(kind: BatchKind, at: Date, freeCycleDays: 7 | 30, earningsDays: 15 | 30 = 30): PayoutCycle {
+  if (kind === "EARNINGS") return earningsDays === 15 ? halfMonthOf(at) : earningsMonthOf(at);
   return freeCycleDays === 7 ? weekOf(at) : monthOf(at);
 }
 
 /** The last `count` cycles of `kind` that have ended, newest first. */
-export function closedCycles(kind: BatchKind, now: Date, freeCycleDays: 7 | 30, count: number): PayoutCycle[] {
+export function closedCycles(kind: BatchKind, now: Date, freeCycleDays: 7 | 30, count: number, earningsDays: 15 | 30 = 30): PayoutCycle[] {
   const out: PayoutCycle[] = [];
-  let c = cycleOf(kind, now, freeCycleDays);
+  let c = cycleOf(kind, now, freeCycleDays, earningsDays);
   for (let i = 0; i < count; i++) {
-    c = cycleOf(kind, new Date(c.start.getTime() - 1), freeCycleDays);
+    c = cycleOf(kind, new Date(c.start.getTime() - 1), freeCycleDays, earningsDays);
     out.push(c);
   }
   return out;
@@ -339,10 +370,10 @@ export interface PrepareCandidate {
  * hold, or a cycle whose id was already used) are carried into the next batch prepared.
  */
 export async function prepareCandidates(now = new Date()): Promise<PrepareCandidate[]> {
-  const [freeDays, tds, held] = await Promise.all([freeCallsCycleDays(), loadTdsContext(now), holdRules(now)]);
+  const [freeDays, tds, held, schedule] = await Promise.all([freeCallsCycleDays(), loadTdsContext(now), holdRules(now), payoutSchedule()]);
   const out: PrepareCandidate[] = [];
   for (const kind of ["EARNINGS", "FREE_CALLS"] as const) {
-    const cycles = closedCycles(kind, now, freeDays, kind === "EARNINGS" ? 6 : freeDays === 7 ? 8 : 3);
+    const cycles = closedCycles(kind, now, freeDays, kind === "EARNINGS" ? 6 : freeDays === 7 ? 8 : 3, schedule.cycleDays);
     const existing = new Set((await db.payoutBatch.findMany({ where: { id: { in: cycles.map((c) => c.id) } }, select: { id: true } })).map((b) => b.id));
     const { take: all, holdBack } = await eligibleLines(db, kind, cycles[0]!.end, held);
     for (const [i, c] of cycles.entries()) {
@@ -375,7 +406,7 @@ export async function prepareCandidates(now = new Date()): Promise<PrepareCandid
  */
 export async function prepareBatch(kind: BatchKind, cycleId: string, now = new Date()) {
   const freeDays = await freeCallsCycleDays();
-  const cycle = closedCycles(kind, now, freeDays, kind === "EARNINGS" ? 6 : freeDays === 7 ? 8 : 3).find((c) => c.id === cycleId);
+  const cycle = closedCycles(kind, now, freeDays, kind === "EARNINGS" ? 6 : freeDays === 7 ? 8 : 3, (await payoutSchedule()).cycleDays).find((c) => c.id === cycleId);
   if (!cycle) throw badRequest("That isn't a closed payout cycle. Only a cycle that has ended can be prepared.");
   const [tds, held] = await Promise.all([loadTdsContext(now), holdRules(now)]);
   return db.$transaction(async (tx) => {

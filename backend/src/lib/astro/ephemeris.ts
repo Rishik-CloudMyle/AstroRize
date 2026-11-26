@@ -20,6 +20,7 @@ import {
   EclipticGeoMoon,
   GeoMoonState,
   GeoVector,
+  HelioVector,
   MakeTime,
   RotateVector,
   Rotation_EQJ_ECT,
@@ -63,6 +64,24 @@ export function trueLahiri(t: AstroTime): number {
   return meanLahiri(t) + e_tilt(t).dpsi / 3600;
 }
 
+/**
+ * Which positions a calculation uses.
+ *  "parashari" — the Kundli (lagna, grahas, vargas, dashas): the convention of parasara.net, which the
+ *    client checks our charts against: geometric planet positions (no light-time or aberration), the
+ *    mean node on the mean equinox, and its Lahiri value below. Verified to under 1″ for 1962, 1990
+ *    and 2018 births.
+ *  "apparent" (the default) — apparent positions with true Lahiri (the Swiss Ephemeris / Drik
+ *    Panchang way): panchang, matching, horoscopes and the KP chart.
+ */
+export type Convention = "parashari" | "apparent";
+
+/** The Lahiri ayanamsa as parasara.net applies it: our mean value less a small, slowly growing offset; no nutation. */
+export function parashariLahiri(t: AstroTime): number {
+  return meanLahiri(t) + (-56.64042 - 4.30462 * centuriesTT(t)) / 3600;
+}
+
+export const ayanamsaOf = (t: AstroTime, convention: Convention = "apparent") => (convention === "apparent" ? trueLahiri(t) : parashariLahiri(t));
+
 /** Mean longitude of the Moon's ascending node (Meeus, Astronomical Algorithms ch. 47), mean equinox of date. */
 export function meanNodeTropical(t: AstroTime): number {
   const T = centuriesTT(t);
@@ -87,10 +106,19 @@ export type NodeKind = "mean" | "true";
 
 const PLANET_BODY = { mars: Body.Mars, mercury: Body.Mercury, jupiter: Body.Jupiter, venus: Body.Venus, saturn: Body.Saturn } as const;
 
-/** Tropical (true equinox of date) apparent geocentric longitude and latitude of a graha. */
-function tropical(key: GrahaKey, t: AstroTime, node: NodeKind): { lon: number; lat: number } {
+/** Geometric geocentric ecliptic position of date: the planet's (or, for the Sun, nothing) heliocentric place less the Earth's. */
+function geometric(body: Body | null, t: AstroTime): { lon: number; lat: number } {
+  const earth = HelioVector(Body.Earth, t);
+  const p = body === null ? new Vector(0, 0, 0, t) : HelioVector(body, t);
+  const e = Ecliptic(new Vector(p.x - earth.x, p.y - earth.y, p.z - earth.z, t));
+  return { lon: e.elon, lat: e.elat };
+}
+
+/** Tropical geocentric longitude and latitude of a graha, in the given convention. */
+function tropical(key: GrahaKey, t: AstroTime, node: NodeKind, convention: Convention): { lon: number; lat: number } {
   switch (key) {
     case "sun": {
+      if (convention === "parashari") return geometric(null, t);
       const s = SunPosition(t);
       return { lon: s.elon, lat: s.elat };
     }
@@ -100,11 +128,17 @@ function tropical(key: GrahaKey, t: AstroTime, node: NodeKind): { lon: number; l
     }
     case "rahu":
     case "ketu": {
-      // The mean node is referred to the mean equinox; add Δψ to put it on the true equinox like the rest.
-      const rahu = node === "true" ? trueNodeTropical(t) : meanNodeTropical(t) + e_tilt(t).dpsi / 3600;
+      // The mean node is referred to the mean equinox. "apparent" adds Δψ to put it on the true equinox
+      // like the rest; "parashari" keeps both nodes on the mean equinox.
+      const dpsi = e_tilt(t).dpsi / 3600;
+      const rahu =
+        convention === "apparent"
+          ? node === "true" ? trueNodeTropical(t) : meanNodeTropical(t) + dpsi
+          : node === "true" ? trueNodeTropical(t) - dpsi : meanNodeTropical(t);
       return { lon: norm360(key === "rahu" ? rahu : rahu + 180), lat: 0 };
     }
     default: {
+      if (convention === "parashari") return geometric(PLANET_BODY[key], t);
       const e = Ecliptic(GeoVector(PLANET_BODY[key], t, true));
       return { lon: e.elon, lat: e.elat };
     }
@@ -123,23 +157,23 @@ export interface GrahaPosition {
 }
 
 /** Sidereal longitude of one graha at an instant. */
-export function siderealLongitude(key: GrahaKey, t: AstroTime, node: NodeKind = "mean"): number {
-  return norm360(tropical(key, t, node).lon - trueLahiri(t));
+export function siderealLongitude(key: GrahaKey, t: AstroTime, node: NodeKind = "mean", convention: Convention = "apparent"): number {
+  return norm360(tropical(key, t, node, convention).lon - ayanamsaOf(t, convention));
 }
 
 /** Signed shortest difference b − a in degrees, −180…180. */
 export const angleDiff = (a: number, b: number) => ((((b - a) % 360) + 540) % 360) - 180;
 
 /** Every graha's sidereal position, speed and retrograde flag at an instant. */
-export function grahaPositions(date: Date, node: NodeKind = "mean"): GrahaPosition[] {
+export function grahaPositions(date: Date, node: NodeKind = "mean", convention: Convention = "apparent"): GrahaPosition[] {
   const t = MakeTime(date);
   const before = t.AddDays(-0.5);
   const after = t.AddDays(0.5);
   const keys: GrahaKey[] = ["sun", "moon", "mars", "mercury", "jupiter", "venus", "saturn", "rahu", "ketu"];
   return keys.map((key) => {
-    const now = tropical(key, t, node);
-    const longitude = norm360(now.lon - trueLahiri(t));
-    const speed = angleDiff(siderealLongitude(key, before, node), siderealLongitude(key, after, node));
+    const now = tropical(key, t, node, convention);
+    const longitude = norm360(now.lon - ayanamsaOf(t, convention));
+    const speed = angleDiff(siderealLongitude(key, before, node, convention), siderealLongitude(key, after, node, convention));
     // The mean nodes always move backwards; the true node wobbles but is conventionally retrograde too.
     const retrograde = key === "rahu" || key === "ketu" ? true : speed < 0;
     return { key, longitude, latitude: now.lat, speed, retrograde };
@@ -165,7 +199,7 @@ export interface Angles {
  *   MC  = atan2(sin RAMC, cos RAMC·cos ε)
  * Both tropical (true equinox) → sidereal by subtracting the true Lahiri ayanamsa.
  */
-export function angles(date: Date, latitude: number, longitude: number): Angles {
+export function angles(date: Date, latitude: number, longitude: number, convention: Convention = "apparent"): Angles {
   const t = MakeTime(date);
   const ramc = norm360(SiderealTime(t) * 15 + longitude);
   const eps = e_tilt(t).tobl * RAD;
@@ -173,7 +207,7 @@ export function angles(date: Date, latitude: number, longitude: number): Angles 
   const phi = latitude * RAD;
   const asc = norm360(Math.atan2(Math.cos(th), -(Math.sin(th) * Math.cos(eps) + Math.tan(phi) * Math.sin(eps))) / RAD);
   const mc = norm360(Math.atan2(Math.sin(th), Math.cos(th) * Math.cos(eps)) / RAD);
-  const ayanamsa = trueLahiri(t);
+  const ayanamsa = ayanamsaOf(t, convention);
   return { ascendant: norm360(asc - ayanamsa), midheaven: norm360(mc - ayanamsa), ramc, obliquity: eps / RAD, ayanamsa };
 }
 

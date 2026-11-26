@@ -47,7 +47,7 @@
 import type { GrahaKey } from "./constants.ts";
 import { norm360 } from "./ephemeris.ts";
 
-export const VARGA_CODES = ["D1", "D2", "D3", "D4", "D7", "D9", "D10", "D12", "D16", "D20", "D24", "D27", "D30", "D40", "D45", "D60"] as const;
+export const VARGA_CODES = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "D16", "D20", "D24", "D27", "D30", "D40", "D45", "D57", "D60", "D81", "D108", "D144"] as const;
 export type VargaCode = (typeof VARGA_CODES)[number];
 
 export const VARGA_NAMES: Record<VargaCode, { name: string; purpose: string }> = {
@@ -55,9 +55,13 @@ export const VARGA_NAMES: Record<VargaCode, { name: string; purpose: string }> =
   D2: { name: "Hora", purpose: "wealth" },
   D3: { name: "Drekkana", purpose: "siblings and courage" },
   D4: { name: "Chaturthamsa", purpose: "home, property and fortune" },
+  D5: { name: "Panchamsa", purpose: "talent and authority" },
+  D6: { name: "Shashthamsa", purpose: "health and obstacles" },
   D7: { name: "Saptamsa", purpose: "children" },
+  D8: { name: "Ashtamsa", purpose: "sudden events and longevity" },
   D9: { name: "Navamsa", purpose: "marriage and dharma" },
   D10: { name: "Dasamsa", purpose: "career and status" },
+  D11: { name: "Rudramsa", purpose: "gains and struggle" },
   D12: { name: "Dwadasamsa", purpose: "parents" },
   D16: { name: "Shodasamsa", purpose: "vehicles and comforts" },
   D20: { name: "Vimsamsa", purpose: "spiritual practice" },
@@ -66,7 +70,11 @@ export const VARGA_NAMES: Record<VargaCode, { name: string; purpose: string }> =
   D30: { name: "Trimsamsa", purpose: "misfortunes and health" },
   D40: { name: "Khavedamsa", purpose: "maternal legacy" },
   D45: { name: "Akshavedamsa", purpose: "paternal legacy and character" },
+  D57: { name: "Division 57", purpose: "a fine refinement of the chart" },
   D60: { name: "Shashtiamsa", purpose: "past karma; needs an exact birth time" },
+  D81: { name: "Nava-navamsa", purpose: "a refinement of the Navamsa" },
+  D108: { name: "Ashtottaramsa", purpose: "a refinement of the Navamsa" },
+  D144: { name: "Dwadas-dwadasamsa", purpose: "a refinement of the Dwadasamsa" },
 };
 
 const EPS = 1e-9;
@@ -109,13 +117,33 @@ export function vargaSign(code: VargaCode, longitude: number): number {
     case "D1":
       return s;
     case "D2": {
-      const first = part(d, 2) === 0;
-      return isOdd(s) === first ? 4 : 3; // Leo : Cancer
+      // Somanatha hora (parasara.net's D2): odd signs take pairs counted forward (Aries–Taurus,
+      // Leo–Virgo, Sagittarius–Capricorn), even signs pairs counted backward (Cancer–Gemini,
+      // Scorpio–Libra, Pisces–Aquarius).
+      const h = part(d, 2);
+      return isOdd(s) ? 4 * ((s % 6) / 2) + h : 4 * (((s - 1) % 6) / 2) + 3 - h;
     }
     case "D3":
       return mod12(s + [0, 4, 8][part(d, 3)]!);
     case "D4":
       return mod12(s + 3 * part(d, 4));
+    // D5, D6, D8, D11, D57, D81, D108 and D144 follow parasara.net (checked on three charts).
+    case "D5":
+      return (isOdd(s) ? [0, 10, 8, 2, 6] : [1, 5, 11, 9, 7])[part(d, 5)]!;
+    case "D6":
+      return mod12((isOdd(s) ? 0 : 6) + part(d, 6));
+    case "D8":
+      return mod12([0, 8, 4][modality(s)]! + part(d, 8));
+    case "D11":
+      return mod12(-s + part(d, 11));
+    case "D57":
+      return mod12(s + part(d, 57));
+    case "D81":
+      return vargaSign("D9", vargaSign("D9", longitude) * 30 + ((d * 9) % 30));
+    case "D108":
+      return vargaSign("D12", vargaSign("D9", longitude) * 30 + ((d * 9) % 30));
+    case "D144":
+      return vargaSign("D12", vargaSign("D12", longitude) * 30 + ((d * 12) % 30));
     case "D7":
       return mod12(s + (isOdd(s) ? 0 : 6) + part(d, 7));
     case "D9":
@@ -153,18 +181,19 @@ export function vargaSign(code: VargaCode, longitude: number): number {
  * way, (degrees into the part ÷ the part's width) × 30.
  */
 export function vargaDegree(code: VargaCode, longitude: number): number | null {
-  if (code === "D30") {
-    const { s, d } = split(longitude);
-    const table = isOdd(s) ? TRIMSAMSA_ODD : TRIMSAMSA_EVEN;
-    const i = Math.max(0, table.findIndex(([end]) => d + EPS < end));
-    const lo = i > 0 ? table[i - 1]![0] : 0;
-    return Math.min(30, ((d - lo) / (table[i]![0] - lo)) * 30);
-  }
   const n = Number(code.slice(1));
-  const { d } = split(longitude);
+  const { s, d } = split(longitude);
   const v = (d * n) % 30;
   // Floating error right at a part edge can give 29.9999999…; that is the next part's 0°.
-  return v > 30 - 1e-7 ? 0 : v;
+  const degree = v > 30 - 1e-7 ? 0 : v;
+  // The hora of an even sign runs backward (see vargaSign).
+  return code === "D2" && !isOdd(s) && degree > 0 ? 30 - degree : degree;
+}
+
+/** Parashara's hora lord sign (Leo for the Sun's hora, Cancer for the Moon's), which strength calculations use. */
+export function horaSign(longitude: number): number {
+  const { s, d } = split(longitude);
+  return isOdd(s) === (part(d, 2) === 0) ? 4 : 3;
 }
 
 export interface VargaHouse {

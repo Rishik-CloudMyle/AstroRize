@@ -1,5 +1,8 @@
 import express, { Router, type NextFunction, type Request, type Response } from "express";
 import { astrologerPayoutsView, saveAccount } from "../lib/payouts.ts";
+import { payoutSchedule } from "../lib/payout-schedule.ts";
+import { batchStatement } from "../lib/payout-statement.ts";
+import { isManualAdjustment } from "../lib/payout-adjustments.ts";
 import { assertNotBlocked, blockEndLabel } from "../lib/account-blocks.ts";
 import { z } from "zod";
 import { db } from "../db.ts";
@@ -265,7 +268,7 @@ portalRouter.get("/dashboard", async (req, res) => {
       todayEarnings: today,
       earningsDelta: yesterday > 0 ? `${today >= yesterday ? "+" : "−"}${Math.round(Math.abs(today - yesterday) / yesterday * 100)}% vs yesterday` : "first earnings this week",
       // A free call that continued paid has two lines (paid minutes, free minutes): one session.
-      sessions: new Set(todayLines.filter((l) => l.kind !== "adjustment" && l.kind !== "gift").map((l) => l.sessionRef)).size,
+      sessions: new Set(todayLines.filter((l) => !l.kind.endsWith("adjustment") && !isManualAdjustment(l.kind) && l.kind !== "gift").map((l) => l.sessionRef)).size,
       emergencySessions: todayLines.filter((l) => l.kind === "emergency").length,
       /** Your share of today's gifts. */
       gifts: todayLines.filter((l) => l.kind === "gift").reduce((s, l) => s + valued(a, l, rates).amount, 0),
@@ -299,6 +302,12 @@ portalRouter.get("/dashboard", async (req, res) => {
 portalRouter.get("/payout-account", async (req, res) => {
   const a = await me(req);
   res.json(await astrologerPayoutsView(a.id));
+});
+
+/** The astrologer's own statement for one payout batch (once Finance has approved it). */
+portalRouter.get("/payout-statements/:batchId", async (req, res) => {
+  const a = await me(req);
+  res.json({ statement: await batchStatement(String(req.params.batchId), a.id, { approvedOnly: true }) });
 });
 
 /** Save where payouts go. The account number and PAN are stored encrypted; changes are audited (never with the numbers). */
@@ -1497,8 +1506,8 @@ portalRouter.get("/earnings", async (req, res) => {
   const now = new Date();
   const freeDays = await freeCallsCycleDays();
   // Statement periods (IST) for the range the astrologer picked: a day, a week, 15 days (1–15, 16–end) or a month.
-  // The running one first, then the ones before it. Payouts themselves still go out per 15 days.
-  const current = cycleOf("EARNINGS", now, freeDays);
+  // The running one first, then the ones before it. Payouts go out on Finance's cycle (monthly by default).
+  const current = cycleOf("EARNINGS", now, freeDays, (await payoutSchedule()).cycleDays);
   const range = isRange(req.query.range) ? req.query.range : "fortnight";
   const list = statementPeriods(range, now);
   const index = Math.min(list.length - 1, Math.max(0, Number(req.query.period ?? 0) || 0));
@@ -1551,6 +1560,7 @@ portalRouter.get("/earnings", async (req, res) => {
       periods: list.map((x) => x.label),
       /** Payouts made to you, newest first: what the cycle was, what you earned, TDS and what was sent. */
       payouts: payoutRows.map((x) => ({
+        batchId: x.batchId,
         cycle: x.batch.cycle,
         earned: x.gross,
         tds: x.tds,

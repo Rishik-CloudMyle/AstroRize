@@ -15,6 +15,7 @@ import { FREE_CALL_DIRECTORY, minutesLeft } from "@/lib/free-calls";
 import { totalBalance, useSession } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 import LogoutButton from "../logout-button";
+import ThemeToggle from "../theme-toggle";
 import NotificationBell from "../notification-bell";
 import AppButton, { appButtonClass } from "../mobile/button";
 import AppCard from "../mobile/app-card";
@@ -188,6 +189,7 @@ export default function ProfileHub() {
         <ListRow href="/support" title="Help & support" subtitle="Raise an issue or follow one you raised" />
         <ListRow href="/settings" title="Settings" />
       </ListRows>
+      <ThemeToggle variant="row" className="mt-3 min-h-[52px] rounded-app-card border border-app-line bg-app-surface px-3.5 text-app-ink" />
 
       <LegalAndCompany />
 

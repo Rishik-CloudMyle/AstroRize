@@ -59,18 +59,18 @@ export function instantMultiplier(a: Astrologer): string {
 }
 
 export const RECOGNITION: Record<RecognitionKey, { label: string; bg: string; border: string; fg: string }> = {
-  premium: { label: "Premium", bg: "linear-gradient(180deg,#fffaf0,#f6edd6)", border: "#ead7a8", fg: "#6b5420" },
-  trusted: { label: "Trusted", bg: "linear-gradient(180deg,#f7f3ff,#efe8fc)", border: "#d9c8f4", fg: "#6d28d9" },
-  proven: { label: "Proven Expert", bg: "linear-gradient(180deg,#f3f7ff,#e8f0ff)", border: "#c5d8f6", fg: "#2563eb" },
-  rising: { label: "Rising", bg: "linear-gradient(180deg,#fff7ee,#ffebd6)", border: "#f2c196", fg: "#c2410c" },
-  fresh: { label: "New", bg: "linear-gradient(180deg,#fff4f7,#fde8ef)", border: "#f3c2d2", fg: "#db2777" },
+  premium: { label: "Premium", bg: "var(--dk-surface-alt, linear-gradient(180deg,#fffaf0,#f6edd6))", border: "var(--dk-line-alt, #ead7a8)", fg: "var(--dk-ink-alt, #6b5420)" },
+  trusted: { label: "Trusted", bg: "var(--dk-surface-alt, linear-gradient(180deg,#f7f3ff,#efe8fc))", border: "var(--dk-line-alt, #d9c8f4)", fg: "var(--dk-violet, #6d28d9)" },
+  proven: { label: "Proven Expert", bg: "var(--dk-surface-alt, linear-gradient(180deg,#f3f7ff,#e8f0ff))", border: "var(--dk-line-alt, #c5d8f6)", fg: "var(--dk-blue, #2563eb)" },
+  rising: { label: "Rising", bg: "var(--dk-surface-alt, linear-gradient(180deg,#fff7ee,#ffebd6))", border: "var(--dk-line-alt, #f2c196)", fg: "var(--dk-text-color-orange-700, #c2410c)" },
+  fresh: { label: "New", bg: "var(--dk-surface-alt, linear-gradient(180deg,#fff4f7,#fde8ef))", border: "var(--dk-line-alt, #f3c2d2)", fg: "var(--dk-pink, #db2777)" },
 };
 
 export const AVAILABILITY: Record<AvailabilityKey, { label: string; bg: string; fg: string; dot: string }> = {
-  on: { label: "Available", bg: "#e7f8ee", fg: "#147a45", dot: "#059669" },
-  busy: { label: "In consultation", bg: "#fde8ee", fg: "#c81e4a", dot: "#be123c" },
-  live: { label: "Live now", bg: "#ffedd5", fg: "#c2410c", dot: "#ea580c" },
-  off: { label: "Offline", bg: "#f3f1ef", fg: "#7a736c", dot: "#a8a29e" },
+  on: { label: "Available", bg: "var(--dk-surface-alt, #e7f8ee)", fg: "var(--dk-green, #147a45)", dot: "#059669" },
+  busy: { label: "In consultation", bg: "var(--dk-surface-alt, #fde8ee)", fg: "var(--dk-rose, #c81e4a)", dot: "var(--dk-text-color-rose-700, #be123c)" },
+  live: { label: "Live now", bg: "var(--dk-background-color-orange-100, #ffedd5)", fg: "var(--dk-text-color-orange-700, #c2410c)", dot: "#ea580c" },
+  off: { label: "Offline", bg: "var(--dk-surface-alt, #f3f1ef)", fg: "var(--dk-text-color-stone-500, #7a736c)", dot: "var(--dk-text-color-stone-400, #a8a29e)" },
 };
 
 /** Trust card values on the profile page. */
@@ -78,11 +78,11 @@ export function trustMetrics(a: Astrologer) {
   const none = a.rating === null;
   const r = a.rating ?? 0;
   return [
-    { label: "Overall rating", value: none ? "Insufficient data" : `${r.toFixed(1)} ★`, fg: none ? "#78716c" : "#1c1917" },
-    { label: "Verified consults", value: a.consults.toLocaleString("en-IN"), fg: "#1c1917" },
-    { label: "Would consult again", value: none ? "Insufficient data" : `${Math.round(r * 18.8)}%`, fg: none ? "#78716c" : "#047857" },
-    { label: "Satisfaction", value: none ? "Insufficient data" : r >= 4.8 ? "Excellent" : "Very good", fg: "#1c1917" },
-    { label: "Trust trend", value: none ? "Insufficient data" : r >= 4.8 ? "Consistently High" : "Improving", fg: "#b45309" },
+    { label: "Overall rating", value: none ? "Insufficient data" : `${r.toFixed(1)} ★`, fg: none ? "var(--dk-text-color-stone-500, #78716c)" : "var(--dk-text-color-ink, #1c1917)" },
+    { label: "Verified consults", value: a.consults.toLocaleString("en-IN"), fg: "var(--dk-text-color-ink, #1c1917)" },
+    { label: "Would consult again", value: none ? "Insufficient data" : `${Math.round(r * 18.8)}%`, fg: none ? "var(--dk-text-color-stone-500, #78716c)" : "var(--dk-text-color-emerald-700, #047857)" },
+    { label: "Satisfaction", value: none ? "Insufficient data" : r >= 4.8 ? "Excellent" : "Very good", fg: "var(--dk-text-color-ink, #1c1917)" },
+    { label: "Trust trend", value: none ? "Insufficient data" : r >= 4.8 ? "Consistently High" : "Improving", fg: "var(--dk-text-color-amber-700, #b45309)" },
   ];
 }
 

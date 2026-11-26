@@ -82,8 +82,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
+      // The theme script below may add data-theme before React takes over.
+      suppressHydrationWarning
       className={`${figtree.variable} ${cormorant.variable} ${playfair.variable} ${inter.variable} ${jetbrains.variable}`}
     >
+      <head>
+        {/* The chosen theme, applied before the first paint (no flash of the light theme). */}
+        <script dangerouslySetInnerHTML={{ __html: 'try{if(localStorage.getItem("astrorize.theme")==="dark"){document.documentElement.dataset.theme="dark";var m=document.querySelector(\'meta[name="theme-color"]\');if(m)m.content="#1a1612"}}catch(e){}' }} />
+      </head>
       <body className="bg-cream font-sans text-ink">{children}</body>
     </html>
   );

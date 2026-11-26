@@ -15,10 +15,10 @@ import { stageOf, stateTone, SUSPENSION } from "./stages";
 // with its negotiation, audit trail and the applicant actions.
 
 const PRESENCE: Record<string, { label: string; fg: string }> = {
-  on: { label: "Available", fg: "#047857" },
-  busy: { label: "In a consultation", fg: "#be123c" },
-  live: { label: "Hosting a live room", fg: "#b45309" },
-  off: { label: "Offline", fg: "#78716c" },
+  on: { label: "Available", fg: "var(--dk-text-color-emerald-700, #047857)" },
+  busy: { label: "In a consultation", fg: "var(--dk-text-color-rose-700, #be123c)" },
+  live: { label: "Hosting a live room", fg: "var(--dk-text-color-amber-700, #b45309)" },
+  off: { label: "Offline", fg: "var(--dk-text-color-stone-500, #78716c)" },
 };
 
 function Pill({ bg, fg, children }: { bg: string; fg: string; children: React.ReactNode }) {
@@ -174,11 +174,11 @@ export function AstrologerDialog({ id, onClose }: { id: string; onClose: () => v
                     {sus.label}
                   </Pill>
                 ) : (
-                  <Pill bg="#ecfdf5" fg="#047857">
+                  <Pill bg="var(--dk-background-color-emerald-50, #ecfdf5)" fg="var(--dk-text-color-emerald-700, #047857)">
                     Not suspended
                   </Pill>
                 )}
-                <Pill bg="#fef3c7" fg="#92400e">
+                <Pill bg="var(--dk-background-color-amber-100, #fef3c7)" fg="var(--dk-text-color-amber-800, #92400e)">
                   {a.recognition[0].toUpperCase() + a.recognition.slice(1)}
                 </Pill>
                 <span
@@ -608,9 +608,9 @@ export function ApplicationDialog({ id, onClose }: { id: string; onClose: () => 
                 onClick={() => void appAction(label)}
                 className="h-10 rounded-[11px] border px-4 text-[13px] font-bold disabled:opacity-60"
                 style={{
-                  background: label === "Advance" ? "#f59e0b" : "#fff",
-                  color: label === "Reject" ? "#be123c" : "#1c1917",
-                  borderColor: label === "Advance" ? "#f59e0b" : label === "Reject" ? "#fecdd3" : "#e7e0d6",
+                  background: label === "Advance" ? "#f59e0b" : "var(--dk-background-color-white, #fff)",
+                  color: label === "Advance" ? "#1c1917" : label === "Reject" ? "var(--dk-text-color-rose-700, #be123c)" : "var(--dk-text-color-ink, #1c1917)",
+                  borderColor: label === "Advance" ? "#f59e0b" : label === "Reject" ? "var(--dk-border-color-rose-200, #fecdd3)" : "var(--dk-border-color-line, #e7e0d6)",
                 }}
               >
                 {label}
@@ -689,7 +689,7 @@ export function ApplicationDialog({ id, onClose }: { id: string; onClose: () => 
                     aria-invalid={rateError ? true : undefined}
                     aria-describedby="activate-rate-hint"
                     className="h-10 w-[140px] rounded-[11px] border bg-white px-3 text-[14px] font-bold tabular-nums outline-none"
-                    style={{ borderColor: rateError ? "#fda4af" : "#e7e0d6" }}
+                    style={{ borderColor: rateError ? "#fda4af" : "var(--dk-border-color-line, #e7e0d6)" }}
                   />
                   <button
                     type="submit"
@@ -706,7 +706,7 @@ export function ApplicationDialog({ id, onClose }: { id: string; onClose: () => 
                     Cancel
                   </button>
                 </div>
-                <p id="activate-rate-hint" className="mt-1.5 mb-0 text-[12px]" style={{ color: rateError ? "#be123c" : "#57534e" }} role={rateError ? "alert" : undefined}>
+                <p id="activate-rate-hint" className="mt-1.5 mb-0 text-[12px]" style={{ color: rateError ? "var(--dk-text-color-rose-700, #be123c)" : "var(--dk-text-color-stone-600, #57534e)" }} role={rateError ? "alert" : undefined}>
                   {rateError ??
                     `Whole rupees, ₹${app.portal.rateLimits.min}–₹${app.portal.rateLimits.max.toLocaleString("en-IN")}. ${
                       app.portal.requestedRate ? `They asked for ₹${app.portal.requestedRate}/min.` : "They didn't request a rate."

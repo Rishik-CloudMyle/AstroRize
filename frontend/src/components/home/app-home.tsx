@@ -12,6 +12,7 @@ import EmptyState from "../mobile/empty-state";
 import { IconFilter } from "../mobile/icons";
 import SearchPill from "../mobile/search-pill";
 import SectionHeader from "../mobile/section-header";
+import InstallApp from "../mobile/install-app";
 import { consultationLabel } from "./review-text";
 
 // The home page on phones and tablets (< 1024px), laid out like the client's customer app Home:
@@ -68,6 +69,8 @@ export default function AppHome({
           </span>
         </Link>
       </div>
+
+      <InstallApp className="mt-4" />
 
       {/* ---------- Live Now ---------- */}
       <section aria-labelledby="app-live-title" className="mt-[22px]">
@@ -153,7 +156,7 @@ export default function AppHome({
               </li>
             ))}
             <li>
-              <ToolTile href="/free-tools" name="All tools" fade="rgba(247,242,255,.96)" />
+              <ToolTile href="/free-tools" name="All tools" fade="var(--dk-scrim-card, rgba(247,242,255,.96))" />
             </li>
           </ul>
         </section>
@@ -191,16 +194,16 @@ export default function AppHome({
 
 /** The light fade behind each tool's name, as in the app (dark text on every tile). */
 const TOOL_FADE: Record<string, string> = {
-  kundli: "rgba(252,244,228,.95)",
-  horoscope: "rgba(230,236,252,.94)",
-  matchmaking: "rgba(255,232,242,.94)",
-  panchang: "rgba(236,246,232,.94)",
-  numerology: "rgba(236,226,252,.94)",
-  tarot: "rgba(250,240,220,.95)",
-  daily: "rgba(252,243,226,.94)",
+  kundli: "var(--dk-scrim-card, rgba(252,244,228,.95))",
+  horoscope: "var(--dk-scrim-card, rgba(230,236,252,.94))",
+  matchmaking: "var(--dk-scrim-card, rgba(255,232,242,.94))",
+  panchang: "var(--dk-scrim-card, rgba(236,246,232,.94))",
+  numerology: "var(--dk-scrim-card, rgba(236,226,252,.94))",
+  tarot: "var(--dk-scrim-card, rgba(250,240,220,.95))",
+  daily: "var(--dk-scrim-card, rgba(252,243,226,.94))",
 };
 
-function ToolTile({ href, name, art, fade = "rgba(252,244,228,.95)" }: { href: string; name: string; art?: string; fade?: string }) {
+function ToolTile({ href, name, art, fade = "var(--dk-scrim-card, rgba(252,244,228,.95))" }: { href: string; name: string; art?: string; fade?: string }) {
   return (
     <Link
       href={href}

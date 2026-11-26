@@ -7,14 +7,13 @@
 //   First yogini = (birth nakshatra number, Ashwini = 1, + 3) mod 8, where 1 = Mangala … and
 //   0 = Sankata. So Ardra (6) → 9 mod 8 = 1 Mangala, Ashwini (1) → 4 Bhramari, Pushya (8) → 3 Dhanya.
 // The balance at birth is the unrun part of the Moon's nakshatra × the first yogini's years, exactly
-// like Vimshottari; years are 365.25 days (dasha.ts). Antardashas start with the mahadasha's own
+// like Vimshottari; years are solar years (dasha.ts). Antardashas start with the mahadasha's own
 // yogini and run in order, each lasting (MD years × AD years / 36).
 
 import type { GrahaKey } from "./constants.ts";
-import { DASHA_YEAR_DAYS } from "./dasha.ts";
+import { DASHA_YEAR_DAYS, solarClock } from "./dasha.ts";
 import { norm360 } from "./ephemeris.ts";
 
-const YEAR_MS = DASHA_YEAR_DAYS * 86_400_000;
 const NAK_SPAN = 360 / 27;
 
 export const YOGINIS: readonly { name: string; years: number; lord: GrahaKey }[] = [
@@ -59,19 +58,21 @@ export function yoginiDasha(moonLongitude: number, birth: Date): YoginiDasha {
   const nak = Math.min(26, Math.floor(lon / NAK_SPAN));
   const elapsed = (lon - nak * NAK_SPAN) / NAK_SPAN;
   const first = firstYogini(nak);
-  let start = birth.getTime() - elapsed * YOGINIS[first]!.years * YEAR_MS;
-  const until = birth.getTime() + 108 * YEAR_MS;
+  const at = solarClock(birth);
+  // `start` is in solar years from birth.
+  let start = -elapsed * YOGINIS[first]!.years;
+  const until = 108;
   const mahadashas: YoginiPeriod[] = [];
   for (let n = 0; start < until; n++) {
     const i = (first + n) % 8;
-    const len = YOGINIS[i]!.years * YEAR_MS;
-    const md = period(i, start, start + len);
+    const len = YOGINIS[i]!.years;
+    const md = period(i, at(start), at(start + len));
     const subs: YoginiPeriod[] = [];
     let t = start;
     for (let k = 0; k < 8; k++) {
       const j = (i + k) % 8;
-      const subLen = ((YOGINIS[i]!.years * YOGINIS[j]!.years) / 36) * YEAR_MS;
-      subs.push(period(j, t, t + subLen));
+      const subLen = (YOGINIS[i]!.years * YOGINIS[j]!.years) / 36;
+      subs.push(period(j, at(t), at(t + subLen)));
       t += subLen;
     }
     md.antardashas = subs;

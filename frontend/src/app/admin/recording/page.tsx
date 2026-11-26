@@ -41,7 +41,7 @@ export default async function RecordingPage() {
       <div className={`${PANEL} mt-4 p-5`}>
         <h2 className="mt-0 mb-3.5 text-[16px] font-bold">What is recorded</h2>
         <div className="flex flex-col gap-[9px]">
-          <div className={ROW} style={{ background: "#ecfdf5", borderColor: "#a7f3d0" }}>
+          <div className={ROW} style={{ background: "var(--dk-background-color-emerald-50, #ecfdf5)", borderColor: "var(--dk-border-color-emerald-200, #a7f3d0)" }}>
             <b className="text-[14px] text-ink">Chat</b>
             <span className="text-[12.5px] leading-[1.5] text-[#57534e]">
               Live-room chat, chat inside consultations and astrologer–customer messages are stored in the database:{" "}
@@ -60,7 +60,7 @@ export default async function RecordingPage() {
             </span>
           </div>
           {RECORDED_AUDIO.map((r) => (
-            <div key={r.mode} className={ROW} style={{ background: "#fff1f2", borderColor: "#fecdd3" }}>
+            <div key={r.mode} className={ROW} style={{ background: "var(--dk-background-color-rose-50, #fff1f2)", borderColor: "var(--dk-border-color-rose-200, #fecdd3)" }}>
               <b className="text-[14px] text-ink">{r.mode}</b>
               <span className="text-[12.5px] leading-[1.5] text-[#57534e]">{r.note}</span>
               <span className={PILL} style={{ background: "#be123c", borderColor: "#be123c", color: "#fff" }}>
@@ -69,7 +69,7 @@ export default async function RecordingPage() {
             </div>
           ))}
           {NOT_RECORDED.map((r) => (
-            <div key={r.mode} className={ROW} style={{ background: "#f5f5f4", borderColor: "#e7e0d6" }}>
+            <div key={r.mode} className={ROW} style={{ background: "var(--dk-background-color-stone-100, #f5f5f4)", borderColor: "var(--dk-border-color-line, #e7e0d6)" }}>
               <b className="text-[14px] text-ink">{r.mode}</b>
               <span className="text-[12.5px] leading-[1.5] text-[#78716c]">{r.note}</span>
               <span

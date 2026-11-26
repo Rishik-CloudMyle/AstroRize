@@ -1,8 +1,8 @@
 import { tooMany } from "./errors.ts";
 
 // Contact details in platform messages (client, Nov 2026): the free Messages chat and public
-// live-room chat allow none (FREE); the chat inside a paid consultation blocks only phone numbers
-// (PAID). The patterns live in contact-filter.ts, which the website runs too.
+// live-room chat allow none (FREE); the chat inside a paid consultation blocks phone numbers, email
+// addresses, social media and messaging IDs and UPI IDs (PAID). The patterns live in contact-filter.ts, which the website runs too.
 export { type ContactKind, type ContactPolicy, containsContactDetails, contactBlockedNotice, findContactDetails } from "./contact-filter.ts";
 
 /** The general notice (FREE policy) where there is no specific finding to name, e.g. a live room's title. */

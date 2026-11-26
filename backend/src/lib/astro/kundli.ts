@@ -157,11 +157,11 @@ export function zodiacPoint(longitude: number): ZodiacPoint {
 export function buildKundli(input: BirthInput): Kundli {
   const node = input.node ?? "mean";
   const z = zonedToUtc(input.date, input.time, input.timezone);
-  const ang = angles(z.utc, input.latitude, input.longitude);
+  const ang = angles(z.utc, input.latitude, input.longitude, "parashari");
   const lagna = zodiacPoint(ang.ascendant);
   const bhavas = sripatiBhavas(ang.ascendant, ang.midheaven);
 
-  const grahas: KundliGraha[] = grahaPositions(z.utc, node).map((p) => {
+  const grahas: KundliGraha[] = grahaPositions(z.utc, node, "parashari").map((p) => {
     const point = zodiacPoint(p.longitude);
     const names = GRAHA_NAMES[p.key];
     return {
@@ -220,7 +220,8 @@ export function buildKundli(input: BirthInput): Kundli {
     dasha,
     ...birthExtras({ birth: { date: input.date, utc: z.utc.toISOString(), latitude: input.latitude, longitude: input.longitude, timezone: input.timezone }, lagna, grahas }),
     ashtakavarga: computeAshtakavarga(lagna.sign.index, grahas),
-    kp: computeKp({ utc: z.utc.toISOString(), latitude: input.latitude, longitude: input.longitude, timezone: input.timezone }, grahas),
+    // KP keeps apparent positions with the Krishnamurti ayanamsa (see ephemeris.ts, Convention).
+    kp: computeKp({ utc: z.utc.toISOString(), latitude: input.latitude, longitude: input.longitude, timezone: input.timezone }, grahaPositions(z.utc, "true", "apparent")),
     shadbala: computeShadbala({ birth: { utc: z.utc.toISOString(), latitude: input.latitude, longitude: input.longitude, timezone: input.timezone }, lagnaLongitude: lagna.longitude, madhya: bhavas.madhya, grahas }),
   };
 }
@@ -256,21 +257,12 @@ function birthExtras(k: ExtrasSource): Pick<Kundli, "birthPanchang" | "avakhada"
 }
 
 /**
- * A saved chart brought up to date: charts saved before a feature existed lack its fields, so they
- * are worked out here from the stored longitudes and birth data. The stored row is never rewritten.
+ * A saved chart, brought up to the current calculations. A chart saved by an earlier version (it has
+ * no D144, added together with the corrected positions, dashas and tables) is worked out again from
+ * its birth details, so customers never see the old numbers. The saved row itself is not rewritten.
  */
 export function completeKundli(stored: Kundli): Kundli {
-  const grahasDone = stored.grahas.every((g) => g.dignity !== undefined && g.combust !== undefined);
-  const vargasDone = stored.vargas !== undefined && stored.vargas.D1.lagnaDegree !== undefined;
-  const extrasDone = stored.birthPanchang && stored.avakhada && stored.yogini && stored.doshas;
-  if (grahasDone && vargasDone && extrasDone && stored.bhavaChalit && stored.outsideTestedRange !== undefined) return stored;
-  const grahas = grahasDone ? stored.grahas : withCondition(stored.grahas.map((g) => ({ ...g })));
-  return {
-    ...stored,
-    grahas,
-    vargas: vargasDone ? stored.vargas : computeVargas(stored.lagna.longitude, grahas),
-    bhavaChalit: stored.bhavaChalit ?? bhavaChalit(stored.bhavas, grahas),
-    outsideTestedRange: stored.outsideTestedRange ?? outsideTestedRange(stored.birth.date),
-    ...(extrasDone ? {} : birthExtras({ birth: stored.birth, lagna: stored.lagna, grahas })),
-  };
+  if (stored.vargas?.D144 !== undefined) return stored;
+  const b = stored.birth;
+  return buildKundli({ date: b.date, time: b.time, latitude: b.latitude, longitude: b.longitude, timezone: b.timezone, node: stored.settings?.node ?? "mean" });
 }

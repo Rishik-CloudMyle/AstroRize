@@ -55,7 +55,7 @@ const dms = (sign: number, d: number, m: number, s = 0) => sign * 30 + d + m / 6
 const ist = (date: string, time: string) => zonedToUtc(date, time, "Asia/Kolkata").utc;
 const at = (s: Stamp | null) => (s ? new Date(s.iso) : null);
 const tropical = (key: GrahaKey, date: Date) => {
-  const p = grahaPositions(date).find((g) => g.key === key)!;
+  const p = grahaPositions(date, "mean", "apparent").find((g) => g.key === key)!;
   return p.longitude + trueLahiri(MakeTime(date));
 };
 
@@ -97,9 +97,9 @@ const DRIK: [GrahaKey, number][] = [
   ["jupiter", dms(3, 0, 7, 1.27)], ["venus", dms(5, 13, 42, 32.96)], ["saturn", dms(11, 2, 11, 52.98)], ["rahu", dms(10, 21, 47, 46.32)],
   ["ketu", dms(4, 21, 47, 46.32)],
 ];
-const drikPos = grahaPositions(DRIK_AT);
+const drikPos = grahaPositions(DRIK_AT, "mean", "apparent");
 for (const [key, lon] of DRIK) near("Sidereal vs Drik Panchang", key, drikPos.find((g) => g.key === key)!.longitude, lon, 60);
-near("Sidereal vs Drik Panchang", "rahu (true node)", grahaPositions(DRIK_AT, "true").find((g) => g.key === "rahu")!.longitude, dms(10, 23, 42, 9.5), 60);
+near("Sidereal vs Drik Panchang", "rahu (true node)", grahaPositions(DRIK_AT, "true", "apparent").find((g) => g.key === "rahu")!.longitude, dms(10, 23, 42, 9.5), 60);
 
 // ── 4. Ascendant ──
 // Source: astrotheme.com / astro.com (Astro-Databank, birth certificate, rating AA): Barack Obama,
@@ -107,7 +107,7 @@ near("Sidereal vs Drik Panchang", "rahu (true node)", grahaPositions(DRIK_AT, "t
 // Moon 3°21′ Gemini (tropical, rounded to 1′, hence 45″ tolerance).
 {
   const utc = zonedToUtc("1961-08-04", "19:24", "Pacific/Honolulu").utc;
-  const a = angles(utc, 21 + 18 / 60, -(157 + 52 / 60));
+  const a = angles(utc, 21 + 18 / 60, -(157 + 52 / 60), "apparent");
   near("Chart vs Astro-Databank", "Obama ascendant (tropical)", a.ascendant + a.ayanamsa, dms(10, 18, 3), 45);
   near("Chart vs Astro-Databank", "Obama Sun", tropical("sun", utc), dms(4, 12, 33), 45);
   near("Chart vs Astro-Databank", "Obama Moon", tropical("moon", utc), dms(2, 3, 21), 45);
@@ -121,7 +121,7 @@ near("Sidereal vs Drik Panchang", "rahu (true node)", grahaPositions(DRIK_AT, "t
 for (const [iso, lat, lon] of [["1990-05-15T09:00:00Z", 18.52, 73.86], ["2025-10-20T06:30:00Z", 28.64, 77.22], ["1975-03-02T01:00:00Z", 59.9, 10.75], ["2010-12-01T20:00:00Z", -33.87, 151.21]] as const) {
   const date = new Date(iso);
   const t = MakeTime(date);
-  const a = angles(date, lat, lon);
+  const a = angles(date, lat, lon, "apparent");
   const rot = CombineRotation(Rotation_ECT_EQD(t), Rotation_EQD_HOR(t, new Observer(lat, lon, 0)));
   const r = ((a.ascendant + a.ayanamsa) * Math.PI) / 180;
   const h = HorizonFromVector(RotateVector(rot, new Vector(Math.cos(r), Math.sin(r), 0, t)), "");
@@ -255,7 +255,8 @@ for (const [place, lat, lon, tz, date, rise, set] of RISE) {
   equal(g, "Moon at 0° Ashwini → full Ketu dasha", `${d0.balance.lord} ${d0.balance.years}y`, "ketu 7y");
   const d = vimshottari(dms(9, 1, 53, 37), birth); // Uttara Ashadha: Sun dasha
   const span = (new Date(d.mahadashas[8]!.end).getTime() - new Date(d.mahadashas[0]!.start).getTime()) / (365.25 * 86_400_000);
-  equal(g, "nine mahadashas span 120 years", Math.round(span * 1e6) / 1e6, 120);
+  // Solar years (the Sun's returns), so the span is 120 years to within a few days.
+  equal(g, "nine mahadashas span 120 solar years", Math.abs(span - 120) < 0.02, true);
   const md = d.mahadashas[1]!;
   equal(g, "antardashas fill their mahadasha", md.antardashas!.at(-1)!.end === md.end && md.antardashas![0]!.start === md.start, true);
   equal(g, "Uttara Ashadha → Sun dasha first", d.mahadashas[0]!.lord, "sun");
@@ -315,9 +316,10 @@ for (const [place, lat, lon, tz, date, rise, set] of RISE) {
   const cases: [VargaCode, string, number, number][] = [
     // D1: plain sign.
     ["D1", "0° Ar", 0, Ar], ["D1", "29°59′59″ Ar", END(Ar), Ar], ["D1", "0° Ta (edge)", 30, Ta],
-    // D2 hora: odd 0–15 Leo, 15–30 Cancer; even 0–15 Cancer, 15–30 Leo.
-    ["D2", "0° Ar (odd, 1st half) → Le", 0, Le], ["D2", "14°59′59″ Ar → Le", dms(Ar, 14, 59, 59), Le], ["D2", "15° Ar (edge) → Cn", dms(Ar, 15, 0), Cn],
-    ["D2", "0° Ta (even, 1st half) → Cn", dms(Ta, 0, 0), Cn], ["D2", "15° Ta → Le", dms(Ta, 15, 0), Le], ["D2", "29°59′59″ Ta → Le", END(Ta), Le],
+    // D2 (Somanatha hora, as parasara.net): odd signs count pairs forward, even signs backward.
+    ["D2", "0° Ar (odd, 1st half) → Ar", 0, Ar], ["D2", "14°59′59″ Ar → Ar", dms(Ar, 14, 59, 59), Ar], ["D2", "15° Ar (edge) → Ta", dms(Ar, 15, 0), Ta],
+    ["D2", "0° Ta (even, 1st half) → Cn", dms(Ta, 0, 0), Cn], ["D2", "15° Ta → Ge", dms(Ta, 15, 0), Ge], ["D2", "29°59′59″ Cn → Li", END(Cn), Li],
+    ["D2", "0° Ge → Le", dms(Ge, 0, 0), Le], ["D2", "15° Sg → Vi", dms(Sg, 15, 0), Vi], ["D2", "0° Cp → Sc", dms(Cp, 0, 0), Sc], ["D2", "15° Pi → Aq", dms(Pi, 15, 0), Aq],
     // D3: 0–10 the sign, 10–20 the 5th, 20–30 the 9th.
     ["D3", "9°59′59″ Ar → Ar", dms(Ar, 9, 59, 59), Ar], ["D3", "10° Ar → Le (5th)", dms(Ar, 10, 0), Le], ["D3", "20° Ar → Sg (9th)", dms(Ar, 20, 0), Sg],
     ["D3", "25° Ta → Cp (9th)", dms(Ta, 25, 0), Cp],
@@ -366,8 +368,9 @@ for (const [place, lat, lon, tz, date, rise, set] of RISE) {
 
   // Structure: sweeping each sign in 0.5″ steps, every varga changes sign exactly (parts − 1) times
   // per rashi (D30 has 5 unequal parts); and D9/D27 equal continuous counting from Aries.
-  const PARTS: Record<VargaCode, number> = { D1: 1, D2: 2, D3: 3, D4: 4, D7: 7, D9: 9, D10: 10, D12: 12, D16: 16, D20: 20, D24: 24, D27: 27, D30: 5, D40: 40, D45: 45, D60: 60 };
-  for (const code of VARGA_CODES) {
+  const PARTS: Record<VargaCode, number> = { D1: 1, D2: 2, D3: 3, D4: 4, D5: 5, D6: 6, D7: 7, D8: 8, D9: 9, D10: 10, D11: 11, D12: 12, D16: 16, D20: 20, D24: 24, D27: 27, D30: 5, D40: 40, D45: 45, D57: 57, D60: 60, D81: 81, D108: 108, D144: 144 };
+  // D81, D108 and D144 are compositions: neighbouring parts can share a sign, so they are not counted here.
+  for (const code of VARGA_CODES.filter((c) => !["D81", "D108", "D144"].includes(c))) {
     let ok = true;
     for (let s = 0; s < 12 && ok; s++) {
       let changes = 0;
@@ -440,7 +443,7 @@ for (const [place, lat, lon, tz, date, rise, set] of RISE) {
   const rahuT = t.grahas.find((x) => x.key === "rahu")!;
   const ketuT = t.grahas.find((x) => x.key === "ketu")!;
   equal(g, "settings.node", t.settings.node, "true");
-  near(g, "Rahu (true) vs Drik 23°42′09.5″ Aquarius", rahuT.longitude, dms(10, 23, 42, 9.5), 60);
+  near(g, "Rahu (true) vs Drik 23°42′09.5″ Aquarius", rahuT.longitude, dms(10, 23, 42, 9.5), 120); // parasara.net convention, ~1′ from Drik
   equal(g, "true and mean Rahu differ (~1°54′)", Math.round(wrap(rahuT.longitude - m.grahas.find((x) => x.key === "rahu")!.longitude) * 10) / 10, 1.9);
   equal(g, "Ketu opposite the true Rahu", Math.round(wrap(rahuT.longitude - ketuT.longitude)), -180);
   equal(g, "D9 Rahu from the true longitude", t.vargas.D9.houses.find((h) => h.grahas.includes("rahu"))!.sign, navamsaSign(rahuT.longitude));
@@ -474,17 +477,18 @@ for (const [place, lat, lon, tz, date, rise, set] of RISE) {
 // ── 11. Kundli report: birth details, panchang and avakhada at birth, AstroTalk cross-check ──
 // Reference (facts only): AstroTalk's free Kundli report for 01 Jan 1998 06:00 IST, Delhi
 // (28.6328 N, 77.2198 E, GMT+05:30), generated 15 Oct 2026 (Lahiri). Their planet table is given
-// to the arc-second; held to ±60″ because ayanamsa variants (true vs mean, Drik's +19″) differ.
+// to the arc-second. Our Kundli now follows parasara.net (the client's reference), which sits about
+// 1′–1.5′ from AstroTalk (different Lahiri value, geometric positions), so this is held to ±120″.
 {
   const g = "Kundli vs AstroTalk (1998-01-01 06:00 Delhi)";
   const k = engine.kundli({ date: "1998-01-01", time: "06:00", latitude: 28.6328, longitude: 77.2198, timezone: "Asia/Kolkata" });
   const lon = (key: GrahaKey) => k.grahas.find((x) => x.key === key)!.longitude;
-  near(g, "ascendant 28°29′09″ Scorpio", k.lagna.longitude, dms(7, 28, 29, 9), 60);
-  near(g, "Sun 16°33′01″ Sagittarius", lon("sun"), dms(8, 16, 33, 1), 60);
-  near(g, "Moon 16°26′50″ Capricorn", lon("moon"), dms(9, 16, 26, 50), 60);
-  near(g, "Mars 16°57′16″ Capricorn", lon("mars"), dms(9, 16, 57, 16), 60);
-  near(g, "Mercury 24°39′35″ Scorpio", lon("mercury"), dms(7, 24, 39, 35), 60);
-  near(g, "Venus 9°33′58″ Capricorn", lon("venus"), dms(9, 9, 33, 58), 60);
+  near(g, "ascendant 28°29′09″ Scorpio", k.lagna.longitude, dms(7, 28, 29, 9), 120);
+  near(g, "Sun 16°33′01″ Sagittarius", lon("sun"), dms(8, 16, 33, 1), 120);
+  near(g, "Moon 16°26′50″ Capricorn", lon("moon"), dms(9, 16, 26, 50), 120);
+  near(g, "Mars 16°57′16″ Capricorn", lon("mars"), dms(9, 16, 57, 16), 120);
+  near(g, "Mercury 24°39′35″ Scorpio", lon("mercury"), dms(7, 24, 39, 35), 120);
+  near(g, "Venus 9°33′58″ Capricorn", lon("venus"), dms(9, 9, 33, 58), 120);
   equal(g, "Venus retrograde", k.grahas.find((x) => x.key === "venus")!.retrograde, true);
   equal(g, "Moon nakshatra", `${k.birthNakshatra.name} ${k.birthNakshatra.pada}`, "Shravana 2");
   const p = k.birthPanchang;
@@ -619,8 +623,8 @@ for (const [place, lat, lon, tz, date, rise, set] of RISE) {
   equal(g, "D9 degree at a part edge (3°20′) = 0°", vargaDegree("D9", 10 / 3), 0);
   equal(g, "D60 degree of 0°15′ Taurus = 15°", Math.round(vargaDegree("D60", 30.25)! * 1e9) / 1e9, 15);
   equal(g, "D1 degree = degree in sign", vargaDegree("D1", 47.5), 17.5);
-  equal(g, "D30 degree: 2° into the 8° part (Aries 10–18) is 7.5°", vargaDegree("D30", 12), 7.5);
-  equal(g, "D30 degree: the first degree of a part is 0°", vargaDegree("D30", 5), 0);
+  equal(g, "D30 degree: (degrees in sign × 30) mod 30", vargaDegree("D30", 12.5), 15);
+  equal(g, "D2 degree of an even sign runs backward", vargaDegree("D2", 35), 20);
 
   // Old saved charts: removing every new field and completing gives the same chart back.
   const fresh = engine.kundli({ date: "1995-08-15", time: "10:30", latitude: 18.5204, longitude: 73.8567, timezone: "Asia/Kolkata" });
@@ -701,7 +705,7 @@ const OBAMA = { date: "1961-08-04", time: "19:24", latitude: 21 + 18 / 60, longi
   // 1 18°03′ Aq, 2 25°54′ Pi, 3 0°18′ Ta, 4 28°53′ Ta, 5 23°59′ Ge, 6 19°01′ Cn, 10 28°53′ Sc, 11 23°59′ Sg, 12 19°01′ Cp.
   const g = "KP / Placidus cusps vs Astrotheme";
   const utc = zonedToUtc(OBAMA.date, OBAMA.time, OBAMA.timezone).utc;
-  const a = angles(utc, OBAMA.latitude, OBAMA.longitude);
+  const a = angles(utc, OBAMA.latitude, OBAMA.longitude, "apparent");
   const cusps = placidusTropical(a.ramc, a.obliquity, OBAMA.latitude, a.ascendant + a.ayanamsa, a.midheaven + a.ayanamsa)!;
   const REF: [number, number, number, number][] = [
     [1, 10, 18, 3], [2, 11, 25, 54], [3, 1, 0, 18], [4, 1, 28, 53], [5, 2, 23, 59], [6, 3, 19, 1], [10, 7, 28, 53], [11, 8, 23, 59], [12, 9, 19, 1],
@@ -719,7 +723,7 @@ const OBAMA = { date: "1961-08-04", time: "19:24", latitude: 21 + 18 / 60, longi
   ] as const;
   for (const [label, input] of places) {
     const u = zonedToUtc(input.date, input.time, input.timezone).utc;
-    const an = angles(u, input.latitude, input.longitude);
+    const an = angles(u, input.latitude, input.longitude, "apparent");
     const c = placidusTropical(an.ramc, an.obliquity, input.latitude, an.ascendant + an.ayanamsa, an.midheaven + an.ayanamsa)!;
     const e = (an.obliquity * Math.PI) / 180;
     let worst = 0;
@@ -816,7 +820,7 @@ const OBAMA = { date: "1961-08-04", time: "19:24", latitude: 21 + 18 / 60, longi
   const k = engine.kundli(PUNE_95);
   const stored = JSON.parse(JSON.stringify(k)) as typeof k;
   equal(g, "ashtakavarga", JSON.stringify(computeAshtakavarga(stored.lagna.sign.index, stored.grahas)), JSON.stringify(k.ashtakavarga));
-  equal(g, "kp", JSON.stringify(computeKp(stored.birth, stored.grahas)), JSON.stringify(k.kp));
+  equal(g, "kp", JSON.stringify(computeKp(stored.birth, grahaPositions(new Date(stored.birth.utc), "true", "apparent"))), JSON.stringify(k.kp));
   equal(
     g,
     "shadbala",

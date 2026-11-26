@@ -47,25 +47,15 @@ export default function FeaturedCard({ astrologer: a }: { astrologer: Astrologer
             {a.chatPrice !== a.price && <span className="tabular-nums"> · Chat {rupee(a.chatPrice)}/min</span>}
           </div>
         </div>
-        {a.availability === "on" ? (
-          <Link
-            href={`/astrologer/${a.slug}`}
-            aria-label={`Consult now with ${a.name} (opens their profile)`}
-            className="az-cta az-sheen inline-flex h-[34px] shrink-0 items-center gap-1 rounded-full px-3.5 text-[12.5px] font-bold hover:-translate-y-0.5 hover:text-cta-ink hover:no-underline hover:shadow-[0_10px_20px_rgba(255,140,26,.38)]"
-          >
-            Consult now ›
-          </Link>
-        ) : (
-          // Not available to consult right now: the profile is still open to everyone (booking a
-          // fixed session, messaging, or being told when they're back).
-          <Link
-            href={`/astrologer/${a.slug}`}
-            aria-label={`Consult now with ${a.name} (opens their profile)`}
-            className="inline-flex h-[34px] shrink-0 items-center gap-1 rounded-full border border-[#f0d9a8] bg-white px-3.5 text-[12.5px] font-bold text-ink hover:text-ink hover:no-underline"
-          >
-            Consult now ›
-          </Link>
-        )}
+        {/* The same orange button whether or not they are online (as in the directory): the profile
+            is open to everyone, and the availability badge above says who can be consulted now. */}
+        <Link
+          href={`/astrologer/${a.slug}`}
+          aria-label={`Consult now with ${a.name} (opens their profile)`}
+          className="az-cta az-sheen inline-flex h-[34px] shrink-0 items-center gap-1 rounded-full px-3.5 text-[12.5px] font-bold hover:-translate-y-0.5 hover:text-cta-ink hover:no-underline hover:shadow-[0_10px_20px_rgba(255,140,26,.38)]"
+        >
+          Consult now ›
+        </Link>
       </div>
     </div>
   );

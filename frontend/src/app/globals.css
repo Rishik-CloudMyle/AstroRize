@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./theme-dark.css";
 
 /*
  * Design tokens taken from the prototype (part-b-website/00-shell-header-styles.html).
@@ -96,31 +97,31 @@
    * rounded-app-card, shadow-app-float, h-app-hit… Gold is the identity, orange (app-urgent)
    * is for urgency only. See src/components/mobile/README.md.
    */
-  --color-app-bg: #f7f4ee; /* page background (--bg) */
-  --color-app-elev: #fffdf8; /* sheets, modals, title bars (--bg-elev / --header) */
-  --color-app-surface: #ffffff; /* cards, inputs, icon buttons, tab bar (--surface / --nav) */
-  --color-app-ink: #1c1917; /* text */
-  --color-app-ink-2: #57534e; /* secondary text */
-  --color-app-ink-3: #78716c; /* hints, inactive tabs, placeholders */
-  --color-app-line: #e7e0d6; /* borders, dividers */
-  --color-app-line-gold: #ebcfa1; /* chip / filter-pill border: 26% gold into the line colour */
-  --color-app-line-gold-2: #ebcb95; /* title pill and "See all" border: 32% gold */
+  --color-app-bg: var(--dk-app-bg, #f7f4ee); /* page background (--bg) */
+  --color-app-elev: var(--dk-app-elev, #fffdf8); /* sheets, modals, title bars (--bg-elev / --header) */
+  --color-app-surface: var(--dk-app-surface, #ffffff); /* cards, inputs, icon buttons, tab bar (--surface / --nav) */
+  --color-app-ink: var(--dk-app-ink, #1c1917); /* text */
+  --color-app-ink-2: var(--dk-app-ink-2, #57534e); /* secondary text */
+  --color-app-ink-3: var(--dk-app-ink-3, #78716c); /* hints, inactive tabs, placeholders */
+  --color-app-line: var(--dk-app-line, #e7e0d6); /* borders, dividers */
+  --color-app-line-gold: var(--dk-app-line-gold, #ebcfa1); /* chip / filter-pill border: 26% gold into the line colour */
+  --color-app-line-gold-2: var(--dk-app-line-gold-2, #ebcb95); /* title pill and "See all" border: 32% gold */
   --color-app-primary: #f59e0b; /* primary buttons, selected choices (--p-500) */
   --color-app-on-primary: #1c1917; /* text on primary */
   --color-app-selected: #d97706; /* selected card / chip border, input focus (--p-600) */
-  --color-app-accent: #b45309; /* links, ghost buttons (--p-700) */
-  --color-app-active: #92400e; /* active tab, selected chip text (--p-800) */
-  --color-app-tint: #fffbeb; /* selected chip background (--p-50) */
-  --color-app-tint-2: #fef3c7; /* tags, avatar placeholder (--p-100) */
-  --color-app-tint-3: #fde68a; /* border of tinted (money) cards (--p-200) */
+  --color-app-accent: var(--dk-app-accent, #b45309); /* links, ghost buttons (--p-700) */
+  --color-app-active: var(--dk-app-active, #92400e); /* active tab, selected chip text (--p-800) */
+  --color-app-tint: var(--dk-app-tint, #fffbeb); /* selected chip background (--p-50) */
+  --color-app-tint-2: var(--dk-app-tint-2, #fef3c7); /* tags, avatar placeholder (--p-100) */
+  --color-app-tint-3: var(--dk-app-tint-3, #fde68a); /* border of tinted (money) cards (--p-200) */
   --color-app-urgent: #ea580c; /* badges, live, urgent CTAs only */
-  --color-app-success: #047857;
-  --color-app-success-bg: #ecfdf5;
-  --color-app-error: #be123c;
-  --color-app-error-bg: #fff1f2;
-  --color-app-info: #1d4ed8;
-  --color-app-info-bg: #eff6ff;
-  --color-app-scrim: rgba(28, 25, 23, 0.45);
+  --color-app-success: var(--dk-app-success, #047857);
+  --color-app-success-bg: var(--dk-app-success-bg, #ecfdf5);
+  --color-app-error: var(--dk-app-error, #be123c);
+  --color-app-error-bg: var(--dk-app-error-bg, #fff1f2);
+  --color-app-info: var(--dk-app-info, #1d4ed8);
+  --color-app-info-bg: var(--dk-app-info-bg, #eff6ff);
+  --color-app-scrim: var(--dk-app-scrim, rgba(28, 25, 23, 0.45));
 
   --radius-app-chip: 999px;
   --radius-app-btn: 12px;

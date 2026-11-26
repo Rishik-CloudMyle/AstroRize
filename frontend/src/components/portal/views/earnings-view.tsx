@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { downloadStatementXlsx } from "@/lib/earnings-export";
+import { downloadPayoutStatement, downloadStatementXlsx } from "@/lib/earnings-export";
 import { rupee } from "@/lib/portal/format";
 import PayoutAccountCard from "./payout-account-card";
 import type { Earnings, StatementRow } from "@/lib/portal/types";
@@ -12,14 +12,14 @@ import { APP_CARD, M_SECONDARY, PageHeader, Panel, Th, tdClass } from "../ui";
 function amountFor(row: StatementRow): { label: string; color: string } {
   if (row.kind === "welcome") {
     // A free call recorded before AstroRize paid for free minutes: ₹0.
-    return { label: row.amount > 0 ? rupee(row.amount) : "₹0 · free call", color: "#78716c" };
+    return { label: row.amount > 0 ? rupee(row.amount) : "₹0 · free call", color: "var(--dk-text-color-stone-500, #78716c)" };
   }
-  if (row.kind === "adjustment") return { label: row.amount ? rupee(row.amount) : "—", color: "#be123c" };
+  if (row.kind === "adjustment") return { label: row.amount ? rupee(row.amount) : "—", color: "var(--dk-text-color-rose-700, #be123c)" };
   // A customer was refunded after a complaint: your share of the refund comes off this period.
-  if (row.kind === "refund_adjustment") return { label: signed(row.amount), color: "#be123c" };
-  if (row.fundedBy === "PLATFORM") return { label: rupee(row.amount), color: "#047857" };
-  if (row.kind === "emergency") return { label: rupee(row.amount), color: "#c2410c" };
-  return { label: rupee(row.amount), color: "#1c1917" };
+  if (row.kind === "refund_adjustment" || row.kind === "deduction") return { label: signed(row.amount), color: "var(--dk-text-color-rose-700, #be123c)" };
+  if (row.fundedBy === "PLATFORM") return { label: rupee(row.amount), color: "var(--dk-text-color-emerald-700, #047857)" };
+  if (row.kind === "emergency") return { label: rupee(row.amount), color: "var(--dk-text-color-orange-700, #c2410c)" };
+  return { label: rupee(row.amount), color: "var(--dk-text-color-ink, #1c1917)" };
 }
 
 /** "Paid by AstroRize" on free-call compensation, "Before split" on lines recorded before revenue sharing. */
@@ -54,11 +54,11 @@ const RANGES = [
 ] as const;
 
 const PAYOUT_STATE: Record<string, { label: string; color: string }> = {
-  PROCESSED: { label: "Paid", color: "#047857" },
-  PROCESSING: { label: "On its way", color: "#b45309" },
-  QUEUED: { label: "On its way", color: "#b45309" },
-  FAILED: { label: "Failed — add or fix your payout details", color: "#be123c" },
-  REVERSED: { label: "Returned by the bank", color: "#be123c" },
+  PROCESSED: { label: "Paid", color: "var(--dk-text-color-emerald-700, #047857)" },
+  PROCESSING: { label: "Sent to the bank", color: "var(--dk-text-color-amber-700, #b45309)" },
+  QUEUED: { label: "Awaiting bank transfer", color: "var(--dk-text-color-amber-700, #b45309)" },
+  FAILED: { label: "Failed — add or fix your payout details", color: "var(--dk-text-color-rose-700, #be123c)" },
+  REVERSED: { label: "Returned by the bank", color: "var(--dk-text-color-rose-700, #be123c)" },
 };
 
 export default function EarningsView({ data }: { data: Earnings }) {
@@ -71,15 +71,15 @@ export default function EarningsView({ data }: { data: Earnings }) {
   const hasRefunds = data.statement.some((r) => r.kind === "refund_adjustment");
 
   const kpis = [
-    { label: "Gross (before GST)", value: signed(data.gross), sub: "sessions and gifts", color: "#1c1917" },
+    { label: "Gross (before GST)", value: signed(data.gross), sub: "sessions and gifts", color: "var(--dk-text-color-ink, #1c1917)" },
     {
       label: "Your earnings",
       value: signed(data.earned),
       sub: data.gifts > 0 ? `incl. ${rupee(data.gifts)} from gifts` : "your share",
-      color: "#047857",
+      color: "var(--dk-text-color-emerald-700, #047857)",
     },
-    { label: `TDS · ${tdsPct}%`, value: data.tds > 0 ? "−" + rupee(data.tds) : rupee(0), sub: "on your earnings", color: data.tds > 0 ? "#be123c" : "#78716c" },
-    { label: "Next payout", value: data.nextPayout, sub: "after this cycle closes", color: "#1c1917" },
+    { label: `TDS · ${tdsPct}%`, value: data.tds > 0 ? "−" + rupee(data.tds) : rupee(0), sub: "on your earnings", color: data.tds > 0 ? "var(--dk-text-color-rose-700, #be123c)" : "var(--dk-text-color-stone-500, #78716c)" },
+    { label: "Next payout", value: data.nextPayout, sub: "after this cycle closes", color: "var(--dk-text-color-ink, #1c1917)" },
   ];
 
   return (
@@ -189,12 +189,12 @@ export default function EarningsView({ data }: { data: Earnings }) {
           {[
             { label: free.periodLabel, value: `${free.calls} ${free.calls === 1 ? "call" : "calls"}` },
             { label: "Free minutes", value: String(free.minutes) },
-            { label: "Your amount", value: rupee(free.amount), color: "#047857" },
+            { label: "Your amount", value: rupee(free.amount), color: "var(--dk-text-color-emerald-700, #047857)" },
             { label: "Paid after", value: free.paidAfter },
           ].map((k) => (
             <div key={k.label} className="min-w-0 rounded-[14px] border border-line-soft bg-white/70 px-3.5 py-3 max-lg:rounded-app-btn max-lg:border-app-line max-lg:bg-app-bg max-lg:p-2.5">
               <div className="truncate text-[11px] font-bold tracking-[.08em] text-stone-500 uppercase max-lg:text-[12px] max-lg:font-normal max-lg:tracking-normal max-lg:text-app-ink-3 max-lg:normal-case">{k.label}</div>
-              <b className="mt-1 block truncate text-[18px] font-bold tabular-nums max-lg:mt-0 max-lg:text-[16px]" style={{ color: k.color ?? "#1c1917" }}>
+              <b className="mt-1 block truncate text-[18px] font-bold tabular-nums max-lg:mt-0 max-lg:text-[16px]" style={{ color: k.color ?? "var(--dk-text-color-ink, #1c1917)" }}>
                 {k.value}
               </b>
             </div>
@@ -303,10 +303,10 @@ export default function EarningsView({ data }: { data: Earnings }) {
         </div>
         <dl className="m-0 mt-4 grid grid-cols-2 gap-2.5 min-[700px]:grid-cols-4" aria-label="Totals for this period">
           {[
-            { label: "Total gross (before GST)", value: rupee(data.gross), color: "#1c1917" },
-            { label: "Your total earnings", value: rupee(data.earned), color: "#047857" },
-            { label: `TDS · ${tdsPct}%`, value: data.tds > 0 ? "−" + rupee(data.tds) : rupee(0), color: data.tds > 0 ? "#be123c" : "#78716c" },
-            { label: "Net payable after TDS", value: rupee(data.earned - data.tds), color: "#1c1917" },
+            { label: "Total gross (before GST)", value: rupee(data.gross), color: "var(--dk-text-color-ink, #1c1917)" },
+            { label: "Your total earnings", value: rupee(data.earned), color: "var(--dk-text-color-emerald-700, #047857)" },
+            { label: `TDS · ${tdsPct}%`, value: data.tds > 0 ? "−" + rupee(data.tds) : rupee(0), color: data.tds > 0 ? "var(--dk-text-color-rose-700, #be123c)" : "var(--dk-text-color-stone-500, #78716c)" },
+            { label: "Net payable after TDS", value: rupee(data.earned - data.tds), color: "var(--dk-text-color-ink, #1c1917)" },
           ].map((k) => (
             <div key={k.label} className="min-w-0 rounded-[12px] border border-line-soft bg-white/70 px-3.5 py-3">
               <dt className="truncate text-[11px] font-bold tracking-[.06em] text-stone-500 uppercase">{k.label}</dt>
@@ -326,13 +326,13 @@ export default function EarningsView({ data }: { data: Earnings }) {
 
       <Panel className="relative mt-4 p-5 max-lg:mt-[22px]" mobile="plain">
         <h2 className="m-0 mb-1 text-[17px] font-bold max-lg:text-[16px]">Your payouts</h2>
-        <p className="mt-0 mb-3 text-[12.5px] text-stone-500">What AstroRize has sent you (or is sending), newest first. Payouts go out for 15 days at a time, after the period ends.</p>
+        <p className="mt-0 mb-3 text-[12.5px] text-stone-500">What AstroRize has sent you (or is sending), newest first. Payouts are made after each payout cycle ends.</p>
         {data.payouts.length === 0 ? (
-          <p className="m-0 text-[13px] text-stone-500">No payout yet. Your first one is made after your first 15-day period closes.</p>
+          <p className="m-0 text-[13px] text-stone-500">No payout yet. Your first one is made after your first payout cycle closes.</p>
         ) : (
           <ul className="m-0 flex list-none flex-col gap-2 p-0">
             {data.payouts.map((p, i) => {
-              const st = PAYOUT_STATE[p.state] ?? { label: p.state, color: "#78716c" };
+              const st = PAYOUT_STATE[p.state] ?? { label: p.state, color: "var(--dk-text-color-stone-500, #78716c)" };
               return (
                 <li key={`${p.cycle}-${i}`} className="rounded-xl border border-line-soft bg-white/70 px-3.5 py-3 text-[13px]">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -345,6 +345,13 @@ export default function EarningsView({ data }: { data: Earnings }) {
                   </div>
                   {p.tdsNote && <div className="mt-0.5 text-[11.5px] text-stone-500">TDS: {p.tdsNote}</div>}
                   {p.failure && <div className="mt-1 text-[12px] font-semibold text-rose-700">{p.failure}</div>}
+                  <button
+                    type="button"
+                    onClick={() => void downloadPayoutStatement(`/portal/payout-statements/${encodeURIComponent(p.batchId)}`).catch(() => toast("Couldn't download the statement."))}
+                    className="mt-2 h-9 rounded-[10px] border border-line bg-white px-3 text-[12.5px] font-bold text-ink"
+                  >
+                    Monthly statement
+                  </button>
                 </li>
               );
             })}

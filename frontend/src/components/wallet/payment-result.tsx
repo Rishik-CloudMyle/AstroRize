@@ -182,7 +182,7 @@ export default function PaymentResult({ data }: { data: PaymentPageData }) {
                 <div
                   key={r.label}
                   className={`flex justify-between gap-3 py-1.5 text-sm ${r.rule ? "mt-1.5 border-t border-[#f3e9d8] pt-3" : ""}`}
-                  style={{ color: r.green ? "#047857" : r.strong ? "#1c1917" : "#57534e", fontWeight: r.strong ? 700 : 500 }}
+                  style={{ color: r.green ? "var(--dk-text-color-emerald-700, #047857)" : r.strong ? "var(--dk-text-color-ink, #1c1917)" : "var(--dk-text-color-stone-600, #57534e)", fontWeight: r.strong ? 700 : 500 }}
                 >
                   <span>{r.label}</span>
                   <b className="tabular-nums">{r.value}</b>

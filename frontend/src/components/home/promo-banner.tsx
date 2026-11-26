@@ -260,7 +260,7 @@ export default function PromoBanner({ welcomeOffer }: { welcomeOffer: WelcomeOff
             aria-label={`${i + 1} of ${count}: ${s.title}`}
             inert={i !== trackAt}
             className="relative h-[256px] w-full flex-none overflow-hidden sm:h-[280px] md:h-[300px] lg:h-[340px] xl:h-[380px]"
-            style={{ background: s.bg }}
+            style={{ background: `var(--dk-slide-bg, ${s.bg})` }}
           >
             {/* The picture runs to the right edge and fades into the slide's colour. */}
             <div
@@ -281,7 +281,7 @@ export default function PromoBanner({ welcomeOffer }: { welcomeOffer: WelcomeOff
               <div className="flex w-[66%] min-w-0 flex-col items-start pb-5 max-[359px]:w-[86%] sm:w-[60%] sm:pb-4 lg:w-[56%] lg:pb-2">
                 <span
                   className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-white/70 px-2.5 py-[3px] text-[9.5px] font-extrabold tracking-[.12em] uppercase sm:px-3 sm:py-1 sm:text-[11px]"
-                  style={{ color: s.accent }}
+                  style={{ color: `var(--dk-slide-accent, ${s.accent})` }}
                 >
                   <svg viewBox="0 0 12 12" aria-hidden="true" className="size-2 shrink-0 sm:size-2.5">
                     <path fill="currentColor" d="M6 0.4 7.15 4.5 11.6 6 7.15 7.5 6 11.6 4.85 7.5 0.4 6l4.45-1.5z" />

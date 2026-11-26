@@ -1,3 +1,5 @@
+import { api } from "@/lib/api/client";
+
 // The earnings statement as an Excel file, for the astrologer (their own earnings) and for staff (one
 // astrologer's, from Astrologer payouts). Every column says what it is, the Mode column is wide enough to
 // read, and the totals (gross, earnings, TDS, net payable) are at the bottom and in the header block.
@@ -42,6 +44,10 @@ export interface ExportInput {
   payouts?: ExportPayout[];
   /** Staff export: adds a "Payout status" column. */
   withStatus?: boolean;
+  /** Payout statements: the TDS actually applied (thresholds can make it differ from the rate), extra header lines and, for free-call batches, totals over AstroRize-paid lines. */
+  tdsAmount?: number;
+  details?: [string, string][];
+  includePlatform?: boolean;
 }
 
 const TYPE: Record<string, string> = {
@@ -54,21 +60,26 @@ const TYPE: Record<string, string> = {
   welcome: "Free welcome call",
   adjustment: "Adjustment",
   refund_adjustment: "Refund adjustment",
+  incentive: "Incentive",
+  deduction: "Deduction",
 };
 
 /** Totals the file (and the on-screen summaries) use: customer-paid lines only, free-call compensation apart. */
-export function statementTotals(rows: ExportRow[], tdsPct: number) {
-  const paid = rows.filter((r) => r.fundedBy === "CUSTOMER");
+export function statementTotals(rows: ExportRow[], tdsPct: number, includePlatform = false) {
+  const paid = rows.filter((r) => includePlatform || r.fundedBy === "CUSTOMER");
+  // Incentives and deductions Finance added: part of the earnings, not of what customers paid.
+  const adjustments = paid.filter((r) => r.kind === "incentive" || r.kind === "deduction").reduce((s, r) => s + r.amount, 0);
   const gross = paid.reduce((s, r) => s + r.gross, 0);
   const earned = paid.reduce((s, r) => s + r.amount, 0);
   const tds = Math.round((Math.max(0, earned) * tdsPct) / 100);
   return {
     gross,
-    commission: gross - earned,
+    commission: gross - (earned - adjustments),
+    adjustments,
     earned,
     tds,
     net: earned - tds,
-    freeCompensation: rows.filter((r) => r.fundedBy === "PLATFORM").reduce((s, r) => s + r.amount, 0),
+    freeCompensation: rows.filter((r) => !includePlatform && r.fundedBy === "PLATFORM").reduce((s, r) => s + r.amount, 0),
     minutes: paid.reduce((s, r) => s + r.minutes, 0),
   };
 }
@@ -77,7 +88,8 @@ const slug = (s: string) => s.replace(/[^0-9A-Za-z]+/g, "-").replace(/^-|-$/g, "
 
 export async function downloadStatementXlsx(input: ExportInput): Promise<void> {
   const { default: ExcelJS } = await import("exceljs");
-  const t = statementTotals(input.rows, input.tdsPct);
+  const base = statementTotals(input.rows, input.tdsPct, input.includePlatform);
+  const t = input.tdsAmount === undefined ? base : { ...base, tds: input.tdsAmount, net: base.earned - input.tdsAmount };
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("Statement");
   const cols = input.withStatus ? 11 : 10;
@@ -88,6 +100,7 @@ export async function downloadStatementXlsx(input: ExportInput): Promise<void> {
   ws.addRow(["Astrologer", input.astrologer]);
   ws.addRow(["Period", `${input.periodLabel} (${input.rangeLabel})`]);
   ws.addRow(["Generated", new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) + " IST"]);
+  for (const d of input.details ?? []) ws.addRow(d);
   ws.addRow([]);
 
   const head = ws.addRow([
@@ -142,6 +155,7 @@ export async function downloadStatementXlsx(input: ExportInput): Promise<void> {
   };
   sum("Total gross (before GST)", t.gross, "customers' charge without GST, before the split").getCell(9).value = t.gross;
   sum("Platform commission", t.commission, "AstroRize's share");
+  if (t.adjustments) sum("Incentives and deductions", t.adjustments, "added by AstroRize Finance");
   sum("Total earnings (your share)", t.earned, "what you earned in the period");
   sum(`TDS at ${input.tdsPct}%`, -t.tds, "withheld when paid");
   const net = sum("Net payable after TDS", t.net, "what is sent to you");
@@ -171,4 +185,10 @@ export async function downloadStatementXlsx(input: ExportInput): Promise<void> {
   a.download = `astrorize-statement-${slug(input.astrologer)}-${slug(input.periodLabel)}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** Fetches one astrologer's statement for a payout batch and downloads it as Excel. */
+export async function downloadPayoutStatement(path: string): Promise<void> {
+  const { statement } = await api.get<{ statement: ExportInput }>(path);
+  await downloadStatementXlsx(statement);
 }

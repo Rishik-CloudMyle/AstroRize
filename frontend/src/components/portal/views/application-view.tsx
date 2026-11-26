@@ -12,9 +12,9 @@ import { Chip, ChipRow } from "../../mobile/chips";
 import { M_LABEL, M_PRIMARY, M_SECONDARY, PageHeader, Panel } from "../ui";
 
 function chipColors(chip: string): { bg: string; fg: string } {
-  if (chip === "Rejected" || chip === "Required" || / to finish$/.test(chip)) return { bg: "#fff1f2", fg: "#be123c" };
-  if (chip === "Uploading" || chip === "Pending" || chip === "Later") return { bg: "#eff6ff", fg: "#1d4ed8" };
-  return { bg: "#ecfdf5", fg: "#047857" };
+  if (chip === "Rejected" || chip === "Required" || / to finish$/.test(chip)) return { bg: "var(--dk-background-color-rose-50, #fff1f2)", fg: "var(--dk-text-color-rose-700, #be123c)" };
+  if (chip === "Uploading" || chip === "Pending" || chip === "Later") return { bg: "var(--dk-background-color-blue-50, #eff6ff)", fg: "var(--dk-text-color-blue-700, #1d4ed8)" };
+  return { bg: "var(--dk-background-color-emerald-50, #ecfdf5)", fg: "var(--dk-text-color-emerald-700, #047857)" };
 }
 
 /** Edits are saved this long after the last keystroke. */
@@ -276,7 +276,7 @@ export default function ApplicationView({ data }: { data: ApplicationDraft }) {
                   <label
                     htmlFor={inputId}
                     className="flex min-h-[50px] items-center gap-2.5 rounded-xl border px-3.5 max-lg:min-h-[52px] max-lg:rounded-app-input max-lg:px-4"
-                    style={{ background: ticked ? "#ecfdf5" : "#fff", borderColor: ticked ? "#a7f3d0" : "#e7e0d6" }}
+                    style={{ background: ticked ? "var(--dk-background-color-emerald-50, #ecfdf5)" : "var(--dk-background-color-white, #fff)", borderColor: ticked ? "var(--dk-border-color-emerald-200, #a7f3d0)" : "var(--dk-border-color-line, #e7e0d6)" }}
                   >
                     <input
                       id={inputId}

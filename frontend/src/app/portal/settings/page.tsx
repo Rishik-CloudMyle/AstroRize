@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import ChangePassword from "@/components/account/change-password";
 import LogoutButton from "@/components/logout-button";
+import ThemeToggle from "@/components/theme-toggle";
 import { PageHeader, Panel } from "@/components/portal/ui";
 
 export const metadata: Metadata = { title: "Settings" };
@@ -11,6 +12,10 @@ export default function PortalSettingsPage() {
     <div>
       <PageHeader title="Settings" subtitle="Your password, legal pages and signing out." />
       <Panel>
+        <h2 className="m-0 mb-3 text-[16px] font-bold">Appearance</h2>
+        <ThemeToggle variant="row" />
+      </Panel>
+      <Panel className="mt-4">
         <h2 className="m-0 text-[16px] font-bold">Password</h2>
         <ChangePassword className="mt-3" />
       </Panel>

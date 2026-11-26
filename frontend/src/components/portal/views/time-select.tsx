@@ -40,7 +40,7 @@ export default function TimeSelect({
   const p = parts(value);
   const minutes = MINUTES.includes(p.minute) ? MINUTES : [...MINUTES, p.minute].sort();
   const box = `${className} appearance-none px-2.5 text-center`;
-  const style = { borderColor: invalid ? "#be123c" : "#e7e0d6" };
+  const style = { borderColor: invalid ? "#be123c" : "var(--dk-border-color-line, #e7e0d6)" };
   return (
     <div id={id} role="group" aria-label="Time" className="grid grid-cols-[1fr_1fr_1.1fr] gap-1.5">
       <select aria-label="Hour" value={p.hour} onChange={(e) => onChange(join(Number(e.target.value), p.minute, p.pm))} className={box} style={style}>

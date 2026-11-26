@@ -165,7 +165,7 @@ export interface KpChart {
 
 /** Sidereal Placidus cusps (or the Porphyry fallback) for an instant and place. */
 export function kpCusps(utc: Date, latitude: number, longitude: number): { cusps: number[]; fallback: boolean; ayanamsa: number } {
-  const a = angles(utc, latitude, longitude);
+  const a = angles(utc, latitude, longitude, "apparent");
   const trop = placidusTropical(a.ramc, a.obliquity, latitude, a.ascendant + a.ayanamsa, a.midheaven + a.ayanamsa);
   const kpAyanamsa = a.ayanamsa - KP_SHIFT;
   if (trop) return { cusps: trop.map((c) => norm360(c - kpAyanamsa)), fallback: false, ayanamsa: kpAyanamsa };
@@ -184,8 +184,8 @@ export function kpCusps(utc: Date, latitude: number, longitude: number): { cusps
 
 /** KP ruling planets for any moment and place (the birth moment, or "now" for a question). */
 export function kpRulingPlanets(at: Date, latitude: number, longitude: number, timezone: string, node: NodeKind = "mean"): RulingPlanets {
-  const asc = kpLords(toKp(angles(at, latitude, longitude).ascendant));
-  const moon = kpLords(toKp(grahaPositions(at, node).find((g) => g.key === "moon")!.longitude));
+  const asc = kpLords(toKp(angles(at, latitude, longitude, "apparent").ascendant));
+  const moon = kpLords(toKp(grahaPositions(at, node, "apparent").find((g) => g.key === "moon")!.longitude));
   return rulingFrom(at, asc, moon, dayFrame(at, latitude, longitude, timezone).dayLord);
 }
 

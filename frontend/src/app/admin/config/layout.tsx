@@ -7,7 +7,7 @@ export default function ConfigconsoleLayout({ children }: { children: React.Reac
     <div>
       <PageTitle title="Config console" sub="Every operational setting lives here. Changes are drafted, approved by a second person and versioned. Each setting has one platform-wide value." />
       <Suspense>
-        <SubNav label="Config console pages" items={[{"href":"/admin/config","label":"All settings"},{"href":"/admin/config/fixed-sessions","label":"Fixed Sessions"},{"href":"/admin/config/free-calls","label":"Free Calls"}]} />
+        <SubNav label="Config console pages" items={[{"href":"/admin/config","label":"All settings"},{"href":"/admin/config/fixed-sessions","label":"Fixed Sessions"},{"href":"/admin/config/free-calls","label":"Free Calls"},{"href":"/admin/config/revenue-share","label":"Revenue share"}]} />
       </Suspense>
       <div className="mt-1">{children}</div>
     </div>

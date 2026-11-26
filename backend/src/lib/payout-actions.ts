@@ -2,7 +2,7 @@ import { db } from "../db.ts";
 import { audit } from "./audit.ts";
 import { conflict, notFound } from "./errors.ts";
 import { createPayoutsForBatch } from "./payouts.ts";
-import { payoutMode } from "./razorpayx.ts";
+import { providerView } from "./payout-providers/index.ts";
 import { actorName, secondPerson } from "./rbac.ts";
 import type { AuthContext } from "../middleware/auth.ts";
 import type { AdminRoleClaim } from "./session.ts";
@@ -43,13 +43,13 @@ export async function releaseBatch(admin: Admin, id: string) {
   });
   if (!count) throw conflict(`${b.id} was just released by someone else.`);
   await audit(admin, "payout.batch.release", b.id, `APPROVED → RELEASED${self}`);
-  // One transfer per astrologer through RazorpayX (or the simulation until its keys are set). A problem
-  // here never undoes the release: the transfers can be sent again from the Transfers page.
+  // One payout per astrologer, for the payout provider (or Finance) to pay. A problem here never undoes
+  // the release: the payouts can be made again from the Transfers page.
   let transfers = null;
   try {
     transfers = await createPayoutsForBatch(b.id);
   } catch (e) {
     console.error(`Transfers for ${b.id}:`, e instanceof Error ? e.message : e);
   }
-  return { ok: true, actor: actorName(admin), mode: payoutMode(), transfers };
+  return { ok: true, actor: actorName(admin), mode: providerView().mode, provider: providerView(), transfers };
 }

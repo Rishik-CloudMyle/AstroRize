@@ -9,9 +9,9 @@ import { useErrorToast, useToast } from "../portal-provider";
 import { M_LABEL, M_PRIMARY, M_SECONDARY, PageHeader, Panel, Th, tdClass } from "../ui";
 
 const PERMISSION: Record<Permission, { label: string; color: string }> = {
-  yes: { label: "Yes", color: "#047857" },
-  no: { label: "No", color: "#be123c" },
-  read: { label: "Read only", color: "#b45309" },
+  yes: { label: "Yes", color: "var(--dk-text-color-emerald-700, #047857)" },
+  no: { label: "No", color: "var(--dk-text-color-rose-700, #be123c)" },
+  read: { label: "Read only", color: "var(--dk-text-color-amber-700, #b45309)" },
 };
 
 function Cell({ value }: { value: Permission }) {
@@ -118,8 +118,8 @@ export default function ComplianceView({ data }: { data: Compliance }) {
         <ol className="mt-[18px] grid grid-cols-2 gap-x-2.5 gap-y-3.5 sm:flex sm:gap-2.5">
           {data.steps.map((c) => (
             <li key={c.label} className="min-w-0 flex-1">
-              <span className="block h-1 rounded-full" style={{ background: c.reached ? "#f59e0b" : "#e7e0d6" }} />
-              <b className="mt-2 block text-[12.5px] font-bold" style={{ color: c.reached ? "#1c1917" : "#a8a29e" }}>
+              <span className="block h-1 rounded-full" style={{ background: c.reached ? "#f59e0b" : "var(--dk-background-color-line, #e7e0d6)" }} />
+              <b className="mt-2 block text-[12.5px] font-bold" style={{ color: c.reached ? "var(--dk-text-color-ink, #1c1917)" : "var(--dk-text-color-stone-400, #a8a29e)" }}>
                 {c.label}
               </b>
               <span className="mt-px block text-[11.5px] text-stone-400">{c.when}</span>

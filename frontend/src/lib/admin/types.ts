@@ -42,10 +42,12 @@ export interface AdminSession {
   counts: Partial<Record<PageKey, number>>;
   /** What each badge counts, e.g. "2 applications waiting on an HR decision" (its tooltip). */
   hints: Partial<Record<PageKey, string>>;
+  /** Refunds waiting (dispute refunds to approve + wallet refunds to pay): the badge on Finance → Refunds. */
+  refunds?: number;
 }
 
 /** The nav badges on their own (GET /admin/nav-counts): re-read after actions and every 30 seconds. */
-export type NavCounts = Pick<AdminSession, "counts" | "hints">;
+export type NavCounts = Pick<AdminSession, "counts" | "hints" | "refunds">;
 
 /** How a closed ticket ended: "Refunded ₹40", "Free call given", "Rejected" …, with the reason or what was given. */
 export interface TicketOutcome {
@@ -495,6 +497,9 @@ export interface PayoutBatch {
   /** User id of the approver; the releaser must be a different person. */
   approvedById: string | null;
   releasedByName: string | null;
+  /** The payout day after the cycle ("5 Dec"), and whether it passed with money still unpaid. */
+  dueOn: string | null;
+  overdue: boolean;
   /** "20 Sep, 18:04 IST" */
   releasedAt: string | null;
 }
@@ -578,6 +583,8 @@ export interface RunningCycle {
 }
 
 export interface FinanceData {
+  schedule: { day: number; cycleDays: 15 | 30 };
+  provider: { id: "manual" | "razorpayx"; label: string; automatic: boolean; mode: "manual" | "mock" | "test" | "live" };
   kpis: Kpi[];
   cycle: string;
   batches: PayoutBatch[];

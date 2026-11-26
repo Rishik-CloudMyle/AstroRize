@@ -12,9 +12,9 @@ import ObserverPanel, { sinceLabel } from "./observer-panel";
 const REFRESH_MS = 10_000;
 
 const PRIORITY: Record<"review" | "new" | "none", { label: string; chipBg: string; chipFg: string; bg: string; border: string }> = {
-  review: { label: "Needs review", chipBg: "#be123c", chipFg: "#fff", bg: "#fff1f2", border: "#fecdd3" },
-  new: { label: "New astrologer", chipBg: "#f59e0b", chipFg: "#1c1917", bg: "#fffbeb", border: "#fde68a" },
-  none: { label: "Public live", chipBg: "#e7e5e4", chipFg: "#44403c", bg: "#fffdf8", border: "#e7e0d6" },
+  review: { label: "Needs review", chipBg: "#be123c", chipFg: "#fff", bg: "var(--dk-background-color-rose-50, #fff1f2)", border: "var(--dk-border-color-rose-200, #fecdd3)" },
+  new: { label: "New astrologer", chipBg: "#f59e0b", chipFg: "#1c1917", bg: "var(--dk-background-color-amber-50, #fffbeb)", border: "var(--dk-border-color-amber-200, #fde68a)" },
+  none: { label: "Public live", chipBg: "var(--dk-background-color-stone-200, #e7e5e4)", chipFg: "var(--dk-text-color-stone-700, #44403c)", bg: "var(--dk-background-color-paper, #fffdf8)", border: "var(--dk-border-color-line, #e7e0d6)" },
 };
 
 const TILE = "az-panel min-w-0 rounded-[14px] border border-line px-[15px] py-[13px]";
@@ -119,10 +119,10 @@ export default function MonitoringView({ data: initial }: { data: MonitoringData
       </div>
 
       <div className="mt-2.5 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Tile label="Public lives now" value={data.summary.lives} color="#c2410c" />
-        <Tile label="Private consultations" value={data.summary.privates} color="#57534e" />
-        <Tile label="Need review" value={data.summary.review} color="#be123c" />
-        <Tile label="New astrologers live" value={data.summary.newAstrologers} color="#b45309" />
+        <Tile label="Public lives now" value={data.summary.lives} color="var(--dk-text-color-orange-700, #c2410c)" />
+        <Tile label="Private consultations" value={data.summary.privates} color="var(--dk-text-color-stone-600, #57534e)" />
+        <Tile label="Need review" value={data.summary.review} color="var(--dk-text-color-rose-700, #be123c)" />
+        <Tile label="New astrologers live" value={data.summary.newAstrologers} color="var(--dk-text-color-amber-700, #b45309)" />
       </div>
       <p className="mt-2 mb-0 text-[11.5px] leading-[1.5] text-[#78716c]">
         Counted from what is happening right now. &ldquo;Need review&rdquo; = a live flagged by a monitor or with

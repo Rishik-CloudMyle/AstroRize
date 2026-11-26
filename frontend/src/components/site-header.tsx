@@ -12,6 +12,7 @@ import { useLiveNow } from "./live-notifier";
 import { ConsultInProgressBar } from "./consult/consult-lock";
 import AccountMenu from "./account-menu";
 import NotificationBell from "./notification-bell";
+import ThemeToggle from "./theme-toggle";
 
 export default function SiteHeader() {
   const session = useSession();
@@ -60,6 +61,7 @@ export default function SiteHeader() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2 min-[380px]:gap-2.5">
+          <ThemeToggle />
           {session.loggedIn && session.role !== "customer" ? (
             // Astrologers and staff browsing the public site get a way back to their portal.
             <>

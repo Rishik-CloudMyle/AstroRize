@@ -1,28 +1,18 @@
-import { createHash } from "node:crypto";
 import { db } from "../db.ts";
 import type { PayoutAccount } from "../generated/prisma/client.ts";
 import { audit } from "./audit.ts";
 import { loadTdsContext, type TdsLine } from "./tds.ts";
 import { badRequest, conflict, notFound } from "./errors.ts";
 import { rupee } from "./format.ts";
-import {
-  MOCK_SETTLE_MS,
-  RazorpayXError,
-  createFundAccount,
-  fetchPayout,
-  outcomeOf,
-  payoutMode,
-  sendPayout,
-  settleMock,
-  type Outcome,
-} from "./razorpayx.ts";
+import { PayoutProviderError, fingerprintOf, payoutProvider, type Outcome } from "./payout-providers/index.ts";
 import { open, seal } from "./secret-box.ts";
 
-// Paying astrologers: when Finance releases a payout batch, one transfer per astrologer is made
-// through RazorpayX (lib/razorpayx.ts) for what they are owed minus TDS. Each transfer is a Payout
-// row that moves QUEUED → PROCESSING → PROCESSED, or FAILED (retry from Finance) / REVERSED.
-// Money is never sent twice: every attempt carries its own idempotency key, a transfer that may or
-// may not have reached RazorpayX is repeated with the same key, and only a human retries a failure.
+// Paying astrologers: when Finance releases (finalises) a payout batch, one Payout row per astrologer
+// is made for what they are owed minus TDS. It moves QUEUED → PROCESSING → PROCESSED, or FAILED
+// (retry from Finance) / REVERSED. Who moves the money is the payout provider's business
+// (lib/payout-providers): by default Finance pays from the company bank account and records it
+// (lib/payout-manual.ts); an automatic provider sends it from here. Money is never sent twice: one
+// row per astrologer per batch, every attempt has its own idempotency key, and only a human retries.
 
 // ── Payout details ──
 
@@ -35,6 +25,7 @@ export interface AccountInput {
   pan: string;
 }
 
+const NO_DETAILS = "No payout details on file — the astrologer adds them under Earnings → Payout details. Then retry.";
 const PAN = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 const IFSC = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const UPI = /^[a-zA-Z0-9._-]{2,64}@[a-zA-Z0-9]{2,32}$/;
@@ -56,9 +47,6 @@ export function checkAccountInput(i: AccountInput): AccountInput {
   if (!IFSC.test(ifsc)) throw badRequest("Enter a valid IFSC code, like HDFC0001234.");
   return { kind: "BANK", holderName, accountNumber, ifsc, pan };
 }
-
-/** Anything that changes where money would go must make a new RazorpayX fund account. */
-const fingerprintOf = (kind: string, holder: string, number: string) => createHash("sha256").update(`${kind}|${holder}|${number}`).digest("hex").slice(0, 32);
 
 export async function saveAccount(astrologerId: string, raw: AccountInput, opts: { isTest?: boolean } = {}) {
   const v = checkAccountInput(raw);
@@ -101,11 +89,6 @@ export function accountView(a: PayoutAccount) {
 export const methodLabelOf = (a: PayoutAccount | null) =>
   !a ? "No payout details yet" : a.kind === "BANK" ? `${(a.ifsc ?? "").slice(0, 4)} ••••${a.last4}` : `UPI ${a.upiId ? `${a.upiId.slice(0, 2)}•••@${a.upiId.split("@")[1]}` : ""}`;
 
-/** Simulation only: the failing test accounts. */
-function mockFails(a: PayoutAccount): boolean {
-  return a.kind === "UPI" ? a.upiId === "failure@razorpay" : !!a.accountNumberEnc && open(a.accountNumberEnc).endsWith("0000");
-}
-
 // ── Making and sending transfers ──
 
 /**
@@ -121,6 +104,7 @@ export async function createPayoutsForBatch(batchId: string) {
     loadTdsContext(),
   ]);
   const accounts = new Map((await db.payoutAccount.findMany({ where: { astrologerId: { in: grouped.map((g) => g.astrologerId) } } })).map((a) => [a.astrologerId, a]));
+  const provider = payoutProvider();
   let created = 0;
   for (const g of grouped) {
     const gross = g._sum.amount ?? 0;
@@ -132,6 +116,9 @@ export async function createPayoutsForBatch(batchId: string) {
     if (amount <= 0) continue;
     const exists = await db.payout.findUnique({ where: { batchId_astrologerId: { batchId: batch.id, astrologerId: g.astrologerId } }, select: { id: true } });
     if (exists) continue;
+    const account = accounts.get(g.astrologerId) ?? null;
+    // Without bank details there is nothing to transfer to: Finance sees it as needing attention.
+    const noDetails = !provider.automatic && !account;
     await db.payout.create({
       data: {
         batchId: batch.id,
@@ -141,9 +128,11 @@ export async function createPayoutsForBatch(batchId: string) {
         tdsPct: t.pct,
         tdsNote: t.note,
         amount,
-        state: "QUEUED",
+        state: noDetails ? "FAILED" : "QUEUED",
+        provider: provider.id,
+        failureReason: noDetails ? NO_DETAILS : null,
         idempotencyKey: `${batch.id}:${g.astrologerId}:1`,
-        methodLabel: methodLabelOf(accounts.get(g.astrologerId) ?? null),
+        methodLabel: methodLabelOf(account),
       },
     });
     created++;
@@ -171,54 +160,30 @@ async function fail(id: string, reason: string) {
   return p;
 }
 
-/** Sends one QUEUED transfer to RazorpayX (or the simulation). Never throws for a payout problem. */
+/** Automatic providers only: sends one QUEUED transfer. Never throws for a payout problem. */
 export async function dispatchPayout(id: string) {
   const p = await db.payout.findUnique({ where: { id } });
-  if (!p || p.state !== "QUEUED") return p;
-  const acct = await db.payoutAccount.findUnique({ where: { astrologerId: p.astrologerId } });
-  if (!acct) return fail(id, "No payout details on file — the astrologer adds them under Earnings → Payout details. Then retry.");
+  const provider = payoutProvider();
+  if (!p || p.state !== "QUEUED" || !provider.send || p.provider !== provider.id) return p;
+  const account = await db.payoutAccount.findUnique({ where: { astrologerId: p.astrologerId } });
+  if (!account) return fail(id, NO_DETAILS);
   try {
-    const plainNumber = acct.kind === "BANK" ? open(acct.accountNumberEnc!) : acct.upiId!;
-    const fp = fingerprintOf(acct.kind, acct.holderName, plainNumber);
-    let fundAccountId = acct.razorpayFundAccountId;
-    if (!fundAccountId || acct.fundFingerprint !== fp) {
-      const made = await createFundAccount({
-        name: acct.holderName,
-        reference: acct.astrologerId,
-        ...(acct.kind === "BANK" ? { bank: { accountNumber: plainNumber, ifsc: acct.ifsc! } } : { upi: acct.upiId! }),
-      });
-      fundAccountId = made.fundAccountId;
-      await db.payoutAccount.update({
-        where: { astrologerId: acct.astrologerId },
-        data: { razorpayContactId: made.contactId, razorpayFundAccountId: made.fundAccountId, fundFingerprint: fp },
-      });
-    }
-    const mode = acct.kind === "UPI" ? "UPI" : "IMPS";
-    const sent = await sendPayout({
-      fundAccountId,
-      amount: p.amount,
-      mode,
-      reference: p.idempotencyKey.slice(0, 40),
-      narration: "AstroRize payout",
-      idempotencyKey: p.idempotencyKey,
-      mockFails: mockFails(acct),
-    });
-    await db.payout.update({ where: { id }, data: { state: "PROCESSING", mode, razorpayPayoutId: sent.id, failureReason: null } });
-    await audit(null, "payout.transfer.sent", id, `${p.batchId} · ${p.astrologerId} · ${rupee(p.amount)} · ${mode} · ${payoutMode()}`);
-    const out = outcomeOf(sent);
-    if (out.state !== "PROCESSING") await applyOutcome(id, out);
+    const sent = await provider.send({ amount: p.amount, idempotencyKey: p.idempotencyKey, account });
+    await db.payout.update({ where: { id }, data: { state: "PROCESSING", mode: sent.mode, razorpayPayoutId: sent.reference, failureReason: null } });
+    await audit(null, "payout.transfer.sent", id, `${p.batchId} · ${p.astrologerId} · ${rupee(p.amount)} · ${sent.mode} · ${provider.id} ${provider.environment()}`);
+    if (sent.outcome.state !== "PROCESSING") await applyOutcome(id, sent.outcome);
   } catch (e) {
-    if (e instanceof RazorpayXError && e.transient) {
-      // We can't tell whether RazorpayX got it: leave it queued; the sweep repeats it with the same key.
-      await db.payout.update({ where: { id }, data: { failureReason: "Couldn't reach RazorpayX — trying again shortly." } });
+    if (e instanceof PayoutProviderError && e.transient) {
+      // Left queued; the sweep repeats it with the same key.
+      await db.payout.update({ where: { id }, data: { failureReason: e.message } });
     } else {
-      await fail(id, e instanceof RazorpayXError ? e.description : "The payout couldn't be sent.");
+      await fail(id, e instanceof PayoutProviderError ? e.message : "The payout couldn't be sent.");
     }
   }
   return db.payout.findUnique({ where: { id } });
 }
 
-/** A result from RazorpayX (webhook, polling or the simulation). Idempotent; a final answer is never undone except by a reversal. */
+/** A result from the provider (webhook, polling or the simulation). Idempotent; a final answer is never undone except by a reversal. */
 export async function applyOutcome(id: string, out: Outcome) {
   const p = await db.payout.findUnique({ where: { id } });
   if (!p || out.state === "PROCESSING") return p;
@@ -227,7 +192,7 @@ export async function applyOutcome(id: string, out: Outcome) {
   if (!allowed) return p;
   const { count } = await db.payout.updateMany({
     where: { id, state: p.state },
-    data: { state: out.state, utr: out.utr ?? p.utr, failureReason: out.state === "PROCESSED" ? null : out.reason },
+    data: { state: out.state, utr: out.utr ?? p.utr, failureReason: out.state === "PROCESSED" ? null : out.reason, ...(out.state === "PROCESSED" ? { paidAt: new Date() } : {}) },
   });
   if (count) await audit(null, `payout.transfer.${out.state.toLowerCase()}`, id, `${p.batchId} · ${p.astrologerId} · ${rupee(p.amount)}${out.utr ? ` · ${out.utr}` : ""}${out.reason ? ` — ${out.reason}` : ""}`);
   return db.payout.findUnique({ where: { id } });
@@ -238,34 +203,33 @@ export async function retryPayout(id: string, admin: Parameters<typeof audit>[0]
   const p = await db.payout.findUnique({ where: { id } });
   if (!p) throw notFound("That transfer doesn't exist.");
   if (p.state !== "FAILED" && p.state !== "REVERSED") throw conflict("Only a failed or returned transfer can be retried.");
+  const provider = payoutProvider();
+  const account = await db.payoutAccount.findUnique({ where: { astrologerId: p.astrologerId } });
+  if (!provider.automatic && !account) throw conflict(NO_DETAILS);
   const attempts = p.attempts + 1;
   const { count } = await db.payout.updateMany({
     where: { id, state: p.state },
-    data: { state: "QUEUED", attempts, idempotencyKey: `${p.batchId}:${p.astrologerId}:${attempts}`, razorpayPayoutId: null, utr: null, failureReason: null, methodLabel: methodLabelOf(await db.payoutAccount.findUnique({ where: { astrologerId: p.astrologerId } })) },
+    data: { state: "QUEUED", attempts, idempotencyKey: `${p.batchId}:${p.astrologerId}:${attempts}`, razorpayPayoutId: null, utr: null, failureReason: null, provider: provider.id, mode: null, paidAt: null, exportedAt: null, exportRef: null, markedByName: null, methodLabel: methodLabelOf(account) },
   });
   if (!count) throw conflict("That transfer was just retried by someone else.");
   await audit(admin, "payout.transfer.retry", id, `${p.batchId} · ${p.astrologerId} · attempt ${attempts}`);
   return dispatchPayout(id);
 }
 
-// ── Sweep: settle simulated payouts, repeat unsent ones, check on slow real ones ──
+// ── Sweep (automatic providers): repeat unsent transfers, check on ones on their way ──
 
 export async function sweepPayouts(now = new Date()) {
-  const mode = payoutMode();
-  for (const q of await db.payout.findMany({ where: { state: "QUEUED", updatedAt: { lt: new Date(now.getTime() - 60_000) } }, select: { id: true }, take: 50 })) {
+  const provider = payoutProvider();
+  if (!provider.automatic || !provider.check) return;
+  for (const q of await db.payout.findMany({ where: { provider: provider.id, state: "QUEUED", updatedAt: { lt: new Date(now.getTime() - 60_000) } }, select: { id: true }, take: 50 })) {
     await dispatchPayout(q.id);
   }
-  const waiting = await db.payout.findMany({ where: { state: "PROCESSING", razorpayPayoutId: { not: null } }, take: 100 });
+  const waiting = await db.payout.findMany({ where: { provider: provider.id, state: "PROCESSING", razorpayPayoutId: { not: null } }, take: 100 });
   for (const p of waiting) {
-    const age = now.getTime() - p.updatedAt.getTime();
     try {
-      if (p.razorpayPayoutId!.startsWith("pout_mock_")) {
-        if (age < MOCK_SETTLE_MS) continue;
-        const acct = await db.payoutAccount.findUnique({ where: { astrologerId: p.astrologerId } });
-        await applyOutcome(p.id, outcomeOf(settleMock(!!acct && mockFails(acct), p.razorpayPayoutId!)));
-      } else if (mode !== "mock" && age > 5 * 60_000) {
-        await applyOutcome(p.id, outcomeOf(await fetchPayout(p.razorpayPayoutId!)));
-      }
+      const account = await db.payoutAccount.findUnique({ where: { astrologerId: p.astrologerId } });
+      const out = await provider.check(p.razorpayPayoutId!, now.getTime() - p.updatedAt.getTime(), account);
+      if (out) await applyOutcome(p.id, out);
     } catch (e) {
       console.error(`Payout ${p.id} status check:`, e instanceof Error ? e.message : e);
     }
@@ -297,7 +261,10 @@ export async function transfersView(limit = 200) {
       mode: p.mode,
       method: p.methodLabel,
       utr: p.utr,
-      reference: p.razorpayPayoutId,
+      reference: p.razorpayPayoutId ?? p.exportRef,
+      automatic: p.provider !== "manual",
+      paidAt: p.paidAt?.toISOString() ?? null,
+      markedBy: p.markedByName,
       reason: p.failureReason,
       attempts: p.attempts,
       at: p.updatedAt.toISOString(),
@@ -321,7 +288,7 @@ export async function astrologerPayoutsView(astrologerId: string) {
   ]);
   return {
     account: account ? accountView(account) : null,
-    payouts: recent.map((p) => ({ id: p.id, cycle: p.batch.cycle, amount: p.amount, tds: p.tds, state: p.state, utr: p.utr, reason: p.state === "FAILED" ? p.failureReason : null, at: p.updatedAt.toISOString() })),
+    payouts: recent.map((p) => ({ id: p.id, batchId: p.batchId, cycle: p.batch.cycle, amount: p.amount, tds: p.tds, state: p.state, utr: p.utr, reason: p.state === "FAILED" ? p.failureReason : null, at: p.updatedAt.toISOString() })),
   };
 }
 

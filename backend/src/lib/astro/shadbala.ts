@@ -68,7 +68,7 @@ import { FRIENDS, RASHI_LORD, type GrahaKey } from "./constants.ts";
 import { dayFrame } from "./dayframe.ts";
 import { angleDiff, angles, norm360 } from "./ephemeris.ts";
 import { julianDay, localParts } from "./time.ts";
-import { vargaSign, type VargaCode } from "./vargas.ts";
+import { horaSign, vargaSign, type VargaCode } from "./vargas.ts";
 
 export type ShadbalaPlanet = "sun" | "moon" | "mars" | "mercury" | "jupiter" | "venus" | "saturn";
 export const SHADBALA_PLANETS: readonly ShadbalaPlanet[] = ["sun", "moon", "mars", "mercury", "jupiter", "venus", "saturn"];
@@ -280,7 +280,7 @@ export function computeShadbala(input: ShadbalaInput): Shadbala {
     const uchcha = uchchaBala(p, l);
     let saptavargaja = 0;
     for (const code of SAPTAVARGAS) {
-      const vs = vargaSign(code, l);
+      const vs = code === "D2" ? horaSign(l) : vargaSign(code, l);
       const lord = RASHI_LORD[vs] as ShadbalaPlanet; // sign lords are always one of the seven
       if (code === "D1" && isMoolatrikona(p, l)) saptavargaja += 45;
       else if (lord === p) saptavargaja += 30;

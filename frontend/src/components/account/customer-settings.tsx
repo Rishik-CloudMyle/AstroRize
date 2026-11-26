@@ -9,6 +9,7 @@ import { ApiError, api } from "@/lib/api/client";
 import { DATA_RIGHTS } from "@/lib/mock/wallet";
 import { useHydrated, useSession } from "@/lib/session-store";
 import ChangePassword from "./change-password";
+import ThemeToggle from "@/components/theme-toggle";
 
 const CARD = "rounded-2xl border border-line bg-white p-5";
 
@@ -48,6 +49,11 @@ export default function CustomerSettings() {
 
   return (
     <div className="grid gap-4">
+      <section className={CARD}>
+        <h2 className="mb-3 text-[17px] font-bold">Appearance</h2>
+        <ThemeToggle variant="row" />
+      </section>
+
       <section className={CARD}>
         <h2 className="m-0 text-[17px] font-bold">Password</h2>
         <ChangePassword className="mt-3" />

@@ -194,13 +194,13 @@ export function toLiveStats(n: RawAnalytics["now"]): LiveStat[] {
       sub: inProgress
         ? `chat ${c.chat} · voice ${c.voice} · video ${c.video} · instant ${c.instant}`
         : "none in progress",
-      color: "#1c1917",
+      color: "var(--dk-text-color-ink, #1c1917)",
     },
     {
       label: "Waiting in queue",
       value: n.waiting,
       sub: n.waiting ? `longest wait ${waitLabel(n.longestWaitSeconds)}` : "nobody waiting",
-      color: "#b45309",
+      color: "var(--dk-text-color-amber-700, #b45309)",
     },
     {
       label: "Public live rooms",
@@ -209,12 +209,12 @@ export function toLiveStats(n: RawAnalytics["now"]): LiveStat[] {
       color: "#eb6834",
     },
     { label: "Astrologers online", value: online, sub: `of ${n.roster} on the public roster`, color: "#2a78d6" },
-    { label: "Available now", value: n.presence.on, sub: "ready for a consultation", color: "#047857" },
+    { label: "Available now", value: n.presence.on, sub: "ready for a consultation", color: "var(--dk-text-color-emerald-700, #047857)" },
     {
       label: "Busy or live",
       value: occupied,
       sub: online ? `${Math.round((occupied / online) * 100)}% of those online` : "nobody online",
-      color: "#be123c",
+      color: "var(--dk-text-color-rose-700, #be123c)",
     },
   ];
 }
@@ -338,7 +338,7 @@ export async function getOverview(): Promise<OverviewData> {
           (n) => plural(n, "sign-up"),
           {
             title: "New customer sign-ups",
-            color: "#b45309",
+            color: "var(--dk-text-color-amber-700, #b45309)",
             ariaLabel: "New customer accounts per day, last 30 days",
             headline: intl(sum(s.signups)),
             headlineNote: "in 30 days",
@@ -350,10 +350,10 @@ export async function getOverview(): Promise<OverviewData> {
     channels: a.channels.map((c) => ({ ...c, day: c.day.slice(8), date: dayLabel(c.day) })),
     top: a.top,
     availability: [
-      { label: "Available", count: a.now.presence.on, color: "#047857" },
-      { label: "Busy", count: a.now.presence.busy, color: "#be123c" },
-      { label: "Live", count: a.now.presence.live, color: "#b45309" },
-      { label: "Offline", count: a.now.presence.off, color: "#a8a29e" },
+      { label: "Available", count: a.now.presence.on, color: "var(--dk-text-color-emerald-700, #047857)" },
+      { label: "Busy", count: a.now.presence.busy, color: "var(--dk-text-color-rose-700, #be123c)" },
+      { label: "Live", count: a.now.presence.live, color: "var(--dk-text-color-amber-700, #b45309)" },
+      { label: "Offline", count: a.now.presence.off, color: "var(--dk-text-color-stone-400, #a8a29e)" },
     ],
     registered: a.now.roster,
     trialBalance: o.trialBalance,
@@ -398,6 +398,7 @@ interface RawFinance {
     grossDelta: string;
     pendingPayouts: string;
     batchesAwaiting: number;
+    toTransfer: string;
     duplicates: number;
     trialBalance: string;
     walletsOut: number;
@@ -416,6 +417,8 @@ interface RawFinance {
   };
   cycle: string;
   tdsPct: number;
+  schedule: FinanceData["schedule"];
+  provider: FinanceData["provider"];
   toPrepare: PrepareCandidate[];
   running: RunningCycle[];
   batches: {
@@ -434,6 +437,8 @@ interface RawFinance {
     approvedById: string | null;
     releasedByName: string | null;
     releasedAt: string | null;
+    dueOn: string | null;
+    overdue: boolean;
   }[];
   disputeRefunds: DisputeRefund[];
   denominations: number[];
@@ -464,7 +469,7 @@ export async function getFinance(): Promise<FinanceData> {
       kpi(
         "Pending payouts",
         k.pendingPayouts,
-        `${k.batchesAwaiting} ${k.batchesAwaiting === 1 ? "batch" : "batches"} awaiting release`,
+        `${k.batchesAwaiting} ${k.batchesAwaiting === 1 ? "batch" : "batches"} to finalise · ${k.toTransfer} to pay`,
         "#b45309",
       ),
       kpi(
@@ -497,6 +502,8 @@ export async function getFinance(): Promise<FinanceData> {
     ],
     cycle: f.cycle,
     tdsPct: f.tdsPct,
+    schedule: f.schedule,
+    provider: f.provider,
     toPrepare: f.toPrepare,
     running: f.running,
     batches: f.batches.map((b) => ({
@@ -514,6 +521,8 @@ export async function getFinance(): Promise<FinanceData> {
       approvedByName: b.approvedByName,
       approvedById: b.approvedById,
       releasedByName: b.releasedByName,
+      dueOn: b.dueOn,
+      overdue: b.overdue,
       releasedAt: b.releasedAt,
     })),
     disputeRefunds: f.disputeRefunds,

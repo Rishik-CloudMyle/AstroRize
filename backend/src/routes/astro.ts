@@ -8,7 +8,7 @@ import { db } from "../db.ts";
 import { HttpError, badRequest, notFound } from "../lib/errors.ts";
 import { rateLimit } from "../lib/safety.ts";
 import { RASHIS } from "../lib/astro/constants.ts";
-import type { DashaPeriod } from "../lib/astro/dasha.ts";
+import { subPeriods, type DashaPeriod } from "../lib/astro/dasha.ts";
 import { getAstroEngine } from "../lib/astro/engine.ts";
 import { getPlace, searchPlaces, suggestPlaces } from "../lib/astro/geo.ts";
 import { outsideTestedRange } from "../lib/astro/ephemeris.ts";
@@ -248,9 +248,23 @@ astroRouter.get("/kundli/:id/dasha", async (req, res) => {
   const chart = await ownChart(req);
   const at = z.coerce.date().optional().parse(req.query.at) ?? new Date();
   if (Number.isNaN(at.getTime())) throw badRequest("Invalid date.");
-  const k = chart.result as unknown as Kundli;
+  const k = engine().completeKundli(chart.result as unknown as Kundli);
   const mahadashas: DashaPeriod[] = k.dasha.mahadashas;
   res.json({ balance: k.dasha.balance, mahadashas, current: engine().currentDasha(mahadashas, at) });
+});
+
+/** The periods inside an antardasha or deeper: ?path=md,ad[,pd[,sd]] (positions 0–8). */
+astroRouter.get("/kundli/:id/dasha/sub", async (req, res) => {
+  const chart = await ownChart(req);
+  const path = z
+    .string({ error: "Choose a dasha period." })
+    .regex(/^[0-8](,[0-8]){1,3}$/, "Choose a dasha period.")
+    .parse(req.query.path)
+    .split(",")
+    .map(Number);
+  const k = engine().completeKundli(chart.result as unknown as Kundli);
+  const moon = k.grahas.find((g) => g.key === "moon")!;
+  res.json({ periods: subPeriods(moon.longitude, new Date(k.birth.utc), path) });
 });
 
 // ── Matchmaking (public; saved for signed-in customers) ──

@@ -20,7 +20,6 @@ export const NAV_LINKS = [
   { href: "/fixed-sessions", label: "Fixed Sessions" },
   { href: "/live", label: "Live", live: true },
   { href: "/free-tools", label: "Free tools" },
-  { href: "/blog", label: "Blog" },
   { href: "/offers", label: "Offers" },
   { href: "/wallet", label: "Wallet" },
   { href: "/terms", label: "T&C" },

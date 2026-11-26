@@ -100,7 +100,7 @@ export default function ContactFlags({ data }: { data: ContactFlagsData }) {
             <li
               key={f.id}
               className="rounded-[14px] border border-line px-4 py-3.5"
-              style={{ background: f.reviewed ? "#f7f4ee" : "#fffdf8" }}
+              style={{ background: f.reviewed ? "var(--dk-background-color-cream, #f7f4ee)" : "var(--dk-background-color-paper, #fffdf8)" }}
             >
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                 <b className="text-[13.5px] break-words">{f.who.name}</b>

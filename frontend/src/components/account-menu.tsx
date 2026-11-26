@@ -5,7 +5,7 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
-import { sessionActions } from "@/lib/session-store";
+import LogoutButton from "./logout-button";
 
 const ITEMS = [
   { href: "/wallet", label: "Wallet & account" },
@@ -25,6 +25,8 @@ export default function AccountMenu({ initials, name }: { initials: string; name
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
+      // The log-out confirmation is drawn outside the menu: a click in it must not close (and remove) it.
+      if ((e.target as Element).closest?.("[data-logout-dialog]")) return;
       if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -75,17 +77,7 @@ export default function AccountMenu({ initials, name }: { initials: string; name
             </Link>
           ))}
           <div role="separator" className="mx-2 my-1 border-t border-line-soft" />
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              void sessionActions.logOut();
-            }}
-            className="block w-full rounded-xl px-3 py-2 text-left text-[13.5px] font-semibold text-stone-600 hover:bg-amber-50"
-          >
-            Log out
-          </button>
+          <LogoutButton className="block w-full rounded-xl px-3 py-2 text-left text-[13.5px] font-semibold text-stone-600 hover:bg-amber-50" />
         </div>
       )}
     </div>

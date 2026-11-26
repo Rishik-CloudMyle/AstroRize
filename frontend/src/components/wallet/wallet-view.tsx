@@ -9,6 +9,7 @@ import { DATA_RIGHTS } from "@/lib/mock/wallet";
 import { sessionActions, totalBalance, useHydrated, useSession } from "@/lib/session-store";
 import { useIsDesktop } from "@/lib/use-desktop";
 import { useAppUI } from "../app-provider";
+import LogoutButton from "../logout-button";
 import { WelcomeBanner } from "../consult/free-call";
 import AppButton from "../mobile/button";
 import AppCard from "../mobile/app-card";
@@ -332,13 +333,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
               <div className="text-xs font-bold uppercase tracking-[.08em] text-amber-800">Total spendable</div>
               <div className="mt-1 text-[44px] font-bold leading-[1.1] tabular-nums text-ink">{rupee(totalBalance(session))}</div>
             </div>
-            <button
-              type="button"
-              onClick={() => sessionActions.logOut()}
-              className="h-9 rounded-full border border-amber-300 bg-white/70 px-4 text-[13px] font-semibold text-amber-900"
-            >
-              Log out
-            </button>
+            <LogoutButton className="h-9 rounded-full border border-amber-300 bg-white/70 px-4 text-[13px] font-semibold text-amber-900" />
           </div>
           <div className="mt-3.5 flex flex-wrap gap-7">
             <div>
@@ -417,7 +412,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
                     <td className="border-b border-line-soft px-2.5 py-[11px] text-stone-600">{t.bucket}</td>
                     <td
                       className="whitespace-nowrap border-b border-line-soft px-2.5 py-[11px] text-right font-bold tabular-nums"
-                      style={{ color: t.amount < 0 ? "#be123c" : "#047857" }}
+                      style={{ color: t.amount < 0 ? "var(--dk-text-color-rose-700, #be123c)" : "var(--dk-text-color-emerald-700, #047857)" }}
                     >
                       {signedRupee(t.amount)}
                     </td>
@@ -526,7 +521,7 @@ function SignedInWallet({ onClosed }: { onClosed: (closed: Closed) => void }) {
               <div
                 key={o.label}
                 className="flex justify-between gap-3 py-1.5 text-sm"
-                style={{ color: o.green ? "#047857" : o.strong ? "#1c1917" : "#57534e", fontWeight: o.strong ? 700 : 500 }}
+                style={{ color: o.green ? "var(--dk-text-color-emerald-700, #047857)" : o.strong ? "var(--dk-text-color-ink, #1c1917)" : "var(--dk-text-color-stone-600, #57534e)", fontWeight: o.strong ? 700 : 500 }}
               >
                 <span>{o.label}</span>
                 <b className="tabular-nums">{o.value}</b>

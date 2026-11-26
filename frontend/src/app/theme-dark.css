@@ -1,0 +1,880 @@
+/*
+ * The dark theme: dark brown with cream text and amber accents, the "minimal" theme of the mobile app
+ * prototype (part-a-mobile-app/styles.css). Chosen with the theme switch (components/theme-toggle.tsx),
+ * which sets data-theme="dark" on <html>. Generated once from the classes the site uses.
+ *
+ * Several colours are used both as text and as a background (ink, white, amber…), so each use has
+ * its own token: bg-ink and text-ink change differently.
+ */
+@theme {
+  --background-color-white: var(--dk-background-color-white, #ffffff);
+  --background-color-cream: var(--dk-background-color-cream, #f7f4ee);
+  --background-color-paper: var(--dk-background-color-paper, #fffdf8);
+  --background-color-card: var(--dk-background-color-card, #fffcf8);
+  --background-color-ink: var(--dk-background-color-ink, #1c1917);
+  --background-color-line: var(--dk-background-color-line, #e7e0d6);
+  --background-color-line-soft: var(--dk-background-color-line-soft, #efe8dc);
+  --background-color-line-warm: var(--dk-background-color-line-warm, #f0e4d0);
+  --background-color-stone-50: var(--dk-background-color-stone-50, #fafaf9);
+  --background-color-stone-100: var(--dk-background-color-stone-100, #f5f5f4);
+  --background-color-stone-200: var(--dk-background-color-stone-200, #e7e5e4);
+  --background-color-stone-300: var(--dk-background-color-stone-300, #d6d3d1);
+  --background-color-amber-50: var(--dk-background-color-amber-50, #fffbeb);
+  --background-color-amber-100: var(--dk-background-color-amber-100, #fef3c7);
+  --background-color-amber-200: var(--dk-background-color-amber-200, #fde68a);
+  --background-color-emerald-50: var(--dk-background-color-emerald-50, #ecfdf5);
+  --background-color-emerald-100: var(--dk-background-color-emerald-100, #d1fae5);
+  --background-color-rose-50: var(--dk-background-color-rose-50, #fff1f2);
+  --background-color-rose-100: var(--dk-background-color-rose-100, #ffe4e6);
+  --background-color-orange-50: var(--dk-background-color-orange-50, #fff7ed);
+  --background-color-orange-100: var(--dk-background-color-orange-100, #ffedd5);
+  --background-color-blue-50: var(--dk-background-color-blue-50, #eff6ff);
+  --background-color-blue-100: var(--dk-background-color-blue-100, #dbeafe);
+  --background-color-red-50: var(--dk-background-color-red-50, #fef2f2);
+  --background-color-red-100: var(--dk-background-color-red-100, #fee2e2);
+  --background-color-sky-50: var(--dk-background-color-sky-50, #f0f9ff);
+  --background-color-sky-100: var(--dk-background-color-sky-100, #e0f2fe);
+  --background-color-violet-50: var(--dk-background-color-violet-50, #f5f3ff);
+  --background-color-violet-100: var(--dk-background-color-violet-100, #ede9fe);
+  --background-color-purple-50: var(--dk-background-color-purple-50, #faf5ff);
+  --background-color-purple-100: var(--dk-background-color-purple-100, #f3e8ff);
+  --text-color-ink: var(--dk-text-color-ink, #1c1917);
+  --text-color-plum: var(--dk-text-color-plum, #2a1848);
+  --text-color-mauve: var(--dk-text-color-mauve, #8a8296);
+  --text-color-muted: var(--dk-text-color-muted, #a8a29e);
+  --text-color-stone-400: var(--dk-text-color-stone-400, #a8a29e);
+  --text-color-stone-500: var(--dk-text-color-stone-500, #78716c);
+  --text-color-stone-600: var(--dk-text-color-stone-600, #57534e);
+  --text-color-stone-700: var(--dk-text-color-stone-700, #44403c);
+  --text-color-stone-800: var(--dk-text-color-stone-800, #292524);
+  --text-color-stone-900: var(--dk-text-color-stone-900, #1c1917);
+  --text-color-amber-700: var(--dk-text-color-amber-700, #b45309);
+  --text-color-amber-800: var(--dk-text-color-amber-800, #92400e);
+  --text-color-amber-900: var(--dk-text-color-amber-900, #78350f);
+  --text-color-amber-950: var(--dk-text-color-amber-950, #451a03);
+  --text-color-violet-950: var(--dk-text-color-violet-950, #2e1065);
+  --text-color-emerald-700: var(--dk-text-color-emerald-700, #047857);
+  --text-color-emerald-800: var(--dk-text-color-emerald-800, #065f46);
+  --text-color-emerald-900: var(--dk-text-color-emerald-900, #064e3b);
+  --text-color-rose-700: var(--dk-text-color-rose-700, #be123c);
+  --text-color-rose-800: var(--dk-text-color-rose-800, #9f1239);
+  --text-color-rose-900: var(--dk-text-color-rose-900, #881337);
+  --text-color-orange-700: var(--dk-text-color-orange-700, #c2410c);
+  --text-color-orange-800: var(--dk-text-color-orange-800, #9a3412);
+  --text-color-orange-900: var(--dk-text-color-orange-900, #7c2d12);
+  --text-color-blue-700: var(--dk-text-color-blue-700, #1d4ed8);
+  --text-color-blue-800: var(--dk-text-color-blue-800, #1e40af);
+  --text-color-blue-900: var(--dk-text-color-blue-900, #1e3a8a);
+  --text-color-red-700: var(--dk-text-color-red-700, #b91c1c);
+  --text-color-red-800: var(--dk-text-color-red-800, #991b1b);
+  --text-color-red-900: var(--dk-text-color-red-900, #7f1d1d);
+  --text-color-sky-700: var(--dk-text-color-sky-700, #0369a1);
+  --text-color-sky-800: var(--dk-text-color-sky-800, #075985);
+  --text-color-sky-900: var(--dk-text-color-sky-900, #0c4a6e);
+  --text-color-violet-700: var(--dk-text-color-violet-700, #6d28d9);
+  --text-color-violet-800: var(--dk-text-color-violet-800, #5b21b6);
+  --text-color-violet-900: var(--dk-text-color-violet-900, #4c1d95);
+  --text-color-purple-700: var(--dk-text-color-purple-700, #7e22ce);
+  --text-color-purple-800: var(--dk-text-color-purple-800, #6b21a8);
+  --text-color-purple-900: var(--dk-text-color-purple-900, #581c87);
+  --border-color-line: var(--dk-border-color-line, #e7e0d6);
+  --border-color-line-soft: var(--dk-border-color-line-soft, #efe8dc);
+  --border-color-line-warm: var(--dk-border-color-line-warm, #f0e4d0);
+  --border-color-ink: var(--dk-border-color-ink, #1c1917);
+  --border-color-stone-100: var(--dk-border-color-stone-100, #f5f5f4);
+  --border-color-stone-200: var(--dk-border-color-stone-200, #e7e5e4);
+  --border-color-stone-300: var(--dk-border-color-stone-300, #d6d3d1);
+  --border-color-amber-100: var(--dk-border-color-amber-100, #fef3c7);
+  --border-color-amber-200: var(--dk-border-color-amber-200, #fde68a);
+  --border-color-amber-300: var(--dk-border-color-amber-300, #fcd34d);
+  --border-color-sky-300: var(--dk-border-color-sky-300, #7dd3fc);
+  --border-color-violet-300: var(--dk-border-color-violet-300, #c4b5fd);
+  --border-color-emerald-200: var(--dk-border-color-emerald-200, #a7f3d0);
+  --border-color-rose-200: var(--dk-border-color-rose-200, #fecdd3);
+  --border-color-orange-200: var(--dk-border-color-orange-200, #fed7aa);
+  --border-color-blue-200: var(--dk-border-color-blue-200, #bfdbfe);
+  --border-color-red-200: var(--dk-border-color-red-200, #fecaca);
+  --border-color-sky-200: var(--dk-border-color-sky-200, #bae6fd);
+  --border-color-violet-200: var(--dk-border-color-violet-200, #ddd6fe);
+  --border-color-purple-200: var(--dk-border-color-purple-200, #e9d5ff);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --dk-surface-alt: #2a241d;
+  --dk-scrim-card: rgb(34 30 25 / 0.92);
+  --dk-ink-alt: #e8dfd2;
+  --dk-violet: #c4b5fd;
+  --dk-blue: #93c5fd;
+  --dk-orange: #fdba74;
+  --dk-pink: #f9a8d4;
+  --dk-green: #6ee7b7;
+  --dk-rose: #fda4af;
+  --dk-slide-bg: linear-gradient(105deg, #33271a 0%, #241c14 55%, #1a1511 100%);
+  --dk-slide-accent: #fcd34d;
+  --dk-line-alt: #3d3328;
+  --dk-background-color-white: #221e19;
+  --dk-background-color-cream: #14110e;
+  --dk-background-color-paper: #1c1814;
+  --dk-background-color-card: #221e19;
+  --dk-background-color-ink: #3a2e1f;
+  --dk-background-color-line: #3a342c;
+  --dk-background-color-line-soft: #2e2922;
+  --dk-background-color-line-warm: #3d3328;
+  --dk-background-color-stone-50: #1c1814;
+  --dk-background-color-stone-100: #2a241d;
+  --dk-background-color-stone-200: #342d24;
+  --dk-background-color-stone-300: #453c31;
+  --dk-background-color-amber-50: rgb(245 158 11 / 0.1);
+  --dk-background-color-amber-100: rgb(245 158 11 / 0.16);
+  --dk-background-color-amber-200: rgb(245 158 11 / 0.26);
+  --dk-background-color-emerald-50: rgb(16 185 129 / 0.13);
+  --dk-background-color-emerald-100: rgb(16 185 129 / 0.2);
+  --dk-background-color-rose-50: rgb(244 63 94 / 0.13);
+  --dk-background-color-rose-100: rgb(244 63 94 / 0.2);
+  --dk-background-color-orange-50: rgb(249 115 22 / 0.13);
+  --dk-background-color-orange-100: rgb(249 115 22 / 0.2);
+  --dk-background-color-blue-50: rgb(59 130 246 / 0.13);
+  --dk-background-color-blue-100: rgb(59 130 246 / 0.2);
+  --dk-background-color-red-50: rgb(239 68 68 / 0.13);
+  --dk-background-color-red-100: rgb(239 68 68 / 0.2);
+  --dk-background-color-sky-50: rgb(14 165 233 / 0.13);
+  --dk-background-color-sky-100: rgb(14 165 233 / 0.2);
+  --dk-background-color-violet-50: rgb(139 92 246 / 0.13);
+  --dk-background-color-violet-100: rgb(139 92 246 / 0.2);
+  --dk-background-color-purple-50: rgb(168 85 247 / 0.13);
+  --dk-background-color-purple-100: rgb(168 85 247 / 0.2);
+  --dk-text-color-ink: #f5f0e8;
+  --dk-text-color-plum: #f5f0e8;
+  --dk-text-color-mauve: #b3a797;
+  --dk-text-color-muted: #9a8f81;
+  --dk-text-color-stone-400: #93877a;
+  --dk-text-color-stone-500: #a89c8c;
+  --dk-text-color-stone-600: #c4b8a8;
+  --dk-text-color-stone-700: #d9cfc0;
+  --dk-text-color-stone-800: #e8dfd2;
+  --dk-text-color-stone-900: #f5f0e8;
+  --dk-text-color-amber-700: #fbbf24;
+  --dk-text-color-amber-800: #fcd34d;
+  --dk-text-color-amber-900: #fde68a;
+  --dk-text-color-amber-950: #fef3c7;
+  --dk-text-color-violet-950: #ede9fe;
+  --dk-text-color-emerald-700: #6ee7b7;
+  --dk-text-color-emerald-800: #a7f3d0;
+  --dk-text-color-emerald-900: #a7f3d0;
+  --dk-text-color-rose-700: #fda4af;
+  --dk-text-color-rose-800: #fecdd3;
+  --dk-text-color-rose-900: #fecdd3;
+  --dk-text-color-orange-700: #fdba74;
+  --dk-text-color-orange-800: #fed7aa;
+  --dk-text-color-orange-900: #fed7aa;
+  --dk-text-color-blue-700: #93c5fd;
+  --dk-text-color-blue-800: #bfdbfe;
+  --dk-text-color-blue-900: #bfdbfe;
+  --dk-text-color-red-700: #fca5a5;
+  --dk-text-color-red-800: #fecaca;
+  --dk-text-color-red-900: #fecaca;
+  --dk-text-color-sky-700: #7dd3fc;
+  --dk-text-color-sky-800: #bae6fd;
+  --dk-text-color-sky-900: #bae6fd;
+  --dk-text-color-violet-700: #c4b5fd;
+  --dk-text-color-violet-800: #ddd6fe;
+  --dk-text-color-violet-900: #ddd6fe;
+  --dk-text-color-purple-700: #d8b4fe;
+  --dk-text-color-purple-800: #e9d5ff;
+  --dk-text-color-purple-900: #e9d5ff;
+  --dk-border-color-line: #3a342c;
+  --dk-border-color-line-soft: #2e2922;
+  --dk-border-color-line-warm: #3d3328;
+  --dk-border-color-ink: #a89c8c;
+  --dk-border-color-stone-100: #2e2922;
+  --dk-border-color-stone-200: #3f372d;
+  --dk-border-color-stone-300: #4d4338;
+  --dk-border-color-amber-100: rgb(245 158 11 / 0.22);
+  --dk-border-color-amber-200: rgb(245 158 11 / 0.32);
+  --dk-border-color-amber-300: rgb(245 158 11 / 0.45);
+  --dk-border-color-sky-300: rgb(14 165 233 / 0.55);
+  --dk-border-color-violet-300: rgb(139 92 246 / 0.55);
+  --dk-border-color-emerald-200: rgb(16 185 129 / 0.42);
+  --dk-border-color-rose-200: rgb(244 63 94 / 0.42);
+  --dk-border-color-orange-200: rgb(249 115 22 / 0.42);
+  --dk-border-color-blue-200: rgb(59 130 246 / 0.42);
+  --dk-border-color-red-200: rgb(239 68 68 / 0.42);
+  --dk-border-color-sky-200: rgb(14 165 233 / 0.42);
+  --dk-border-color-violet-200: rgb(139 92 246 / 0.42);
+  --dk-border-color-purple-200: rgb(168 85 247 / 0.42);
+  --dk-app-bg: #14110e;
+  --dk-app-elev: #1c1814;
+  --dk-app-surface: #221e19;
+  --dk-app-ink: #f5f0e8;
+  --dk-app-ink-2: #c4b8a8;
+  --dk-app-ink-3: #8a7f72;
+  --dk-app-line: #3a342c;
+  --dk-app-line-gold: #4a3b22;
+  --dk-app-line-gold-2: #5a4524;
+  --dk-app-accent: #fcd34d;
+  --dk-app-active: #fcd34d;
+  --dk-app-tint: rgb(245 158 11 / 0.1);
+  --dk-app-tint-2: rgb(245 158 11 / 0.16);
+  --dk-app-tint-3: rgb(245 158 11 / 0.3);
+  --dk-app-success: #6ee7b7;
+  --dk-app-success-bg: rgb(16 185 129 / 0.14);
+  --dk-app-error: #fda4af;
+  --dk-app-error-bg: rgb(244 63 94 / 0.14);
+  --dk-app-info: #93c5fd;
+  --dk-app-info-bg: rgb(59 130 246 / 0.14);
+  --dk-app-scrim: rgba(0, 0, 0, 0.55);
+}
+
+:root[data-theme="dark"],
+:root[data-theme="dark"] body {
+  background: #14110e;
+  color: #f5f0e8;
+}
+:root[data-theme="dark"] a:not([class*="text-"]) {
+  color: #fcd34d;
+}
+:root[data-theme="dark"] ::selection {
+  background: #92400e;
+  color: #fff7e6;
+}
+:root[data-theme="dark"] footer.bg-ink {
+  background-color: #0e0b09;
+}
+:root[data-theme="dark"] .az-glass {
+  background: rgba(34, 30, 25, 0.72);
+}
+:root[data-theme="dark"] .az-panel,
+:root[data-theme="dark"] .az-admin .az-panel {
+  background: rgba(34, 30, 25, 0.88);
+}
+
+/* Bright amber and green buttons keep their dark lettering. */
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]).text-ink,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]) .text-ink,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]).text-stone-900,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]) .text-stone-900,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]).text-stone-800,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]) .text-stone-800,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]).text-amber-900,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]) .text-amber-900,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]).text-amber-800,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]) .text-amber-800,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]).text-plum,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]) .text-plum,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]).text-app-ink,
+:root[data-theme="dark"] .bg-amber-300:not([class*="max-lg:bg-"]) .text-app-ink,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]).text-ink,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]) .text-ink,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]).text-stone-900,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]) .text-stone-900,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]).text-stone-800,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]) .text-stone-800,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]).text-amber-900,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]) .text-amber-900,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]).text-amber-800,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]) .text-amber-800,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]).text-plum,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]) .text-plum,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]).text-app-ink,
+:root[data-theme="dark"] .bg-amber-400:not([class*="max-lg:bg-"]) .text-app-ink,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]).text-ink,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]) .text-ink,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]).text-stone-900,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]) .text-stone-900,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]).text-stone-800,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]) .text-stone-800,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]).text-amber-900,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]) .text-amber-900,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]).text-amber-800,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]) .text-amber-800,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]).text-plum,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]) .text-plum,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]).text-app-ink,
+:root[data-theme="dark"] .bg-amber-500:not([class*="max-lg:bg-"]) .text-app-ink,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]).text-ink,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]) .text-ink,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]).text-stone-900,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]) .text-stone-900,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]).text-stone-800,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]) .text-stone-800,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]).text-amber-900,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]) .text-amber-900,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]).text-amber-800,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]) .text-amber-800,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]).text-plum,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]) .text-plum,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]).text-app-ink,
+:root[data-theme="dark"] .bg-app-primary:not([class*="max-lg:bg-"]) .text-app-ink,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]).text-ink,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]) .text-ink,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]).text-stone-900,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]) .text-stone-900,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]).text-stone-800,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]) .text-stone-800,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]).text-amber-900,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]) .text-amber-900,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]).text-amber-800,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]) .text-amber-800,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]).text-plum,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]) .text-plum,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]).text-app-ink,
+:root[data-theme="dark"] .az-cta:not([class*="max-lg:bg-"]) .text-app-ink,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]).text-ink,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]) .text-ink,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]).text-stone-900,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]) .text-stone-900,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]).text-stone-800,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]) .text-stone-800,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]).text-amber-900,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]) .text-amber-900,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]).text-amber-800,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]) .text-amber-800,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]).text-plum,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]) .text-plum,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]).text-app-ink,
+:root[data-theme="dark"] .bg-gold:not([class*="max-lg:bg-"]) .text-app-ink,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]).text-ink,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]) .text-ink,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]).text-stone-900,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]) .text-stone-900,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]).text-stone-800,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]) .text-stone-800,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]).text-amber-900,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]) .text-amber-900,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]).text-amber-800,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]) .text-amber-800,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]).text-plum,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]) .text-plum,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]).text-app-ink,
+:root[data-theme="dark"] .bg-emerald-300:not([class*="max-lg:bg-"]) .text-app-ink,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]).text-ink,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]) .text-ink,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]).text-stone-900,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]) .text-stone-900,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]).text-stone-800,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]) .text-stone-800,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]).text-amber-900,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]) .text-amber-900,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]).text-amber-800,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]) .text-amber-800,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]).text-plum,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]) .text-plum,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]).text-app-ink,
+:root[data-theme="dark"] .bg-emerald-400:not([class*="max-lg:bg-"]) .text-app-ink,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]).text-ink,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]) .text-ink,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]).text-stone-900,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]) .text-stone-900,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]).text-stone-800,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]) .text-stone-800,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]).text-amber-900,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]) .text-amber-900,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]).text-amber-800,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]) .text-amber-800,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]).text-plum,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]) .text-plum,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]).text-app-ink,
+:root[data-theme="dark"] .bg-cta-from:not([class*="max-lg:bg-"]) .text-app-ink {
+  color: #1c1917;
+}
+@media (min-width: 1024px) {
+:root[data-theme="dark"] .bg-amber-300.text-ink,
+:root[data-theme="dark"] .bg-amber-300 .text-ink,
+:root[data-theme="dark"] .bg-amber-300.text-stone-900,
+:root[data-theme="dark"] .bg-amber-300 .text-stone-900,
+:root[data-theme="dark"] .bg-amber-300.text-stone-800,
+:root[data-theme="dark"] .bg-amber-300 .text-stone-800,
+:root[data-theme="dark"] .bg-amber-300.text-amber-900,
+:root[data-theme="dark"] .bg-amber-300 .text-amber-900,
+:root[data-theme="dark"] .bg-amber-300.text-amber-800,
+:root[data-theme="dark"] .bg-amber-300 .text-amber-800,
+:root[data-theme="dark"] .bg-amber-300.text-plum,
+:root[data-theme="dark"] .bg-amber-300 .text-plum,
+:root[data-theme="dark"] .bg-amber-300.text-app-ink,
+:root[data-theme="dark"] .bg-amber-300 .text-app-ink,
+:root[data-theme="dark"] .bg-amber-400.text-ink,
+:root[data-theme="dark"] .bg-amber-400 .text-ink,
+:root[data-theme="dark"] .bg-amber-400.text-stone-900,
+:root[data-theme="dark"] .bg-amber-400 .text-stone-900,
+:root[data-theme="dark"] .bg-amber-400.text-stone-800,
+:root[data-theme="dark"] .bg-amber-400 .text-stone-800,
+:root[data-theme="dark"] .bg-amber-400.text-amber-900,
+:root[data-theme="dark"] .bg-amber-400 .text-amber-900,
+:root[data-theme="dark"] .bg-amber-400.text-amber-800,
+:root[data-theme="dark"] .bg-amber-400 .text-amber-800,
+:root[data-theme="dark"] .bg-amber-400.text-plum,
+:root[data-theme="dark"] .bg-amber-400 .text-plum,
+:root[data-theme="dark"] .bg-amber-400.text-app-ink,
+:root[data-theme="dark"] .bg-amber-400 .text-app-ink,
+:root[data-theme="dark"] .bg-amber-500.text-ink,
+:root[data-theme="dark"] .bg-amber-500 .text-ink,
+:root[data-theme="dark"] .bg-amber-500.text-stone-900,
+:root[data-theme="dark"] .bg-amber-500 .text-stone-900,
+:root[data-theme="dark"] .bg-amber-500.text-stone-800,
+:root[data-theme="dark"] .bg-amber-500 .text-stone-800,
+:root[data-theme="dark"] .bg-amber-500.text-amber-900,
+:root[data-theme="dark"] .bg-amber-500 .text-amber-900,
+:root[data-theme="dark"] .bg-amber-500.text-amber-800,
+:root[data-theme="dark"] .bg-amber-500 .text-amber-800,
+:root[data-theme="dark"] .bg-amber-500.text-plum,
+:root[data-theme="dark"] .bg-amber-500 .text-plum,
+:root[data-theme="dark"] .bg-amber-500.text-app-ink,
+:root[data-theme="dark"] .bg-amber-500 .text-app-ink,
+:root[data-theme="dark"] .bg-app-primary.text-ink,
+:root[data-theme="dark"] .bg-app-primary .text-ink,
+:root[data-theme="dark"] .bg-app-primary.text-stone-900,
+:root[data-theme="dark"] .bg-app-primary .text-stone-900,
+:root[data-theme="dark"] .bg-app-primary.text-stone-800,
+:root[data-theme="dark"] .bg-app-primary .text-stone-800,
+:root[data-theme="dark"] .bg-app-primary.text-amber-900,
+:root[data-theme="dark"] .bg-app-primary .text-amber-900,
+:root[data-theme="dark"] .bg-app-primary.text-amber-800,
+:root[data-theme="dark"] .bg-app-primary .text-amber-800,
+:root[data-theme="dark"] .bg-app-primary.text-plum,
+:root[data-theme="dark"] .bg-app-primary .text-plum,
+:root[data-theme="dark"] .bg-app-primary.text-app-ink,
+:root[data-theme="dark"] .bg-app-primary .text-app-ink,
+:root[data-theme="dark"] .az-cta.text-ink,
+:root[data-theme="dark"] .az-cta .text-ink,
+:root[data-theme="dark"] .az-cta.text-stone-900,
+:root[data-theme="dark"] .az-cta .text-stone-900,
+:root[data-theme="dark"] .az-cta.text-stone-800,
+:root[data-theme="dark"] .az-cta .text-stone-800,
+:root[data-theme="dark"] .az-cta.text-amber-900,
+:root[data-theme="dark"] .az-cta .text-amber-900,
+:root[data-theme="dark"] .az-cta.text-amber-800,
+:root[data-theme="dark"] .az-cta .text-amber-800,
+:root[data-theme="dark"] .az-cta.text-plum,
+:root[data-theme="dark"] .az-cta .text-plum,
+:root[data-theme="dark"] .az-cta.text-app-ink,
+:root[data-theme="dark"] .az-cta .text-app-ink,
+:root[data-theme="dark"] .bg-gold.text-ink,
+:root[data-theme="dark"] .bg-gold .text-ink,
+:root[data-theme="dark"] .bg-gold.text-stone-900,
+:root[data-theme="dark"] .bg-gold .text-stone-900,
+:root[data-theme="dark"] .bg-gold.text-stone-800,
+:root[data-theme="dark"] .bg-gold .text-stone-800,
+:root[data-theme="dark"] .bg-gold.text-amber-900,
+:root[data-theme="dark"] .bg-gold .text-amber-900,
+:root[data-theme="dark"] .bg-gold.text-amber-800,
+:root[data-theme="dark"] .bg-gold .text-amber-800,
+:root[data-theme="dark"] .bg-gold.text-plum,
+:root[data-theme="dark"] .bg-gold .text-plum,
+:root[data-theme="dark"] .bg-gold.text-app-ink,
+:root[data-theme="dark"] .bg-gold .text-app-ink,
+:root[data-theme="dark"] .bg-emerald-300.text-ink,
+:root[data-theme="dark"] .bg-emerald-300 .text-ink,
+:root[data-theme="dark"] .bg-emerald-300.text-stone-900,
+:root[data-theme="dark"] .bg-emerald-300 .text-stone-900,
+:root[data-theme="dark"] .bg-emerald-300.text-stone-800,
+:root[data-theme="dark"] .bg-emerald-300 .text-stone-800,
+:root[data-theme="dark"] .bg-emerald-300.text-amber-900,
+:root[data-theme="dark"] .bg-emerald-300 .text-amber-900,
+:root[data-theme="dark"] .bg-emerald-300.text-amber-800,
+:root[data-theme="dark"] .bg-emerald-300 .text-amber-800,
+:root[data-theme="dark"] .bg-emerald-300.text-plum,
+:root[data-theme="dark"] .bg-emerald-300 .text-plum,
+:root[data-theme="dark"] .bg-emerald-300.text-app-ink,
+:root[data-theme="dark"] .bg-emerald-300 .text-app-ink,
+:root[data-theme="dark"] .bg-emerald-400.text-ink,
+:root[data-theme="dark"] .bg-emerald-400 .text-ink,
+:root[data-theme="dark"] .bg-emerald-400.text-stone-900,
+:root[data-theme="dark"] .bg-emerald-400 .text-stone-900,
+:root[data-theme="dark"] .bg-emerald-400.text-stone-800,
+:root[data-theme="dark"] .bg-emerald-400 .text-stone-800,
+:root[data-theme="dark"] .bg-emerald-400.text-amber-900,
+:root[data-theme="dark"] .bg-emerald-400 .text-amber-900,
+:root[data-theme="dark"] .bg-emerald-400.text-amber-800,
+:root[data-theme="dark"] .bg-emerald-400 .text-amber-800,
+:root[data-theme="dark"] .bg-emerald-400.text-plum,
+:root[data-theme="dark"] .bg-emerald-400 .text-plum,
+:root[data-theme="dark"] .bg-emerald-400.text-app-ink,
+:root[data-theme="dark"] .bg-emerald-400 .text-app-ink,
+:root[data-theme="dark"] .bg-cta-from.text-ink,
+:root[data-theme="dark"] .bg-cta-from .text-ink,
+:root[data-theme="dark"] .bg-cta-from.text-stone-900,
+:root[data-theme="dark"] .bg-cta-from .text-stone-900,
+:root[data-theme="dark"] .bg-cta-from.text-stone-800,
+:root[data-theme="dark"] .bg-cta-from .text-stone-800,
+:root[data-theme="dark"] .bg-cta-from.text-amber-900,
+:root[data-theme="dark"] .bg-cta-from .text-amber-900,
+:root[data-theme="dark"] .bg-cta-from.text-amber-800,
+:root[data-theme="dark"] .bg-cta-from .text-amber-800,
+:root[data-theme="dark"] .bg-cta-from.text-plum,
+:root[data-theme="dark"] .bg-cta-from .text-plum,
+:root[data-theme="dark"] .bg-cta-from.text-app-ink,
+:root[data-theme="dark"] .bg-cta-from .text-app-ink {
+  color: #1c1917;
+}
+}
+
+@media (max-width: 1023.98px) {
+:root[data-theme="dark"] .text-ink[class*="max-lg:bg-app-primary"] {
+  color: #1c1917;
+}
+}
+
+/* Panels: a quiet brown edge instead of the white glass highlight. */
+:root[data-theme="dark"] .az-panel,
+:root[data-theme="dark"] .az-glass {
+  border-color: #3a342c;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.28);
+}
+:root[data-theme="dark"] .az-app main .az-panel:hover {
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.4);
+}
+
+/* The banner's position dots turn cream. */
+:root[data-theme="dark"] [aria-roledescription="carousel"] [class~="bg-ink/80"] {
+  background-color: rgb(245 240 232 / 0.85);
+}
+:root[data-theme="dark"] [aria-roledescription="carousel"] [class~="bg-ink/25"] {
+  background-color: rgb(245 240 232 / 0.3);
+}
+
+/* A bright button that has gone grey keeps readable lettering. */
+:root[data-theme="dark"] .text-ink[class*="disabled:bg-amber-2"]:disabled {
+  color: #e8dfd2;
+}
+
+/* One-off light colours written into components. */
+:root[data-theme="dark"] [class~="bg-[#e4d9c8]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#e7f8ee]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#e9e2d6]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#ece8e2]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#ecfdf5]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#eee7db]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#efe9dc]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#eff6ff]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#f1e7d3]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#f3ead8]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#f3f1ef]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#f4ebe0]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#f4f0e8]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#f5f0e8]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#f5f5f4]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#f6efe4]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#f7f2ea]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#f8f0de]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#faf3e3]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#fafaf9]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#fbf6ea]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#fde8ee]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#fdf2f8]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#fdf8ec]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#fefaf7]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#fff1e8]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#fff7ed]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#fffbeb]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#fffcf8]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[#ffffff]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="bg-[linear-gradient(120deg,#ecfdf5,#fffdf8_70%)]"] {
+  background-image: linear-gradient(120deg,rgb(44 35 24 / 1),rgb(32 27 21 / 1) 70%);
+}
+:root[data-theme="dark"] [class~="bg-[linear-gradient(160deg,#fffbeb,#fdf3dc)]"] {
+  background-image: linear-gradient(160deg,rgb(44 35 24 / 1),rgb(32 27 21 / 1));
+}
+:root[data-theme="dark"] [class~="bg-[linear-gradient(180deg,#fbf8ff,#f3ecfc)]"] {
+  background-image: linear-gradient(180deg,rgb(44 35 24 / 1),rgb(32 27 21 / 1));
+}
+:root[data-theme="dark"] [class~="bg-[linear-gradient(180deg,rgba(252,243,226,.78),rgba(252,243,226,.55)_55%,rgba(244,235,224,.92))]"] {
+  background-image: linear-gradient(180deg,rgb(44 35 24 / 0.78),rgb(32 27 21 / 0.55) 55%,rgb(32 27 21 / 0.92));
+}
+:root[data-theme="dark"] [class~="bg-[linear-gradient(90deg,#e7e0d6,#ffffff,#e7e0d6)]"] {
+  background-image: linear-gradient(90deg,rgb(44 35 24 / 1),rgb(32 27 21 / 1),rgb(32 27 21 / 1));
+}
+:root[data-theme="dark"] [class~="bg-[linear-gradient(90deg,rgba(252,243,226,.92)_0%,rgba(252,243,226,.55)_38%,rgba(252,243,226,.08)_70%)]"] {
+  background-image: linear-gradient(90deg,rgb(44 35 24 / 0.92) 0%,rgb(32 27 21 / 0.55) 38%,rgb(32 27 21 / 0.08) 70%);
+}
+:root[data-theme="dark"] [class~="bg-[radial-gradient(circle,rgba(255,250,232,.95)_0%,rgba(255,244,214,.7)_42%,rgba(255,238,200,0)_70%)]"] {
+  background-image: radial-gradient(circle,rgb(44 35 24 / 0.95) 0%,rgb(32 27 21 / 0.7) 42%,rgb(32 27 21 / 0) 70%);
+}
+:root[data-theme="dark"] [class~="bg-[radial-gradient(circle_at_30%_20%,#fffaf0,#f7efe1)]"] {
+  background-image: radial-gradient(circle at 30% 20%,rgb(44 35 24 / 1),rgb(32 27 21 / 1));
+}
+:root[data-theme="dark"] [class~="bg-[radial-gradient(circle_at_35%_30%,#fffaf0,#f6e3b4)]"] {
+  background-image: radial-gradient(circle at 35% 30%,rgb(44 35 24 / 1),rgb(32 27 21 / 1));
+}
+:root[data-theme="dark"] [class~="bg-[radial-gradient(ellipse_at_74%_50%,#fff9ea_0%,#fdf0d3_45%,#f8e2b4_100%)]"] {
+  background-image: radial-gradient(ellipse at 74% 50%,rgb(44 35 24 / 1) 0%,rgb(32 27 21 / 1) 45%,rgb(32 27 21 / 1) 100%);
+}
+:root[data-theme="dark"] [class~="bg-[rgba(255,252,248,.84)]"] {
+  background-color: rgb(34 30 25 / 0.84);
+}
+:root[data-theme="dark"] [class~="bg-[rgba(255,253,248,.88)]"] {
+  background-color: rgb(34 30 25 / 0.88);
+}
+:root[data-theme="dark"] [class~="border-[#a7f3d0]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="border-[#d6d3d1]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="border-[#e0d4bd]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="border-[#e7e0d6]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="border-[#e7e5e4]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="border-[#ecd29a]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="border-[#ecd49a]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="border-[#ecd9b6]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="border-[#f0d9a8]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="border-[#f0e4d0]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="border-[#f3e9d8]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="border-[#fde68a]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="border-[rgba(240,228,208,.9)]"] {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="from-[#fff3cf]"] {
+  --tw-gradient-from: #2c2318;
+}
+:root[data-theme="dark"] [class~="from-[#fffaf0]"] {
+  --tw-gradient-from: #2c2318;
+}
+:root[data-theme="dark"] [class~="text-[#047857]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#147a45]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#16a34a]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#1a1208]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#1c1917]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#1d4ed8]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#1e40af]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#1f1633]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#241832]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#2563eb]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#2a1650]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#2a1848]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#2a2150]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#3c2468]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#3f4f9a]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#44403c]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#57534e]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#5c5568]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#6d6478]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#78716c]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#7a3b00]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#7a736c]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#8a8296]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#8b8498]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#92400e]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#9a93a3]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#9a93a5]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#9a93a8]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#9f1239]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#b45309]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#be123c]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#c2410c]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="text-[#c81e4a]"] {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="to-[#f6e8c8]"] {
+  --tw-gradient-to: #201a15;
+}
+:root[data-theme="dark"] [class~="to-[#f8e2b4]"] {
+  --tw-gradient-to: #201a15;
+}
+:root[data-theme="dark"] [class~="to-[#fbdf9a]"] {
+  --tw-gradient-to: #201a15;
+}
+:root[data-theme="dark"] [class~="to-[#fbefd2]"] {
+  --tw-gradient-to: #201a15;
+}
+:root[data-theme="dark"] [class~="to-[#fdf0d2]"] {
+  --tw-gradient-to: #201a15;
+}
+:root[data-theme="dark"] [class~="via-[#fdf0d2]"] {
+  --tw-gradient-via: #261f18;
+}
+@media (max-width: 1023.98px) {
+:root[data-theme="dark"] [class~="max-lg:bg-[#fff7ed]"] {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="max-lg:bg-[linear-gradient(160deg,#fffbeb,#fdf3dc)]"] {
+  background-image: linear-gradient(160deg,rgb(44 35 24 / 1),rgb(32 27 21 / 1));
+}
+:root[data-theme="dark"] [class~="max-lg:bg-[linear-gradient(180deg,#efe7f4_0%,#f7f4ee_42%,#f7f4ee_100%)]"] {
+  background-image: linear-gradient(180deg,rgb(44 35 24 / 1) 0%,rgb(32 27 21 / 1) 42%,rgb(32 27 21 / 1) 100%);
+}
+:root[data-theme="dark"] [class~="max-lg:text-[#9a3412]"] {
+  color: #e8dfd2;
+}
+}
+:root[data-theme="dark"] [class~="hover:bg-[#fffaf0]"]:hover {
+  background-color: #221e19;
+}
+:root[data-theme="dark"] [class~="hover:border-[#dccfb9]"]:hover {
+  border-color: #3d3328;
+}
+:root[data-theme="dark"] [class~="hover:text-[#1a1208]"]:hover {
+  color: #e8dfd2;
+}
+:root[data-theme="dark"] [class~="hover:text-[#241832]"]:hover {
+  color: #e8dfd2;
+}
+
+:root[data-theme="dark"] .bg-white\/10 {
+  background-color: rgb(255 255 255 / 0.1);
+}
+:root[data-theme="dark"] .bg-white\/12 {
+  background-color: rgb(255 255 255 / 0.12);
+}
+:root[data-theme="dark"] .hover\:bg-white\/25:hover {
+  background-color: rgb(255 255 255 / 0.25);
+}
+:root[data-theme="dark"] .bg-white\/5 {
+  background-color: rgb(255 255 255 / 0.05);
+}
+:root[data-theme="dark"] .bg-white\/15 {
+  background-color: rgb(255 255 255 / 0.15);
+}
+:root[data-theme="dark"] .hover\:bg-white\/10:hover {
+  background-color: rgb(255 255 255 / 0.1);
+}
+:root[data-theme="dark"] .hover\:bg-white\/20:hover {
+  background-color: rgb(255 255 255 / 0.2);
+}
+:root[data-theme="dark"] .hover\:bg-white\/15:hover {
+  background-color: rgb(255 255 255 / 0.15);
+}

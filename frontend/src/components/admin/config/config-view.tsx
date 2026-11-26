@@ -175,16 +175,16 @@ export default function ConfigView({
         ? "Not yet submitted"
         : "Enter a valid value above";
   const draftTone = approved
-    ? { bg: "#ecfdf5", border: "#a7f3d0", fg: "#047857" }
-    : { bg: "#fffbeb", border: "#fde68a", fg: "#92400e" };
+    ? { bg: "var(--dk-background-color-emerald-50, #ecfdf5)", border: "var(--dk-border-color-emerald-200, #a7f3d0)", fg: "var(--dk-text-color-emerald-700, #047857)" }
+    : { bg: "var(--dk-background-color-amber-50, #fffbeb)", border: "var(--dk-border-color-amber-200, #fde68a)", fg: "var(--dk-text-color-amber-800, #92400e)" };
   // An approved change applies the moment it is approved.
   const effective = "On approval";
 
   // Only platform-wide values exist today: no per-country, segment or user overrides.
   const scopeRows = [
-    { level: "Global", value: cfg.current, eff: "Current", state: "Active", bg: "#ecfdf5", fg: "#047857" },
+    { level: "Global", value: cfg.current, eff: "Current", state: "Active", bg: "var(--dk-background-color-emerald-50, #ecfdf5)", fg: "var(--dk-text-color-emerald-700, #047857)" },
     ...(pending
-      ? [{ level: "Global", value: pending.toValue, eff: effective, state: "Awaiting approval", bg: "#eff6ff", fg: "#1e40af" }]
+      ? [{ level: "Global", value: pending.toValue, eff: effective, state: "Awaiting approval", bg: "var(--dk-background-color-blue-50, #eff6ff)", fg: "var(--dk-text-color-blue-800, #1e40af)" }]
       : []),
   ];
   const history = d?.history.length
@@ -244,12 +244,12 @@ export default function ConfigView({
                   aria-pressed={on}
                   onClick={() => void select(k.key)}
                   className="flex w-full items-center gap-2 rounded-[10px] border px-[11px] py-[9px] text-left"
-                  style={{ borderColor: on ? "#fcd34d" : "#e7e0d6", background: on ? "#fef3c7" : "#fff" }}
+                  style={{ borderColor: on ? "var(--dk-border-color-amber-300, #fcd34d)" : "var(--dk-border-color-line, #e7e0d6)", background: on ? "var(--dk-background-color-amber-100, #fef3c7)" : "var(--dk-background-color-white, #fff)" }}
                 >
                   <span className="min-w-0 flex-1">
                     <span
                       className="block truncate font-mono text-[11px]"
-                      style={{ color: on ? "#92400e" : "#57534e" }}
+                      style={{ color: on ? "var(--dk-text-color-amber-800, #92400e)" : "var(--dk-text-color-stone-600, #57534e)" }}
                     >
                       {k.key}
                     </span>
@@ -339,7 +339,7 @@ export default function ConfigView({
                   if (problem) setProblem(null);
                 }}
                 className="h-11 w-full rounded-xl border bg-white px-3 font-mono text-[14px] text-ink disabled:bg-stone-100 disabled:text-muted"
-                style={{ borderColor: problem ? "#be123c" : "#e7e0d6" }}
+                style={{ borderColor: problem ? "#be123c" : "var(--dk-border-color-line, #e7e0d6)" }}
               />
               <span id={hintId} className="mt-1 block text-[11px] text-[#78716c]">
                 {pending ? "A change to this setting is already waiting for approval." : valueHint(cfg)}
@@ -459,7 +459,7 @@ export default function ConfigView({
                   onClick={approve}
                   aria-disabled={selfBlocked}
                   className="h-11 rounded-xl border-0 px-[22px] text-[13.5px] font-bold"
-                  style={{ background: selfBlocked ? "#f5f5f4" : "#047857", color: selfBlocked ? "#78716c" : "#fff" }}
+                  style={{ background: selfBlocked ? "var(--dk-background-color-stone-100, #f5f5f4)" : "#047857", color: selfBlocked ? "var(--dk-text-color-stone-500, #78716c)" : "#fff" }}
                 >
                   {selfBlocked ? "Approve — blocked, you drafted this" : isMaker ? "Approve your own draft (audited)" : "Approve"}
                 </button>

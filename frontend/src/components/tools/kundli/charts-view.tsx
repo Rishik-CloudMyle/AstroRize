@@ -24,7 +24,7 @@ interface Row {
   abbr: string;
   sign: number;
   house: number;
-  /** Degree inside the sign of this chart; null where none is defined (D30). */
+  /** Degree inside the sign of this chart; null only when a chart has none. */
   degree: number | null;
   retrograde: boolean;
   note?: string;

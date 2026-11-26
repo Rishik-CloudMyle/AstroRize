@@ -16,13 +16,13 @@ const PHONE_FULL_WIDTH = "(min-width: 1024px) 1px, 100vw";
 
 /** Each card's light caption scrim and arrow colour, as in the prototype (.tools-all-card.is-…). */
 const TONE: Record<string, { scrim: string; go: string }> = {
-  kundli: { scrim: "rgba(252,244,228,.96)", go: "#c4a06a" },
-  horoscope: { scrim: "rgba(232,236,252,.94)", go: "#7b8fd4" },
-  matchmaking: { scrim: "rgba(255,232,242,.94)", go: "#e07aa8" },
-  panchang: { scrim: "rgba(236,246,232,.94)", go: "#5a9a6a" },
-  numerology: { scrim: "rgba(236,226,252,.94)", go: "#9b6fd4" },
-  tarot: { scrim: "rgba(250,240,220,.95)", go: "#c9a15b" },
-  daily: { scrim: "rgba(252,243,226,.92)", go: "#8a6a3c" },
+  kundli: { scrim: "var(--dk-scrim-card, rgba(252,244,228,.96))", go: "#c4a06a" },
+  horoscope: { scrim: "var(--dk-scrim-card, rgba(232,236,252,.94))", go: "#7b8fd4" },
+  matchmaking: { scrim: "var(--dk-scrim-card, rgba(255,232,242,.94))", go: "#e07aa8" },
+  panchang: { scrim: "var(--dk-scrim-card, rgba(236,246,232,.94))", go: "#5a9a6a" },
+  numerology: { scrim: "var(--dk-scrim-card, rgba(236,226,252,.94))", go: "#9b6fd4" },
+  tarot: { scrim: "var(--dk-scrim-card, rgba(250,240,220,.95))", go: "#c9a15b" },
+  daily: { scrim: "var(--dk-scrim-card, rgba(252,243,226,.92))", go: "#8a6a3c" },
 };
 
 function Go({ color }: { color: string }) {
@@ -93,7 +93,7 @@ export default function ToolsHubMobile({ tools }: { tools: Tool[] }) {
         <Link
           href={`/free-tools/${banner.id}`}
           className="relative mt-3 flex h-24 items-start justify-between overflow-hidden rounded-[22px] px-4 py-4 text-left shadow-[0_10px_22px_rgba(62,38,18,.08)] hover:no-underline"
-          style={{ background: banner.bg }}
+          style={{ background: `var(--dk-scrim-card, ${banner.bg})` }}
         >
           <Image src={banner.art} alt="" fill sizes={PHONE_FULL_WIDTH} className="object-cover" />
           <span

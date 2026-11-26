@@ -47,7 +47,7 @@ export default async function MarketingPage() {
             <div key={f.state} className="min-w-0 rounded-[12px] bg-cream px-3 py-2.5">
               <span
                 className="block h-[5px] rounded-full"
-                style={{ background: f.state === "ACTIVE" ? "#047857" : f.state === "EXPIRED" ? "#d6d3d1" : "#f59e0b" }}
+                style={{ background: f.state === "ACTIVE" ? "#047857" : f.state === "EXPIRED" ? "var(--dk-background-color-stone-300, #d6d3d1)" : "#f59e0b" }}
               />
               <b className="mt-[7px] block truncate text-[10.5px] tracking-[.04em] text-[#57534e]">{f.state}</b>
               <span className="block text-[20px] font-bold text-ink tabular-nums">{f.count}</span>

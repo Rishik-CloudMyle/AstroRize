@@ -4,24 +4,24 @@ import type { ApplicationState } from "@/lib/admin/types";
 
 /** Astrologer stage key → label and chip colours, in lifecycle order. */
 export const STAGES: { key: string; label: string; bg: string; fg: string }[] = [
-  { key: "draft", label: "Draft", bg: "#f7f4ee", fg: "#57534e" },
-  { key: "review", label: "Under review", bg: "#eff6ff", fg: "#1e40af" },
-  { key: "interview", label: "Interview", bg: "#eff6ff", fg: "#1e40af" },
-  { key: "docs", label: "Docs pending", bg: "#fff1f2", fg: "#be123c" },
-  { key: "negotiation", label: "Negotiation", bg: "#fef3c7", fg: "#92400e" },
-  { key: "pricing", label: "Pricing", bg: "#eff6ff", fg: "#1d4ed8" },
-  { key: "training", label: "Training", bg: "#fffbeb", fg: "#92400e" },
-  { key: "active", label: "Active", bg: "#ecfdf5", fg: "#047857" },
-  { key: "rejected", label: "Rejected", bg: "#fff1f2", fg: "#be123c" },
+  { key: "draft", label: "Draft", bg: "var(--dk-background-color-cream, #f7f4ee)", fg: "var(--dk-text-color-stone-600, #57534e)" },
+  { key: "review", label: "Under review", bg: "var(--dk-background-color-blue-50, #eff6ff)", fg: "var(--dk-text-color-blue-800, #1e40af)" },
+  { key: "interview", label: "Interview", bg: "var(--dk-background-color-blue-50, #eff6ff)", fg: "var(--dk-text-color-blue-800, #1e40af)" },
+  { key: "docs", label: "Docs pending", bg: "var(--dk-background-color-rose-50, #fff1f2)", fg: "var(--dk-text-color-rose-700, #be123c)" },
+  { key: "negotiation", label: "Negotiation", bg: "var(--dk-background-color-amber-100, #fef3c7)", fg: "var(--dk-text-color-amber-800, #92400e)" },
+  { key: "pricing", label: "Pricing", bg: "var(--dk-background-color-blue-50, #eff6ff)", fg: "var(--dk-text-color-blue-700, #1d4ed8)" },
+  { key: "training", label: "Training", bg: "var(--dk-background-color-amber-50, #fffbeb)", fg: "var(--dk-text-color-amber-800, #92400e)" },
+  { key: "active", label: "Active", bg: "var(--dk-background-color-emerald-50, #ecfdf5)", fg: "var(--dk-text-color-emerald-700, #047857)" },
+  { key: "rejected", label: "Rejected", bg: "var(--dk-background-color-rose-50, #fff1f2)", fg: "var(--dk-text-color-rose-700, #be123c)" },
 ];
 
 export function stageOf(key: string) {
-  return STAGES.find((s) => s.key === key) ?? { key, label: key, bg: "#f7f4ee", fg: "#57534e" };
+  return STAGES.find((s) => s.key === key) ?? { key, label: key, bg: "var(--dk-background-color-cream, #f7f4ee)", fg: "var(--dk-text-color-stone-600, #57534e)" };
 }
 
 export const SUSPENSION: Record<string, { label: string; bg: string; fg: string }> = {
-  partial: { label: "Partially suspended", bg: "#fffbeb", fg: "#b45309" },
-  full: { label: "Suspended", bg: "#fff1f2", fg: "#be123c" },
+  partial: { label: "Partially suspended", bg: "var(--dk-background-color-amber-50, #fffbeb)", fg: "var(--dk-text-color-amber-700, #b45309)" },
+  full: { label: "Suspended", bg: "var(--dk-background-color-rose-50, #fff1f2)", fg: "var(--dk-text-color-rose-700, #be123c)" },
 };
 
 /** Application state → [background, text] chip colours. */

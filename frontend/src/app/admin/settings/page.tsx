@@ -1,6 +1,7 @@
 import Link from "next/link";
 import ChangePassword from "@/components/account/change-password";
 import LogoutButton from "@/components/logout-button";
+import ThemeToggle from "@/components/theme-toggle";
 import { PANEL, PageTitle } from "@/components/admin/ui";
 
 export const metadata = { title: "Settings" };
@@ -11,6 +12,10 @@ export default function AdminSettingsPage() {
     <div>
       <PageTitle title="Settings" sub="Your password and signing out. Your details and verified mobile number are on My profile." />
       <div className={`${PANEL} p-5`}>
+        <h2 className="m-0 mb-3 text-[16px] font-bold">Appearance</h2>
+        <ThemeToggle variant="row" />
+      </div>
+      <div className={`${PANEL} mt-4 p-5`}>
         <h2 className="m-0 text-[16px] font-bold">Password</h2>
         <ChangePassword className="mt-3" />
       </div>

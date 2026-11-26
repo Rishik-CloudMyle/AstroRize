@@ -26,7 +26,7 @@ overviewRouter.get("/session", async (req, res) => {
   const admin = adminOf(req);
   // From the access matrix in force (defaults + the Super Admin's changes), so the nav follows a change at once.
   const pages = pagesOf(admin.adminRole);
-  const { counts, hints } = await navCounts(admin);
+  const { counts, hints, refunds } = await navCounts(admin);
   res.json({
     session: {
       id: admin.user.id,
@@ -38,6 +38,7 @@ overviewRouter.get("/session", async (req, res) => {
       capabilities: capabilitiesOf(admin.adminRole),
       counts,
       hints,
+      refunds,
     },
   });
 });

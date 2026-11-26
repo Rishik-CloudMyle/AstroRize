@@ -68,9 +68,9 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
               onClick={() => pickFilter(f.label)}
               className="h-[34px] rounded-full border px-3.5 text-[12.5px] font-bold"
               style={{
-                borderColor: on ? "#1c1917" : "#e7e0d6",
-                background: on ? "#1c1917" : "#fff",
-                color: on ? "#fcd34d" : "#57534e",
+                borderColor: on ? "var(--dk-border-color-ink, #1c1917)" : "var(--dk-border-color-line, #e7e0d6)",
+                background: on ? "var(--dk-background-color-ink, #1c1917)" : "var(--dk-background-color-white, #fff)",
+                color: on ? "#fcd34d" : "var(--dk-text-color-stone-600, #57534e)",
               }}
             >
               {f.label} <b className="opacity-60">{f.count}</b>
@@ -108,7 +108,7 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
               {rows.map((a) => {
                 const [bg, fg] = stateTone(a.state);
                 return (
-                  <tr key={a.id} style={{ background: a.breach ? "#fff1f2" : "transparent" }}>
+                  <tr key={a.id} style={{ background: a.breach ? "var(--dk-background-color-rose-50, #fff1f2)" : "transparent" }}>
                     <td className={`${TD} px-2.5 py-[11px] font-mono text-[11.5px] text-[#57534e]`}>{a.id}</td>
                     <td className={`${TD} px-2.5 py-[11px] font-bold text-ink`}>
                       {/* The name opens the application too (on a phone "Open" is off to the right). */}
@@ -132,7 +132,7 @@ export default function LifecycleView({ data, initialApp }: { data: LifecycleDat
                     </td>
                     <td
                       className={`${TD} px-2.5 py-[11px] text-right tabular-nums`}
-                      style={{ fontWeight: a.breach ? 800 : 500, color: a.breach ? "#be123c" : "#78716c" }}
+                      style={{ fontWeight: a.breach ? 800 : 500, color: a.breach ? "var(--dk-text-color-rose-700, #be123c)" : "var(--dk-text-color-stone-500, #78716c)" }}
                     >
                       {a.age}
                     </td>

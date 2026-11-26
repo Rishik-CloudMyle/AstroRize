@@ -7,8 +7,8 @@
 //          captions) and public live-room chat: NO personal details at all — phone numbers, email
 //          addresses, links, social media / messaging apps and @handles, UPI IDs, "call me on…",
 //          and home / street addresses.
-//   PAID — the chat inside a paid consultation: only phone numbers are blocked; emails, links,
-//          names and everything else may be shared.
+//   PAID — the chat inside a paid consultation: phone numbers, email addresses, social media and
+//          messaging IDs and UPI IDs are blocked; links, home addresses and everything else may be shared.
 //
 // Written to catch the usual tricks (spaces, dots or dashes between digits, +91 / 0 prefixes,
 // numbers written in words, "name at gmail dot com") without stopping ordinary astrology talk:

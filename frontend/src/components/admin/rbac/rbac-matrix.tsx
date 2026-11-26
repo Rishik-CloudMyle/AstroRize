@@ -35,7 +35,7 @@ function diffLines(data: RbacData, fromPages: Grid, toPages: Grid, fromCaps: Gri
 
 function Mark({ on }: { on: boolean }) {
   return (
-    <span className="text-[14px] font-extrabold" style={{ color: on ? "#047857" : "#d6d3d1" }}>
+    <span className="text-[14px] font-extrabold" style={{ color: on ? "var(--dk-text-color-emerald-700, #047857)" : "#d6d3d1" }}>
       {on ? "✓" : "—"}
     </span>
   );
@@ -59,7 +59,7 @@ function Cell({
 }) {
   const changed = editing && value !== cell.on;
   return (
-    <td className={`${TD} p-2 text-center align-middle`} style={{ background: changed ? "#fef3c7" : undefined }}>
+    <td className={`${TD} p-2 text-center align-middle`} style={{ background: changed ? "var(--dk-background-color-amber-100, #fef3c7)" : undefined }}>
       {cell.locked ? (
         <span
           className="inline-flex items-center gap-1"
@@ -340,8 +340,8 @@ export default function RbacMatrix({ data }: { data: RbacData }) {
                 key={line}
                 className="rounded-[10px] px-3 py-2 font-mono text-[12px]"
                 style={{
-                  background: line.includes(": +") ? "#ecfdf5" : "#fff1f2",
-                  color: line.includes(": +") ? "#047857" : "#be123c",
+                  background: line.includes(": +") ? "var(--dk-background-color-emerald-50, #ecfdf5)" : "var(--dk-background-color-rose-50, #fff1f2)",
+                  color: line.includes(": +") ? "var(--dk-text-color-emerald-700, #047857)" : "var(--dk-text-color-rose-700, #be123c)",
                 }}
               >
                 {line}

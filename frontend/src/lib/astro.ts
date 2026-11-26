@@ -103,7 +103,7 @@ export interface DashaPeriod {
   antardashas?: DashaPeriod[];
 }
 
-export const VARGA_CODES = ["D1", "D2", "D3", "D4", "D7", "D9", "D10", "D12", "D16", "D20", "D24", "D27", "D30", "D40", "D45", "D60"] as const;
+export const VARGA_CODES = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "D16", "D20", "D24", "D27", "D30", "D40", "D45", "D57", "D60", "D81", "D108", "D144"] as const;
 export type VargaCode = (typeof VARGA_CODES)[number];
 
 /** Names and one-line purposes of the Parashari divisional charts (mirrors backend lib/astro/vargas.ts). */
@@ -112,9 +112,13 @@ export const VARGA_INFO: Record<VargaCode, { name: string; purpose: string }> = 
   D2: { name: "Hora", purpose: "wealth" },
   D3: { name: "Drekkana", purpose: "siblings and courage" },
   D4: { name: "Chaturthamsa", purpose: "home, property and fortune" },
+  D5: { name: "Panchamsa", purpose: "talent and authority" },
+  D6: { name: "Shashthamsa", purpose: "health and obstacles" },
   D7: { name: "Saptamsa", purpose: "children" },
+  D8: { name: "Ashtamsa", purpose: "sudden events and longevity" },
   D9: { name: "Navamsa", purpose: "marriage and dharma" },
   D10: { name: "Dasamsa", purpose: "career and status" },
+  D11: { name: "Rudramsa", purpose: "gains and struggle" },
   D12: { name: "Dwadasamsa", purpose: "parents" },
   D16: { name: "Shodasamsa", purpose: "vehicles and comforts" },
   D20: { name: "Vimsamsa", purpose: "spiritual practice" },
@@ -123,14 +127,18 @@ export const VARGA_INFO: Record<VargaCode, { name: string; purpose: string }> = 
   D30: { name: "Trimsamsa", purpose: "misfortunes and health" },
   D40: { name: "Khavedamsa", purpose: "maternal legacy" },
   D45: { name: "Akshavedamsa", purpose: "paternal legacy and character" },
+  D57: { name: "Division 57", purpose: "a fine refinement of the chart" },
   D60: { name: "Shashtiamsa", purpose: "past karma; needs an exact birth time" },
+  D81: { name: "Nava-navamsa", purpose: "a refinement of the Navamsa" },
+  D108: { name: "Ashtottaramsa", purpose: "a refinement of the Navamsa" },
+  D144: { name: "Dwadas-dwadasamsa", purpose: "a refinement of the Dwadasamsa" },
 };
 
 export interface VargaChart {
   /** 0 = Aries … 11 = Pisces. */
   lagnaSign: number;
   houses: { house: number; sign: number; grahas: GrahaKey[] }[];
-  /** Degree inside the varga sign ((degree × n) mod 30); null for D30 (unequal parts). */
+  /** Degree inside the varga sign: (degree × n) mod 30. */
   lagnaDegree: number | null;
   degrees: Partial<Record<GrahaKey, number | null>>;
 }

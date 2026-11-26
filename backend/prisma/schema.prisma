@@ -1272,6 +1272,13 @@ model Payout {
   amount           Int
   /// QUEUED | PROCESSING | PROCESSED | FAILED | REVERSED
   state            String        @default("QUEUED")
+  /// Who pays it: manual (Finance, from the bank) | razorpayx
+  provider         String        @default("manual")
+  /// Manual payouts: the bank file it went out in, when, when it was paid and who recorded that.
+  exportRef        String?
+  exportedAt       DateTime?
+  paidAt           DateTime?
+  markedByName     String?
   /// IMPS | UPI
   mode             String?
   razorpayPayoutId String?       @unique

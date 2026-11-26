@@ -34,9 +34,9 @@ export function usePoll(tick: () => void, ms = INBOX_POLL_MS) {
 export const KIND_LABEL: Record<PersonKind, string> = { staff: "Staff", astrologer: "Astrologer", customer: "Customer" };
 
 const KIND_TONE: Record<PersonKind, { bg: string; fg: string }> = {
-  staff: { bg: "#fef3c7", fg: "#92400e" },
-  astrologer: { bg: "#ede9fe", fg: "#5b21b6" },
-  customer: { bg: "#e0f2fe", fg: "#075985" },
+  staff: { bg: "var(--dk-background-color-amber-100, #fef3c7)", fg: "var(--dk-text-color-amber-800, #92400e)" },
+  astrologer: { bg: "var(--dk-surface-alt, #ede9fe)", fg: "var(--dk-ink-alt, #5b21b6)" },
+  customer: { bg: "var(--dk-surface-alt, #e0f2fe)", fg: "var(--dk-ink-alt, #075985)" },
 };
 
 /** Small coloured tag: Staff / Astrologer / Customer. */

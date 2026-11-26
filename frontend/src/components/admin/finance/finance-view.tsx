@@ -9,8 +9,10 @@ import type { BatchKind, FinanceData, PayoutBatch, PrepareCandidate } from "@/li
 import AdminDialog from "@/components/admin/dialog";
 import { useEffect, useState } from "react";
 import CustomAmountControl from "./custom-amount";
+import PayoutControls from "./payout-controls";
+import { downloadPayoutStatement } from "@/lib/earnings-export";
 
-interface DetailRow { astrologer: string; customerPaid: string; commission: string; earnings: string; tds: string; tdsPct?: number; tdsNote?: string; payable: string; transfer: string; utr: string }
+interface DetailRow { astrologerId: string; adjustments: string; astrologer: string; customerPaid: string; gst: string; commission: string; earnings: string; tds: string; tdsPct?: number; tdsNote?: string; payable: string; transfer: string; utr: string }
 
 function BatchDetails({ id, onClose }: { id: string; onClose: () => void }) {
   const [rows, setRows] = useState<DetailRow[] | null>(null);
@@ -19,20 +21,25 @@ function BatchDetails({ id, onClose }: { id: string; onClose: () => void }) {
     api.get<{ rows: DetailRow[] }>(`/admin/payouts/${id}/details`).then((r) => setRows(r.rows)).catch(() => setErr("Couldn't load this batch."));
   }, [id]);
   return (
-    <AdminDialog title={`Batch ${id}`} subtitle="Astrologer-wise breakdown" onClose={onClose} width={900}>
+    <AdminDialog title={`Batch ${id}`} subtitle="Astrologer-wise breakdown · customers paid includes GST; commission and earnings are on the amount before GST" onClose={onClose} width={900}>
       {err ? <p role="alert">{err}</p> : !rows ? <p>Loading…</p> : rows.length === 0 ? <p>No lines in this batch.</p> : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-[13px]">
-            <thead><tr>{["Astrologer", "Customers paid", "Commission", "Earnings", "TDS", "Final payable", "Transfer"].map((h) => <th key={h} className={TH}>{h}</th>)}</tr></thead>
+          <table className="w-full min-w-[900px] border-collapse text-[13px]">
+            <thead><tr>{["Astrologer", "Customers paid", "GST", "Commission", "Incentives / deductions", "Earnings", "TDS", "Final payable", "Transfer", "Statement"].map((h) => <th key={h} className={TH}>{h}</th>)}</tr></thead>
             <tbody>{rows.map((r) => (
               <tr key={r.astrologer}>
                 <td className={`${TD} px-2.5 py-2.5 font-semibold`}>{r.astrologer}</td>
                 <td className={`${TD} px-2.5 py-2.5 tabular-nums`}>{r.customerPaid}</td>
+                <td className={`${TD} px-2.5 py-2.5 tabular-nums`}>{r.gst}</td>
                 <td className={`${TD} px-2.5 py-2.5 tabular-nums`}>{r.commission}</td>
+                <td className={`${TD} px-2.5 py-2.5 tabular-nums`}>{r.adjustments}</td>
                 <td className={`${TD} px-2.5 py-2.5 tabular-nums`}>{r.earnings}</td>
                 <td className={`${TD} px-2.5 py-2.5 tabular-nums text-rose-700`}>{r.tds}{r.tdsPct !== undefined && <span className="block text-[11px] font-normal text-[#78716c]" title={r.tdsNote}>{r.tdsPct}%{r.tdsNote ? ` · ${r.tdsNote}` : ""}</span>}</td>
                 <td className={`${TD} px-2.5 py-2.5 font-bold tabular-nums`}>{r.payable}</td>
                 <td className={`${TD} px-2.5 py-2.5`}>{r.transfer}{r.utr && <span className="block font-mono text-[11px] text-[#78716c]">{r.utr}</span>}</td>
+                <td className={`${TD} px-2.5 py-2.5`}>
+                  <button type="button" onClick={() => void downloadPayoutStatement(`/admin/payouts/${id}/statements/${r.astrologerId}`).catch(() => setErr("Couldn't download the statement."))} className="h-[30px] rounded-[9px] border border-line bg-white px-3 text-[12px] font-bold text-ink">Excel</button>
+                </td>
               </tr>
             ))}</tbody>
           </table>
@@ -86,14 +93,16 @@ export default function FinanceView({ data, part = "all" }: { data: FinanceData;
   const batchAct = (b: PayoutBatch) => {
     const id = b.id;
     if (b.state === "DRAFT") {
-      void run(() => api.post(`/admin/payouts/${id}/approve`), `${id} approved by ${actor}. A different person releases it. Audited.`);
+      void run(() => api.post(`/admin/payouts/${id}/approve`), `${id} approved by ${actor}. A different person ${data.provider.automatic ? "releases" : "finalises"} it. Audited.`);
       return;
     }
     if (b.state === "APPROVED") {
-      // Releasing sends one transfer per astrologer (RazorpayX, or the simulation until its keys are set).
+      // Releasing (finalising) makes one payout per astrologer: paid by Finance from the bank, or sent by the provider.
       void run(
         () => api.post(`/admin/payouts/${id}/release`),
-        `${id} released by ${actor}. Transfers to the astrologers are on their way — follow them under Finance → Transfers.`,
+        data.provider.automatic
+          ? `${id} released by ${actor}. Transfers to the astrologers are on their way — follow them under Finance → Transfers.`
+          : `${id} finalised by ${actor}. Now download the bank file under Finance → Transfers, pay it and record each UTR.`,
       );
       return;
     }
@@ -126,14 +135,15 @@ export default function FinanceView({ data, part = "all" }: { data: FinanceData;
 
   return (
     <>
+      {part !== "recharge" && <PayoutControls schedule={data.schedule} />}
       {part !== "recharge" && (
       <div className={`${PANEL} relative mt-4 p-5`}>
         {details && <BatchDetails id={details} onClose={() => setDetails(null)} />}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="m-0 text-[16px] font-bold">Payout batches · RazorpayX</h2>
+            <h2 className="m-0 text-[16px] font-bold">Payout batches · {data.provider.label}</h2>
             <span className="mt-1 block text-[12px] text-[#78716c]">
-              Earnings are paid half-monthly (1–15, 16–end); free-call compensation in its own batch. TDS is worked out for each
+              Earnings are paid {data.schedule.cycleDays === 30 ? "monthly" : "half-monthly (1–15, 16–end)"}, due on day {data.schedule.day} after the cycle ends; free-call compensation in its own batch. TDS is worked out for each
               astrologer by their own rate (default {data.tdsPct}%; set on the TDS page) and kept with the batch.
             </span>
           </div>
@@ -213,13 +223,13 @@ export default function FinanceView({ data, part = "all" }: { data: FinanceData;
                   st === "DRAFT" && !canApprove
                     ? "Finance approves batches"
                     : st === "APPROVED" && !canRelease
-                      ? "A Super Admin releases"
+                      ? `A Super Admin ${data.provider.automatic ? "releases" : "finalises"}`
                       : sameActor
-                        ? "Release — you approved this"
+                        ? "Needs another person — you approved this"
                         : null;
                 const [bg, fg] =
                   st === "RELEASED" ? ["#ecfdf5", "#047857"] : st === "APPROVED" ? ["#eff6ff", "#1d4ed8"] : ["#f7f4ee", "#57534e"];
-                const action = st === "DRAFT" ? "Approve" : st === "APPROVED" ? "Release" : "Details";
+                const action = st === "DRAFT" ? "Approve" : st === "APPROVED" ? (data.provider.automatic ? "Release" : "Finalise") : "Details";
                 return (
                   <tr key={p.id}>
                     <td className={`${TD} px-2.5 py-[11px]`}>
@@ -228,6 +238,7 @@ export default function FinanceView({ data, part = "all" }: { data: FinanceData;
                         <KindChip kind={p.kind} />
                       </span>
                       <span className="mt-0.5 block text-[11.5px] whitespace-nowrap text-[#78716c]">{cycleText(p)}</span>
+                      {p.dueOn && <span className={`block text-[11.5px] whitespace-nowrap ${p.overdue ? "font-bold text-rose-700" : "text-[#78716c]"}`}>{p.overdue ? "Overdue · was due" : "Due"} {p.dueOn}</span>}
                     </td>
                     <td className={`${TD} px-2.5 py-[11px] text-[#57534e]`}>{p.astrologers}</td>
                     <td className={`${TD} px-2.5 py-[11px] text-right font-bold whitespace-nowrap text-ink tabular-nums`}>{p.gross}</td>
@@ -237,7 +248,7 @@ export default function FinanceView({ data, part = "all" }: { data: FinanceData;
                         className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[11px] font-bold"
                         style={{ background: bg, color: fg }}
                       >
-                        {st}
+                        {st === "RELEASED" && !data.provider.automatic ? "FINALISED" : st}
                       </span>
                     </td>
                     <td className={`${TD} px-2.5 py-[11px] text-right whitespace-nowrap`}>
@@ -302,9 +313,9 @@ export default function FinanceView({ data, part = "all" }: { data: FinanceData;
                   onClick={() => toggleDenom(v)}
                   className="h-[34px] rounded-full border px-[13px] text-[12.5px] font-bold tabular-nums"
                   style={{
-                    background: on ? "#f59e0b" : "#fff",
-                    color: on ? "#1c1917" : "#a8a29e",
-                    borderColor: on ? "#f59e0b" : "#e7e0d6",
+                    background: on ? "#f59e0b" : "var(--dk-background-color-white, #fff)",
+                    color: on ? "#1c1917" : "var(--dk-text-color-stone-400, #a8a29e)",
+                    borderColor: on ? "#f59e0b" : "var(--dk-border-color-line, #e7e0d6)",
                   }}
                 >
                   {rupee(v)}
@@ -335,7 +346,7 @@ export default function FinanceView({ data, part = "all" }: { data: FinanceData;
                   disabled={!canConfigure}
                   onClick={() => pickFloor(m.key, m.label)}
                   className="flex-1 rounded-[14px] border-2 p-3.5 text-left"
-                  style={{ borderColor: on ? "#f59e0b" : "#e7e0d6", background: on ? "#fffbeb" : "#fff" }}
+                  style={{ borderColor: on ? "#f59e0b" : "var(--dk-border-color-line, #e7e0d6)", background: on ? "var(--dk-background-color-amber-50, #fffbeb)" : "var(--dk-background-color-white, #fff)" }}
                 >
                   <b className="block text-[13.5px] text-ink">{m.label}</b>
                   <em className="mt-[3px] block text-[11.5px] leading-[1.45] text-[#78716c] not-italic">{m.body}</em>

@@ -97,7 +97,7 @@ export function markTyping(c: Consultation, party: Party) {
 export const consultMessageBody = z.object({ text: messageText });
 
 /**
- * Sends a message while the session is in progress. A consultation is paid, so only phone numbers
+ * Sends a message while the session is in progress. A consultation is paid, so (client rule) phone numbers, emails, social and UPI IDs
  * are kept out (PAID policy, client Nov 2026 — emails, links and the rest may be shared): such a
  * message is never delivered; the sender gets the notice instead (stored as blocked, without the
  * original text). The same rule for the chat of a Chat consultation and the side chat of a voice,

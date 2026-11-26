@@ -35,11 +35,11 @@ interface Answer {
 }
 
 const STATUS: Record<CallRecordingRow["status"], { label: string; bg: string; fg: string }> = {
-  RECORDING: { label: "Recording now", bg: "#fff1f2", fg: "#be123c" },
-  READY: { label: "Ready", bg: "#ecfdf5", fg: "#047857" },
-  PARTIAL: { label: "Partial", bg: "#fffbeb", fg: "#92400e" },
-  FAILED: { label: "Failed", bg: "#f5f5f4", fg: "#57534e" },
-  DELETED: { label: "Deleted (retention)", bg: "#f5f5f4", fg: "#57534e" },
+  RECORDING: { label: "Recording now", bg: "var(--dk-background-color-rose-50, #fff1f2)", fg: "var(--dk-text-color-rose-700, #be123c)" },
+  READY: { label: "Ready", bg: "var(--dk-background-color-emerald-50, #ecfdf5)", fg: "var(--dk-text-color-emerald-700, #047857)" },
+  PARTIAL: { label: "Partial", bg: "var(--dk-background-color-amber-50, #fffbeb)", fg: "var(--dk-text-color-amber-800, #92400e)" },
+  FAILED: { label: "Failed", bg: "var(--dk-background-color-stone-100, #f5f5f4)", fg: "var(--dk-text-color-stone-600, #57534e)" },
+  DELETED: { label: "Deleted (retention)", bg: "var(--dk-background-color-stone-100, #f5f5f4)", fg: "var(--dk-text-color-stone-600, #57534e)" },
 };
 
 function length(secs: number) {

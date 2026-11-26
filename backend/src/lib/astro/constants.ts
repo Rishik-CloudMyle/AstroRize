@@ -123,14 +123,14 @@ export function vashyaGroup(moonLongitude: number): VashyaGroup {
 const VASHYA_ORDER: readonly VashyaGroup[] = ["chatushpada", "manava", "jalachara", "vanachara", "keeta"];
 /**
  * Vashya points, rows = groom's group, columns = bride's group (order as VASHYA_ORDER).
- * Source: onlinejyotish.com "Vashya Kootam" table (published Bride  Groom; transposed here).
- * Traditions differ on a few cells; this is the common North/South Indian calculator table.
+ * Matches AstroSage's matching (the client's reference), checked for all 25 group pairs. Traditions
+ * differ on a few cells.
  */
 const VASHYA_POINTS: readonly (readonly number[])[] = [
   [2, 1, 1, 0, 1],
   [1, 2, 0.5, 0, 0],
   [1, 0.5, 2, 1, 1],
-  [0, 0, 1, 2, 0],
+  [0.5, 0, 1, 2, 0],
   [1, 1, 1, 0, 2],
 ];
 export const vashyaPoints = (groom: VashyaGroup, bride: VashyaGroup) =>
@@ -191,14 +191,13 @@ export const NAKSHATRA_GANA: readonly Gana[] = [
 ];
 const GANA_ORDER: readonly Gana[] = ["deva", "manushya", "rakshasa"];
 /**
- * Gana points, rows = groom, columns = bride. Source: onlinejyotish.com "Gana Kootam"
- * (published Bride  Groom; transposed here): Deva groom + Manushya bride 5, Deva groom +
- * Rakshasa bride 1, Rakshasa groom + Deva/Manushya bride 0.
+ * Gana points, rows = groom, columns = bride. Matches AstroSage's matching (the client's reference),
+ * checked for all nine pairs.
  */
 const GANA_POINTS: readonly (readonly number[])[] = [
-  [6, 5, 1],
   [6, 6, 0],
-  [0, 0, 6],
+  [5, 6, 0],
+  [1, 0, 6],
 ];
 export const ganaPoints = (groom: Gana, bride: Gana) => GANA_POINTS[GANA_ORDER.indexOf(groom)]![GANA_ORDER.indexOf(bride)]!;
 

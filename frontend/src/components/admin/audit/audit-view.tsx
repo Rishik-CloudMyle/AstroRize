@@ -71,9 +71,9 @@ export default function AuditView({ entries, initialSort }: { entries: AuditEntr
                 onClick={() => setLane(k)}
                 className="h-[38px] rounded-full border px-[15px] text-[13px] font-bold"
                 style={{
-                  background: on ? "#1c1917" : "#fff",
-                  color: on ? "#fcd34d" : "#57534e",
-                  borderColor: on ? "#1c1917" : "#e7e0d6",
+                  background: on ? "var(--dk-background-color-ink, #1c1917)" : "var(--dk-background-color-white, #fff)",
+                  color: on ? "#fcd34d" : "var(--dk-text-color-stone-600, #57534e)",
+                  borderColor: on ? "var(--dk-border-color-ink, #1c1917)" : "var(--dk-border-color-line, #e7e0d6)",
                 }}
               >
                 {label}
@@ -127,7 +127,7 @@ export default function AuditView({ entries, initialSort }: { entries: AuditEntr
             </thead>
             <tbody>
               {rows.map((a) => (
-                <tr key={a.corr + a.ts} style={{ background: a.breakGlass ? "#fff1f2" : "transparent" }}>
+                <tr key={a.corr + a.ts} style={{ background: a.breakGlass ? "var(--dk-background-color-rose-50, #fff1f2)" : "transparent" }}>
                   <td className={`${TD} p-2.5 font-mono text-[11px] whitespace-nowrap text-[#78716c]`}>{a.ts}</td>
                   <td className={`${TD} p-2.5 font-semibold text-ink`}>{a.actor}</td>
                   <td className={`${TD} p-2.5 font-mono text-[11px] [overflow-wrap:anywhere] text-amber-700`}>{a.action}</td>

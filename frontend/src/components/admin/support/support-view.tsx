@@ -242,7 +242,7 @@ export default function SupportView({
                 aria-pressed={on}
                 onClick={() => pick(t.id)}
                 className="w-full rounded-xl border px-3 py-[11px] text-left"
-                style={{ borderColor: on ? "#fcd34d" : "#e7e0d6", background: on ? "#fef3c7" : "#fff" }}
+                style={{ borderColor: on ? "var(--dk-border-color-amber-300, #fcd34d)" : "var(--dk-border-color-line, #e7e0d6)", background: on ? "var(--dk-background-color-amber-100, #fef3c7)" : "var(--dk-background-color-white, #fff)" }}
               >
                 <div className="flex items-center gap-[7px]">
                   <span className="font-mono text-[11px] text-[#78716c]">{t.id}</span>
@@ -276,8 +276,8 @@ export default function SupportView({
                       className="inline-flex h-[17px] items-center rounded-full px-1.5 text-[9.5px] font-extrabold"
                       style={
                         t.refundState === "PROPOSED"
-                          ? { background: "#eff6ff", color: "#1e40af" }
-                          : { background: "#ecfdf5", color: "#047857" }
+                          ? { background: "var(--dk-background-color-blue-50, #eff6ff)", color: "var(--dk-text-color-blue-800, #1e40af)" }
+                          : { background: "var(--dk-background-color-emerald-50, #ecfdf5)", color: "var(--dk-text-color-emerald-700, #047857)" }
                       }
                     >
                       {chipOf(t)}
@@ -345,11 +345,11 @@ export default function SupportView({
                   <div
                     key={e.label}
                     className="flex items-center gap-[11px] rounded-xl border px-[13px] py-[11px]"
-                    style={{ background: platform ? "#fffbeb" : "#fff", borderColor: platform ? "#fde68a" : "#e7e0d6" }}
+                    style={{ background: platform ? "var(--dk-background-color-amber-50, #fffbeb)" : "var(--dk-background-color-white, #fff)", borderColor: platform ? "var(--dk-border-color-amber-200, #fde68a)" : "var(--dk-border-color-line, #e7e0d6)" }}
                   >
                     <span
                       className="inline-flex h-[21px] items-center rounded-full px-2 text-[9.5px] font-extrabold tracking-[.05em]"
-                      style={{ background: platform ? "#f59e0b" : "#f7f4ee", color: platform ? "#1c1917" : "#78716c" }}
+                      style={{ background: platform ? "#f59e0b" : "var(--dk-background-color-cream, #f7f4ee)", color: platform ? "#1c1917" : "#78716c" }}
                     >
                       {e.rank}
                     </span>
@@ -380,9 +380,9 @@ export default function SupportView({
                     key={b.label}
                     className="flex items-center justify-between gap-3 border-b py-[5px] text-[13.5px]"
                     style={{
-                      color: b.total ? "#1c1917" : "#57534e",
+                      color: b.total ? "var(--dk-text-color-ink, #1c1917)" : "var(--dk-text-color-stone-600, #57534e)",
                       fontWeight: b.total ? 700 : 500,
-                      borderColor: b.total ? "transparent" : "#f3e9d8",
+                      borderColor: b.total ? "transparent" : "var(--dk-line-alt, #f3e9d8)",
                     }}
                   >
                     <span>{b.label}</span>
@@ -488,9 +488,9 @@ export default function SupportView({
                 <span
                   className="inline-flex min-h-[42px] items-center rounded-[11px] border px-4 py-2 text-[13px] font-bold"
                   style={{
-                    background: rejected ? "#fff1f2" : "#ecfdf5",
-                    borderColor: rejected ? "#fecdd3" : "#a7f3d0",
-                    color: rejected ? "#be123c" : "#047857",
+                    background: rejected ? "var(--dk-background-color-rose-50, #fff1f2)" : "var(--dk-background-color-emerald-50, #ecfdf5)",
+                    borderColor: rejected ? "var(--dk-border-color-rose-200, #fecdd3)" : "var(--dk-border-color-emerald-200, #a7f3d0)",
+                    color: rejected ? "var(--dk-text-color-rose-700, #be123c)" : "var(--dk-text-color-emerald-700, #047857)",
                   }}
                 >
                   {rejected

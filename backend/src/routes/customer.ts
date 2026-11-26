@@ -640,9 +640,12 @@ customerRouter.post("/consultations/:id/extend", async (req, res) => {
   const me = auth(req);
   const c = await ownConsultation(me.user.id, String(req.params.id));
   if (c.status !== "ACTIVE") throw conflict("This consultation is not running.");
-  const before = c.heldAmount;
+  const standardFree = await configNumber("consult.free_seconds", 60);
+  const before = sessionCapSeconds(c, standardFree);
   const after = await extendHold(me.user.id);
-  const extended = !!after && after.heldAmount > before;
+  // Only an extension if the call really got longer: money short of one more minute changes nothing, so
+  // the website then offers a recharge.
+  const extended = !!after && sessionCapSeconds(after, standardFree) > before;
   res.json({ extended, consultation: await viewOf(c.id) });
 });
 

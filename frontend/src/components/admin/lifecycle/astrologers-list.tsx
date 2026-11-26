@@ -16,9 +16,9 @@ import { STAGES, stageOf, SUSPENSION } from "./stages";
 const SUSPENDED = "suspended";
 
 const chip = (on: boolean) => ({
-  borderColor: on ? "#1c1917" : "#e7e0d6",
-  background: on ? "#1c1917" : "#fff",
-  color: on ? "#fcd34d" : "#57534e",
+  borderColor: on ? "var(--dk-border-color-ink, #1c1917)" : "var(--dk-border-color-line, #e7e0d6)",
+  background: on ? "var(--dk-background-color-ink, #1c1917)" : "var(--dk-background-color-white, #fff)",
+  color: on ? "#fcd34d" : "var(--dk-text-color-stone-600, #57534e)",
 });
 
 export default function AstrologersList({ astrologers, initialOpen }: { astrologers: LifecycleAstrologer[]; initialOpen?: string }) {

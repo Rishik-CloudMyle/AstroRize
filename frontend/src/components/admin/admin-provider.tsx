@@ -80,7 +80,7 @@ export default function AdminProvider({ session, children }: { session: AdminSes
   }, []);
 
   // Seeded from the session the layout read; a newer session (router.refresh) replaces it.
-  const fromSession = (s: AdminSession): NavCounts => ({ counts: s.counts, hints: s.hints ?? {} });
+  const fromSession = (s: AdminSession): NavCounts => ({ counts: s.counts, hints: s.hints ?? {}, refunds: s.refunds });
   const [nav, setNav] = useState<{ from: AdminSession; counts: NavCounts }>(() => ({ from: session, counts: fromSession(session) }));
   if (nav.from !== session) setNav({ from: session, counts: fromSession(session) });
   // Only the newest answer counts if two reads overlap.

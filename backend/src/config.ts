@@ -32,6 +32,8 @@ export const config = {
    * leaves from. Until it is set, payouts run in SIMULATION: nothing leaves any bank, the Finance
    * page says so, and test accounts are paid or failed on pretend.
    */
+  /** Who sends astrologer payouts: "manual" (Finance, from the company bank account) or "razorpayx". */
+  payoutProvider: (process.env.PAYOUT_PROVIDER ?? "manual").trim().toLowerCase(),
   razorpayxKeyId: (process.env.RAZORPAYX_KEY_ID ?? process.env.RAZORPAY_KEY_ID ?? process.env.RAZORPAY_ID ?? "").trim(),
   razorpayxKeySecret: (process.env.RAZORPAYX_KEY_SECRET ?? process.env.RAZORPAY_KEY_SECRET ?? process.env.RAZORPAY_SECRET_KEY ?? "").trim(),
   razorpayxAccountNumber: (process.env.RAZORPAYX_ACCOUNT_NUMBER ?? "").trim(),

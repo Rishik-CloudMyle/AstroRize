@@ -11,9 +11,9 @@ export const RED_AFTER_HOURS = 72;
 export type Urgency = "red" | "yellow" | "green";
 
 const LOOK: Record<Urgency, { bg: string; fg: string; dot: string; word: string }> = {
-  red: { bg: "#fff1f2", fg: "#be123c", dot: "#e11d48", word: "Waiting long" },
-  yellow: { bg: "#fffbeb", fg: "#b45309", dot: "#f59e0b", word: "Recent" },
-  green: { bg: "#ecfdf5", fg: "#047857", dot: "#10b981", word: "New" },
+  red: { bg: "var(--dk-background-color-rose-50, #fff1f2)", fg: "var(--dk-text-color-rose-700, #be123c)", dot: "#e11d48", word: "Waiting long" },
+  yellow: { bg: "var(--dk-background-color-amber-50, #fffbeb)", fg: "var(--dk-text-color-amber-700, #b45309)", dot: "#f59e0b", word: "Recent" },
+  green: { bg: "var(--dk-background-color-emerald-50, #ecfdf5)", fg: "var(--dk-text-color-emerald-700, #047857)", dot: "#10b981", word: "New" },
 };
 
 export function urgencyOf(iso: string | null | undefined, now = Date.now()): Urgency {

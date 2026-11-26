@@ -307,7 +307,7 @@ export function SettlementView({
             <div
               key={l.label}
               className={`flex justify-between gap-3 py-[9px] text-sm ${i > 0 ? "border-t border-line-soft" : ""}`}
-              style={{ color: l.green ? "#047857" : "#57534e", fontWeight: l.green ? 600 : 500 }}
+              style={{ color: l.green ? "var(--dk-text-color-emerald-700, #047857)" : "var(--dk-text-color-stone-600, #57534e)", fontWeight: l.green ? 600 : 500 }}
             >
               <span>{l.label}</span>
               <b className="tabular-nums">{l.value}</b>

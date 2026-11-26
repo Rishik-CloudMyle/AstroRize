@@ -7,6 +7,7 @@ import { useState } from "react";
 import { accountStateLabel } from "@/lib/portal/status";
 import type { Account } from "@/lib/portal/types";
 import LogoutButton from "../logout-button";
+import ThemeToggle from "../theme-toggle";
 import { appButtonClass } from "../mobile/button";
 import { AppHeader } from "../mobile/app-header";
 import { IconCalendar, IconClock, IconDashboard, IconDoc, IconLive, IconMessage, IconMore, IconRupee, IconShield, IconUser } from "../mobile/icons";
@@ -221,6 +222,7 @@ export default function PortalShell({ account, children }: { account: Account; c
         kicker="Astrologer portal"
         actions={
           <>
+            <ThemeToggle className="!size-app-hit" />
             <NotificationBell variant="app" />
             <Link
               href="/portal/profile"
@@ -245,6 +247,7 @@ export default function PortalShell({ account, children }: { account: Account; c
               <AccountCard account={account} />
             </div>
             <NavList items={items} pathname={pathname} />
+            <ThemeToggle variant="row" className="mt-4 rounded-[10px] px-[11px] py-[9px] !text-[13.5px] !font-medium text-stone-500" />
             <LogoutButton className="mt-4 flex w-full items-center gap-2.5 rounded-[10px] px-[11px] py-[9px] text-left text-[13.5px] font-medium text-stone-500 hover:bg-stone-100">
               <span className="w-[18px] text-center text-sm">⎋</span>
               <span>Log out</span>

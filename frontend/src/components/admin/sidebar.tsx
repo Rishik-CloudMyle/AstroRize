@@ -6,6 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { AdminSession, Environment, NavGroup } from "@/lib/admin/types";
 import LogoutButton from "../logout-button";
+import ThemeToggle from "../theme-toggle";
 import { useNavCounts } from "./admin-provider";
 import MessagesUnreadBadge from "./messages/unread-badge";
 import StaffNotificationBell from "./notification-bell";
@@ -27,6 +28,7 @@ const SUB_PAGES: Record<string, { href: string; label: string }[]> = {
   "/admin/finance": [
     { href: "/admin/finance", label: "Payouts" },
     { href: "/admin/finance/transfers", label: "Transfers" },
+    { href: "/admin/finance/reconciliation", label: "Reconciliation" },
     { href: "/admin/finance/refunds", label: "Refunds" },
     { href: "/admin/finance/recharges", label: "Recharges" },
     { href: "/admin/finance/price-changes", label: "Price changes" },
@@ -35,6 +37,7 @@ const SUB_PAGES: Record<string, { href: string; label: string }[]> = {
     { href: "/admin/config", label: "All settings" },
     { href: "/admin/config/fixed-sessions", label: "Fixed Sessions" },
     { href: "/admin/config/free-calls", label: "Free Calls" },
+    { href: "/admin/config/revenue-share", label: "Revenue share" },
   ],
   "/admin/marketing": [
     { href: "/admin/marketing", label: "Campaigns" },
@@ -91,7 +94,7 @@ function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProp
   const pathname = usePathname();
   const search = useSearchParams();
   // Kept current by the provider: re-read after every action and every 30 seconds.
-  const { counts, hints } = useNavCounts();
+  const { counts, hints, refunds = 0 } = useNavCounts();
   const [envLabel, envBg, envBorder, envDot, envFg] = ENV_STYLES[environment];
 
   return (
@@ -127,7 +130,7 @@ function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProp
               const active = subs ? false : isActive(pathname, n.href);
               const count = n.href === "/admin/careers" ? 0 : (counts[n.key] ?? 0);
               return (
-                <div key={n.key}>
+                <div key={n.href}>
                 <Link
                   href={n.href}
                   onNavigate={onNavigate}
@@ -165,7 +168,13 @@ function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProp
                           aria-current={on ? "page" : undefined}
                           className={`flex w-full items-center rounded-[8px] px-2.5 py-1.5 text-left text-[12.5px] transition-colors hover:no-underline ${on ? "bg-amber-500 font-bold text-ink hover:text-ink" : "font-medium text-[#d6cbb8] hover:text-[#f8f4ec]"}`}
                         >
-                          {p.label}
+                          <span className="min-w-0 flex-1">{p.label}</span>
+                          {p.href === "/admin/finance/refunds" && refunds > 0 && (
+                            <span className="grid h-[19px] min-w-[19px] place-items-center rounded-full bg-urgent px-[5px] text-[10px] font-extrabold text-white">
+                              <span aria-hidden="true">{refunds > 99 ? "99+" : refunds}</span>
+                              <span className="sr-only">{refunds} refunds waiting</span>
+                            </span>
+                          )}
                         </Link>
                       );
                     })}
@@ -179,6 +188,7 @@ function RailBody({ session, roleLabel, environment, nav, onNavigate }: RailProp
       </nav>
 
       <div className="mt-auto border-t border-[#292524] px-2.5 pt-3.5">
+        <ThemeToggle variant="row" className="mb-1 py-1.5 !text-[13px] !font-medium text-[#a8a29e] hover:text-[#f8f4ec]" />
         <Link
           href="/admin/settings"
           onNavigate={onNavigate}

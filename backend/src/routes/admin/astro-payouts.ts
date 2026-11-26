@@ -3,7 +3,8 @@ import { z } from "zod";
 import { db } from "../../db.ts";
 import { audit } from "../../lib/audit.ts";
 import { badRequest, notFound } from "../../lib/errors.ts";
-import { holdRules, isRange, prepareAstrologerBatch, statementPeriods, type RangeKey } from "../../lib/earnings.ts";
+import { customPeriod, holdRules, isRange, prepareAstrologerBatch, statementPeriods, type RangeKey } from "../../lib/earnings.ts";
+import { isManualAdjustment } from "../../lib/payout-adjustments.ts";
 import { estimateTds, loadTdsContext } from "../../lib/tds.ts";
 import { istDate, istTime, rupee } from "../../lib/format.ts";
 import { approveBatch, releaseBatch } from "../../lib/payout-actions.ts";
@@ -16,12 +17,12 @@ import { adminOf, capabilitiesOf, requireCapability, requirePage } from "../../l
 // approve and release steps, with the same two-person rule, as any payout batch.
 export const astroPayoutsRouter = Router();
 
-const query = z.object({ range: z.string().optional(), period: z.coerce.number().int().min(0).max(40).catch(0), q: z.string().trim().max(60).catch("") });
+const query = z.object({ range: z.string().optional(), period: z.coerce.number().int().min(0).max(40).catch(0), q: z.string().trim().max(60).catch(""), from: z.string().max(10).optional(), to: z.string().max(10).optional() });
 
 function pick(req: Request) {
-  const { range: r, period, q } = query.parse(req.query);
-  const range: RangeKey = isRange(r) ? r : "fortnight";
-  const periods = statementPeriods(range);
+  const { range: r, period, q, from, to } = query.parse(req.query);
+  const range: RangeKey | "custom" = r === "custom" ? "custom" : isRange(r) ? r : "monthly";
+  const periods = range === "custom" ? [customPeriod(from ?? "", to ?? "")] : statementPeriods(range);
   const index = Math.min(period, periods.length - 1);
   return { range, periods, index, p: periods[index]!, q };
 }
@@ -74,6 +75,7 @@ astroPayoutsRouter.get("/astro-payouts", async (req, res) => {
       const free = mine.filter((l) => l.fundedBy === "PLATFORM");
       const gross = paid.reduce((s, l) => s + (l.gross ?? l.amount ?? 0), 0);
       const earned = paid.reduce((s, l) => s + (l.amount ?? 0), 0);
+      const adjustments = paid.filter((l) => isManualAdjustment(l.kind)).reduce((s, l) => s + (l.amount ?? 0), 0);
       const unbatched = paid.filter((l) => !l.payoutBatchId);
       const unbatchedEarned = unbatched.reduce((s, l) => s + (l.amount ?? 0), 0);
       const inBatches = [...new Set(paid.map((l) => l.payoutBatchId).filter((b): b is string => !!b))].map((bid) => {
@@ -86,10 +88,10 @@ astroPayoutsRouter.get("/astro-payouts", async (req, res) => {
       return {
         astrologerId: id,
         name: a.name,
-        sessions: paid.filter((l) => l.kind !== "gift" && l.kind !== "adjustment").length,
+        sessions: paid.filter((l) => l.kind !== "gift" && l.kind !== "refund_adjustment" && !isManualAdjustment(l.kind)).length,
         minutes: paid.reduce((s, l) => s + l.minutes, 0),
         gross,
-        commission: gross - earned,
+        commission: gross - (earned - adjustments),
         earned,
         // This astrologer's own rate (PAN, residency, Finance override); thresholds are applied when the payout is prepared.
         tds: estimateTds(tds, id, earned).amount,
@@ -143,6 +145,7 @@ astroPayoutsRouter.get("/astro-payouts/:astrologerId", async (req, res) => {
   const earned = paid.reduce((s, r) => s + r.amount, 0);
   const est = estimateTds(tds, id, earned);
   const t = est.amount;
+  const adjustments = paid.filter((r) => isManualAdjustment(r.kind)).reduce((s, r) => s + r.amount, 0);
   res.json({
     statement: {
       astrologer: a.name,
@@ -151,20 +154,19 @@ astroPayoutsRouter.get("/astro-payouts/:astrologerId", async (req, res) => {
       tdsPct: est.pct,
       tdsNote: est.note,
       rows,
-      totals: { gross, commission: gross - earned, earned, tds: t, net: earned - t, freeCompensation: rows.filter((r) => r.fundedBy === "PLATFORM").reduce((s, r) => s + r.amount, 0) },
+      totals: { gross, commission: gross - (earned - adjustments), earned, tds: t, net: earned - t, freeCompensation: rows.filter((r) => r.fundedBy === "PLATFORM").reduce((s, r) => s + r.amount, 0) },
     },
   });
 });
 
-const prepareBody = z.object({ astrologerId: z.string().max(40), range: z.string().optional(), period: z.number().int().min(0).max(40).default(0) });
+const prepareBody = z.object({ astrologerId: z.string().max(40), range: z.string().optional(), period: z.number().int().min(0).max(40).default(0), from: z.string().max(10).optional(), to: z.string().max(10).optional() });
 
 /** Prepares one astrologer's payout for the period (a DRAFT batch that then needs approving and releasing). */
 astroPayoutsRouter.post("/astro-payouts/prepare", async (req, res) => {
   requirePage(req, "payouts");
   const admin = requireCapability(req, "astro_payout.prepare", "Your role can't prepare astrologer payouts.");
   const body = prepareBody.parse(req.body ?? {});
-  const range: RangeKey = isRange(body.range) ? body.range : "fortnight";
-  const periods = statementPeriods(range);
+  const periods = body.range === "custom" ? [customPeriod(body.from ?? "", body.to ?? "")] : statementPeriods(isRange(body.range) ? body.range : "fortnight");
   const p = periods[Math.min(body.period, periods.length - 1)]!;
   const r = await prepareAstrologerBatch(body.astrologerId, p);
   if (!r.already) {

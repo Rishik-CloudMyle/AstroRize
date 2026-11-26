@@ -6,12 +6,13 @@ import { PANEL } from "@/components/admin/ui";
 import { ApiError, api } from "@/lib/api/client";
 import { downloadStatementXlsx, type ExportRow } from "@/lib/earnings-export";
 
-type Range = "daily" | "weekly" | "fortnight" | "monthly";
+type Range = "daily" | "weekly" | "fortnight" | "monthly" | "custom";
 const RANGES: { key: Range; label: string }[] = [
   { key: "daily", label: "Daily" },
   { key: "weekly", label: "Weekly" },
   { key: "fortnight", label: "15 days" },
   { key: "monthly", label: "Monthly" },
+  { key: "custom", label: "Custom dates" },
 ];
 
 interface BatchInfo {
@@ -72,7 +73,7 @@ interface Statement {
 
 const inr = (n: number) => `${n < 0 ? "−" : ""}₹${Math.abs(n).toLocaleString("en-IN")}`;
 const errorText = (e: unknown) => (e instanceof ApiError ? e.message : "Something went wrong. Try again.");
-const TRANSFER: Record<string, string> = { PROCESSED: "Paid", PROCESSING: "On its way", QUEUED: "On its way", FAILED: "Transfer failed", REVERSED: "Returned" };
+const TRANSFER: Record<string, string> = { PROCESSED: "Paid", PROCESSING: "At the bank", QUEUED: "Awaiting transfer", FAILED: "Transfer failed", REVERSED: "Returned" };
 const th = "px-2.5 py-2 text-[10.5px] font-bold tracking-[.08em] uppercase text-[#78716c]";
 const td = "border-t border-line-soft px-2.5 py-2.5 align-top";
 
@@ -103,9 +104,15 @@ function Status({ r }: { r: Row }) {
 }
 
 export default function PayoutsView() {
-  const [range, setRange] = useState<Range>("fortnight");
+  const [range, setRange] = useState<Range>("monthly");
   const [period, setPeriod] = useState(0);
   const [q, setQ] = useState("");
+  // Custom dates: the first of this month to today until the admin picks others.
+  const [dates, setDates] = useState(() => {
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+    return { from: `${today.slice(0, 8)}01`, to: today };
+  });
+  const custom = range === "custom" ? `&from=${dates.from}&to=${dates.to}` : "";
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -115,13 +122,13 @@ export default function PayoutsView() {
 
   const load = useCallback(() => {
     api
-      .get<{ payouts: Data }>(`/admin/astro-payouts?range=${range}&period=${period}&q=${encodeURIComponent(q)}`)
+      .get<{ payouts: Data }>(`/admin/astro-payouts?range=${range}&period=${period}&q=${encodeURIComponent(q)}${custom}`)
       .then((r) => {
         setData(r.payouts);
         setError("");
       })
       .catch((e) => setError(errorText(e)));
-  }, [range, period, q]);
+  }, [range, period, q, custom]);
   useEffect(() => {
     const t = setTimeout(load, q ? 250 : 0);
     return () => clearTimeout(t);
@@ -130,7 +137,7 @@ export default function PayoutsView() {
   const openStatement = (row: Row) => {
     setStatement({ id: row.astrologerId, data: null, error: "" });
     api
-      .get<{ statement: Statement }>(`/admin/astro-payouts/${encodeURIComponent(row.astrologerId)}?range=${range}&period=${period}`)
+      .get<{ statement: Statement }>(`/admin/astro-payouts/${encodeURIComponent(row.astrologerId)}?range=${range}&period=${period}${custom}`)
       .then((r) => setStatement({ id: row.astrologerId, data: r.statement, error: "" }))
       .catch((e) => setStatement({ id: row.astrologerId, data: null, error: errorText(e) }));
   };
@@ -141,14 +148,14 @@ export default function PayoutsView() {
     setMsg("");
     try {
       if (confirm.kind === "prepare") {
-        await api.post("/admin/astro-payouts/prepare", { astrologerId: confirm.row.astrologerId, range, period });
+        await api.post("/admin/astro-payouts/prepare", { astrologerId: confirm.row.astrologerId, range, period, ...(range === "custom" ? dates : {}) });
         setMsg(`Payout prepared for ${confirm.row.name}. It now needs approving, then releasing, by a different person.`);
       } else if (confirm.kind === "approve") {
         await api.post(`/admin/astro-payouts/batches/${encodeURIComponent(confirm.batch!.id)}/approve`);
         setMsg(`Approved for ${confirm.row.name}. A different person releases it.`);
       } else {
         await api.post(`/admin/astro-payouts/batches/${encodeURIComponent(confirm.batch!.id)}/release`);
-        setMsg(`Released to ${confirm.row.name}. The transfer is on its way.`);
+        setMsg(`Finalised for ${confirm.row.name}. Pay it and record the UTR under Finance → Transfers.`);
       }
       setConfirm(null);
       load();
@@ -165,12 +172,12 @@ export default function PayoutsView() {
   }
   const t = data.totals;
   const cards = [
-    { label: "Gross (before GST)", value: inr(t.gross), sub: `${t.astrologers} astrologers`, color: "#1c1917" },
-    { label: "Platform commission", value: inr(t.commission), sub: "AstroRize's share", color: "#78716c" },
-    { label: "Astrologers' earnings", value: inr(t.earned), sub: "their share of gross", color: "#047857" },
-    { label: `TDS · ${data.tdsPct}%`, value: inr(t.tds), sub: "withheld when paid", color: "#be123c" },
-    { label: "Net payable", value: inr(t.net), sub: "after TDS", color: "#1c1917" },
-    { label: "Not prepared yet", value: inr(t.unbatched), sub: "earnings still to batch", color: "#b45309" },
+    { label: "Gross (before GST)", value: inr(t.gross), sub: `${t.astrologers} astrologers`, color: "var(--dk-text-color-ink, #1c1917)" },
+    { label: "Platform commission", value: inr(t.commission), sub: "AstroRize's share", color: "var(--dk-text-color-stone-500, #78716c)" },
+    { label: "Astrologers' earnings", value: inr(t.earned), sub: "their share of gross", color: "var(--dk-text-color-emerald-700, #047857)" },
+    { label: `TDS · ${data.tdsPct}%`, value: inr(t.tds), sub: "withheld when paid", color: "var(--dk-text-color-rose-700, #be123c)" },
+    { label: "Net payable", value: inr(t.net), sub: "after TDS", color: "var(--dk-text-color-ink, #1c1917)" },
+    { label: "Not prepared yet", value: inr(t.unbatched), sub: "earnings still to batch", color: "var(--dk-text-color-amber-700, #b45309)" },
   ];
 
   return (
@@ -186,6 +193,13 @@ export default function PayoutsView() {
             <option key={p} value={i}>{i === 0 ? `${p} (running)` : p}</option>
           ))}
         </select>
+        {range === "custom" && (
+          <span className="inline-flex flex-wrap items-center gap-2 text-[13px] font-semibold text-ink">
+            <input type="date" aria-label="From date" value={dates.from} max={dates.to} onChange={(e) => e.target.value && setDates((d) => ({ ...d, from: e.target.value }))} className="h-10 rounded-xl border border-line bg-white px-2.5" />
+            to
+            <input type="date" aria-label="To date" value={dates.to} min={dates.from} onChange={(e) => e.target.value && setDates((d) => ({ ...d, to: e.target.value }))} className="h-10 rounded-xl border border-line bg-white px-2.5" />
+          </span>
+        )}
         <input aria-label="Search astrologers" placeholder="Search astrologer" value={q} onChange={(e) => setQ(e.target.value)} className="h-10 min-w-[180px] flex-1 rounded-xl border border-line bg-white px-3 text-[13px] sm:max-w-[260px]" />
       </div>
 
@@ -269,7 +283,7 @@ export default function PayoutsView() {
 
       {confirm && (
         <AdminDialog
-          title={confirm.kind === "prepare" ? "Prepare payout" : confirm.kind === "approve" ? "Approve payout" : "Release payout"}
+          title={confirm.kind === "prepare" ? "Prepare payout" : confirm.kind === "approve" ? "Approve payout" : "Finalise payout"}
           subtitle={`${confirm.row.name} · ${data.periodLabel}`}
           onClose={() => setConfirm(null)}
           width={480}
@@ -277,7 +291,7 @@ export default function PayoutsView() {
             <div className="flex justify-end gap-2.5">
               <button type="button" onClick={() => setConfirm(null)} className="h-10 rounded-[11px] border border-line bg-white px-4 text-[13px] font-bold">Cancel</button>
               <button type="button" disabled={busy} onClick={() => void run()} className="h-10 rounded-[11px] bg-amber-500 px-5 text-[13px] font-bold text-ink disabled:opacity-60">
-                {busy ? "Working…" : confirm.kind === "prepare" ? "Prepare" : confirm.kind === "approve" ? "Approve" : "Release and send"}
+                {busy ? "Working…" : confirm.kind === "prepare" ? "Prepare" : confirm.kind === "approve" ? "Approve" : "Finalise payout"}
               </button>
             </div>
           }
@@ -299,7 +313,7 @@ export default function PayoutsView() {
               ? "This collects their unpaid earnings for the period into one payout. Nothing is sent yet."
               : confirm.kind === "approve"
                 ? "After you approve, a different person must release it (a Super Admin can release their own approval, and it is recorded)."
-                : "This sends the money now through RazorpayX. It can't be undone from here."}
+                : "This finalises the payout: it can't be changed afterwards. Finance then pays it and records the bank reference (Finance → Transfers)."}
           </p>
         </AdminDialog>
       )}

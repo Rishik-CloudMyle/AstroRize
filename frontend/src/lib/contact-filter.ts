@@ -1,14 +1,14 @@
-// Contact-detail filter for messages (client, Nov 2026) — a copy of backend/src/lib/contact-filter.ts
-// (keep the two identical). The website checks a message with it before sending, so the person
-// sees what is wrong at once; the API runs the same rules and is the authority.
+// Contact-detail filter for messages (client, Nov 2026). No imports, so the website runs the very
+// same file before sending (frontend/src/lib/contact-filter.ts is a copy — keep the two identical);
+// the API is the authority.
 //
 // Two policies:
 //   FREE — the free Messages chat between a customer and an astrologer (text and photo/video
 //          captions) and public live-room chat: NO personal details at all — phone numbers, email
 //          addresses, links, social media / messaging apps and @handles, UPI IDs, "call me on…",
 //          and home / street addresses.
-//   PAID — the chat inside a paid consultation: only phone numbers are blocked; emails, links,
-//          names and everything else may be shared.
+//   PAID — the chat inside a paid consultation: phone numbers, email addresses, social media and
+//          messaging IDs and UPI IDs are blocked; links, home addresses and everything else may be shared.
 //
 // Written to catch the usual tricks (spaces, dots or dashes between digits, +91 / 0 prefixes,
 // numbers written in words, "name at gmail dot com") without stopping ordinary astrology talk:
@@ -222,12 +222,14 @@ function hasAddress(text: string): boolean {
 export function findContactDetails(text: string, policy: ContactPolicy = "FREE"): ContactKind[] {
   const found: ContactKind[] = [];
   if (hasPhone(text)) found.push("phone");
-  if (policy === "PAID") return found;
+  // Phone numbers, email addresses, social media / messaging IDs and UPI IDs are blocked everywhere,
+  // in a paid consultation too (client, Nov 2026). Links and home addresses are blocked in free chat only.
   const email = EMAIL.test(text);
   if (email) found.push("email");
   if (!email && UPI.test(text)) found.push("upi");
-  if (LINK.test(text) && !email) found.push("link");
   if (SOCIAL.test(text)) found.push("social");
+  if (policy === "PAID") return found;
+  if (LINK.test(text) && !email) found.push("link");
   if (hasAddress(text)) found.push("address");
   return found;
 }
@@ -249,7 +251,7 @@ const KIND_NAME: Record<ContactKind, string> = {
 export function contactBlockedNotice(kinds: ContactKind[], policy: ContactPolicy = "FREE", place = "free chat"): string {
   const what = kinds.length ? kinds.map((k) => KIND_NAME[k]).join(" and ") : "contact details";
   if (policy === "PAID") {
-    return `This message contains ${what}. Phone numbers can't be shared in a consultation; everything else is fine. Keep calls on AstroRize so both of you stay protected.`;
+    return `This message contains ${what}. Phone numbers, email addresses, social media and messaging IDs and UPI IDs can't be shared in a consultation. Keep the conversation on AstroRize so both of you stay protected.`;
   }
   return `This message contains ${what}. Phone numbers, email addresses, links, social media handles, UPI IDs and home addresses can't be shared in ${place}, so everyone stays protected.`;
 }

@@ -17,6 +17,7 @@ import NotificationBell from "../notification-bell";
 import { AppHeader, HeaderPill, WalletChip } from "./app-header";
 import { IconClock, IconHome, IconLive, IconMessage, IconPeople, IconUser } from "./icons";
 import TabBar from "./tab-bar";
+import ThemeToggle from "../theme-toggle";
 
 const UNREAD_POLL_MS = 60_000;
 
@@ -82,7 +83,7 @@ export function SiteAppHeader() {
   }
 
   return (
-    <AppHeader actions={actions}>
+    <AppHeader actions={<><ThemeToggle className="!size-app-hit" />{actions}</>}>
       {/* A consultation is open: the way back to it, on every page. */}
       <ConsultInProgressBar />
     </AppHeader>

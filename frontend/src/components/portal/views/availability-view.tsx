@@ -13,16 +13,16 @@ import BookingDialog from "./booking-dialog";
 
 const CELL: Record<SlotState | "unset", { bg: string; border: string; fg: string; label: string }> = {
   booked: { bg: "#f59e0b", border: "#f59e0b", fg: "#1c1917", label: "Booked" },
-  open: { bg: "#ecfdf5", border: "#a7f3d0", fg: "#047857", label: "Open" },
-  cancelled: { bg: "#f5f5f4", border: "#e7e0d6", fg: "#a8a29e", label: "Cancelled" },
-  unset: { bg: "#fffdf8", border: "#efe8dc", fg: "transparent", label: "" },
+  open: { bg: "var(--dk-background-color-emerald-50, #ecfdf5)", border: "var(--dk-border-color-emerald-200, #a7f3d0)", fg: "var(--dk-text-color-emerald-700, #047857)", label: "Open" },
+  cancelled: { bg: "var(--dk-background-color-stone-100, #f5f5f4)", border: "var(--dk-border-color-line, #e7e0d6)", fg: "var(--dk-text-color-stone-400, #a8a29e)", label: "Cancelled" },
+  unset: { bg: "var(--dk-background-color-paper, #fffdf8)", border: "var(--dk-border-color-line-soft, #efe8dc)", fg: "transparent", label: "" },
 };
 
 const LEGEND = [
-  { label: "Open", bg: "#ecfdf5", border: "#a7f3d0" },
+  { label: "Open", bg: "var(--dk-background-color-emerald-50, #ecfdf5)", border: "var(--dk-border-color-emerald-200, #a7f3d0)" },
   { label: "Booked", bg: "#f59e0b", border: "#f59e0b" },
-  { label: "Cancelled — tap to open again", bg: "#f5f5f4", border: "#e7e0d6" },
-  { label: "Unset", bg: "#fffdf8", border: "#efe8dc" },
+  { label: "Cancelled — tap to open again", bg: "var(--dk-background-color-stone-100, #f5f5f4)", border: "var(--dk-border-color-line, #e7e0d6)" },
+  { label: "Unset", bg: "var(--dk-background-color-paper, #fffdf8)", border: "var(--dk-border-color-line-soft, #efe8dc)" },
 ];
 
 /**
@@ -255,7 +255,7 @@ export default function AvailabilityView({ data }: { data: Availability }) {
                 onClick={save}
                 disabled={busy}
                 className="h-11 flex-1 rounded-xl text-sm font-bold max-lg:rounded-app-btn max-lg:text-[15px]"
-                style={{ background: valid ? "#f59e0b" : "#fde68a", color: valid ? "#1c1917" : "#78350f" }}
+                style={{ background: valid ? "#f59e0b" : "var(--dk-background-color-amber-200, #fde68a)", color: valid ? "#1c1917" : "#78350f" }}
               >
                 Save slot
               </button>
@@ -423,7 +423,7 @@ function MobileAgenda({
                 <b className="w-12 shrink-0 text-[13.333px] text-app-ink tabular-nums">{hour}</b>
                 <span
                   className={`flex min-h-9 min-w-0 flex-1 items-center rounded-[10px] border px-3 text-[13px] font-semibold ${slot ? "" : "border-dashed text-app-ink-3"}`}
-                  style={slot ? { background: c.bg, borderColor: c.border, color: c.fg } : { borderColor: "#e7e0d6" }}
+                  style={slot ? { background: c.bg, borderColor: c.border, color: c.fg } : { borderColor: "var(--dk-border-color-line, #e7e0d6)" }}
                 >
                   <span className="truncate">{label}</span>
                 </span>
@@ -469,10 +469,10 @@ function Row({
         const isToday = d === today;
         // Today: black borders and a warm tint. Coming days: dark borders. Times that have passed: pale grey.
         const look = gone
-          ? { background: "#efede8", borderColor: "#e3dfd6", color: c.fg }
+          ? { background: "var(--dk-surface-alt, #efede8)", borderColor: "var(--dk-line-alt, #e3dfd6)", color: c.fg }
           : slot
-            ? { background: c.bg, borderColor: isToday ? "#1c1917" : c.border, color: c.fg }
-            : { background: isToday ? "#fff4d6" : "#fffdf8", borderColor: isToday ? "#1c1917" : "#a8a29e", color: c.fg };
+            ? { background: c.bg, borderColor: isToday ? "var(--dk-border-color-ink, #1c1917)" : c.border, color: c.fg }
+            : { background: isToday ? "var(--dk-surface-alt, #fff4d6)" : "var(--dk-background-color-paper, #fffdf8)", borderColor: isToday ? "var(--dk-border-color-ink, #1c1917)" : "#a8a29e", color: c.fg };
         return (
           <button
             key={d}

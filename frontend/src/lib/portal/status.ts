@@ -9,11 +9,11 @@ export function isActive(status: AccountStatus): boolean {
 
 /** Short state line under the astrologer's name in the sidebar. */
 export function accountStateLabel(status: AccountStatus): { label: string; color: string } {
-  if (status.suspension === "full") return { label: "Fully suspended", color: "#be123c" };
-  if (status.suspension === "partial") return { label: "Partially suspended", color: "#be123c" };
-  if (status.lifecycle === "active") return { label: "Approved · Active", color: "#047857" };
+  if (status.suspension === "full") return { label: "Fully suspended", color: "var(--dk-text-color-rose-700, #be123c)" };
+  if (status.suspension === "partial") return { label: "Partially suspended", color: "var(--dk-text-color-rose-700, #be123c)" };
+  if (status.lifecycle === "active") return { label: "Approved · Active", color: "var(--dk-text-color-emerald-700, #047857)" };
   const stage = LIFECYCLE.find((l) => l.key === status.lifecycle);
-  return { label: stage?.label ?? "", color: "#b45309" };
+  return { label: stage?.label ?? "", color: "var(--dk-text-color-amber-700, #b45309)" };
 }
 
 export function bannerFor(status: AccountStatus): Banner {
@@ -27,9 +27,9 @@ export function bannerFor(status: AccountStatus): Banner {
           ? "Until then you can't take sessions, go live or send messages. Your profile and earnings remain readable. Sharing phone numbers, emails, links or other contact details isn't allowed on AstroRize."
           : "You cannot start new sessions or go live. Your profile and earnings remain readable, and you can respond to the open compliance notice.",
       ),
-      bg: "#fff1f2",
-      border: "#fecdd3",
-      fg: "#be123c",
+      bg: "var(--dk-background-color-rose-50, #fff1f2)",
+      border: "var(--dk-border-color-rose-200, #fecdd3)",
+      fg: "var(--dk-text-color-rose-700, #be123c)",
     };
   }
   if (status.suspension === "full") {
@@ -37,9 +37,9 @@ export function bannerFor(status: AccountStatus): Banner {
       icon: "⛔",
       title: "Account fully suspended",
       body: suspensionBody(status, "Everything is read-only except the compliance response path. Open the compliance console to answer the notice."),
-      bg: "#fff1f2",
-      border: "#fecdd3",
-      fg: "#be123c",
+      bg: "var(--dk-background-color-rose-50, #fff1f2)",
+      border: "var(--dk-border-color-rose-200, #fecdd3)",
+      fg: "var(--dk-text-color-rose-700, #be123c)",
     };
   }
   const stage = LIFECYCLE.find((l) => l.key === status.lifecycle) ?? LIFECYCLE[7];

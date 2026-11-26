@@ -624,6 +624,7 @@ export interface StatementRow {
 }
 
 export interface PayoutMade {
+  batchId: string;
   cycle: string;
   earned: number;
   tds: number;

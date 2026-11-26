@@ -147,7 +147,7 @@ export function ConsultChat({
   async function submit() {
     const text = draft.trim();
     if (!text || sending || !chat.open) return;
-    // A consultation's chat (paid): only phone numbers are kept out. Said here at once; the API checks too.
+    // A consultation's chat (paid): contact and payment IDs are kept out. Said here at once; the API checks too.
     const contact = findContactDetails(text, "PAID");
     if (contact.length) {
       chat.reportBlocked(text);
@@ -171,7 +171,7 @@ export function ConsultChat({
         )}
         {chat.loaded && count === 0 && (
           <p className={`mx-auto max-w-[34ch] py-8 text-center text-[13px] leading-[1.55] text-stone-400 ${L("max-lg:text-app-ink-2")}`}>
-            {chat.open ? `Say hello to ${peerName}. Messages stay on AstroRize — phone numbers can't be shared.` : "No messages in this consultation."}
+            {chat.open ? `Say hello to ${peerName}. Messages stay on AstroRize — phone numbers, emails, social and UPI IDs can't be shared.` : "No messages in this consultation."}
           </p>
         )}
         <ul className="flex flex-col gap-2">

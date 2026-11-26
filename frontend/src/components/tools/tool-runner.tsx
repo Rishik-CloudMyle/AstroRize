@@ -55,9 +55,23 @@ function reduceToDigit(n: number): number {
   return n;
 }
 
+/**
+ * Destiny number from the full name (Pythagorean: A=1 … I=9, then again): each word is added and
+ * reduced on its own, then the words are added and reduced; 11, 22 and 33 are kept.
+ */
+function destinyNumber(name: string): number {
+  const words = name
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.replace(/[^a-z]/g, ""))
+    .filter(Boolean);
+  const value = (w: string) => reduceNumber([...w].reduce((sum, ch) => sum + ((LETTER_VALUES.indexOf(ch) % 9) + 1), 0));
+  return reduceNumber(words.reduce((sum, w) => sum + value(w), 0));
+}
+
 function NumerologyTool({ tool }: { tool: Tool }) {
   const [form, setForm] = useState({ name: "", date: "" });
-  const [result, setResult] = useState<{ name: string; life: number; destiny: number; nameNumber: number } | null>(null);
+  const [result, setResult] = useState<{ name: string; birth: number; lifePath: number; destiny: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   function calculate() {
@@ -66,12 +80,11 @@ function NumerologyTool({ tool }: { tool: Tool }) {
     if (!form.date) return setError("Enter your date of birth.");
     setError(null);
     const digits = form.date.replace(/\D/g, "").split("").map(Number);
-    // Life number (Mulank): the day of birth. Destiny number (Bhagyank): every digit of the full date. Both to 1–9.
-    const life = reduceToDigit(Number(form.date.slice(8, 10)));
-    const destiny = reduceToDigit(digits.reduce((a, b) => a + b, 0));
-    const letters = form.name.toLowerCase().replace(/[^a-z]/g, "").split("");
-    const nameNumber = reduceNumber(letters.reduce((sum, ch) => sum + ((LETTER_VALUES.indexOf(ch) % 9) + 1), 0));
-    setResult({ name: form.name, life, destiny, nameNumber });
+    // Birth number (Mulank): the day of birth. Life path (Bhagyank): every digit of the full date. Both to 1–9.
+    const birth = reduceToDigit(Number(form.date.slice(8, 10)));
+    const lifePath = reduceToDigit(digits.reduce((a, b) => a + b, 0));
+    // Destiny number: the full name (Pythagorean), as InstaAstro and other calculators work it out.
+    setResult({ name: form.name, birth, lifePath, destiny: destinyNumber(form.name) });
   }
 
   return (
@@ -101,9 +114,9 @@ function NumerologyTool({ tool }: { tool: Tool }) {
         <ResultCard tool={tool} title={`${result.name.split(" ")[0]}'s numbers`}>
           <div className="grid gap-3 sm:grid-cols-2">
             {[
-              { label: "Life number (Mulank)", value: result.life, from: "from the day you were born" },
-              { label: "Destiny number (Bhagyank)", value: result.destiny, from: "from every digit of your date of birth, added down to one digit" },
-              { label: "Name number", value: result.nameNumber, from: "from the letters of your name (Pythagorean)" },
+              { label: "Destiny number", value: result.destiny, from: "from the letters of your full name (Pythagorean)" },
+              { label: "Life path number (Bhagyank)", value: result.lifePath, from: "from every digit of your date of birth, added down to one digit" },
+              { label: "Birth number (Mulank)", value: result.birth, from: "from the day you were born" },
             ].map((n) => (
               <div
                 key={n.label}

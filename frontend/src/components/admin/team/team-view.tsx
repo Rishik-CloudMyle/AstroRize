@@ -105,11 +105,11 @@ function PersonRow({ person, last }: { person: StaffMember; last: boolean }) {
       <div
         // Narrow columns: the buttons drop under the details instead of squeezing them.
         className="flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2.5"
-        style={{ borderColor: "#e7e0d6", background: person.active ? "#fff" : "#f7f4ee" }}
+        style={{ borderColor: "var(--dk-border-color-line, #e7e0d6)", background: person.active ? "var(--dk-background-color-white, #fff)" : "var(--dk-background-color-cream, #f7f4ee)" }}
       >
         <span
           className="grid h-[34px] w-[34px] flex-[0_0_34px] place-items-center rounded-full text-[12px] font-extrabold"
-          style={{ background: person.active ? "#fef3c7" : "#e7e5e4", color: person.active ? "#92400e" : "#78716c" }}
+          style={{ background: person.active ? "var(--dk-background-color-amber-100, #fef3c7)" : "var(--dk-background-color-stone-200, #e7e5e4)", color: person.active ? "var(--dk-text-color-amber-800, #92400e)" : "var(--dk-text-color-stone-500, #78716c)" }}
         >
           {person.initials}
         </span>
@@ -125,8 +125,8 @@ function PersonRow({ person, last }: { person: StaffMember; last: boolean }) {
               className="inline-flex h-[20px] items-center rounded-full px-2 text-[10.5px] font-extrabold"
               style={
                 person.active
-                  ? { background: "#ecfdf5", color: "#047857" }
-                  : { background: "#f5f5f4", color: "#78716c" }
+                  ? { background: "var(--dk-background-color-emerald-50, #ecfdf5)", color: "var(--dk-text-color-emerald-700, #047857)" }
+                  : { background: "var(--dk-background-color-stone-100, #f5f5f4)", color: "var(--dk-text-color-stone-500, #78716c)" }
               }
             >
               {person.active ? "Active" : "Deactivated"}
@@ -160,7 +160,7 @@ function PersonRow({ person, last }: { person: StaffMember; last: boolean }) {
               className="h-[30px] rounded-[9px] border px-3 text-[12px] font-bold disabled:opacity-50"
               style={
                 person.active
-                  ? { background: "#fff", borderColor: "#fecdd3", color: "#be123c" }
+                  ? { background: "var(--dk-background-color-white, #fff)", borderColor: "var(--dk-border-color-rose-200, #fecdd3)", color: "var(--dk-text-color-rose-700, #be123c)" }
                   : { background: "#047857", borderColor: "#047857", color: "#fff" }
               }
             >
@@ -187,7 +187,7 @@ function PersonRow({ person, last }: { person: StaffMember; last: boolean }) {
                 }}
                 aria-invalid={problem ? true : undefined}
                 className={`${FIELD} font-mono`}
-                style={{ borderColor: problem ? "#be123c" : "#e7e0d6" }}
+                style={{ borderColor: problem ? "#be123c" : "var(--dk-border-color-line, #e7e0d6)" }}
               />
               <button type="button" className={`${GHOST} h-10`} onClick={() => setPassword(generatePassword())}>
                 Generate

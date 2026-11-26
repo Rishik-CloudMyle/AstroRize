@@ -385,7 +385,7 @@ export default function LiveRoomView({ room: initialRoom, host: initialHost }: {
                 className="absolute inset-y-0 left-0 transition-colors duration-500"
                 style={{
                   width: `${o.pct}%`,
-                  background: voted === null ? "transparent" : mine ? "#fef3c7" : "#f7f4ee",
+                  background: voted === null ? "transparent" : mine ? "var(--dk-background-color-amber-100, #fef3c7)" : "var(--dk-background-color-cream, #f7f4ee)",
                 }}
               />
               <span className="relative truncate text-[13.5px] font-semibold text-ink">{o.label}</span>

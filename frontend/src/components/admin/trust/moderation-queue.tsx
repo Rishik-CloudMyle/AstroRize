@@ -71,7 +71,7 @@ export default function ModerationQueue({ data }: { data: TrustData }) {
           <div
             key={m.id}
             className="rounded-[14px] border border-line px-[17px] py-[15px]"
-            style={{ background: isHidden ? "#f7f4ee" : "#fffdf8" }}
+            style={{ background: isHidden ? "var(--dk-background-color-cream, #f7f4ee)" : "var(--dk-background-color-paper, #fffdf8)" }}
           >
             <div className="flex flex-wrap items-center gap-[9px]">
               <span className="text-[12px] tracking-[1px] text-[#f5b301]" aria-label={`${m.stars.split("★").length - 1} stars`}>
@@ -80,8 +80,8 @@ export default function ModerationQueue({ data }: { data: TrustData }) {
               <span
                 className="inline-flex h-[21px] items-center rounded-full px-[9px] text-[10px] font-extrabold"
                 style={{
-                  background: isKept ? "#ecfdf5" : m.flagBg,
-                  color: isKept ? "#047857" : m.flagFg,
+                  background: isKept ? "var(--dk-background-color-emerald-50, #ecfdf5)" : m.flagBg,
+                  color: isKept ? "var(--dk-text-color-emerald-700, #047857)" : m.flagFg,
                 }}
               >
                 {isKept ? "KEPT · flag cleared" : m.flag}

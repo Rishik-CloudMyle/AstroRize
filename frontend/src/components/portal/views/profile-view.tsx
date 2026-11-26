@@ -135,7 +135,7 @@ export default function ProfileView({ data }: { data: ProfileData }) {
             <span>
               {words} / {BIO_WORD_LIMIT} words
             </span>
-            <span className="text-right font-bold" style={{ color: lint ? "#be123c" : "#047857" }}>
+            <span className="text-right font-bold" style={{ color: lint ? "var(--dk-text-color-rose-700, #be123c)" : "var(--dk-text-color-emerald-700, #047857)" }}>
               {lint ? "claims warning — remove the guarantee" : "no claims warnings"}
             </span>
           </div>

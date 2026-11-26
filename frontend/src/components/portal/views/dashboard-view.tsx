@@ -18,9 +18,9 @@ import { useAccount, useErrorToast, usePresence, useToast } from "../portal-prov
 import { APP_CARD, Panel } from "../ui";
 
 const SCHEDULE_STYLE: Record<ScheduleItem["kind"], { chip: string; bg: string; border: string; chipBg: string; chipFg: string }> = {
-  open: { chip: "Open", bg: "#f7f4ee", border: "#e7e0d6", chipBg: "#ecfdf5", chipFg: "#047857" },
-  booked: { chip: "Booked", bg: "#fffbeb", border: "#fde68a", chipBg: "#f59e0b", chipFg: "#1c1917" },
-  live: { chip: "Live", bg: "#fff7ed", border: "#fed7aa", chipBg: "#ea580c", chipFg: "#fff" },
+  open: { chip: "Open", bg: "var(--dk-background-color-cream, #f7f4ee)", border: "var(--dk-border-color-line, #e7e0d6)", chipBg: "var(--dk-background-color-emerald-50, #ecfdf5)", chipFg: "var(--dk-text-color-emerald-700, #047857)" },
+  booked: { chip: "Booked", bg: "var(--dk-background-color-amber-50, #fffbeb)", border: "var(--dk-border-color-amber-200, #fde68a)", chipBg: "#f59e0b", chipFg: "#1c1917" },
+  live: { chip: "Live", bg: "var(--dk-background-color-orange-50, #fff7ed)", border: "var(--dk-border-color-orange-200, #fed7aa)", chipBg: "#ea580c", chipFg: "#fff" },
 };
 
 const PRESENCE_LABEL: Record<Presence, string> = {
@@ -269,7 +269,7 @@ export default function DashboardView({ data }: { data: Dashboard }) {
               <span
                 key={i}
                 className="min-w-0 flex-1 rounded-t-[4px]"
-                style={{ height: `${h}%`, background: h > 80 ? "#f59e0b" : "#fde68a" }}
+                style={{ height: `${h}%`, background: h > 80 ? "#f59e0b" : "var(--dk-background-color-amber-200, #fde68a)" }}
               />
             ))}
           </div>

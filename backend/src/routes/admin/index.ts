@@ -2,7 +2,9 @@ import { Router } from "express";
 import { withMatrix } from "../../lib/rbac.ts";
 import { roleGuard } from "../../middleware/auth.ts";
 import { astroPayoutsRouter } from "./astro-payouts.ts";
+import { payoutOpsRouter } from "./payout-ops.ts";
 import { adminCareersRouter } from "./careers.ts";
+import { revenueShareRouter } from "./revenue-share.ts";
 import { astroHelpAdminRouter } from "../astro-help.ts";
 import { configRouter } from "./config.ts";
 import { customerSessionsRouter } from "./customer-sessions.ts";
@@ -26,5 +28,5 @@ import { supportRouter } from "./support.ts";
 // admin's department against the access matrix (see lib/rbac.ts), loaded here first.
 export const adminRouter = Router();
 adminRouter.use(roleGuard("admin"), withMatrix);
-adminRouter.use(overviewRouter, configRouter, financeRouter, supportRouter, operationsRouter, monitoringRouter, governanceRouter, staffRouter, messagesRouter, handoverRouter, astroPayoutsRouter, tdsRouter, adminCareersRouter, astroHelpAdminRouter);
+adminRouter.use(overviewRouter, configRouter, financeRouter, supportRouter, operationsRouter, monitoringRouter, governanceRouter, staffRouter, messagesRouter, handoverRouter, astroPayoutsRouter, payoutOpsRouter, tdsRouter, adminCareersRouter, astroHelpAdminRouter, revenueShareRouter);
 adminRouter.use(customerSessionsRouter, refundsRouter, paymentsRouter, payoutHoldsRouter, contactFlagsRouter, recordingsRouter);

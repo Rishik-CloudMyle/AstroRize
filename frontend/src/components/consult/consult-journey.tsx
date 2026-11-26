@@ -908,8 +908,8 @@ export default function ConsultJourney({
                   key={i}
                   className="grid min-h-14 flex-1 place-items-center rounded-[14px] border-2 text-2xl font-bold tabular-nums text-ink sm:min-h-16 sm:text-[26px]"
                   style={{
-                    borderColor: i === otp.length ? "#d97706" : "#e7e0d6",
-                    background: otp[i] ? "#fffbeb" : "#fff",
+                    borderColor: i === otp.length ? "#d97706" : "var(--dk-border-color-line, #e7e0d6)",
+                    background: otp[i] ? "var(--dk-background-color-amber-50, #fffbeb)" : "var(--dk-background-color-white, #fff)",
                   }}
                 >
                   {otp[i] ?? ""}
@@ -971,15 +971,15 @@ export default function ConsultJourney({
                     <span
                       className="grid size-[26px] shrink-0 place-items-center rounded-full text-xs font-extrabold"
                       style={{
-                        background: i < connectStep ? "#047857" : i === connectStep ? "#f59e0b" : "#e7e0d6",
-                        color: i <= connectStep ? "#fff" : "#a8a29e",
+                        background: i < connectStep ? "#047857" : i === connectStep ? "#f59e0b" : "var(--dk-background-color-line, #e7e0d6)",
+                        color: i <= connectStep ? "#fff" : "var(--dk-text-color-stone-400, #a8a29e)",
                       }}
                     >
                       {i < connectStep ? "✓" : i + 1}
                     </span>
                     <span
                       className="text-[14.5px]"
-                      style={{ color: i <= connectStep ? "#1c1917" : "#a8a29e", fontWeight: i === connectStep ? 700 : 500 }}
+                      style={{ color: i <= connectStep ? "var(--dk-text-color-ink, #1c1917)" : "var(--dk-text-color-stone-400, #a8a29e)", fontWeight: i === connectStep ? 700 : 500 }}
                     >
                       {label}
                     </span>

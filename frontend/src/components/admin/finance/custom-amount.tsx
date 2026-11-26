@@ -41,9 +41,9 @@ export default function CustomAmountControl({ value, canConfigure }: { value: Fi
           onClick={() => save(!value.enabled)}
           className="h-[30px] rounded-full border px-3 text-[12px] font-bold"
           style={{
-            background: value.enabled ? "#ecfdf5" : "#fff",
-            color: value.enabled ? "#047857" : "#78716c",
-            borderColor: value.enabled ? "#a7f3d0" : "#e7e0d6",
+            background: value.enabled ? "var(--dk-background-color-emerald-50, #ecfdf5)" : "var(--dk-background-color-white, #fff)",
+            color: value.enabled ? "var(--dk-text-color-emerald-700, #047857)" : "var(--dk-text-color-stone-500, #78716c)",
+            borderColor: value.enabled ? "var(--dk-border-color-emerald-200, #a7f3d0)" : "var(--dk-border-color-line, #e7e0d6)",
           }}
         >
           {value.enabled ? "On" : "Off"}
