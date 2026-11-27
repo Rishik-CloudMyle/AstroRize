@@ -98,7 +98,7 @@ async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
 const extOf = (mime: string) => (mime.toLowerCase().startsWith("audio/mp4") ? "m4a" : "webm");
 /** Content-Type for playback (without the codecs part). */
-export const playbackType = (mime: string) => (mime.toLowerCase().startsWith("audio/mp4") ? "audio/mp4" : "audio/webm");
+export const playbackType = (mime: string) => ["audio/mp4", "audio/mpeg", "audio/wav"].find((t) => mime.toLowerCase().startsWith(t)) ?? "audio/webm";
 
 /** Uploads are accepted while the call runs, and for a short while after it ended. */
 function uploadsOpen(c: Consultation, now = Date.now()) {

@@ -30,7 +30,7 @@ export interface RecordingStore {
 
 /** Take ids are cuids; keys are "<takeId>.<ext>". Nothing else is ever read or written. */
 const TAKE_ID = /^[a-z0-9]{20,40}$/;
-const KEY = /^[a-z0-9]{20,40}\.(webm|m4a)$/;
+const KEY = /^[a-z0-9]{20,40}\.(webm|m4a|mp3|wav)$/;
 
 function checkTake(takeId: string) {
   if (!TAKE_ID.test(takeId)) throw new Error("Bad recording id.");

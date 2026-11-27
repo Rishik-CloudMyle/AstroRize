@@ -560,7 +560,7 @@ function Conversation({
   return (
     <section
       aria-label={`Conversation with ${a.name}`}
-      className={`flex h-[calc(100dvh-200px)] min-h-[440px] flex-col rounded-[22px] border border-line bg-paper lg:h-[620px] ${THREAD_SCREEN}`}
+      className={`flex h-[calc(100dvh-200px)] min-h-[440px] flex-col rounded-[22px] border border-line bg-paper lg:h-[min(620px,calc(100dvh-100px))] ${THREAD_SCREEN}`}
     >
       <ThreadBar title="Astrologer Messenger" subtitle={`${a.name} · Free`} />
       <header className="flex items-center gap-3 border-b border-line-soft px-4 py-3 sm:px-5 max-lg:hidden">
@@ -573,7 +573,7 @@ function Conversation({
         </Link>
       </header>
 
-      <div ref={scroller} onScroll={onThreadScroll} className={`flex flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 ${THREAD_SCROLL}`} aria-live="polite">
+      <div ref={scroller} onScroll={onThreadScroll} className={`flex flex-1 flex-col gap-2.5 overflow-y-auto max-lg:overscroll-contain px-4 py-4 sm:px-5 ${THREAD_SCROLL}`} aria-live="polite">
         <p className="mx-auto max-w-[44ch] rounded-full bg-cream px-3.5 py-1.5 text-center text-[11.5px] leading-normal text-stone-500 max-lg:hidden">
           Direct customer ↔ astrologer message. Not an assistant.
         </p>
@@ -763,7 +763,7 @@ function SupportConversation({ id, onChange }: { id: string; onChange: () => voi
   return (
     <section
       aria-label={`Conversation with ${detail.title}`}
-      className={`flex h-[calc(100dvh-200px)] min-h-[440px] flex-col rounded-[22px] border border-line bg-paper lg:h-[620px] ${THREAD_SCREEN}`}
+      className={`flex h-[calc(100dvh-200px)] min-h-[440px] flex-col rounded-[22px] border border-line bg-paper lg:h-[min(620px,calc(100dvh-100px))] ${THREAD_SCREEN}`}
     >
       <ThreadBar title={detail.title} subtitle={detail.subject ?? "A message from the AstroRize team"} />
       <header className="flex items-center gap-3 border-b border-line-soft px-4 py-3 sm:px-5 max-lg:hidden">
@@ -774,7 +774,7 @@ function SupportConversation({ id, onChange }: { id: string; onChange: () => voi
         </span>
       </header>
 
-      <div ref={scroller} className={`flex flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 ${THREAD_SCROLL}`} aria-live="polite">
+      <div ref={scroller} className={`flex flex-1 flex-col gap-2.5 overflow-y-auto max-lg:overscroll-contain px-4 py-4 sm:px-5 ${THREAD_SCROLL}`} aria-live="polite">
         <p className="mx-auto max-w-[44ch] rounded-full bg-cream px-3.5 py-1.5 text-center text-[11.5px] leading-normal text-stone-500 max-lg:mx-0 max-lg:max-w-none max-lg:rounded-none max-lg:bg-transparent max-lg:p-0 max-lg:text-left max-lg:text-[12px] max-lg:text-app-ink-2">
           You&apos;re talking with the AstroRize team. We will never ask for your password or OTP.
         </p>

@@ -9,7 +9,9 @@ import { requireCapability, requirePage } from "../../lib/rbac.ts";
 import { recordingStore } from "../../lib/recording-store.ts";
 import { sendRecordingAudio } from "../../lib/recording-stream.ts";
 import { playbackType, sweepRecordings } from "../../lib/recordings.ts";
-import { configNumber } from "../../lib/settings.ts";
+import { phoneConfigured } from "../../lib/phone/acefone.ts";
+import { PSTN_SETTING } from "../../lib/phone/state.ts";
+import { configNumber, getSetting, putSetting } from "../../lib/settings.ts";
 
 // Consultation call recordings (audio only) on the admin Recording page. Only a Super Admin can list
 // or listen (capability recording.listen, locked to Super Admin): everyone else, Compliance included,
@@ -103,6 +105,20 @@ recordingsRouter.get("/recordings", async (req, res) => {
     total,
     retentionDays,
   });
+});
+
+/** The phone backup for voice calls (Acefone): switch it on or off. */
+recordingsRouter.get("/recordings/phone", async (req, res) => {
+  guard(req);
+  res.json({ configured: phoneConfigured(), enabled: (await getSetting<boolean>(PSTN_SETTING, true)) !== false });
+});
+
+recordingsRouter.put("/recordings/phone", async (req, res) => {
+  const admin = guard(req);
+  const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+  await putSetting(PSTN_SETTING, enabled);
+  await audit(admin, "phone.settings", PSTN_SETTING, enabled ? "OFF → ON" : "ON → OFF");
+  res.json({ configured: phoneConfigured(), enabled });
 });
 
 /** Listens are audited once per person and recording every 10 minutes (seeking re-requests the file). */

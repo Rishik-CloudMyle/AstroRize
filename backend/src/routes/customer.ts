@@ -1,4 +1,5 @@
 import { audit } from "../lib/audit.ts";
+import { phoneState, startPhoneCall } from "../lib/phone-calls.ts";
 import { fileSessionReport, isBlocked, reportBody } from "../lib/session-reports.ts";
 import { createHash } from "node:crypto";
 import { packageDiscount } from "../lib/fixed-packages.ts";
@@ -624,6 +625,21 @@ customerRouter.post("/consultations/:id/joined", async (req, res) => {
   if (c.status !== "ACTIVE") throw conflict("This consultation isn't in progress.");
   await markJoined(c, "CUSTOMER");
   res.json({ consultation: await viewOf(c.id) });
+});
+
+/** The phone backup for a voice call: whether it can be used, and how a call stands. */
+customerRouter.get("/consultations/:id/phone", async (req, res) => {
+  const c = await ownConsultation(auth(req).user.id, String(req.params.id));
+  res.json({ phone: await phoneState(c, "CUSTOMER") });
+});
+
+/** Rings the astrologer, then the customer, on their mobiles. Neither sees the other's number. */
+customerRouter.post("/consultations/:id/phone", async (req, res) => {
+  const me = auth(req);
+  assertNotBlocked(me);
+  const c = await ownConsultation(me.user.id, String(req.params.id));
+  await startPhoneCall(c);
+  res.status(201).json({ phone: await phoneState(await ownConsultation(me.user.id, c.id), "CUSTOMER") });
 });
 
 /**

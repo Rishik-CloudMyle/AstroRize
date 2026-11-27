@@ -7,6 +7,7 @@ import type { MediaWants } from "@/lib/media/zego-call";
 import { ConsultChat, useConsultChat } from "./consult-chat";
 import { useCallMedia, type CallMedia, type Speaker } from "./use-call-media";
 import ReportDialog from "./report-dialog";
+import { PhoneBackupNotice, usePhoneBackup } from "./phone-backup";
 
 // The consultation's own window, the same for the customer and the astrologer, one per mode:
 //   chat  → a messaging window
@@ -99,7 +100,17 @@ export function SessionWindow({
   onJoined?: () => void;
 }) {
   // The call (and this side's "joined" report — see the note at the top) outlives this window.
-  const media = useCallMedia({ base, wants: WANTS[kind], active, onJoined });
+  // A voice call can move to a phone call: then the app's own call is closed.
+  const phone = usePhoneBackup(base, active && kind === "voice", onJoined);
+  const media = useCallMedia({ base, wants: WANTS[kind], active: active && !phone.live, onJoined });
+  // Not connected both ways after 20 seconds counts as trouble too.
+  const [slow, setSlow] = useState(false);
+  const connecting = active && kind === "voice" && !phone.live && !media.mediaUp;
+  useEffect(() => {
+    const id = setTimeout(() => setSlow(connecting), connecting ? 20_000 : 0);
+    return () => clearTimeout(id);
+  }, [connecting]);
+  const trouble = connecting && (media.notConfigured || media.answerFailed || !!media.linkProblem || media.link === "reconnecting" || media.offline || slow);
   // With no voice/video yet, the conversation is the chat: open it straight away on a call.
   const [drawer, setDrawer] = useState(false);
   const autoOpened = useRef(false);
@@ -161,7 +172,13 @@ export function SessionWindow({
     ) : null;
   const renderNotice = (where: string) => {
     const box = `${noticeBox} ${where}`;
-    return media.notConfigured ? (
+    const backup = <PhoneBackupNotice phone={phone} customer={!base.startsWith("/portal")} trouble={trouble} peerName={peer.name} className={box} />;
+    if (phone.live) return backup;
+    const appNotice = media.notConfigured && phone.info ? (
+      <div role="status" className={`${box} border-amber-300/40 bg-amber-300/10 leading-normal text-amber-100 ${LL("max-lg:border-app-tint-3 max-lg:bg-app-tint max-lg:text-app-ink-2")}`}>
+        <b className={LL("max-lg:text-app-ink")}>In-app voice isn&apos;t available right now.</b> Nothing is billed until the call connects.
+      </div>
+    ) : media.notConfigured ? (
     <div role="status" className={`${box} border-amber-300/40 bg-amber-300/10 leading-normal text-amber-100 ${LL("max-lg:border-app-tint-3 max-lg:bg-app-tint max-lg:text-app-ink-2")}`}>
       <b className={LL("max-lg:text-app-ink")}>{kind === "video" ? "Video" : "Voice"} isn&apos;t connected on AstroRize yet</b> — use the chat here. The timer and billing work as usual.
       {kind !== "chat" && !drawer && (
@@ -187,6 +204,12 @@ export function SessionWindow({
       </button>
     </div>
   ) : null;
+    return (
+      <>
+        {appNotice}
+        {backup}
+      </>
+    );
   };
 
   // The app's call screens (Voice, Video): Minimise and Messages on top, then the big timer.
@@ -328,7 +351,7 @@ export function SessionWindow({
               <ConsultChat chat={chat} peerName={peer.name} appLook={appLook} />
             </div>
           ) : kind === "voice" ? (
-            <VoiceStage media={media} peer={peer} title={title} clock={clock} endNote={endNote} speaker={speaker} head={callHead} />
+            <VoiceStage media={{ ...media, onPhone: phone.live }} peer={peer} title={title} clock={clock} endNote={endNote} speaker={speaker} head={callHead} />
           ) : (
             <VideoStage media={media} peer={peer} title={title} endNote={endNote} head={callHead} />
           )}
@@ -509,6 +532,7 @@ function CallHead({
 /** Where the call stands, in words. */
 function linkLabel(media: CallMedia, peerName: string, peerHere: boolean): string {
   if (media.notConfigured) return media.wants.video ? "Video isn't connected yet" : "Voice isn't connected yet";
+  if (media.onPhone) return "On your phone";
   if (media.offline || media.link === "reconnecting") return "Reconnecting…";
   if (media.link === "failed") return "Couldn't connect";
   if (media.link === "connected") return peerHere ? "Connected" : `Waiting for ${peerName} to join…`;
@@ -646,7 +670,7 @@ function VoiceStage({
                 {speaking && " · speaking"}
               </span>
               <span className="mt-2.5 block text-[12px] text-app-ink-3">
-                {media.micMuted ? "Microphone off" : "Microphone on"} · {speaker.off ? "Speaker off" : "Speaker on"}
+                {media.onPhone ? "Use your phone to talk" : `${media.micMuted ? "Microphone off" : "Microphone on"} · ${speaker.off ? "Speaker off" : "Speaker on"}`}
               </span>
             </div>
           )}

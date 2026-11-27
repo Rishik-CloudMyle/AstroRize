@@ -180,7 +180,7 @@ export default function CallRecordings() {
                       {r.customer} with {r.astrologer}
                     </div>
                     <div className="mt-0.5 text-[12px] text-[#78716c] tabular-nums">
-                      {r.startedAt} IST · {length(r.durationSeconds)} · {size(r.bytes)} · recorded on the {r.side.toLowerCase()}&apos;s device
+                      {r.startedAt} IST · {length(r.durationSeconds)} · {size(r.bytes)} · {r.side === "SERVER" ? "phone call, recorded by the provider" : `recorded on the ${r.side.toLowerCase()}'s device`}
                       {r.take > 1 ? ` (take ${r.take})` : ""}
                     </div>
                     {r.note && <div className="mt-0.5 text-[12px] text-[#78716c]">{r.note}</div>}

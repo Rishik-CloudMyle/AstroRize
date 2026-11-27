@@ -2,6 +2,7 @@ import express, { Router, type NextFunction, type Request, type Response } from 
 import { astrologerPayoutsView, saveAccount } from "../lib/payouts.ts";
 import { payoutSchedule } from "../lib/payout-schedule.ts";
 import { batchStatement } from "../lib/payout-statement.ts";
+import { phoneState } from "../lib/phone-calls.ts";
 import { isManualAdjustment } from "../lib/payout-adjustments.ts";
 import { assertNotBlocked, blockEndLabel } from "../lib/account-blocks.ts";
 import { z } from "zod";
@@ -1025,6 +1026,12 @@ portalRouter.post("/consultations/:id/messages", async (req, res) => {
 mountRecordingRoutes(portalRouter, "ASTROLOGER", async (req) => {
   const a = await me(req);
   return { c: await consultationFor(String(req.params.id), "ASTROLOGER", a.id), userId: (req.auth as AuthContext).user.id };
+});
+
+/** Whether the session has moved to a phone call (the astrologer's phone rings; no numbers are sent). */
+portalRouter.get("/consultations/:id/phone", async (req, res) => {
+  const a = await me(req);
+  res.json({ phone: await phoneState(await consultationFor(String(req.params.id), "ASTROLOGER", a.id), "ASTROLOGER") });
 });
 
 portalRouter.get("/consultations/:id/media", async (req, res) => {

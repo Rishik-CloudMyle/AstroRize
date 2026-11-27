@@ -10,6 +10,7 @@ import { mediaWorkerMode, startMediaConsumer, workerHost, type Consumer } from "
 import { sweepPendingPayments } from "./lib/payments.ts";
 import { sweepHandovers } from "./lib/handover.ts";
 import { startPayoutSweep, sweepPayoutReminders } from "./lib/payouts.ts";
+import { startPhoneSweep } from "./lib/phone-calls.ts";
 import { sweepStalePresence } from "./lib/presence.ts";
 import { razorpayConfigured, razorpayMode } from "./lib/razorpay.ts";
 import { sweepProcessingRefunds } from "./lib/wallet-refunds.ts";
@@ -38,6 +39,7 @@ const server = app.listen(config.port, () => {
 // off astrologers whose portal has been closed for a while (ending their live room); once a
 // day, delete chat and messages older than the retention period.
 startPayoutSweep();
+startPhoneSweep();
 
 const sweeper = setInterval(() => {
   sweepAbandonedConsultations()

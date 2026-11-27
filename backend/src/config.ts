@@ -32,6 +32,14 @@ export const config = {
    * leaves from. Until it is set, payouts run in SIMULATION: nothing leaves any bank, the Finance
    * page says so, and test accounts are paid or failed on pretend.
    */
+  /**
+   * Acefone phone calls, the backup for in-app voice (lib/phone/acefone.ts). All three are needed;
+   * ACEFONE_API_BASE only changes in tests.
+   */
+  acefoneToken: (process.env.ACEFONE_API_TOKEN ?? "").trim(),
+  acefoneCallerId: (process.env.ACEFONE_CALLER_ID ?? "").trim(),
+  acefoneWebhookSecret: (process.env.ACEFONE_WEBHOOK_SECRET ?? "").trim(),
+  acefoneBase: (process.env.ACEFONE_API_BASE ?? "https://api.acefone.in").trim().replace(/\/$/, ""),
   /** Who sends astrologer payouts: "manual" (Finance, from the company bank account) or "razorpayx". */
   payoutProvider: (process.env.PAYOUT_PROVIDER ?? "manual").trim().toLowerCase(),
   razorpayxKeyId: (process.env.RAZORPAYX_KEY_ID ?? process.env.RAZORPAY_KEY_ID ?? process.env.RAZORPAY_ID ?? "").trim(),

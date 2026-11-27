@@ -8,14 +8,25 @@ import { lockScroll } from "@/lib/scroll-lock";
  * The keyboard shrinks the *visual* viewport, not the page, so a fixed "inset-0" window kept its old
  * size and the browser scrolled the page to reach the text box — pushing the header and the messages
  * off the top. While `active`, this publishes the visible height and offset as --vv-h / --vv-top
- * (use them for height and top) and keeps the page behind from scrolling.
+ * (use them for height and top) and keeps the page behind from scrolling. Only below 1024px, where
+ * the window covers the screen: on a desktop it sits in the page, which must keep scrolling.
  */
 export function useKeyboardFit(active = true) {
   useEffect(() => {
     if (!active) return;
     const vv = window.visualViewport;
     const root = document.documentElement;
-    const unlock = lockScroll();
+    const narrow = window.matchMedia("(max-width: 1023.98px)");
+    let unlock: (() => void) | null = null;
+    const lock = () => {
+      if (narrow.matches) unlock ??= lockScroll();
+      else {
+        unlock?.();
+        unlock = null;
+      }
+    };
+    lock();
+    narrow.addEventListener("change", lock);
     const apply = () => {
       if (!vv) return;
       root.style.setProperty("--vv-h", `${vv.height}px`);
@@ -29,7 +40,8 @@ export function useKeyboardFit(active = true) {
       vv?.removeEventListener("scroll", apply);
       root.style.removeProperty("--vv-h");
       root.style.removeProperty("--vv-top");
-      unlock();
+      narrow.removeEventListener("change", lock);
+      unlock?.();
     };
   }, [active]);
 }

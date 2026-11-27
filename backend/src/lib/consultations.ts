@@ -1,4 +1,6 @@
 import { db } from "../db.ts";
+import { hangupCalls, isLive, latestCall, phoneKeepsOpen, phoneReady } from "./phone/state.ts";
+import { zegoConfigured } from "./zego.ts";
 import { affordableSeconds, incomingWindowSecs, maxSessionSeconds, settle, withoutGst } from "./billing.ts";
 import { rupee } from "./format.ts";
 import { syncPresence } from "./presence.ts";
@@ -238,24 +240,41 @@ export async function markJoined(c: Consultation, party: JoinParty): Promise<Con
     if (c.customerId) await lockKey(tx, `consult:${c.customerId}`);
     const fresh = await tx.consultation.findUniqueOrThrow({ where: { id: c.id } });
     if (fresh.status !== "ACTIVE") return fresh;
+    const phone = await latestCall(tx, fresh.id);
+    // While the conversation is on the phone, the app's own call doesn't count.
+    if (phone && isLive(phone.status)) return fresh;
+    const carried = fresh.billingStartedAt ? 0 : (phone?.billedBeforeSeconds ?? 0);
+    // With in-app voice not set up at all, only the phone backup can start a voice session.
+    if (fresh.mode === "VOICE" && fresh.kind !== "INSTANT" && !zegoConfigured() && (await phoneReady())) return fresh;
     const now = new Date();
     const customerJoinedAt = fresh.customerJoinedAt ?? (party === "CUSTOMER" ? now : null);
     const astrologerJoinedAt = fresh.astrologerJoinedAt ?? (party === "ASTROLOGER" ? now : null);
     const starts = !fresh.billingStartedAt && !!customerJoinedAt && !!astrologerJoinedAt;
     if (customerJoinedAt === fresh.customerJoinedAt && astrologerJoinedAt === fresh.astrologerJoinedAt) return fresh;
     const billingStartedAt =
-      starts && customerJoinedAt && astrologerJoinedAt ? new Date(Math.max(customerJoinedAt.getTime(), astrologerJoinedAt.getTime())) : fresh.billingStartedAt;
+      starts && customerJoinedAt && astrologerJoinedAt ? new Date(Math.max(customerJoinedAt.getTime(), astrologerJoinedAt.getTime()) - carried * 1000) : fresh.billingStartedAt;
     const updated = await tx.consultation.update({ where: { id: fresh.id }, data: { customerJoinedAt, astrologerJoinedAt, billingStartedAt } });
-    if (starts && billingStartedAt) {
-      // The whole chosen length of a free call is taken from the customer's weekly minutes now.
-      if (fresh.billingMode === COMPLIMENTARY) await consumeWelcome(tx, fresh.id, billingStartedAt);
-      // A free replacement call is used now.
-      if (fresh.billingMode === MAKE_GOOD) await consumeMakeGood(tx, fresh.id);
-      // A claimed consultation offer is used now (never before the conversation starts).
-      if (fresh.campaignClaimId) await useClaim(tx, fresh.campaignClaimId, billingStartedAt);
-    }
+    // Back in the app after a phone attempt: what the session uses up was taken the first time.
+    if (starts && billingStartedAt && !carried) await consumeAtStart(tx, fresh, billingStartedAt);
     return updated;
   });
+}
+
+/** What a session uses up the moment its conversation first starts. */
+async function consumeAtStart(tx: Tx, c: Consultation, at: Date) {
+  // The whole chosen length of a free call is taken from the customer's weekly minutes now.
+  if (c.billingMode === COMPLIMENTARY) await consumeWelcome(tx, c.id, at);
+  // A free replacement call is used now.
+  if (c.billingMode === MAKE_GOOD) await consumeMakeGood(tx, c.id);
+  // A claimed consultation offer is used now (never before the conversation starts).
+  if (c.campaignClaimId) await useClaim(tx, c.campaignClaimId, at);
+}
+
+/** Both are on a phone call: billing starts (or carries on, after `carried` seconds already billed in the app). */
+export async function startBilling(tx: Tx, c: Consultation, now: Date, carried: number) {
+  const billingStartedAt = new Date(now.getTime() - carried * 1000);
+  await tx.consultation.update({ where: { id: c.id }, data: { customerJoinedAt: now, astrologerJoinedAt: now, billingStartedAt } });
+  if (!carried) await consumeAtStart(tx, c, billingStartedAt);
 }
 
 /** A connected session whose sides didn't both join in time ends by itself at ₹0. Returns it as it now stands. */
@@ -263,6 +282,8 @@ export async function endIfNeverJoined(c: Consultation, timeout?: number): Promi
   if (c.status !== "ACTIVE" || c.billingStartedAt || !c.connectedAt) return c;
   const secs = timeout ?? (await joinTimeoutSeconds());
   if (Date.now() - c.connectedAt.getTime() < secs * 1000) return c;
+  // The phones are ringing (or an attempt just failed and may be retried).
+  if (await phoneKeepsOpen(c.id)) return c;
   return endConsultation(c, "no_media");
 }
 
@@ -272,7 +293,7 @@ export async function endIfNeverJoined(c: Consultation, timeout?: number): Promi
  * the portal, so both are charged identically. Safe to call twice, and safe when both
  * sides end it at the same moment: only one of them settles.
  */
-export async function endConsultation(c: Consultation, endedBy: "user" | "astrologer" | "no_media") {
+export async function endConsultation(c: Consultation, endedBy: "user" | "astrologer" | "no_media", at?: Date) {
   const [standardFree, policy, shares] = await Promise.all([configNumber("consult.free_seconds", 60), welcomePolicy(), sharePolicy()]);
   const outcome = await db.$transaction(async (tx) => {
     if (c.customerId) await lockKey(tx, `consult:${c.customerId}`);
@@ -280,11 +301,14 @@ export async function endConsultation(c: Consultation, endedBy: "user" | "astrol
     if (!fresh || !OPEN_STATUSES.includes(fresh.status)) return null;
     // The join timeout only ends a connected session that never started (it may have started meanwhile).
     if (endedBy === "no_media" && (fresh.status !== "ACTIVE" || fresh.billingStartedAt)) return null;
-    const now = new Date();
+    const now = at ?? new Date();
+    // Minutes spent in the app before a phone call that never connected are still billed.
+    const carried = fresh.status === "ACTIVE" && !fresh.billingStartedAt ? ((await latestCall(tx, fresh.id))?.billedBeforeSeconds ?? 0) : 0;
+    const startedAt = fresh.billingStartedAt ?? (carried ? new Date(now.getTime() - carried * 1000) : null);
     const wallet = fresh.customerId ? await tx.wallet.findUnique({ where: { userId: fresh.customerId } }) : null;
     const releaseHold = Math.min(wallet?.held ?? 0, fresh.heldAmount);
 
-    if (fresh.status !== "ACTIVE" || !fresh.connectedAt || !fresh.billingStartedAt) {
+    if (fresh.status !== "ACTIVE" || !fresh.connectedAt || !startedAt) {
       // Never connected, or connected but the conversation never started (a side never joined):
       // release the hold, charge nothing, no earnings.
       await tx.consultation.update({ where: { id: fresh.id }, data: { status: "CANCELLED", endedAt: now, endReason: endedBy } });
@@ -299,7 +323,7 @@ export async function endConsultation(c: Consultation, endedBy: "user" | "astrol
       const missed = rang && endedBy !== "astrologer" ? fresh : null;
       return { restored: false, unjoined: fresh.status === "ACTIVE" ? fresh : null, missed };
     }
-    const billingStartedAt = fresh.billingStartedAt;
+    const billingStartedAt = startedAt;
 
     // Everything here uses the rate and free window fixed when the session was requested:
     // a price change while it runs never affects it.
@@ -310,7 +334,7 @@ export async function endConsultation(c: Consultation, endedBy: "user" | "astrol
     // At the cap: the 15-minute paid limit ("cap"), or the money ran out first ("exhausted"). A free
     // call's own free time doesn't count towards the 15 minutes.
     const complimentary = startsFree(fresh) ? (fresh.complimentarySeconds ?? 0) : 0;
-    const reason = connectedSeconds >= cap ? (cap - complimentary >= maxSessionSeconds() ? "cap" : "exhausted") : endedBy;
+    const reason = connectedSeconds >= cap ? (cap - complimentary >= maxSessionSeconds() ? "cap" : "exhausted") : endedBy === "no_media" ? "user" : endedBy;
     const s = settle({ connectedSeconds, rate: fresh.rate, freeSeconds, held: fresh.heldAmount, promo: wallet?.promo ?? 0, shortCharge: !startsFree(fresh) && fresh.kind !== "FIXED" });
     // A Fixed Session that ran its whole length costs exactly the package price that was quoted and held
     // (the per-minute rate is that price rounded to whole rupees, so minutes × rate can differ by a rupee or two).
@@ -410,6 +434,8 @@ export async function endConsultation(c: Consultation, endedBy: "user" | "astrol
     }
     return { restored, unjoined: null, missed: null };
   });
+  // A phone call still connected is cut off (not awaited: the settlement is already saved).
+  if (outcome) void hangupCalls(c.id).catch((e) => console.error("Phone hang up:", e instanceof Error ? e.message : e));
   if (outcome?.restored) {
     await audit(null, "welcome.fault_restore", c.ref, `free call minutes given back (no longer counted) · ended early by the ${endedBy}`);
   }

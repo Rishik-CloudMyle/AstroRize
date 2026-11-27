@@ -19,6 +19,7 @@ import { offersRouter } from "./routes/offers.ts";
 import { portalRouter } from "./routes/portal.ts";
 import { razorpayWebhookRouter } from "./routes/razorpay-webhook.ts";
 import { razorpayxWebhookRouter } from "./routes/razorpayx-webhook.ts";
+import { pstnWebhookRouter } from "./routes/pstn-webhook.ts";
 import { statsRouter } from "./routes/stats.ts";
 import { mySessionsRouter } from "./routes/my-sessions.ts";
 
@@ -38,6 +39,8 @@ export function createApp() {
   // Razorpay's webhook is signed over its raw body, so it is read before the JSON parser.
   app.use("/api/payments/razorpay/webhook", razorpayWebhookRouter);
   app.use("/api/payments/razorpayx/webhook", razorpayxWebhookRouter);
+  // Phone provider events: checked by a secret header, before the site-only rules below.
+  app.use("/api/pstn/acefone", pstnWebhookRouter);
   app.use("/api/careers", careersRouter);
   app.use(express.json({ limit: "100kb" }));
   app.use(cookieParser());

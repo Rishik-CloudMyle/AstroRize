@@ -613,6 +613,7 @@ model Consultation {
   language             String?
   astrologerRecordingConsentAt DateTime?
   recordings           CallRecording[]
+  phoneCalls           PhoneCall[]
 
   @@index([astrologerId, status])
   @@index([customerId, requestedAt])
@@ -1199,6 +1200,35 @@ model Chart {
 /// uploaded in numbered chunks, assembled into one file when the take ends. Only a Super Admin can
 /// listen (capability recording.listen). Later a provider-side recorder (ZEGO Cloud Recording to S3)
 /// can write rows here too, with side "SERVER".
+/// A phone (PSTN) call placed as the backup for a voice consultation. No phone numbers are kept here.
+model PhoneCall {
+  id                  String       @id @default(cuid())
+  consultationId      String
+  consultation        Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  /// The provider's reference (given when the call is placed) and call id (from its webhooks).
+  providerRef         String?      @unique
+  providerCallId      String?
+  /// DIALING | ANSWERED | ENDED | FAILED
+  status              String       @default("DIALING")
+  /// Seconds already billed in the app before this call, carried into it.
+  billedBeforeSeconds Int          @default(0)
+  createdAt           DateTime     @default(now())
+  answeredAt          DateTime?
+  endedAt             DateTime?
+  talkSeconds         Int          @default(0)
+  /// NONE | PENDING (to be copied from the provider) | SAVED | FAILED
+  recordingState      String       @default("NONE")
+  /// The provider's recording address, encrypted, until the file is copied in.
+  recordingUrlEnc     String?
+  recordingTries      Int          @default(0)
+  lastTryAt           DateTime?
+  failureReason       String?
+
+  @@index([consultationId])
+  @@index([status])
+  @@index([recordingState])
+}
+
 model CallRecording {
   id             String       @id @default(cuid())
   consultationId String

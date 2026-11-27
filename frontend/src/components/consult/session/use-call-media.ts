@@ -103,4 +103,5 @@ export function useCallMedia({
   };
 }
 
-export type CallMedia = ReturnType<typeof useCallMedia>;
+/** `onPhone`: the conversation moved to a phone call (the app's own call is closed). */
+export type CallMedia = ReturnType<typeof useCallMedia> & { onPhone?: boolean };

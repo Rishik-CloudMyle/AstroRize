@@ -1,4 +1,5 @@
 import AccessDenied from "@/components/admin/access-denied";
+import PhoneBackupSetting from "@/components/admin/recording/phone-backup-setting";
 import { PANEL } from "@/components/admin/ui";
 import { allowed } from "@/lib/admin/guard";
 import { getRecording } from "@/lib/admin/api";
@@ -9,10 +10,10 @@ export const metadata = { title: "Recording" };
 const RECORDED_AUDIO = [
   { mode: "Voice", note: "Voice consultations, Instant Calls and private voice calls from a live are recorded as audio, once both sides have accepted the recording notice." },
   { mode: "Video", note: "Video consultations are recorded as audio only — the picture is never saved." },
+  { mode: "Phone line", note: "Phone backup calls (used when in-app voice can't connect) are recorded by the phone provider and copied here." },
 ];
 const NOT_RECORDED = [
   { mode: "Live video", note: "Public live sessions aren't recorded. They go through the call provider and are never saved." },
-  { mode: "Phone line", note: "Phone-line (PSTN) calls aren't offered, so nothing is recorded." },
 ];
 
 const ROW = "grid grid-cols-[minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 rounded-[14px] border px-4 py-3.5 sm:grid-cols-[130px_minmax(0,1fr)_auto]";
@@ -93,7 +94,7 @@ export default async function RecordingPage() {
           ) : null}
         </p>
       </div>
-
+      <PhoneBackupSetting />
     </>
   );
 }
