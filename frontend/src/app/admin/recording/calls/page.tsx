@@ -11,6 +11,6 @@ export default async function CallRecordingsPage() {
   return data.calls?.canListen ? (
     <CallRecordings />
   ) : (
-    <p className="mt-4 text-[13px] text-[#78716c]">Only a Super Admin can listen to call recordings.</p>
+    <p className="mt-4 text-[13px] text-[#78716c]">You don&apos;t have access to call recordings. A Super Admin can give it to Support or Compliance under Recording → What is recorded.</p>
   );
 }

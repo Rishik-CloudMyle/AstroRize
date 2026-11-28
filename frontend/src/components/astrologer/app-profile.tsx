@@ -1,6 +1,7 @@
 "use client";
 
 import MyReview from "./my-review";
+import { ReviewSortSelect, sortReviews, type ReviewSort } from "./review-list";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
@@ -368,10 +369,12 @@ type StarFilter = "all" | "5" | "4" | "3" | "low";
 
 function ReviewsScreen({ astrologer: a }: { astrologer: Astrologer }) {
   const [filter, setFilter] = useState<StarFilter>("all");
+  const [sort, setSort] = useState<ReviewSort>("newest");
   const total = a.ratingDistribution.reduce((x, y) => x + y, 0);
   const pct = percentages(a.ratingDistribution);
-  const shown = a.reviews.filter((r) =>
-    filter === "all" ? true : filter === "low" ? r.stars <= 2 : r.stars === Number(filter),
+  const shown = sortReviews(
+    a.reviews.filter((r) => (filter === "all" ? true : filter === "low" ? r.stars <= 2 : r.stars === Number(filter))),
+    sort,
   );
 
   return (
@@ -430,6 +433,8 @@ function ReviewsScreen({ astrologer: a }: { astrologer: Astrologer }) {
             { value: "low", label: "1–2★" },
           ]}
         />
+
+        {a.reviews.length > 1 && <ReviewSortSelect value={sort} onChange={setSort} className="mt-3" />}
 
         {shown.length === 0 ? (
           <EmptyState

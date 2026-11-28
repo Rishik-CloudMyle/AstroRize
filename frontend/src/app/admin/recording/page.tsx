@@ -1,5 +1,6 @@
 import AccessDenied from "@/components/admin/access-denied";
 import PhoneBackupSetting from "@/components/admin/recording/phone-backup-setting";
+import RecordingAccess from "@/components/admin/recording/recording-access";
 import { PANEL } from "@/components/admin/ui";
 import { allowed } from "@/lib/admin/guard";
 import { getRecording } from "@/lib/admin/api";
@@ -33,8 +34,8 @@ export default async function RecordingPage() {
           <b className="block text-[14px] text-ink">Voice and video consultations are recorded — audio only</b>
           <span className="mt-0.5 block text-[13px] leading-[1.5] text-[#57534e]">
             {data.media.connected
-              ? "Both sides see the notice before the call (the customer ticks it) and a “Recording (audio)” sign during it. Video pictures and public lives are never saved. Only a Super Admin can listen here; the customer can play their own paid-session recording inside the app (playback only, no download)."
-              : "Voice and video aren't connected yet (the call provider isn't set up). Once they are, consultations are recorded as audio only, after both sides accept the notice. Only a Super Admin can listen here; the customer can play their own recording inside the app."}
+              ? "Both sides see the notice before the call (the customer ticks it) and a “Recording (audio)” sign during it. Video pictures and public lives are never saved. A Super Admin, and Support or Compliance when a Super Admin gives them access, can listen here (every playback is logged); the customer can play their own paid-session recording inside the app (playback only, no download)."
+              : "Voice and video aren't connected yet (the call provider isn't set up). Once they are, consultations are recorded as audio only, after both sides accept the notice. Only staff given access can listen here; the customer can play their own recording inside the app."}
           </span>
         </div>
       </div>
@@ -94,6 +95,7 @@ export default async function RecordingPage() {
           ) : null}
         </p>
       </div>
+      <RecordingAccess />
       <PhoneBackupSetting />
     </>
   );

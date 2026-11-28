@@ -67,11 +67,13 @@ export function astrologerView(a: AstrologerWithReviews, freeCall = false, fixed
     /** The astrologer's own gallery photos, in display order. */
     gallery: a.gallery,
     ratingDistribution: a.ratingDistribution,
-    reviews: (a.reviews ?? []).map((r) => ({ name: r.customerName, stars: r.stars, when: istDate(r.createdAt), text: r.text })),
+    reviews: (a.reviews ?? []).map((r) => ({ name: r.customerName, stars: r.stars, when: istDate(r.createdAt), at: r.createdAt.toISOString(), text: r.text })),
   };
 }
 
 const visibleReviews = { where: { status: "VISIBLE" }, orderBy: { createdAt: "desc" as const }, take: 20 };
+/** A profile page has more of them, so they can be sorted (newest, oldest, by rating). */
+const profileReviews = { ...visibleReviews, take: 200 };
 
 catalogRouter.get("/astrologers", async (_req, res) => {
   const list = await db.astrologer.findMany({
@@ -103,7 +105,7 @@ catalogRouter.get("/welcome-offer", async (_req, res) => {
 });
 
 catalogRouter.get("/astrologers/:slug", async (req, res) => {
-  const a = await db.astrologer.findUnique({ where: { slug: req.params.slug }, include: { reviews: visibleReviews } });
+  const a = await db.astrologer.findUnique({ where: { slug: req.params.slug }, include: { reviews: profileReviews } });
   if (!a || a.lifecycle !== "active") throw notFound("No astrologer at this address.");
   const [free, disabledAstros, instantAstros] = await Promise.all([
     freeCallOpen([a]),

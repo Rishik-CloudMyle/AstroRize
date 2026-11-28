@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAction, useAdmin } from "@/components/admin/admin-provider";
 import { api } from "@/lib/api/client";
 import type { Gift } from "@/lib/admin/types";
@@ -19,12 +19,22 @@ export default function GiftEditor({ gifts, giftCap }: { gifts: Gift[]; giftCap:
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("");
   const [price, setPrice] = useState("");
+  // Bumped on every Edit or Add, so choosing the same gift again scrolls back to the editor.
+  const [opened, setOpened] = useState(0);
+  const editor = useRef<HTMLDivElement>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!opened) return;
+    editor.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    nameInput.current?.focus({ preventScroll: true });
+  }, [opened]);
 
   const open = (g: Gift | null) => {
     setEditing(g ? g.id : "new");
     setName(g?.name ?? "");
     setIcon(g?.icon ?? "");
     setPrice(g ? String(digits(g.price)) : "");
+    setOpened((n) => n + 1);
   };
   const save = async () => {
     const body = { name, icon, price: Number(price) };
@@ -69,14 +79,15 @@ export default function GiftEditor({ gifts, giftCap }: { gifts: Gift[]; giftCap:
       ))}
       {gifts.length === 0 && <p className="m-0 text-[13px] text-[#78716c]">No gifts yet.</p>}
       {editing ? (
-        <div className="mt-2 flex flex-wrap items-end gap-2 rounded-xl border border-line bg-cream p-3">
+        <div ref={editor} className="mt-2 flex flex-wrap items-end gap-2 rounded-xl border-2 border-amber-400 bg-cream p-3">
+          <b className="w-full text-[13.5px] text-ink">{editing === "new" ? "New gift" : `Editing: ${gifts.find((g) => g.id === editing)?.name ?? name}`}</b>
           <label className="flex flex-col gap-1 text-[11px] font-bold text-[#78716c]">
             Icon
             <input className={`${INPUT} w-[70px]`} value={icon} maxLength={8} onChange={(e) => setIcon(e.target.value)} />
           </label>
           <label className="flex min-w-[140px] flex-1 flex-col gap-1 text-[11px] font-bold text-[#78716c]">
             Name
-            <input className={INPUT} value={name} maxLength={30} onChange={(e) => setName(e.target.value)} />
+            <input ref={nameInput} className={INPUT} value={name} maxLength={30} onChange={(e) => setName(e.target.value)} />
           </label>
           <label className="flex flex-col gap-1 text-[11px] font-bold text-[#78716c]">
             Price (₹, up to {giftCap})

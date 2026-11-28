@@ -19,6 +19,8 @@ import {
   capabilitiesOf,
   defaultMatrix,
   invalidateMatrix,
+  recordingAccess,
+  withoutRecordingAccess,
   loadMatrix,
   matrixDiff,
   normalise,
@@ -238,14 +240,16 @@ governanceRouter.put("/rbac/matrix", async (req, res) => {
   invalidateMatrix();
   const { matrix: before, stored } = await loadMatrix();
   if (body.version !== (stored?.version ?? 0)) throw conflict("Someone else changed access while you were editing. Reload to see the latest matrix.");
-  const asked: Matrix = {
+  const own = normalise(stored);
+  const sent: Matrix = {
     pages: Object.fromEntries(ROLE_ORDER.map((r) => [r, body.pages[r] ?? before.pages[r]])) as Matrix["pages"],
     capabilities: Object.fromEntries(CAPABILITIES.map((c) => [c.key, body.capabilities[c.key] ?? before.capabilities[c.key]!])),
   };
-  const blocked = lockedChange(asked, normalise(before));
+  const asked = withoutRecordingAccess(sent, own, await recordingAccess());
+  const blocked = lockedChange(asked, own);
   if (blocked) throw forbidden(blocked);
   const next = normalise(asked);
-  const diff = matrixDiff(before, next);
+  const diff = matrixDiff(own, next);
   if (!diff.length) throw badRequest("Nothing changed.");
   const saved: StoredMatrix = { ...next, version: (stored?.version ?? 0) + 1, updatedAt: new Date().toISOString(), updatedBy: actorName(admin) };
   await putSetting(MATRIX_SETTING, saved);
@@ -259,8 +263,8 @@ governanceRouter.post("/rbac/matrix/reset", async (req, res) => {
   requirePage(req, "rbac");
   const admin = requireCapability(req, "rbac.edit", "Only a Super Admin can change access.");
   invalidateMatrix();
-  const { matrix: before } = await loadMatrix();
-  const diff = matrixDiff(before, defaultMatrix());
+  const { stored } = await loadMatrix();
+  const diff = matrixDiff(normalise(stored), defaultMatrix());
   if (!diff.length) throw conflict("Access is already at the defaults.");
   await db.setting.deleteMany({ where: { key: MATRIX_SETTING } });
   invalidateMatrix();

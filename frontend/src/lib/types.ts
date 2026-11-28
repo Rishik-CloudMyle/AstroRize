@@ -13,6 +13,8 @@ export interface Review {
   stars: number;
   when: string;
   text: string;
+  /** When it was written (ISO), for sorting. */
+  at?: string;
 }
 
 export interface Astrologer {

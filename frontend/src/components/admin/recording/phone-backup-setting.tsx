@@ -12,7 +12,7 @@ interface Data {
 
 /** The phone backup for voice calls: on or off. */
 export default function PhoneBackupSetting() {
-  const { say } = useAdmin();
+  const { session, say } = useAdmin();
   const [data, setData] = useState<Data | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -49,7 +49,7 @@ export default function PhoneBackupSetting() {
         </p>
       </div>
       <span className="rounded-full bg-stone-100 px-3 py-1 text-[12px] font-bold text-stone-700">{!data.configured ? "Not set up" : data.enabled ? "On" : "Off"}</span>
-      {data.configured && (
+      {data.configured && session.capabilities.includes("retention.edit") && (
         <button type="button" disabled={busy} onClick={() => void toggle()} className="h-10 rounded-xl border border-line bg-white px-4 text-[13px] font-bold text-ink disabled:opacity-60">
           {data.enabled ? "Switch off" : "Switch on"}
         </button>

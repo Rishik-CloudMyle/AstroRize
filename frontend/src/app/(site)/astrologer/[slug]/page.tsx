@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import MyReview from "@/components/astrologer/my-review";
+import ReviewList from "@/components/astrologer/review-list";
 import { Portrait, RecognitionBadge, VerifiedTick } from "@/components/astrologer/parts";
 import AppProfile from "@/components/astrologer/app-profile";
 import IntroVideo, { IntroVideoPlaceholder } from "@/components/astrologer/intro-video";
@@ -146,18 +147,7 @@ export default async function AstrologerPage(props: PageProps<"/astrologer/[slug
                   No written reviews yet. Reviews appear here after verified consultations.
                 </p>
               )}
-              {a.reviews.map((r) => (
-                <div key={r.name + r.when} className="border-t border-line-soft pt-3.5">
-                  <div className="flex items-center gap-2">
-                    <b className="text-[13.5px] font-bold text-ink">{r.name}</b>
-                    <span className="text-xs tracking-[1px] text-[#f5b301]" aria-label={`${r.stars} stars`}>
-                      {"★".repeat(r.stars)}
-                    </span>
-                    <span className="ml-auto text-[11.5px] text-mauve">{r.when}</span>
-                  </div>
-                  <p className="mt-1.5 text-[13.5px] leading-[1.55] text-stone-600">{r.text}</p>
-                </div>
-              ))}
+              <ReviewList reviews={a.reviews} />
             </div>
           </section>
         </div>

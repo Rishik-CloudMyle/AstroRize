@@ -1,3 +1,4 @@
+import { notify } from "../lib/notifications.ts";
 import { audit } from "../lib/audit.ts";
 import { phoneState, startPhoneCall } from "../lib/phone-calls.ts";
 import { fileSessionReport, isBlocked, reportBody } from "../lib/session-reports.ts";
@@ -22,7 +23,8 @@ import {
 } from "../lib/billing.ts";
 import { byNameMatch, istDate, istDateKey, makeRef, rupee } from "../lib/format.ts";
 import { AVATAR_LIMITS, IMAGE_TYPES, MAX_PHOTO_BYTES, deleteMedia, saveImage, sniffImage } from "../lib/media.ts";
-import { optionalEmailSchema } from "../lib/contact.ts";
+import { mobileSchema, optionalEmailSchema } from "../lib/contact.ts";
+import { identityKey } from "../lib/welcome.ts";
 import { GENDERS, ageOn, dateKey, genderLabel, initialsOf, ownProfileView } from "../lib/profile.ts";
 import { rateLimit } from "../lib/safety.ts";
 import { consultMessageBody, consultationFor, listMessages, markTyping, mediaFor, sendMessage } from "../lib/consult-room.ts";
@@ -999,6 +1001,49 @@ customerRouter.get("/me/profile", async (req, res) => {
   const user = await db.user.findUniqueOrThrow({ where: { id: auth(req).user.id } });
   res.json({ profile: ownProfileView(user) });
 });
+
+/** Sends a code to the number the customer wants to move to. */
+customerRouter.post("/me/phone/request", async (req, res) => {
+  const me = auth(req).user;
+  rateLimit(`phone-change:${me.id}`, 5, 10 * 60 * 1000, "Too many tries. Try again in a few minutes.");
+  const phone = mobileSchema.parse(req.body?.phone);
+  await assertNumberFree(phone, me.id);
+  res.json(await issueOtp(phone, req.ip));
+});
+
+/** The code is right: the account (with its wallet and history) now signs in with the new number. */
+customerRouter.post("/me/phone/verify", async (req, res) => {
+  const me = auth(req).user;
+  const { phone, code } = z.object({ phone: mobileSchema, code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code.") }).parse(req.body);
+  const current = await assertNumberFree(phone, me.id);
+  const otp = await consumeOtp(phone, code);
+  let user;
+  try {
+    user = await db.$transaction(async (tx) => {
+      // The joining bonus stays with this account; the new number can't earn another one later.
+      if (await tx.welcomeBenefit.findUnique({ where: { userId: me.id }, select: { id: true } })) {
+        await tx.welcomeBenefit.upsert({ where: { identityKey: identityKey(phone) }, create: { identityKey: identityKey(phone), bonusMinutes: 0 }, update: {} });
+      }
+      return tx.user.update({ where: { id: me.id }, data: { phone } });
+    });
+  } catch (e) {
+    await otp.release();
+    if ((e as { code?: string }).code === "P2002") throw conflict(NUMBER_TAKEN);
+    throw e;
+  }
+  const last4 = (n: string) => `••••${n.slice(-4)}`;
+  await audit(req.auth ?? null, "customer.phone.change", me.id, `${current.phone ? last4(current.phone) : "none"} → ${last4(phone)} (verified by code)`);
+  await notify(me.id, { kind: "account.phone_changed", title: "Your mobile number was changed", body: `You now sign in with the number ending ${phone.slice(-4)}. If this wasn't you, contact Help & support at once.`, href: "/support" }).catch(() => {});
+  res.json({ profile: ownProfileView(user) });
+});
+
+const NUMBER_TAKEN = "That number is already used by another account.";
+async function assertNumberFree(phone: string, userId: string) {
+  const current = await db.user.findUniqueOrThrow({ where: { id: userId }, select: { phone: true } });
+  if (current.phone === phone) throw badRequest("That is already your mobile number.");
+  if (await db.user.findFirst({ where: { phone, id: { not: userId } }, select: { id: true } })) throw conflict(NUMBER_TAKEN);
+  return current;
+}
 
 customerRouter.put("/me/profile", async (req, res) => {
   const me = auth(req).user;

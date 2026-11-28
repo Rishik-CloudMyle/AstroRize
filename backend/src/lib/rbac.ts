@@ -129,7 +129,7 @@ export const CAPABILITY_LOCKS: Record<string, Lock> = {
   "staff.manage": { roles: SUPER_ONLY, reason: "Only a Super Admin can manage the team." },
   "rbac.edit": { roles: SUPER_ONLY, reason: "Only a Super Admin can change access." },
   "retention.edit": { roles: SUPER_ONLY, reason: "Only a Super Admin can change how long conversations are kept." },
-  "recording.listen": { roles: SUPER_ONLY, reason: "Only a Super Admin can listen to call recordings (client decision)." },
+  "recording.listen": { roles: SUPER_ONLY, reason: "A Super Admin gives or removes Support and Compliance access on the Recording page." },
 };
 
 export const SUPER_LOCK_REASON = "A Super Admin always has every page and capability.";
@@ -239,10 +239,41 @@ let cache: { matrix: Matrix; stored: StoredMatrix | null; at: number } | null = 
 
 export async function loadMatrix(): Promise<{ matrix: Matrix; stored: StoredMatrix | null }> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache;
-  const row = await db.setting.findUnique({ where: { key: MATRIX_SETTING } });
+  const [row, access] = await Promise.all([db.setting.findUnique({ where: { key: MATRIX_SETTING } }), recordingAccess()]);
   const stored = (row?.value as StoredMatrix | undefined) ?? null;
-  cache = { matrix: normalise(stored), stored, at: Date.now() };
+  cache = { matrix: withRecordingAccess(normalise(stored), access), stored, at: Date.now() };
   return cache;
+}
+
+// ── Call recordings: Support and Compliance only when a Super Admin switches it on ──
+
+export const RECORDING_ACCESS_SETTING = "recording.access";
+export const RECORDING_ROLES = ["support", "compliance"] as const;
+export type RecordingAccess = Record<(typeof RECORDING_ROLES)[number], boolean>;
+
+export async function recordingAccess(): Promise<RecordingAccess> {
+  const row = await db.setting.findUnique({ where: { key: RECORDING_ACCESS_SETTING } });
+  const v = (row?.value ?? {}) as Partial<RecordingAccess>;
+  return { support: v.support === true, compliance: v.compliance === true };
+}
+
+/** The matrix in force: a department given access also gets the Recording page. */
+function withRecordingAccess(m: Matrix, access: RecordingAccess): Matrix {
+  const on = RECORDING_ROLES.filter((r) => access[r]);
+  if (!on.length) return m;
+  const pages = { ...m.pages };
+  for (const r of on) pages[r] = PAGE_ORDER.filter((p) => p === "recording" || m.pages[r].includes(p));
+  const listen = ROLE_ORDER.filter((r) => m.capabilities["recording.listen"]!.includes(r) || (on as readonly string[]).includes(r));
+  return { pages, capabilities: { ...m.capabilities, "recording.listen": listen } };
+}
+
+/** What the access grid sends back, without what the recording switch added (it isn't saved in the grid). */
+export function withoutRecordingAccess(asked: Matrix, own: Matrix, access: RecordingAccess): Matrix {
+  const pages = { ...asked.pages };
+  for (const r of RECORDING_ROLES) {
+    if (access[r] && !own.pages[r].includes("recording")) pages[r] = pages[r].filter((p) => p !== "recording");
+  }
+  return { pages, capabilities: { ...asked.capabilities, "recording.listen": own.capabilities["recording.listen"]! } };
 }
 
 export function invalidateMatrix() {

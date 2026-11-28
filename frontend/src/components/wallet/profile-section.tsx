@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api/client";
 import { formatMobile, genderLabel, time12 } from "@/lib/contact";
+import PhoneChange from "./phone-change";
 import { sessionActions } from "@/lib/session-store";
 import { useAppUI } from "../app-provider";
 import {
@@ -206,6 +207,16 @@ export default function ProfileSection() {
                         <span className="ml-2 inline-block align-middle">
                           <VerifiedTag />
                         </span>
+                      )}
+                      {label === "Mobile number" && (
+                        <PhoneChange
+                          current={profile.phone}
+                          onChanged={(next) => {
+                            setProfile(next);
+                            toast("Your mobile number has been updated.");
+                            void sessionActions.refreshUser().catch(() => {});
+                          }}
+                        />
                       )}
                     </dd>
                   </div>
