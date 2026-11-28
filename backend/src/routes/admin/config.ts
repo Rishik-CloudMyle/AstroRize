@@ -231,6 +231,9 @@ configRouter.post("/config/:key/rollback", async (req, res) => {
   if (!k) throw notFound("Unknown config key.");
   const last = await db.configChange.findFirst({ where: { key: k.key, status: "APPROVED" }, orderBy: { createdAt: "desc" } });
   if (!last) throw conflict("There is no earlier version to roll back to.");
+  // An older value that the setting no longer allows can't come back.
+  const range = parseBounds(k.bounds);
+  if (range && (Number(last.fromValue) < range.min || Number(last.fromValue) > range.max)) throw conflict(`The earlier value ${last.fromValue} is no longer allowed (${k.bounds}).`);
   // A rollback undoes the latest approved change once; rolling back again would change nothing.
   if (Number(last.fromValue) === Number(k.value)) {
     throw conflict(`${k.key} is already at ${k.value}, the value before its latest approved change.`);
